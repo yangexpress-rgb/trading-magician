@@ -3,7 +3,13 @@ import { cx } from './cx';
 
 export function Table({ children, label }: { children: ReactNode; label: string }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+    // Focusable so keyboard users can scroll a table wider than the screen (WCAG 2.1.1).
+    <div
+      tabIndex={0}
+      role="group"
+      aria-label={label}
+      className="overflow-x-auto rounded-lg border border-line bg-surface"
+    >
       <table aria-label={label} className="w-full border-collapse text-sm">
         {children}
       </table>

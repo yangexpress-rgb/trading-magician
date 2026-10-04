@@ -51,7 +51,7 @@ test('define, validate, test, start on paper, stop, revise and review versions',
     validation.getByRole('heading', { name: /problems? blocks? starting/ }),
   ).toBeVisible();
   await expect(validation.getByText('Entry conditions:').first()).toBeVisible();
-  const backTest = page.getByRole('region', { name: 'Back Test' });
+  const backTest = page.getByRole('region', { name: 'Back Test', exact: true });
   await expect(backTest.getByRole('button', { name: 'Run back test' })).toBeDisabled();
   const start = backTest.getByRole('button', { name: 'Start execution' });
   await expect(start).toBeDisabled();
