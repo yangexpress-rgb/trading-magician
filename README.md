@@ -24,8 +24,9 @@ apps/web        Next.js UI and REST API
 apps/worker     Background worker: runs queued back tests (needs DATABASE_APP_URL)
 packages/config Environment validation helpers
 packages/domain Pure domain logic shared by web, backtester and runtime
-packages/market-data Historical bars: generated demo history behind the provider contract
+packages/market-data Demo market data: generated history and a simulated live feed
 packages/backtest    The back-test engine (pure simulation, fill model, metrics)
+packages/broker      Broker adapter contract suite and the simulated paper broker
 packages/db     Drizzle schema, migrations, row-level security, tenant scoping
 packages/ui     Design tokens and accessible UI primitives (Tailwind CSS)
 docs/adr        Architecture decision records

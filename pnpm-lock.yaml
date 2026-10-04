@@ -159,6 +159,19 @@ importers:
         specifier: ^4.10.2
         version: 4.10.2
 
+  packages/broker:
+    dependencies:
+      '@tm/domain':
+        specifier: workspace:*
+        version: link:../domain
+      decimal.js:
+        specifier: ^10.6.0
+        version: 10.6.0
+    devDependencies:
+      '@tm/market-data':
+        specifier: workspace:*
+        version: link:../market-data
+
   packages/config:
     dependencies:
       zod:
@@ -229,6 +242,10 @@ importers:
       decimal.js:
         specifier: ^10.6.0
         version: 10.6.0
+    devDependencies:
+      fast-check:
+        specifier: ^4.10.2
+        version: 4.10.2
 
   packages/ui:
     dependencies:

@@ -404,3 +404,39 @@ export function createDemoHistoryProvider(
     },
   };
 }
+
+/** An hourly segment of the generated history, unadjusted, including bars hidden as missing. */
+export interface DemoSegment {
+  start: string;
+  end: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+/**
+ * The raw segment in progress at `at`, or, outside the regular session, the
+ * last segment that ended before it. The live demo feed reads prices from
+ * these, so live quotes and historical bars always agree.
+ */
+export function demoSegmentAt(
+  symbol: string,
+  at: Date,
+): { segment: DemoSegment; inSession: boolean } | undefined {
+  const h = historyFor(symbol);
+  const date = nyDate(at);
+  h.ensure(date);
+  const t = at.getTime();
+  for (let i = h.days.length - 1; i >= 0; i--) {
+    const day = h.days[i];
+    if (!day || day.date > date) continue;
+    for (let j = day.segments.length - 1; j >= 0; j--) {
+      const s = day.segments[j];
+      if (!s || Date.parse(s.start) > t) continue;
+      return { segment: s, inSession: t < Date.parse(s.end) };
+    }
+  }
+  return undefined;
+}
