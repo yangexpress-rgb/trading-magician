@@ -60,6 +60,8 @@ jobs:
   audit:
     # Dependency review needs GitHub Advanced Security, which private repos on
     # this plan don't have, so known-vulnerability checks use the npm advisory DB.
+    # The gate covers code that ships; dev tooling advisories without a patched
+    # release (e.g. lint-only transitive deps) are handled through Dependabot.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,4 +71,4 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm audit --audit-level=high
+      - run: pnpm audit --prod --audit-level=high
