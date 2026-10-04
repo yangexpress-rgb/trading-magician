@@ -212,6 +212,12 @@ describe('role boundaries', () => {
     await expectPgError(t.auth.db.select().from(tradingAccounts), '42501');
   });
 
+  it('keeps sessions, password hashes and verification tokens away from the app', async () => {
+    for (const table of ['session', 'account', 'verification', 'rate_limit']) {
+      await expectPgError(t.appSql.unsafe(`select * from "${table}"`), '42501');
+    }
+  });
+
   it('does not let the app change limits on its entitlement', async () => {
     await expectPgError(
       asA((tx) => tx.update(entitlements).set({ planCode: 'pro' })),

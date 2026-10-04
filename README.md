@@ -6,7 +6,7 @@ A web app for planning, testing and running multi-asset trading strategies, buil
 
 ## Status
 
-Phase 0 (foundation) in progress: M0.1 and M0.2 done. See `docs/traceability.md` for what is done.
+Phase 0 (foundation) in progress: M0.1–M0.3 done. See `docs/traceability.md` for what is done.
 
 | Milestone | Scope                                                          |
 | --------- | -------------------------------------------------------------- |
@@ -55,6 +55,28 @@ TEST_DATABASE_URL=postgres://tm_owner:tm_owner_local@localhost:5432/postgres pnp
 ```
 
 The app never connects as the owner at runtime. See `docs/adr/0003-tenant-isolation.md`.
+
+### Running the web app
+
+```sh
+export DATABASE_APP_URL=postgres://tm_app_login:<password>@localhost:5432/trading_magician
+export DATABASE_AUTH_URL=postgres://tm_auth_login:<password>@localhost:5432/trading_magician
+export BETTER_AUTH_SECRET=$(openssl rand -hex 32)
+docker compose up -d mailpit   # verification and reset emails appear at http://localhost:8025
+pnpm --filter @tm/web dev
+```
+
+### End-to-end tests
+
+With the database migrated, seeded and logins created, and the env above set:
+
+```sh
+pnpm --filter @tm/web build
+pnpm --filter @tm/web exec playwright install chromium   # or set PW_CHROMIUM_PATH
+pnpm --filter @tm/web test:e2e
+```
+
+Tests use `MAIL_TRANSPORT=outbox` and read emails from `apps/web/.mail-outbox/`.
 
 ## Rules for contributors
 

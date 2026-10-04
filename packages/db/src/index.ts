@@ -8,8 +8,8 @@ export {
   DEV_PLAN,
 } from './demo';
 export { loadOwnerDbEnv, loadRuntimeDbEnv } from './env';
-export { MIGRATIONS_FOLDER, runMigrations } from './migrate';
 export { provisionWorkspace, type ProvisionInput } from './provision';
 export * as schema from './schema';
 export { seedReferenceData } from './seed';
 export { withTenant, type TenantContext } from './tenant';
+export { and, desc, eq, sql } from 'drizzle-orm';
