@@ -9,7 +9,10 @@ export {
 export {
   formatDateTime,
   formatDateTimeWithZone,
+  isoToZonedWallTime,
   isValidTimeZone,
+  zonedWallTimeToIso,
+  zoneOffsetMinutes,
   type DisplayPreferences,
 } from './time';
 export * from './strategy';

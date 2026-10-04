@@ -16,9 +16,12 @@ import { ConditionTreeEditor } from '@/components/strategy/condition-editor';
 import {
   EditorContext,
   pathKey,
+  type AccountOption,
   type EditorContextValue,
   type InstrumentOption,
 } from '@/components/strategy/editor-context';
+import { OrdersEditor } from '@/components/strategy/orders-editor';
+import { ExecutionAndRisk, TriggerSettings } from '@/components/strategy/settings-editor';
 import { apiClient } from '@/lib/api-client';
 
 interface Props {
@@ -27,8 +30,10 @@ interface Props {
   initialDefinition: StrategyDefinition;
   initialRowVersion: number;
   instruments: InstrumentOption[];
-  /** Slots for sections other milestones fill (orders, risk, back test). */
-  phaseExtras?: Partial<Record<PhaseName, ReactNode>>;
+  accounts: AccountOption[];
+  timeZone: string;
+  baseCurrency: string;
+  /** Rendered after the editor sections (the back test panel arrives in M1.5). */
   children?: ReactNode;
 }
 
@@ -57,7 +62,9 @@ export function StrategyEditor({
   initialDefinition,
   initialRowVersion,
   instruments,
-  phaseExtras,
+  accounts,
+  timeZone,
+  baseCurrency,
   children,
 }: Props) {
   const router = useRouter();
@@ -78,13 +85,15 @@ export function StrategyEditor({
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
 
-  const setPhaseCondition = useCallback(
-    (phase: PhaseName) => (condition: ConditionGroup) => {
-      setDefinition((d) => ({ ...d, [phase]: { ...d[phase], condition } }));
+  const edit = useCallback(
+    (next: StrategyDefinition | ((d: StrategyDefinition) => StrategyDefinition)) => {
+      setDefinition(next);
       setSave({ kind: 'idle' });
     },
     [],
   );
+  const setPhaseCondition = (phase: PhaseName) => (condition: ConditionGroup) =>
+    edit((d) => ({ ...d, [phase]: { ...d[phase], condition } }));
 
   async function onSave() {
     if (issues.size > 0) {
@@ -115,8 +124,15 @@ export function StrategyEditor({
   }
 
   const ctx: EditorContextValue = useMemo(
-    () => ({ instruments, issueAt: (path) => issues.get(pathKey(path)), editable }),
-    [instruments, issues, editable],
+    () => ({
+      instruments,
+      accounts,
+      timeZone,
+      baseCurrency,
+      issueAt: (path) => issues.get(pathKey(path)),
+      editable,
+    }),
+    [instruments, accounts, timeZone, baseCurrency, issues, editable],
   );
 
   const stateText =
@@ -170,7 +186,7 @@ export function StrategyEditor({
           return (
             <Card key={phase}>
               <h2 id={`${phase}-heading`} className="text-lg font-semibold">
-                {title} conditions
+                {title}
               </h2>
               <p className="mb-3 text-sm text-ink-muted">
                 {phase === 'entry'
@@ -183,10 +199,16 @@ export function StrategyEditor({
                 label={`${title} conditions`}
                 path={[phase, 'condition']}
               />
-              {phaseExtras?.[phase]}
+              <TriggerSettings
+                phase={phase}
+                value={definition[phase].trigger}
+                onChange={(trigger) => edit((d) => ({ ...d, [phase]: { ...d[phase], trigger } }))}
+              />
+              <OrdersEditor definition={definition} phase={phase} onChange={edit} />
             </Card>
           );
         })}
+        <ExecutionAndRisk definition={definition} onChange={edit} />
         {children}
       </div>
     </EditorContext.Provider>

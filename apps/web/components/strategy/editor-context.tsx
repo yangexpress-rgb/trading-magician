@@ -9,8 +9,19 @@ export interface InstrumentOption {
   assetClass: string;
 }
 
+export interface AccountOption {
+  id: string;
+  nickname: string;
+  mode: 'paper' | 'live';
+  isDefault: boolean;
+}
+
 export interface EditorContextValue {
   instruments: readonly InstrumentOption[];
+  accounts: readonly AccountOption[];
+  /** The user's display zone, the default for exact order times. */
+  timeZone: string;
+  baseCurrency: string;
   /** First problem reported at exactly this path in the definition, if any. */
   issueAt: (path: readonly (string | number)[]) => string | undefined;
   /** False when the strategy can't be edited, e.g. while actively executing. */
