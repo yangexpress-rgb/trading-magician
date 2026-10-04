@@ -98,20 +98,20 @@ With M1.5, every §18 Phase 0 and Phase 1 item above is Done. The two Partial ro
 | #10 Market closed           | Queue to next regular session; NYSE holiday calendar                                                                    |
 | §20 closing defaults        | Paper only; one open cycle; on-transition triggers; full Entry fill before Exit                                         |
 
-## Phase 2 defaults proposed (2026-10-04, awaiting confirmation)
+## Phase 2 defaults confirmed (2026-10-04)
 
-Built with these until Yong answers; each is an editable input or a single constant.
+Each is an editable input or a single constant.
 
-| §20 item                   | Proposed default                                                                                                                       |
+| §20 item                   | Decision                                                                                                                               |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | #1 Price history source    | Generated demo history for the DEMO instruments, behind `HistoricalDataProvider`                                                       |
 | #5 Resolution and range    | Daily by default, hourly optional; at most 5 years daily or 1 year hourly per run                                                      |
 | #6 Fill and cost defaults  | Market at next open; limits and stops when traded through; 5 bps slippage; no commission; 10% of bar volume per fill; 1% a year borrow |
 | #12 Back test before start | Not required on paper; a missing or out-of-date back test is a warning to acknowledge                                                  |
 
-## Phase 3 defaults proposed (2026-10-04, awaiting confirmation)
+## Phase 3 defaults confirmed (2026-10-04)
 
-| §20 item                | Proposed default                                                                                                 |
+| §20 item                | Decision                                                                                                         |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | #2 Paper broker         | Built-in simulated paper broker behind `BrokerAdapter`; a real broker's paper account in Phase 4                 |
 | #1 Live prices on paper | Simulated live feed for the DEMO instruments following NYSE hours and holidays; tests drive the clock            |

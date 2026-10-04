@@ -19,7 +19,7 @@ explained later (§7.2).
 - The clock is the union of execution-bar ends. At each step the engine fills working orders on the
   bar that just closed, charges borrow and applies halts, expires and times out orders, then evaluates
   Entry and Exit. An order placed at a close can only fill on a later bar.
-- Fill model (proposed defaults for §20 #6, all editable per run): market at the next open plus
+- Fill model (§20 #6 defaults, confirmed 2026-10-04, all editable per run): market at the next open plus
   slippage; limits at the limit or a better open once touched; stops at the stop or a gapped open plus
   slippage; at most a set share of each bar's volume; per-share commission with a minimum; daily borrow
   on shorts at each session close. No leverage: gross exposure may not exceed equity.

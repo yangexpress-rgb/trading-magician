@@ -43,5 +43,5 @@ screen. Every execution step must also leave an audit record (§16.2).
 ## Consequences
 
 - Email or push can be added later as delivery channels reading the same rows.
-- The safety thresholds are proposals awaiting confirmation; changing one is a one-line edit.
+- The safety thresholds were confirmed on 2026-10-04; changing one is a one-line edit.
 - Repeated-reject counting uses the runtime's `resumed_at`, so a resume gives a clean slate.
