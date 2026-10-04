@@ -54,7 +54,7 @@ With M1.5, every §18 Phase 0 and Phase 1 item above is Done. The two Partial ro
 | Generic demo price history                  | §21, §20 #1        | Done (M2.1): `packages/market-data` (factor model, split, dividends, missing hourly bars); `demo-history.test.ts` |
 | NYSE trading calendar                       | §6.7, §20 #10      | Done (M2.1): `packages/domain/src/market/calendar.ts`; `calendar.test.ts`                                         |
 | Indicator calculations, no lookahead        | §6.4, §7.2         | Done (M2.1): `packages/domain/src/market/indicators.ts`; `indicators.test.ts` (property-based)                    |
-| Shared rule engine, alignment, fills, costs | §7.2               | Planned (M2.2)                                                                                                    |
+| Shared rule engine, alignment, fills, costs | §7.2               | Done (M2.2): `packages/backtest` (`simulate`, fill model, metrics); ADR 0008; `properties.test.ts` (no lookahead) |
 | Durable jobs and run status; provenance     | §7.2, §13.3, §14.2 | Planned (M2.3)                                                                                                    |
 | Results, trade list, charts, assumptions    | §7.3               | Planned (M2.4)                                                                                                    |
 | Start placement and activation gate         | §7.4               | Planned (M2.5)                                                                                                    |
