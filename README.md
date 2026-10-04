@@ -6,7 +6,7 @@ A web app for planning, testing and running multi-asset trading strategies, buil
 
 ## Status
 
-Phase 0 (foundation) in progress. See `docs/traceability.md` for what is done.
+Phase 0 (foundation) in progress: M0.1 and M0.2 done. See `docs/traceability.md` for what is done.
 
 | Milestone | Scope                                                          |
 | --------- | -------------------------------------------------------------- |
@@ -23,6 +23,7 @@ apps/web        Next.js UI and REST API
 apps/worker     Background worker (health check only for now)
 packages/config Environment validation helpers
 packages/domain Pure domain logic shared by web, backtester and runtime
+packages/db     Drizzle schema, migrations, row-level security, tenant scoping
 docs/adr        Architecture decision records
 docs/traceability.md  Requirement-to-code matrix
 ```
@@ -39,6 +40,21 @@ pnpm build
 ```
 
 Copy `.env.example` to `.env` and fill in values locally. Never commit `.env`.
+
+### Database
+
+```sh
+docker compose up -d postgres
+export DATABASE_URL=postgres://tm_owner:tm_owner_local@localhost:5432/trading_magician
+pnpm --filter @tm/db db:migrate
+pnpm --filter @tm/db db:seed
+DB_APP_LOGIN_PASSWORD=... DB_AUTH_LOGIN_PASSWORD=... pnpm --filter @tm/db db:setup-logins
+
+# Integration tests create and drop their own database:
+TEST_DATABASE_URL=postgres://tm_owner:tm_owner_local@localhost:5432/postgres pnpm test:integration
+```
+
+The app never connects as the owner at runtime. See `docs/adr/0003-tenant-isolation.md`.
 
 ## Rules for contributors
 
