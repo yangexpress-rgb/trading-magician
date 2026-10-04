@@ -1,4 +1,5 @@
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext } from '@playwright/test';
+import { createTestedStrategy } from './backtest-fixtures';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 /**
@@ -6,87 +7,6 @@ import { signUpAndVerify, test, uniqueEmail } from './fixtures';
  * (started beside the web server) claims and simulates it, and the results,
  * trades and CSV come back.
  */
-
-/** Instrument ids as the editor lists them, read from a leg's Instrument picker. */
-async function instrumentIds(page: Page, strategyId: string) {
-  await page.goto(`/strategy-lab/${strategyId}`);
-  await page.getByRole('button', { name: '+ Add Entry order' }).click();
-  const options = page
-    .getByRole('region', { name: 'Entry leg 1', exact: true })
-    .getByLabel('Instrument', { exact: true })
-    .locator('option');
-  const ids: Record<string, string> = {};
-  for (const o of await options.all()) {
-    const symbol = (await o.textContent())?.split(' ·')[0]?.trim();
-    const value = await o.getAttribute('value');
-    if (symbol && value) ids[symbol] = value;
-  }
-  return ids;
-}
-
-function crossover(instrumentId: string, accountId: string) {
-  const px = {
-    instrumentId,
-    field: 'close',
-    interval: '1d',
-    adjustment: 'split_and_dividend',
-    session: 'regular',
-    offset: 0,
-  };
-  const sma = { kind: 'indicator', name: 'SMA', params: { period: 20 }, ...px };
-  const leg = {
-    instrumentId,
-    accountId,
-    quantity: { type: 'units', value: '20', rounding: 'down' },
-    orderType: 'market',
-    timeInForce: 'day',
-    extendedHours: false,
-    timing: { mode: 'immediate' },
-    timingOnly: false,
-  };
-  const trigger = { mode: 'on_transition', cooldownSec: 0, confirmationBars: 0 };
-  return {
-    schemaVersion: 1,
-    entry: {
-      condition: {
-        kind: 'group',
-        id: 'eg',
-        op: 'and',
-        negate: false,
-        children: [
-          {
-            kind: 'comparison',
-            id: 'in',
-            operator: 'crosses_above',
-            left: { kind: 'market', id: 'p1', ...px },
-            right: { ...sma, id: 's1' },
-          },
-        ],
-      },
-      trigger,
-      orders: [{ id: 'buy', legLabel: 'Buy A', side: 'buy', ...leg }],
-    },
-    exit: {
-      condition: {
-        kind: 'group',
-        id: 'xg',
-        op: 'and',
-        negate: false,
-        children: [
-          {
-            kind: 'comparison',
-            id: 'out',
-            operator: 'crosses_below',
-            left: { kind: 'market', id: 'p2', ...px },
-            right: { ...sma, id: 's2' },
-          },
-        ],
-      },
-      trigger,
-      orders: [{ id: 'sell', legLabel: 'Sell A', side: 'close', ...leg }],
-    },
-  };
-}
 
 async function waitForRun(request: APIRequestContext, runId: string) {
   let run: { status: string } = { status: 'queued' };
@@ -108,21 +28,7 @@ test('queue a back test, let the worker run it, and read the results', async ({
 }) => {
   await signUpAndVerify(page, uniqueEmail('backtest-api'));
   const headers = { origin: baseURL! };
-  const created = await (
-    await page.request.post('/api/v1/strategies', { data: { name: 'API crossover' }, headers })
-  ).json();
-  const ids = await instrumentIds(page, created.id);
-  const base = await (await page.request.get(`/api/v1/strategies/${created.id}`)).json();
-  const def = {
-    ...crossover(ids['DEMO-A']!, created.defaultAccountId),
-    execution: base.definition.execution,
-    risk: base.definition.risk,
-  };
-  const saved = await page.request.patch(`/api/v1/strategies/${created.id}`, {
-    data: { rowVersion: base.rowVersion, definition: def },
-    headers,
-  });
-  expect(saved.status()).toBe(200);
+  const created = await createTestedStrategy(page, baseURL!, 'API crossover');
 
   // Bad dates are field errors.
   const future = await page.request.post(`/api/v1/strategies/${created.id}/backtests`, {

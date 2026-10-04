@@ -11,6 +11,13 @@ import { Alert, Button, Card, Dialog } from '@tm/ui';
 import { useEffect, useId, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { describeIssueLocation } from '@/lib/strategy-text';
+import {
+  ActiveRun,
+  BacktestInputsForm,
+  BacktestResults,
+  RunHistory,
+  useBacktests,
+} from './backtest';
 import { useEditor } from './editor-context';
 
 export type ValidationState =
@@ -356,7 +363,7 @@ export function BackTestPanel({
   const [error, setError] = useState<string | null>(null);
   const [panelError, setPanelError] = useState<{ message: string; conflict: boolean } | null>(null);
   const hintId = useId();
-  const runHintId = useId();
+  const backtests = useBacktests(strategyId);
 
   async function act(kind: Exclude<Busy, null>, run: () => Promise<StrategyDetailDto>) {
     setBusy(kind);
@@ -392,146 +399,155 @@ export function BackTestPanel({
               ? `Fix the ${errors === 1 ? 'problem' : `${errors} problems`} listed under Validation first.`
               : null;
 
+  const runBlocked = dirty
+    ? 'Save your changes before running a back test.'
+    : validation.kind === 'loading' || (validation.kind === 'ready' && validation.checking)
+      ? 'Checking the strategy…'
+      : validation.kind === 'error'
+        ? 'The strategy could not be checked. Use Check again under Validation.'
+        : errors > 0
+          ? `Fix the ${errors === 1 ? 'problem' : `${errors} problems`} listed under Validation first.`
+          : null;
+  const latest = backtests.runs?.find((r) => r.status === 'completed');
+  const draftHash = validation.kind === 'ready' ? validation.result.definitionHash : null;
+  const draftTested = !latest
+    ? 'Not tested'
+    : dirty
+      ? 'Unsaved changes are not tested'
+      : draftHash === null
+        ? 'Checking…'
+        : latest.definitionHash === draftHash
+          ? 'Matches the latest back test'
+          : 'Changed since the latest back test';
+
   return (
-    <Card aria-labelledby="backtest-heading">
-      <h2 id="backtest-heading" className="text-lg font-semibold">
-        Back Test
-      </h2>
-      <p className="mb-3 text-sm text-ink-muted">
-        Runs the saved rules over historical data. Results are estimates, not guarantees.
-      </p>
-
-      <fieldset disabled className="grid grid-cols-1 gap-3 opacity-70 sm:grid-cols-3">
-        <legend className="sr-only">Back test inputs</legend>
-        {[
-          ['bt-from', 'From', 'date'],
-          ['bt-to', 'To', 'date'],
-          ['bt-capital', 'Initial capital', 'number'],
-        ].map(([id, label, type]) => (
-          <div key={id}>
-            <label htmlFor={id} className="text-sm font-medium">
-              {label}
-            </label>
-            <input
-              id={id}
-              type={type}
-              className="mt-1 h-9 w-full rounded-md border border-line bg-surface-2 px-2 text-sm"
-            />
-          </div>
-        ))}
-      </fieldset>
-
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <Button disabled aria-describedby={runHintId}>
-          Run back test
-        </Button>
-        <p id={runHintId} className="text-sm text-ink-muted">
-          Back testing is not available in this release yet.
+    <>
+      <Card aria-labelledby="backtest-heading">
+        <h2 id="backtest-heading" className="text-lg font-semibold">
+          Back Test
+        </h2>
+        <p className="mb-3 text-sm text-ink-muted">
+          Runs the saved rules over historical data. Results are estimates, not guarantees.
         </p>
-      </div>
-      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt className="text-ink-muted">Latest back test</dt>
-        <dd>None yet</dd>
-        <dt className="text-ink-muted">Current draft</dt>
-        <dd>Not tested</dd>
-      </dl>
 
-      <section aria-labelledby="execution-heading" className="mt-4 border-t border-line pt-4">
-        <h3 id="execution-heading" className="text-sm font-semibold">
-          Execution
-        </h3>
-        <p className="mt-1 text-sm">
-          Status: <span className="font-medium">{STATUS_LABELS[status]}</span>
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {status === 'actively_executing' ? (
-            <Button variant="danger" onClick={() => setDialog('stop')} disabled={busy !== null}>
-              Stop execution
-            </Button>
-          ) : (
-            <Button
-              variant="primary"
-              disabled={!canStart || startBlocked !== null || busy !== null}
-              aria-describedby={startBlocked ? hintId : undefined}
-              onClick={() => {
-                setError(null);
-                setDialog('start');
-              }}
-            >
-              Start execution
-            </Button>
-          )}
-          {(status === 'created' || status === 'off') && (
-            <Button onClick={() => setStatus('under_testing')} disabled={busy !== null}>
-              Move to Under testing
-            </Button>
-          )}
-          {status === 'under_testing' && (
-            <Button variant="ghost" onClick={() => setStatus('created')} disabled={busy !== null}>
-              Move back to Created
-            </Button>
-          )}
-        </div>
-        {status !== 'actively_executing' && startBlocked && (
-          <p id={hintId} className="mt-2 text-sm text-ink-muted">
-            {startBlocked}
+        <BacktestInputsForm state={backtests} blocked={runBlocked} />
+        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+          <dt className="text-ink-muted">Latest back test</dt>
+          <dd>
+            {latest?.finishedAt
+              ? `${new Date(latest.finishedAt).toLocaleString('en-US')} (version ${latest.versionNo})`
+              : 'None yet'}
+          </dd>
+          <dt className="text-ink-muted">Current draft</dt>
+          <dd>{draftTested}</dd>
+        </dl>
+
+        <section aria-labelledby="execution-heading" className="mt-4 border-t border-line pt-4">
+          <h3 id="execution-heading" className="text-sm font-semibold">
+            Execution
+          </h3>
+          <p className="mt-1 text-sm">
+            Status: <span className="font-medium">{STATUS_LABELS[status]}</span>
           </p>
-        )}
-        {panelError && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {status === 'actively_executing' ? (
+              <Button variant="danger" onClick={() => setDialog('stop')} disabled={busy !== null}>
+                Stop execution
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                disabled={!canStart || startBlocked !== null || busy !== null}
+                aria-describedby={startBlocked ? hintId : undefined}
+                onClick={() => {
+                  setError(null);
+                  setDialog('start');
+                }}
+              >
+                Start execution
+              </Button>
+            )}
+            {(status === 'created' || status === 'off') && (
+              <Button onClick={() => setStatus('under_testing')} disabled={busy !== null}>
+                Move to Under testing
+              </Button>
+            )}
+            {status === 'under_testing' && (
+              <Button variant="ghost" onClick={() => setStatus('created')} disabled={busy !== null}>
+                Move back to Created
+              </Button>
+            )}
+          </div>
+          {status !== 'actively_executing' && startBlocked && (
+            <p id={hintId} className="mt-2 text-sm text-ink-muted">
+              {startBlocked}
+            </p>
+          )}
+          {panelError && (
+            <div className="mt-3">
+              <Alert>
+                {panelError.message}{' '}
+                {panelError.conflict && (
+                  <button
+                    type="button"
+                    className="underline"
+                    onClick={() => window.location.reload()}
+                  >
+                    Reload the latest version
+                  </button>
+                )}
+              </Alert>
+            </div>
+          )}
+        </section>
+
+        <ActiveRun state={backtests} />
+        {backtests.loadError && (
           <div className="mt-3">
-            <Alert>
-              {panelError.message}{' '}
-              {panelError.conflict && (
-                <button
-                  type="button"
-                  className="underline"
-                  onClick={() => window.location.reload()}
-                >
-                  Reload the latest version
-                </button>
-              )}
-            </Alert>
+            <Alert>{backtests.loadError}</Alert>
           </div>
         )}
-      </section>
+        <RunHistory state={backtests} />
 
-      {dialog === 'start' && validation.kind === 'ready' && (
-        <StartDialog
-          open
-          onClose={() => setDialog(null)}
-          strategyName={strategyName}
-          definition={definition}
-          warnings={validation.result.warnings}
-          busy={busy === 'start'}
-          error={error}
-          onConfirm={(acknowledgedWarnings) =>
-            act('start', () =>
-              apiClient.strategies.start(strategyId, {
-                rowVersion,
-                mode: 'paper',
-                confirmed: true,
-                acknowledgedWarnings,
-              }),
-            )
-          }
-        />
-      )}
-      {dialog === 'stop' && (
-        <StopDialog
-          open
-          onClose={() => setDialog(null)}
-          busy={busy === 'stop'}
-          error={error}
-          onConfirm={(reason) =>
-            act('stop', () =>
-              apiClient.strategies.stop(strategyId, {
-                rowVersion,
-                ...(reason ? { reason } : {}),
-              }),
-            )
-          }
-        />
-      )}
-    </Card>
+        {dialog === 'start' && validation.kind === 'ready' && (
+          <StartDialog
+            open
+            onClose={() => setDialog(null)}
+            strategyName={strategyName}
+            definition={definition}
+            warnings={validation.result.warnings}
+            busy={busy === 'start'}
+            error={error}
+            onConfirm={(acknowledgedWarnings) =>
+              act('start', () =>
+                apiClient.strategies.start(strategyId, {
+                  rowVersion,
+                  mode: 'paper',
+                  confirmed: true,
+                  acknowledgedWarnings,
+                }),
+              )
+            }
+          />
+        )}
+        {dialog === 'stop' && (
+          <StopDialog
+            open
+            onClose={() => setDialog(null)}
+            busy={busy === 'stop'}
+            error={error}
+            onConfirm={(reason) =>
+              act('stop', () =>
+                apiClient.strategies.stop(strategyId, {
+                  rowVersion,
+                  ...(reason ? { reason } : {}),
+                }),
+              )
+            }
+          />
+        )}
+      </Card>
+      <BacktestResults state={backtests} />
+    </>
   );
 }

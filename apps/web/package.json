@@ -13,6 +13,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@tm/backtest": "workspace:*",
     "@tm/config": "workspace:*",
     "@tm/contracts": "workspace:*",
     "@tm/db": "workspace:*",

@@ -41,6 +41,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@tm/backtest':
+        specifier: workspace:*
+        version: link:../../packages/backtest
       '@tm/config':
         specifier: workspace:*
         version: link:../../packages/config
