@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
   char,
   check,
@@ -68,6 +69,65 @@ export const users = pgTable('user', {
   emailVerified: boolean('email_verified').notNull().default(false),
   image: text('image'),
   ...timestamps(),
+});
+
+/** Auth library tables (Better Auth). Only the tm_auth role can read them. */
+export const sessions = pgTable(
+  'session',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    token: text('token').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    ...timestamps(),
+  },
+  (t) => [index('session_user_idx').on(t.userId)],
+);
+
+export const accounts = pgTable(
+  'account',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    accountId: text('account_id').notNull(),
+    providerId: text('provider_id').notNull(),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    idToken: text('id_token'),
+    accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true }),
+    scope: text('scope'),
+    /** Password hash for email/password sign-in. */
+    password: text('password'),
+    ...timestamps(),
+  },
+  (t) => [index('account_user_idx').on(t.userId)],
+);
+
+export const verifications = pgTable(
+  'verification',
+  {
+    id: id(),
+    identifier: text('identifier').notNull(),
+    value: text('value').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    ...timestamps(),
+  },
+  (t) => [index('verification_identifier_idx').on(t.identifier)],
+);
+
+/** Shared rate-limit counters so limits hold across web instances (§16.1). */
+export const rateLimits = pgTable('rate_limit', {
+  id: id(),
+  key: text('key').notNull().unique(),
+  count: integer('count').notNull(),
+  lastRequest: bigint('last_request', { mode: 'number' }).notNull(),
 });
 
 export const profiles = pgTable('profile', {
