@@ -1,4 +1,4 @@
-import { getStrategy, schema, StrategyError, withTenant } from '@tm/db';
+import { eq, getStrategy, schema, StrategyError, withTenant } from '@tm/db';
 import { formatDateTime, STATUS_LABELS } from '@tm/domain';
 import { Card, ModeBadge, PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
@@ -31,11 +31,21 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
       })
       .from(schema.instruments)
       .orderBy(schema.instruments.symbol),
+    accounts: await tx
+      .select({
+        id: schema.tradingAccounts.id,
+        nickname: schema.tradingAccounts.nickname,
+        mode: schema.tradingAccounts.mode,
+        isDefault: schema.tradingAccounts.isDefault,
+      })
+      .from(schema.tradingAccounts)
+      .where(eq(schema.tradingAccounts.isActive, true))
+      .orderBy(schema.tradingAccounts.nickname),
   })).catch((e: unknown) => {
     if (e instanceof StrategyError && e.code === 'not_found') notFound();
     throw e;
   });
-  const { strategy, instruments } = loaded;
+  const { strategy, instruments, accounts } = loaded;
 
   return (
     <>
@@ -60,6 +70,9 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
             initialDefinition={strategy.definition}
             initialRowVersion={strategy.rowVersion}
             instruments={instruments}
+            accounts={accounts}
+            timeZone={profile.timezone}
+            baseCurrency={profile.baseCurrency}
           />
         </div>
         <aside className="space-y-4">

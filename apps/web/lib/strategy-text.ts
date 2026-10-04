@@ -126,3 +126,45 @@ export function describeCondition(node: ConditionNode, symbol: SymbolLookup): st
     .join(node.op === 'and' ? ' AND ' : ' OR ');
   return node.negate ? `NOT (${inner || 'empty'})` : inner || 'empty';
 }
+
+export const SIDE_LABELS = {
+  buy: 'Buy',
+  sell: 'Sell',
+  sell_short: 'Sell short',
+  buy_to_cover: 'Buy to cover',
+  close: 'Close position',
+  reduce: 'Reduce position',
+} as const;
+
+export const QUANTITY_LABELS = {
+  units: 'Units (shares)',
+  notional: 'Amount (base currency)',
+  pct_equity: '% of account equity',
+  risk_sized: 'Risk-sized (amount at risk)',
+} as const;
+
+export const ORDER_TYPE_LABELS = {
+  market: 'Market',
+  limit: 'Limit',
+  stop: 'Stop',
+  stop_limit: 'Stop-limit',
+} as const;
+
+export const TIF_LABELS = {
+  day: 'Day',
+  gtc: 'Good till cancelled',
+  ioc: 'Immediate or cancel',
+  fok: 'Fill or kill',
+} as const;
+
+export const UNIT_LABELS = { s: 'seconds', min: 'minutes', h: 'hours', d: 'days' } as const;
+
+export const PHASE_EVENT_LABELS = {
+  entry_trigger: 'Entry trigger time',
+  entry_submitted: 'Entry order submitted',
+  entry_partial_fill: 'Entry order partially filled',
+  entry_full_fill: 'Entry order fully filled',
+  position_opened: 'Position opened',
+} as const;
+
+export const LEG_EVENT_LABELS = { submitted: 'submitted', filled: 'filled' } as const;
