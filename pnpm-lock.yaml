@@ -44,6 +44,9 @@ importers:
       '@tm/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@tm/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@tm/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -121,6 +124,15 @@ importers:
 
   packages/config:
     dependencies:
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+
+  packages/contracts:
+    dependencies:
+      '@tm/domain':
+        specifier: workspace:*
+        version: link:../domain
       zod:
         specifier: ^4.6.5
         version: 4.6.5
