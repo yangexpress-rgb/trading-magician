@@ -88,7 +88,7 @@ test('long DEMO-A and short DEMO-B on Entry; Exit legs 5 minutes after the Entry
   await expect(sellA.getByText('Timing: 5 minutes after entry order submitted')).toBeVisible();
 
   await page.getByRole('button', { name: 'Save draft' }).click();
-  await expect(page.getByRole('status')).toHaveText('All changes saved');
+  await expect(page.locator('#save-state')).toHaveText('All changes saved');
 
   const before = await api(page, baseURL!, id);
   const { entry, exit } = before.definition;
@@ -159,7 +159,7 @@ test('exact zoned times, limit prices, sequential legs and risk limits round-tri
   await page.getByLabel(/^Daily loss limit/).fill('');
 
   await page.getByRole('button', { name: 'Save draft' }).click();
-  await expect(page.getByRole('status')).toHaveText('All changes saved');
+  await expect(page.locator('#save-state')).toHaveText('All changes saved');
 
   const { definition, validation } = await api(page, baseURL!, id);
   const [a, b] = definition.entry.orders;

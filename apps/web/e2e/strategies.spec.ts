@@ -134,7 +134,7 @@ test.describe('strategy library', () => {
     await dialog.getByLabel('Name').fill('Beverage pairs');
     await dialog.getByRole('button', { name: 'Create strategy' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Beverage pairs' })).toBeVisible();
-    await expect(page.getByText('Created', { exact: true })).toBeVisible();
+    await expect(page.getByText('Created', { exact: true }).first()).toBeVisible();
 
     // A second strategy that trades DEMO-A, created through the API, and moved to Under testing.
     await page.getByRole('link', { name: '← All strategies' }).click();

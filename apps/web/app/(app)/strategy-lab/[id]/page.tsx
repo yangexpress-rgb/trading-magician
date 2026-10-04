@@ -1,6 +1,6 @@
 import { eq, getStrategy, schema, StrategyError, withTenant } from '@tm/db';
 import { formatDateTime, STATUS_LABELS } from '@tm/domain';
-import { Card, ModeBadge, PageHeader } from '@tm/ui';
+import { Badge, Card, ModeBadge, PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -57,6 +57,7 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
         description={strategy.description || undefined}
         actions={
           <>
+            {strategy.currentVersion && <Badge>Version {strategy.currentVersion.versionNo}</Badge>}
             <StrategyStatusBadge status={strategy.status} />
             <ModeBadge mode="paper" />
           </>
@@ -66,6 +67,7 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
         <div className="min-w-0">
           <StrategyEditor
             strategyId={strategy.id}
+            strategyName={strategy.name}
             status={strategy.status}
             initialDefinition={strategy.definition}
             initialRowVersion={strategy.rowVersion}
@@ -88,7 +90,9 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
               <ul className="mt-2 space-y-1 text-sm">
                 {strategy.versions.map((v) => (
                   <li key={v.id}>
-                    v{v.versionNo}
+                    <Link href={`/strategy-lab/${strategy.id}/versions/${v.versionNo}`}>
+                      Version {v.versionNo}
+                    </Link>
                     {v.id === strategy.currentVersion?.id && ' (current)'} ·{' '}
                     {formatDateTime(v.createdAt, prefs)}
                   </li>
@@ -106,8 +110,12 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
                 <ul className="mt-1 space-y-1 text-sm">
                   {strategy.statusHistory.map((h) => (
                     <li key={`${h.changedAt.toISOString()}-${h.toStatus}`}>
-                      {STATUS_LABELS[h.fromStatus]} → {STATUS_LABELS[h.toStatus]} ·{' '}
-                      {formatDateTime(h.changedAt, prefs)}
+                      {STATUS_LABELS[h.fromStatus]} → {STATUS_LABELS[h.toStatus]}
+                      {h.versionNo !== null && h.toStatus === 'actively_executing'
+                        ? ` (version ${h.versionNo})`
+                        : ''}{' '}
+                      · {formatDateTime(h.changedAt, prefs)}
+                      {h.reason && <span className="block text-ink-muted">{h.reason}</span>}
                     </li>
                   ))}
                 </ul>

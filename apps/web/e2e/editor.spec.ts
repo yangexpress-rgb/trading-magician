@@ -76,10 +76,10 @@ test('SMA(30, DEMO-A) < SMA(30, DEMO-B) saves, reloads and validates identically
   const readsAs = entry.locator('p').filter({ hasText: /^Reads as:/ });
   const expected = 'SMA(30) of DEMO-A close < SMA(30) of DEMO-B close';
   await expect(readsAs).toHaveText(`Reads as: ${expected}`);
-  await expect(page.getByRole('status')).toHaveText('Unsaved changes');
+  await expect(page.locator('#save-state')).toHaveText('Unsaved changes');
 
   await page.getByRole('button', { name: 'Save draft' }).click();
-  await expect(page.getByRole('status')).toHaveText('All changes saved');
+  await expect(page.locator('#save-state')).toHaveText('All changes saved');
 
   const fetchState = async () => {
     const strategy = await (await page.request.get(`/api/v1/strategies/${id}`)).json();
@@ -112,7 +112,7 @@ test('SMA(30, DEMO-A) < SMA(30, DEMO-B) saves, reloads and validates identically
   await expect(
     side(c1, 'Right side').getByLabel('Instrument').locator('option:checked'),
   ).toHaveText(b!);
-  await expect(page.getByRole('status')).toHaveText('No unsaved changes');
+  await expect(page.locator('#save-state')).toHaveText('No unsaved changes');
   await expect(page.getByRole('button', { name: 'Save draft' })).toBeDisabled();
 
   const after = await fetchState();
@@ -175,7 +175,7 @@ test('builds nested AND/OR/NOT groups with add, reorder, duplicate and remove', 
   await expect(readsAs).toHaveText(`Reads as: ${expected}`);
 
   await page.getByRole('button', { name: 'Save draft' }).click();
-  await expect(page.getByRole('status')).toHaveText('All changes saved');
+  await expect(page.locator('#save-state')).toHaveText('All changes saved');
   await page.reload();
   await expect(readsAs).toHaveText(`Reads as: ${expected}`);
   await expect(
@@ -203,7 +203,7 @@ test('shows field problems and blocks saving until they are fixed', async ({ pag
   await value.fill('1000');
   await expect(value).toHaveAttribute('aria-invalid', 'false');
   await page.getByRole('button', { name: 'Save draft' }).click();
-  await expect(page.getByRole('status')).toHaveText('All changes saved');
+  await expect(page.locator('#save-state')).toHaveText('All changes saved');
 });
 
 test('detects edits made in another tab and warns before leaving unsaved work', async ({
@@ -222,7 +222,7 @@ test('detects edits made in another tab and warns before leaving unsaved work', 
       .click();
   }
   await page.getByRole('button', { name: 'Save draft' }).click();
-  await expect(page.getByRole('status')).toHaveText('All changes saved');
+  await expect(page.locator('#save-state')).toHaveText('All changes saved');
 
   await other.getByRole('button', { name: 'Save draft' }).click();
   await expect(other.locator('main [role=alert]')).toContainText('changed somewhere else');

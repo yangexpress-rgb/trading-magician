@@ -13,12 +13,11 @@ import {
 } from '@tm/domain';
 import { useState } from 'react';
 import {
+  describeTiming,
   ORDER_TYPE_LABELS,
-  PHASE_EVENT_LABELS,
   QUANTITY_LABELS,
   SIDE_LABELS,
   TIF_LABELS,
-  UNIT_LABELS,
 } from '@/lib/strategy-text';
 import { useEditor } from './editor-context';
 import { ExpressionEditor, newExpr } from './expression-editor';
@@ -40,18 +39,6 @@ function uniqueLabel(def: StrategyDefinition, phase: PhaseName): string {
     const label = `${PHASE_TITLE[phase]} leg ${n}`;
     if (!taken.has(label.toLowerCase())) return label;
   }
-}
-
-function describeTiming(order: PlannedOrder, labelOf: (id: string) => string | undefined): string {
-  const t = order.timing;
-  if (t.mode === 'immediate') return 'Immediately when the conditions qualify';
-  const suffix = order.timingOnly ? ' (timing only)' : '';
-  if (t.mode === 'exact') return `At ${t.at || '…'} (${t.zone})${suffix}`;
-  const ref =
-    t.reference.kind === 'phase'
-      ? PHASE_EVENT_LABELS[t.reference.event].toLowerCase()
-      : `“${labelOf(t.reference.legId) ?? 'removed leg'}” ${t.reference.event}`;
-  return `${t.amount} ${UNIT_LABELS[t.unit]} after ${ref}${suffix}`;
 }
 
 /**
