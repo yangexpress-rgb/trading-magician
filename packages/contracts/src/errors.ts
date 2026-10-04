@@ -12,6 +12,7 @@ export const API_ERROR_CODES = [
   'invalid_definition',
   'transition_blocked',
   'rate_limited',
+  'limit_reached',
   'internal',
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -40,6 +41,7 @@ export const API_ERROR_STATUS: Record<ApiErrorCode, number> = {
   invalid_definition: 422,
   transition_blocked: 422,
   rate_limited: 429,
+  limit_reached: 429,
   internal: 500,
 };
 

@@ -476,3 +476,99 @@ export const strategyStatusChanges = pgTable(
     index('strategy_status_change_strategy_idx').on(t.strategyId, t.changedAt),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Back tests (§7, §13.3, §14.2; ADR 0009). A run pins an immutable strategy
+// version; the worker claims queued runs through SECURITY DEFINER functions and
+// then works inside the run's tenant like any other request.
+// ---------------------------------------------------------------------------
+
+export const backtestRunStatus = pgEnum('backtest_run_status', [
+  'queued',
+  'running',
+  'completed',
+  'failed',
+  'canceled',
+]);
+
+export const backtestRuns = pgTable(
+  'backtest_run',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    strategyId: uuid('strategy_id').notNull(),
+    versionId: uuid('version_id').notNull(),
+    definitionHash: text('definition_hash').notNull(),
+    status: backtestRunStatus('status').notNull().default('queued'),
+    /** Validated `BacktestInputs` from @tm/backtest. */
+    inputs: jsonb('inputs').notNull(),
+    dataSource: text('data_source').notNull(),
+    engineVersion: text('engine_version'),
+    dataVersions: text('data_versions')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    /** `BacktestMetrics`, for lists and the activation gate. */
+    summary: jsonb('summary'),
+    /** Equity, contributions, fills, warnings and assumptions (`BacktestResult` minus trades). */
+    result: jsonb('result'),
+    error: text('error'),
+    cancelRequested: boolean('cancel_requested').notNull().default(false),
+    attempts: integer('attempts').notNull().default(0),
+    leaseOwner: text('lease_owner'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    createdBy: uuid('created_by').notNull(),
+    ...timestamps(),
+  },
+  (t) => [
+    unique('backtest_run_id_user_uq').on(t.id, t.userId),
+    foreignKey({
+      columns: [t.strategyId, t.userId],
+      foreignColumns: [strategies.id, strategies.userId],
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.versionId, t.userId],
+      foreignColumns: [strategyVersions.id, strategyVersions.userId],
+    }),
+    index('backtest_run_strategy_idx').on(t.strategyId, t.createdAt),
+    index('backtest_run_queue_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} in ('queued', 'running')`),
+    check(
+      'backtest_run_finished',
+      sql`(${t.status} in ('completed', 'failed', 'canceled')) = (${t.finishedAt} is not null)`,
+    ),
+    check('backtest_run_error_length', sql`char_length(${t.error}) <= 500`),
+  ],
+);
+
+export const backtestTrades = pgTable(
+  'backtest_trade',
+  {
+    id: id(),
+    userId: uuid('user_id').notNull(),
+    runId: uuid('run_id').notNull(),
+    cycle: integer('cycle').notNull(),
+    status: text('status').notNull(),
+    entryTime: timestamp('entry_time', { withTimezone: true }),
+    exitTime: timestamp('exit_time', { withTimezone: true }),
+    grossPnl: numeric('gross_pnl').notNull(),
+    costs: numeric('costs').notNull(),
+    netPnl: numeric('net_pnl').notNull(),
+    returnPct: numeric('return_pct'),
+    /** `BacktestTradeLeg[]`: each leg's side, quantity and average price. */
+    legs: jsonb('legs').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.runId, t.userId],
+      foreignColumns: [backtestRuns.id, backtestRuns.userId],
+    }).onDelete('cascade'),
+    unique('backtest_trade_cycle_uq').on(t.runId, t.cycle),
+    check('backtest_trade_status', sql`${t.status} in ('closed', 'open', 'aborted')`),
+  ],
+);

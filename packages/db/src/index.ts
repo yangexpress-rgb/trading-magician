@@ -1,4 +1,5 @@
 export { recordAudit, type AuditInput } from './audit';
+export * from './backtests';
 export { createDb, type Database, type DbHandle, type Transaction } from './client';
 export {
   DEMO_ACCOUNT_CAPABILITIES,
@@ -19,6 +20,8 @@ export {
   getStrategy,
   getStrategyVersion,
   listStrategies,
+  loadStrategyRow,
+  pinDraftVersion,
   loadValidationContext,
   publishVersion,
   startStrategy,

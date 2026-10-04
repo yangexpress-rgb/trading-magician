@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@tm/backtest": "workspace:*",
     "@tm/domain": "workspace:*",
     "zod": "^4.6.5"
   }

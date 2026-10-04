@@ -15,14 +15,17 @@ Phase 0 (foundation) complete: M0.1–M0.4. Phase 1 (Strategy Lab) next. See `do
 | M0.3      | Authentication and profile                                     |
 | M0.4      | App shell and five-tab navigation                              |
 | M1.1–M1.5 | Strategy Lab                                                   |
+| M2.1–M2.3 | Historical data, back-test engine, durable runs and API        |
 
 ## Layout
 
 ```text
 apps/web        Next.js UI and REST API
-apps/worker     Background worker (health check only for now)
+apps/worker     Background worker: runs queued back tests (needs DATABASE_APP_URL)
 packages/config Environment validation helpers
 packages/domain Pure domain logic shared by web, backtester and runtime
+packages/market-data Historical bars: generated demo history behind the provider contract
+packages/backtest    The back-test engine (pure simulation, fill model, metrics)
 packages/db     Drizzle schema, migrations, row-level security, tenant scoping
 packages/ui     Design tokens and accessible UI primitives (Tailwind CSS)
 docs/adr        Architecture decision records

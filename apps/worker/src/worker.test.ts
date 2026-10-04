@@ -25,6 +25,7 @@ describe('worker env', () => {
       NODE_ENV: 'development',
       LOG_LEVEL: 'info',
       WORKER_HEALTH_PORT: 4001,
+      BACKTEST_POLL_MS: 1000,
     });
   });
 });
