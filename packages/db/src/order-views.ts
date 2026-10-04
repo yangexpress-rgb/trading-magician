@@ -8,6 +8,7 @@ import {
 import Decimal from 'decimal.js';
 import { and, asc, count, desc, eq, inArray, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { recordAudit } from './audit';
+import { listOpenIncidents, type IncidentRow } from './incidents';
 import type { Transaction } from './client';
 import { idempotencyKey, OrderError, recordOrderIntent } from './orders';
 import { requestCancel, resumeRuntime, setKillSwitch, WORKING_STATES } from './runtime';
@@ -604,6 +605,19 @@ async function holdings(tx: Transaction, where: SQL[]) {
   return [...byKey.values()].filter((h) => !h.qty.isZero());
 }
 
+/** Net holdings per instrument on one account, across every run, from the app's fills. */
+export async function accountPositions(
+  tx: Transaction,
+  accountId: string,
+): Promise<Map<string, Decimal>> {
+  const held = await holdings(tx, [eq(orderIntents.accountId, accountId)]);
+  const out = new Map<string, Decimal>();
+  for (const h of held)
+    out.set(h.instrumentId, (out.get(h.instrumentId) ?? new Decimal(0)).plus(h.qty));
+  for (const [id, q] of out) if (q.isZero()) out.delete(id);
+  return out;
+}
+
 async function workingCloses(tx: Transaction, runtimeIds: string[]) {
   if (runtimeIds.length === 0) return new Set<string>();
   const rows = await tx
@@ -841,6 +855,8 @@ export interface RuntimeSummary {
 export interface ExecutionStatus {
   halted: { at: string; reason: string | null } | null;
   runtimes: RuntimeSummary[];
+  /** Open incidents (§8.5): reconciliation mismatches, rejects, data and broker problems. */
+  incidents: IncidentRow[];
 }
 
 /** The kill switch, and every runtime that is active or still has working orders. */
@@ -869,7 +885,9 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
     .leftJoin(working, eq(working.runtimeId, strategyRuntimes.id))
     .where(sql`${strategyRuntimes.status} <> 'stopped' or ${working.n} > 0`)
     .orderBy(desc(strategyRuntimes.startedAt));
+  const incidents = await listOpenIncidents(tx);
   return {
+    incidents,
     halted: control?.haltedAt
       ? { at: control.haltedAt.toISOString(), reason: control.reason }
       : null,

@@ -9,6 +9,9 @@ import {
 } from '@tm/contracts';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
+import { subscribeLive, type LiveState } from '@/lib/live-events';
+
+export type { LiveState };
 
 export interface OrderFilters {
   view: OrderViewDto;
@@ -46,8 +49,6 @@ export function filtersToSearch(f: OrderFilters, keep: URLSearchParams): string 
   const qs = params.toString();
   return qs ? `?${qs}` : '';
 }
-
-export type LiveState = 'connecting' | 'live' | 'reconnecting';
 
 export interface OrdersData {
   list: OrderListDto | null;
@@ -104,17 +105,11 @@ export function useOrders(filters: OrderFilters, timeZone: string): OrdersData {
   }, [load]);
 
   useEffect(() => {
-    const source = new EventSource(apiClient.orders.streamUrl());
     const onChange = () => void load();
-    source.addEventListener('ready', () => {
-      setLive('live');
-      onChange();
-    });
-    source.addEventListener('change', onChange);
-    source.onerror = () => setLive('reconnecting');
+    const unsubscribe = subscribeLive({ onChange, onState: setLive });
     const timer = setInterval(onChange, FALLBACK_REFRESH_MS);
     return () => {
-      source.close();
+      unsubscribe();
       clearInterval(timer);
     };
   }, [load]);

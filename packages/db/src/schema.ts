@@ -630,6 +630,8 @@ export const strategyRuntimes = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     stoppedBy: uuid('stopped_by'),
     stoppedAt: timestamp('stopped_at', { withTimezone: true }),
+    /** Last resume; automatic pauses only count rejections after it. */
+    resumedAt: timestamp('resumed_at', { withTimezone: true }),
     ...timestamps(),
     rowVersion: rowVersion(),
   },
@@ -970,6 +972,8 @@ export const brokerSyncs = pgTable(
     userId: uuid('user_id').notNull(),
     cursor: text('cursor'),
     syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Last periodic reconciliation of this account (§8.5), on the runtime's clock. */
+    reconciledAt: timestamp('reconciled_at', { withTimezone: true }),
   },
   (t) => [
     foreignKey({
@@ -1062,5 +1066,113 @@ export const paperPositions = pgTable(
       foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
     }).onDelete('cascade'),
     unique('paper_position_uq').on(t.accountId, t.instrumentId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Incidents and notifications (Design v1.0 §8.5, §8.6, §16.3; ADR 0014)
+// ---------------------------------------------------------------------------
+
+export const INCIDENT_KINDS = [
+  'reconciliation_mismatch',
+  'repeated_rejects',
+  'stale_data',
+  'feed_loss',
+  'broker_disconnected',
+] as const;
+
+/** Something that made execution unsafe or uncertain; open until resolved. */
+export const executionIncidents = pgTable(
+  'execution_incident',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    /** The runtime it concerns, if one; account-wide incidents have none. */
+    runtimeId: uuid('runtime_id'),
+    accountId: uuid('account_id'),
+    summary: text('summary').notNull(),
+    details: jsonb('details').notNull().default({}),
+    /** Runtimes it paused, so the banner can say what stopped. */
+    pausedRuntimes: integer('paused_runtimes').notNull().default(0),
+    openedAt: timestamp('opened_at', { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolvedBy: text('resolved_by'),
+    resolution: text('resolution'),
+    ...timestamps(),
+  },
+  (t) => [
+    unique('execution_incident_id_user_uq').on(t.id, t.userId),
+    // One open incident per kind and subject, so a recurring problem is not repeated.
+    uniqueIndex('execution_incident_open_uq')
+      .on(
+        t.userId,
+        t.kind,
+        sql`coalesce(${t.runtimeId}::text, '')`,
+        sql`coalesce(${t.accountId}::text, '')`,
+      )
+      .where(sql`${t.resolvedAt} is null`),
+    index('execution_incident_user_idx').on(t.userId, t.openedAt),
+    check(
+      'execution_incident_kind',
+      sql`${t.kind} in ('reconciliation_mismatch', 'repeated_rejects', 'stale_data', 'feed_loss', 'broker_disconnected')`,
+    ),
+    check('execution_incident_summary_length', sql`char_length(${t.summary}) <= 500`),
+    check('execution_incident_resolution_length', sql`char_length(${t.resolution}) <= 500`),
+    check(
+      'execution_incident_resolved',
+      sql`(${t.resolvedAt} is null) = (${t.resolvedBy} is null)`,
+    ),
+  ],
+);
+
+export const NOTIFICATION_KINDS = [
+  'strategy_started',
+  'strategy_stopped',
+  'triggered',
+  'order_rejected',
+  'partial_fill',
+  'filled',
+  'disconnect',
+  'stale_data',
+  'risk_pause',
+  'reconciliation_mismatch',
+] as const;
+
+/** In-app notifications (§16.3). Email and push come with Phase 4 preferences. */
+export const notifications = pgTable(
+  'notification',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    body: text('body').notNull().default(''),
+    /** An in-app path to what it is about, e.g. /orders?strategy=… */
+    link: text('link'),
+    resourceType: text('resource_type'),
+    resourceId: uuid('resource_id'),
+    /** Repeats of the same event are stored once. */
+    dedupeKey: text('dedupe_key'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    readAt: timestamp('read_at', { withTimezone: true }),
+  },
+  (t) => [
+    unique('notification_dedupe_uq').on(t.userId, t.dedupeKey),
+    index('notification_user_idx').on(t.userId, t.createdAt),
+    index('notification_unread_idx')
+      .on(t.userId)
+      .where(sql`${t.readAt} is null`),
+    check(
+      'notification_kind',
+      sql`${t.kind} in ('strategy_started', 'strategy_stopped', 'triggered', 'order_rejected', 'partial_fill', 'filled', 'disconnect', 'stale_data', 'risk_pause', 'reconciliation_mismatch')`,
+    ),
+    check('notification_title_length', sql`char_length(${t.title}) <= 200`),
+    check('notification_body_length', sql`char_length(${t.body}) <= 1000`),
+    check('notification_link_relative', sql`${t.link} like '/%' and ${t.link} not like '//%'`),
   ],
 );

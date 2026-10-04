@@ -10,11 +10,12 @@ const TABS = [
   { name: 'Settings', path: '/settings/profile' },
 ];
 
-const SETTINGS_PAGES = [
+const OTHER_PAGES = [
   '/settings/data-feeds',
   '/settings/accounts',
   '/settings/billing',
   '/settings/security',
+  '/notifications',
 ];
 
 async function expectAccessible(page: Page) {
@@ -42,7 +43,7 @@ test('shows the five tabs in the specified order and marks the current one', asy
 
 test('every signed-in page passes automated accessibility checks', async ({ page }) => {
   await signUpAndVerify(page, uniqueEmail('a11y'));
-  for (const path of [...TABS.map((t) => t.path), ...SETTINGS_PAGES]) {
+  for (const path of [...TABS.map((t) => t.path), ...OTHER_PAGES]) {
     await page.goto(path);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     await expectAccessible(page);

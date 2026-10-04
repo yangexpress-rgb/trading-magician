@@ -5,6 +5,7 @@ import {
   claimRuntimes,
   DbPaperBrokerStore,
   finishScheduled,
+  getReconciledAt,
   idempotencyKey,
   insertCycle,
   intentsByClientOrderId,
@@ -12,12 +13,17 @@ import {
   lockPaperBroker,
   markOrderFailed,
   markOrderSubmitted,
+  notify,
+  openIncident,
   PAPER_STARTING_CAPITAL,
+  recentOrderStates,
+  reconcileAccount,
   recordAudit,
   recordOrderIntent,
   recordTriggerEvent,
   releaseRuntime,
   requestCancel,
+  resolveIncidentsOf,
   saveCycle,
   saveRuntimeState,
   scheduleKey,
@@ -87,9 +93,31 @@ export interface RuntimeWorkerOptions {
   now?: () => Date;
   logger: Pick<Logger, 'info' | 'warn' | 'error'>;
   leaseSeconds?: number;
+  /** Tests only: wraps the broker the pass talks to, e.g. to inject faults. */
+  wrapBroker?: (broker: BrokerAdapter) => BrokerAdapter;
 }
 
 const ZERO = new Decimal(0);
+
+/**
+ * Safety defaults (§8.5, §8.6; ADR 0014), on the runtime's clock. They are
+ * constants until per-account settings arrive with Phase 4.
+ */
+export const SAFETY = {
+  /** How often each account is reconciled against the broker. */
+  reconcileEveryMs: 60_000,
+  /** Rejected or failed orders in a row that pause a strategy. */
+  rejectsInARow: 3,
+  /** How long the broker may not answer before its strategies pause. */
+  brokerDownPauseMs: 60_000,
+  /** How long prices may stay stale or missing, after the staleness threshold, before a pause. */
+  feedLossPauseMs: 60_000,
+} as const;
+
+/** What went wrong with the broker during a pass. */
+interface PassHealth {
+  brokerDown: boolean;
+}
 
 /** Bars needed for the rules, as a back-test style plan ending today. */
 function evaluationInputs(now: Date): BacktestInputs {
@@ -129,33 +157,63 @@ export async function runRuntimePass(
   return withTenant(db, { userId }, async (tx) => {
     await lockPaperBroker(tx, userId);
     const store = new DbPaperBrokerStore(tx, userId);
-    const broker = new PaperBroker({ quotes, store, now: at });
+    const paper = new PaperBroker({ quotes, store, now: at });
+    const broker = options.wrapBroker ? options.wrapBroker(paper) : paper;
 
     let work = await loadRuntimeWork(tx, runtimeId, workerId);
     if (!work) return 'lost';
 
     // 1–2. Orders at the broker move on; read what happened.
-    await broker.tick();
-    await sendCancels(broker, work);
-    await submitReady(tx, { work, broker, now, logger });
-    const changed = await syncUpdates(tx, broker, work);
-    if (changed) work = (await loadRuntimeWork(tx, runtimeId, workerId)) ?? work;
+    const health: PassHealth = { brokerDown: false };
+    await paper.tick();
+    await sendCancels(broker, work, health);
+    await submitReady(tx, { work, broker, now, logger, health });
+    const sync = await syncUpdates(tx, broker, work, health);
+    // 3. Periodic reconciliation against the broker (§8.5).
+    const healed = sync.complete ? await reconcile(tx, broker, work, now, sync.unknown, health) : 0;
+    if (sync.changed || healed > 0) work = (await loadRuntimeWork(tx, runtimeId, workerId)) ?? work;
+
+    // 4. Automatic pauses (§8.6): a broker that stops answering, prices that go stale.
+    work = await watchBroker(tx, work, now, health);
+    if (work.status === 'running') work = await watchFeed(tx, work, quotes, now);
 
     if (work.status !== 'stopped') {
-      await planPass(tx, { work, broker, history, quotes, now, logger });
+      await planPass(tx, { work, broker, history, quotes, now, logger, health });
+      if (work.status === 'running') await watchRejects(tx, work);
+    } else {
+      await saveRuntimeState(tx, work.id, work.state, now);
     }
     await releaseRuntime(tx, runtimeId, workerId);
     return 'done';
   });
 }
 
-/** Reads every account's new updates and applies them to the matching orders. */
-async function syncUpdates(tx: Transaction, broker: BrokerAdapter, work: RuntimeWork) {
+/**
+ * Reads every account's new updates and applies them to the matching orders.
+ * Updates for orders the app never placed are handed to reconciliation.
+ */
+async function syncUpdates(
+  tx: Transaction,
+  broker: BrokerAdapter,
+  work: RuntimeWork,
+  health: PassHealth,
+) {
   let changed = false;
+  let complete = true;
+  const unknown = new Map<string, string[]>();
   for (const accountId of work.accounts) {
     let cursor = await getSyncCursor(tx, accountId);
-    for (let page = 0; page < 20; page++) {
-      const result = await broker.updates(accountId, cursor);
+    let done = false;
+    for (let page = 0; page < 20 && !done; page++) {
+      let result: Awaited<ReturnType<BrokerAdapter['updates']>>;
+      try {
+        result = await broker.updates(accountId, cursor);
+      } catch (e) {
+        if (!(e instanceof BrokerUnavailableError)) throw e;
+        health.brokerDown = true;
+        complete = false;
+        break;
+      }
       if (result.updates.length > 0) {
         const byClient = new Map<string, BrokerOrderUpdate[]>();
         for (const u of result.updates) {
@@ -164,29 +222,160 @@ async function syncUpdates(tx: Transaction, broker: BrokerAdapter, work: Runtime
         const intents = await intentsByClientOrderId(tx, [...byClient.keys()]);
         for (const [client, updates] of byClient) {
           const intentId = intents.get(client);
-          // Orders the app did not place are left to reconciliation (M3.5).
-          if (!intentId) continue;
+          if (!intentId) {
+            unknown.set(accountId, [...(unknown.get(accountId) ?? []), client]);
+            continue;
+          }
           const r = await applyBrokerUpdates(tx, intentId, updates);
           if (r.applied > 0) changed = true;
         }
       }
-      const done = result.cursor === cursor || result.updates.length === 0;
+      done = result.cursor === cursor || result.updates.length === 0;
       cursor = result.cursor;
-      if (done) break;
     }
+    if (!done) complete = false;
     await setSyncCursor(tx, work.userId, accountId, cursor);
   }
-  return changed;
+  return { changed, complete, unknown };
+}
+
+/** Reconciles each account that is due, or at once when the stream showed unknown orders. */
+async function reconcile(
+  tx: Transaction,
+  broker: BrokerAdapter,
+  work: RuntimeWork,
+  now: Date,
+  unknown: Map<string, string[]>,
+  health: PassHealth,
+): Promise<number> {
+  let healed = 0;
+  for (const accountId of work.accounts) {
+    const last = await getReconciledAt(tx, accountId);
+    const strangers = [...new Set(unknown.get(accountId) ?? [])];
+    const due = !last || now.getTime() - last.getTime() >= SAFETY.reconcileEveryMs;
+    if (!due && strangers.length === 0) continue;
+    try {
+      const r = await reconcileAccount(tx, broker, {
+        userId: work.userId,
+        accountId,
+        now,
+        unknownClientOrderIds: strangers,
+      });
+      healed += r.healed + (r.incidentId ? 1 : 0);
+    } catch (e) {
+      if (!(e instanceof BrokerUnavailableError)) throw e;
+      health.brokerDown = true;
+    }
+  }
+  return healed;
+}
+
+/** Pauses the runtime once the broker has not answered for a while; clears when it does. */
+async function watchBroker(
+  tx: Transaction,
+  work: RuntimeWork,
+  now: Date,
+  health: PassHealth,
+): Promise<RuntimeWork> {
+  const t = now.getTime();
+  if (!health.brokerDown) {
+    if (work.state.brokerDownSince === undefined) return work;
+    work.state.brokerDownSince = undefined;
+    await resolveIncidentsOf(
+      tx,
+      work.userId,
+      'broker_disconnected',
+      work.id,
+      'The broker is answering again',
+    );
+    return work;
+  }
+  work.state.brokerDownSince ??= t;
+  if (work.status !== 'running' || t - work.state.brokerDownSince < SAFETY.brokerDownPauseMs) {
+    return work;
+  }
+  await openIncident(tx, {
+    userId: work.userId,
+    kind: 'broker_disconnected',
+    runtimeId: work.id,
+    summary: `The paper broker has not answered for ${Math.round((t - work.state.brokerDownSince) / 1000)} seconds.`,
+    pause: [work.id],
+    link: `/orders?strategy=${work.strategyId}`,
+  });
+  return { ...work, status: 'paused' };
+}
+
+/**
+ * Checks the live prices the rules depend on (§8.6): stale or missing prices
+ * open an incident at once (orders are already refused by the stale-data risk
+ * check) and pause the strategy if they stay that way.
+ */
+async function watchFeed(
+  tx: Transaction,
+  work: RuntimeWork,
+  quotes: LiveQuoteProvider,
+  now: Date,
+): Promise<RuntimeWork> {
+  const t = now.getTime();
+  const limit = work.definition.execution.staleDataSec;
+  const bad: string[] = [];
+  for (const [instrumentId, ref] of work.instruments) {
+    const q = await quotes.latestQuote({ instrumentId, symbol: ref.symbol });
+    // Outside the session the last quote simply stands; that is not a feed problem.
+    if (!q) bad.push(`${ref.symbol} (no price)`);
+    else if (q.marketOpen && quoteAgeSec(q, now) > limit) bad.push(ref.symbol);
+  }
+  if (bad.length === 0) {
+    if (work.state.staleSince === undefined) return work;
+    work.state.staleSince = undefined;
+    await resolveIncidentsOf(tx, work.userId, 'stale_data', work.id, 'Prices are current again');
+    return work;
+  }
+  work.state.staleSince ??= t;
+  const link = `/orders?strategy=${work.strategyId}`;
+  await openIncident(tx, {
+    userId: work.userId,
+    kind: 'stale_data',
+    runtimeId: work.id,
+    summary: `Prices older than ${limit} seconds or missing for ${bad.join(', ')}; no new orders are sent until they are current.`,
+    link,
+  });
+  if (t - work.state.staleSince < SAFETY.feedLossPauseMs) return work;
+  await openIncident(tx, {
+    userId: work.userId,
+    kind: 'feed_loss',
+    runtimeId: work.id,
+    summary: `Live prices for ${bad.join(', ')} have been unavailable for ${Math.round((t - work.state.staleSince) / 1000)} seconds.`,
+    pause: [work.id],
+    link,
+  });
+  return { ...work, status: 'paused' };
+}
+
+/** Pauses a strategy whose last few orders were all rejected or failed (§8.6). */
+async function watchRejects(tx: Transaction, work: RuntimeWork): Promise<void> {
+  const states = await recentOrderStates(tx, work.id, work.activeSince, SAFETY.rejectsInARow);
+  if (states.length < SAFETY.rejectsInARow) return;
+  if (!states.every((s) => s === 'rejected' || s === 'failed')) return;
+  await openIncident(tx, {
+    userId: work.userId,
+    kind: 'repeated_rejects',
+    runtimeId: work.id,
+    summary: `${work.strategyName} was paused after ${SAFETY.rejectsInARow} orders in a row were rejected.`,
+    pause: [work.id],
+    link: `/orders?strategy=${work.strategyId}`,
+  });
 }
 
 /** Sends cancels the app or a person requested but the broker has not yet confirmed. */
-async function sendCancels(broker: BrokerAdapter, work: RuntimeWork) {
+async function sendCancels(broker: BrokerAdapter, work: RuntimeWork, health: PassHealth) {
   for (const o of work.working) {
     if (!o.cancelRequested || !o.brokerOrderId) continue;
     try {
       await broker.cancelOrder(o.intent.accountId, o.brokerOrderId);
     } catch (e) {
       if (!(e instanceof BrokerUnavailableError)) throw e;
+      health.brokerDown = true;
     }
   }
 }
@@ -228,6 +417,7 @@ interface PassContext {
   quotes: LiveQuoteProvider;
   now: Date;
   logger: RuntimeWorkerOptions['logger'];
+  health: PassHealth;
 }
 
 async function planPass(tx: Transaction, ctx: PassContext) {
@@ -273,6 +463,20 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     peak.minus(equity).div(peak).times(100).gte(def.risk.maxDrawdownPct),
   );
   const halted = work.halted || work.status !== 'running';
+  if (dailyLossHit || drawdownHit) {
+    // Entries stop for the day or until reviewed; Exit orders still run (§8.6).
+    const limit = dailyLossHit ? 'daily loss limit' : 'maximum drawdown';
+    await notify(tx, {
+      userId: work.userId,
+      kind: 'risk_pause',
+      title: `${work.strategyName}: ${dailyLossHit ? 'Daily loss limit' : 'Maximum drawdown'} reached`,
+      body: `No new Entry orders while the ${limit} is reached; Exit rules keep running.`,
+      link: `/orders?strategy=${work.strategyId}`,
+      resourceType: 'strategy_runtime',
+      resourceId: work.id,
+      dedupeKey: `${dailyLossHit ? 'daily_loss' : 'drawdown'}:${work.id}:${today}`,
+    });
+  }
 
   // 3. Conditions on the newest completed bars (§6.5).
   const data = await loadData(
@@ -337,6 +541,18 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       resourceId: id,
       context: { runtimeId: work.id, triggerEventId: entryEventId ?? null },
     });
+    if (triggered) {
+      await notify(tx, {
+        userId: work.userId,
+        kind: 'triggered',
+        title: `${work.strategyName}: Entry triggered`,
+        body: `Cycle ${work.nextSeq} started; its Entry orders follow their timing rules.`,
+        link: `/orders?strategy=${work.strategyId}`,
+        resourceType: 'strategy_cycle',
+        resourceId: id,
+        dedupeKey: `entry:${id}`,
+      });
+    }
   } else if (entry.decision.kind === 'add_batch') {
     const target = cycles.find((c) => c.id === (entry.decision as { cycleId: string }).cycleId);
     if (target) target.cycle = { ...target.cycle, entryBatches: target.cycle.entryBatches + 1 };
@@ -480,6 +696,18 @@ async function planPass(tx: Transaction, ctx: PassContext) {
           resourceId: c.id,
           context: { runtimeId: work.id, ...(realizedPnl ? { realizedPnl } : {}) },
         });
+        if (note === 'exit_triggered') {
+          await notify(tx, {
+            userId: work.userId,
+            kind: 'triggered',
+            title: `${work.strategyName}: Exit triggered`,
+            body: `Cycle ${c.seq} is exiting; its Exit orders follow their timing rules.`,
+            link: `/orders?strategy=${work.strategyId}`,
+            resourceType: 'strategy_cycle',
+            resourceId: c.id,
+            dedupeKey: `exit:${c.id}:${plan.cycle.exitRound}`,
+          });
+        }
       }
     }
   }
@@ -637,7 +865,7 @@ function skip(plan: CyclePlan, leg: PlannedLeg): undefined {
 
 async function submit(
   tx: Transaction,
-  ctx: Pick<PassContext, 'broker' | 'work' | 'logger'>,
+  ctx: Pick<PassContext, 'broker' | 'work' | 'logger' | 'health'>,
   intentId: string,
   request: Parameters<BrokerAdapter['submitOrder']>[0],
 ): Promise<boolean> {
@@ -661,6 +889,7 @@ async function submit(
     if (e instanceof BrokerUnavailableError) {
       // The intent stays ready; the next pass submits it again with the same key.
       ctx.logger.warn({ intentId }, 'broker unavailable; will retry');
+      ctx.health.brokerDown = true;
       return false;
     }
     throw e;

@@ -103,6 +103,9 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       if ('runtimeId' in params && !UUID.test(params.runtimeId ?? '')) {
         return errorResponse('not_found', 'Strategy run not found');
       }
+      if ('incidentId' in params && !UUID.test(params.incidentId ?? '')) {
+        return errorResponse('not_found', 'Incident not found');
+      }
       return await handler(
         request,
         { userId, tx: (fn) => withTenant(appDb(), { userId }, fn) },

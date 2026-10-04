@@ -2,7 +2,10 @@ import {
   claimRuntimes,
   createStrategy,
   eq,
+  isNull,
+  listNotifications,
   listPositions,
+  resumeRuntime,
   provisionWorkspace,
   schema,
   setKillSwitch,
@@ -14,11 +17,16 @@ import {
   type Transaction,
 } from '@tm/db';
 import { createTestDatabase, type TestDatabase } from '@tm/db/testing';
-import { createDefinition, type PlannedOrder, type StrategyDefinition } from '@tm/domain';
+import {
+  BrokerUnavailableError,
+  createDefinition,
+  type PlannedOrder,
+  type StrategyDefinition,
+} from '@tm/domain';
 import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { runRuntimePass, type RuntimeWorkerOptions } from '../src/runtime';
+import { runRuntimePass, SAFETY, type RuntimeWorkerOptions } from '../src/runtime';
 
 let t: TestDatabase;
 let userId: string;
@@ -32,13 +40,40 @@ const quiet = { info: () => undefined, warn: () => undefined, error: () => undef
 /** Tuesday 2026-10-06, one minute after the 10:30 New York bar closed. */
 const T0 = Date.parse('2026-10-06T14:31:00Z');
 let clock = T0;
+/** Test hooks: stale prices and a broker that stops answering. */
+let quoteDelayMs = 0;
+let brokerDown = false;
 const options = (workerId: string): RuntimeWorkerOptions => ({
   db: t.app.db,
   workerId,
   history: (now) => createDemoHistoryProvider({ now }),
-  quotes: (now) => createDemoLiveFeed({ now }),
+  quotes: (now) => {
+    const feed = createDemoLiveFeed({ now });
+    return {
+      ...feed,
+      latestQuote: async (ref) => {
+        const q = await feed.latestQuote(ref);
+        return q && quoteDelayMs > 0
+          ? { ...q, at: new Date(Date.parse(q.at) - quoteDelayMs).toISOString() }
+          : q;
+      },
+    };
+  },
   now: () => new Date(clock),
   logger: quiet,
+  wrapBroker: (broker) => ({
+    ...broker,
+    id: broker.id,
+    capabilities: broker.capabilities,
+    submitOrder: (r) => broker.submitOrder(r),
+    cancelOrder: (a, o) => broker.cancelOrder(a, o),
+    orderUpdates: (a, o) => broker.orderUpdates(a, o),
+    positions: (a) => broker.positions(a),
+    updates: (a, c) => {
+      if (brokerDown) throw new BrokerUnavailableError('test: broker down');
+      return broker.updates(a, c);
+    },
+  }),
 });
 
 /** Claims and runs one pass over every runtime that needs one, at the current clock. */
@@ -86,6 +121,23 @@ const leg = (id: string, partial: Partial<PlannedOrder>): PlannedOrder => ({
   timing: { mode: 'immediate' },
   timingOnly: false,
   ...partial,
+});
+
+/** A condition that is never true: DEMO-A below 1. */
+const never = (): StrategyDefinition['exit']['condition'] => ({
+  kind: 'group',
+  id: 'never-g',
+  op: 'and',
+  negate: false,
+  children: [
+    {
+      kind: 'comparison',
+      id: 'never',
+      operator: 'lt',
+      left: hourly(demoA, 'never-px'),
+      right: { kind: 'constant', id: 'never-k', value: '1' },
+    },
+  ],
 });
 
 /** Long DEMO-A and short DEMO-B while the rules hold; both conditions are always true. */
@@ -161,7 +213,29 @@ async function stopAll() {
   await t.ownerSql`update strategy_runtime set status = 'stopped', stopped_at = now() where status <> 'stopped'`;
   await t.ownerSql`update broker_order set state = 'canceled', terminal_at = now() where state in ('ready', 'submitted', 'acknowledged', 'partially_filled')`;
   await t.ownerSql`update execution_control set halted_at = null`;
+  await t.ownerSql`update execution_incident set resolved_at = now(), resolved_by = 'system' where resolved_at is null`;
+  quoteDelayMs = 0;
+  brokerDown = false;
 }
+
+const incidents = () =>
+  asUser((tx) =>
+    tx.select().from(schema.executionIncidents).where(isNull(schema.executionIncidents.resolvedAt)),
+  );
+const runtimeStatus = async (runtimeId: string) =>
+  (
+    await asUser((tx) =>
+      tx
+        .select({
+          status: schema.strategyRuntimes.status,
+          reason: schema.strategyRuntimes.pauseReason,
+        })
+        .from(schema.strategyRuntimes)
+        .where(eq(schema.strategyRuntimes.id, runtimeId)),
+    )
+  )[0];
+const notificationKinds = async () =>
+  (await asUser((tx) => listNotifications(tx, { limit: 200 }))).notifications.map((n) => n.kind);
 
 beforeAll(async () => {
   t = await createTestDatabase();
@@ -434,6 +508,131 @@ describe('paper runtime: restarts, stop and kill switch (§8.1, §8.5)', () => {
         .where(eq(schema.auditEvents.action, 'execution.kill_switch_engaged')),
     );
     expect(audit).toHaveLength(1);
+    await stopAll();
+  });
+});
+
+describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', () => {
+  it('notifies start, trigger and fill, and reconciles quietly while all agrees', async () => {
+    clock = T0 + 13 * 86_400_000;
+    const def = pairDefinition();
+    def.exit.condition = never();
+    const { runtimeId } = await startPaper('Quiet', def);
+    await pass();
+    clock += 10_000;
+    await pass();
+    clock += SAFETY.reconcileEveryMs;
+    await pass();
+    expect((await orders(runtimeId)).every((o) => o.state === 'filled')).toBe(true);
+    expect(await incidents()).toEqual([]);
+    const kinds = await notificationKinds();
+    for (const k of ['strategy_started', 'triggered', 'filled'] as const)
+      expect(kinds).toContain(k);
+    expect((await runtimeStatus(runtimeId))?.status).toBe('running');
+    await stopAll();
+  });
+
+  it('opens an incident and pauses the strategy when positions disagree with the broker', async () => {
+    clock = T0 + 14 * 86_400_000;
+    const def = pairDefinition();
+    def.exit.condition = never();
+    const { runtimeId } = await startPaper('Mismatch', def);
+    await pass();
+    clock += 10_000;
+    await pass();
+    // Something changes the broker's books behind the app's back.
+    await t.ownerSql`update paper_position set quantity = quantity + 5 where instrument_id = ${demoA}`;
+    clock += SAFETY.reconcileEveryMs;
+    await pass();
+
+    const [incident] = await incidents();
+    expect(incident).toMatchObject({
+      kind: 'reconciliation_mismatch',
+      accountId: account,
+      pausedRuntimes: 1,
+    });
+    expect(incident!.summary).toContain('DEMO-A');
+    expect(await runtimeStatus(runtimeId)).toMatchObject({ status: 'paused' });
+    const kinds = await notificationKinds();
+    expect(kinds).toContain('reconciliation_mismatch');
+    expect(kinds).toContain('risk_pause');
+    await t.ownerSql`update paper_position set quantity = quantity - 5 where instrument_id = ${demoA}`;
+    await stopAll();
+  });
+
+  it('pauses after repeated rejected orders, counting only since the last resume', async () => {
+    clock = T0 + 15 * 86_400_000;
+    const def = pairDefinition();
+    def.risk.maxOrderNotional = '1';
+    const { runtimeId } = await startPaper('Rejected', def);
+    for (let i = 0; i < 3; i++) {
+      await pass();
+      clock += 3_600_000;
+    }
+    const states = (await orders(runtimeId)).map((o) => o.state);
+    expect(states.filter((x) => x === 'rejected').length).toBeGreaterThanOrEqual(
+      SAFETY.rejectsInARow,
+    );
+    expect(await runtimeStatus(runtimeId)).toMatchObject({ status: 'paused' });
+    expect((await incidents()).map((i) => i.kind)).toEqual(['repeated_rejects']);
+    expect(await notificationKinds()).toContain('order_rejected');
+
+    // Resuming starts a fresh count: the old rejections do not pause it again at once.
+    await t.ownerSql`update execution_incident set resolved_at = now(), resolved_by = 'user' where resolved_at is null`;
+    await asUser((tx) => resumeRuntime(tx, userId, runtimeId));
+    clock += 60_000;
+    await pass();
+    expect((await runtimeStatus(runtimeId))?.status).toBe('running');
+    await stopAll();
+  });
+
+  it('flags stale prices at once and pauses if they stay stale; clears when current', async () => {
+    clock = T0 + 16 * 86_400_000;
+    const def = pairDefinition();
+    def.exit.condition = never();
+    const { runtimeId } = await startPaper('Stale', def);
+    quoteDelayMs = 10 * 60_000;
+    await pass();
+    expect((await incidents()).map((i) => i.kind)).toEqual(['stale_data']);
+    expect((await runtimeStatus(runtimeId))?.status).toBe('running');
+    // Stale prices fail the risk check, so nothing was ordered.
+    expect((await orders(runtimeId)).every((o) => o.state === 'rejected')).toBe(true);
+
+    clock += SAFETY.feedLossPauseMs;
+    await pass();
+    expect((await incidents()).map((i) => i.kind).sort()).toEqual(['feed_loss', 'stale_data']);
+    expect((await runtimeStatus(runtimeId))?.status).toBe('paused');
+    expect(await notificationKinds()).toEqual(expect.arrayContaining(['stale_data', 'disconnect']));
+
+    quoteDelayMs = 0;
+    await asUser((tx) => resumeRuntime(tx, userId, runtimeId));
+    clock += 10_000;
+    await pass();
+    // The data incident clears itself; the pause incident waits for a person.
+    expect((await incidents()).map((i) => i.kind)).toEqual(['feed_loss']);
+    await stopAll();
+  });
+
+  it('pauses when the broker stops answering, and clears when it answers again', async () => {
+    clock = T0 + 17 * 86_400_000;
+    const def = pairDefinition();
+    def.exit.condition = never();
+    const { runtimeId } = await startPaper('Unreachable', def);
+    await pass();
+    brokerDown = true;
+    clock += 10_000;
+    await pass();
+    expect(await incidents()).toEqual([]);
+    clock += SAFETY.brokerDownPauseMs;
+    await pass();
+    expect((await incidents()).map((i) => i.kind)).toEqual(['broker_disconnected']);
+    expect((await runtimeStatus(runtimeId))?.status).toBe('paused');
+    expect(await notificationKinds()).toContain('disconnect');
+
+    brokerDown = false;
+    clock += 10_000;
+    await pass();
+    expect(await incidents()).toEqual([]);
     await stopAll();
   });
 });

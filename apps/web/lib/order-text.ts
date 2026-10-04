@@ -1,4 +1,10 @@
-import type { OrderDetailDto, OrderRowDto, OrderViewDto } from '@tm/contracts';
+import type {
+  IncidentKindDto,
+  NotificationKindDto,
+  OrderDetailDto,
+  OrderRowDto,
+  OrderViewDto,
+} from '@tm/contracts';
 import type { OrderState, RiskCheckCode } from '@tm/domain';
 import type { Tone } from '@tm/ui';
 
@@ -135,3 +141,24 @@ export function formatPrice(value: string | null): string {
     maximumFractionDigits: 4,
   });
 }
+
+export const INCIDENT_LABELS: Record<IncidentKindDto, string> = {
+  reconciliation_mismatch: 'Reconciliation mismatch',
+  repeated_rejects: 'Repeated rejections',
+  stale_data: 'Stale prices',
+  feed_loss: 'Live prices lost',
+  broker_disconnected: 'Broker not responding',
+};
+
+export const NOTIFICATION_LABELS: Record<NotificationKindDto, { label: string; tone: Tone }> = {
+  strategy_started: { label: 'Started', tone: 'ok' },
+  strategy_stopped: { label: 'Stopped', tone: 'neutral' },
+  triggered: { label: 'Triggered', tone: 'info' },
+  order_rejected: { label: 'Rejected', tone: 'danger' },
+  partial_fill: { label: 'Partly filled', tone: 'warn' },
+  filled: { label: 'Filled', tone: 'ok' },
+  disconnect: { label: 'Disconnected', tone: 'danger' },
+  stale_data: { label: 'Stale prices', tone: 'warn' },
+  risk_pause: { label: 'Paused', tone: 'warn' },
+  reconciliation_mismatch: { label: 'Mismatch', tone: 'danger' },
+};

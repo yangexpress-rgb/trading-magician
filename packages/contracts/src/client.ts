@@ -10,6 +10,8 @@ import type {
   ExecutionStatusDto,
   KillSwitchRequest,
   ListOrdersQuery,
+  MarkNotificationsReadRequest,
+  NotificationListDto,
   OrderDetailDto,
   OrderListDto,
   PositionListDto,
@@ -119,6 +121,14 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
         call<ExecutionStatusDto>('POST', '/execution/kill-switch', body),
       resume: (runtimeId: string) =>
         call<ExecutionStatusDto>('POST', `/execution/runtimes/${enc(runtimeId)}/resume`),
+      resolveIncident: (incidentId: string, body: { note?: string } = {}) =>
+        call<ExecutionStatusDto>('POST', `/execution/incidents/${enc(incidentId)}/resolve`, body),
+    },
+    notifications: {
+      list: (q: { unread?: boolean; limit?: number } = {}) =>
+        call<NotificationListDto>('GET', `/notifications${query(q)}`),
+      markRead: (body: MarkNotificationsReadRequest) =>
+        call<{ marked: number }>('POST', '/notifications/read', body),
     },
   };
 }
