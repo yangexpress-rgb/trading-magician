@@ -1,9 +1,9 @@
 'use client';
 
+import { Alert, Button, TextField } from '@tm/ui';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState, type FormEvent } from 'react';
-import { Field } from '@/components/form-field';
 import { authClient } from '@/lib/auth-client';
 
 function SignInForm() {
@@ -36,32 +36,28 @@ function SignInForm() {
   }
 
   return (
-    <form className="stack" onSubmit={onSubmit}>
-      <h1>Sign in</h1>
+    <form className="space-y-4" onSubmit={onSubmit}>
+      <h1 className="text-xl font-semibold">Sign in</h1>
       {params.get('reset') === '1' && (
-        <p className="success">Password changed. Sign in with your new password.</p>
+        <Alert tone="ok">Password changed. Sign in with your new password.</Alert>
       )}
-      {params.get('deleted') === '1' && <p className="success">Your account was deleted.</p>}
-      <Field label="Email" name="email" type="email" autoComplete="email" required />
-      <Field
+      {params.get('deleted') === '1' && <Alert tone="ok">Your account was deleted.</Alert>}
+      <TextField label="Email" name="email" type="email" autoComplete="email" required />
+      <TextField
         label="Password"
         name="password"
         type="password"
         autoComplete="current-password"
         required
       />
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      <button className="primary" type="submit" disabled={pending}>
+      {error && <Alert>{error}</Alert>}
+      <Button variant="primary" type="submit" className="w-full" disabled={pending}>
         {pending ? 'Signing in…' : 'Sign in'}
-      </button>
-      <p>
+      </Button>
+      <p className="text-sm">
         <Link href="/forgot-password">Forgot your password?</Link>
       </p>
-      <p>
+      <p className="text-sm">
         New here? <Link href="/sign-up">Create an account</Link>
       </p>
     </form>

@@ -6,7 +6,7 @@ A web app for planning, testing and running multi-asset trading strategies, buil
 
 ## Status
 
-Phase 0 (foundation) in progress: M0.1–M0.3 done. See `docs/traceability.md` for what is done.
+Phase 0 (foundation) complete: M0.1–M0.4. Phase 1 (Strategy Lab) next. See `docs/traceability.md` for what is done.
 
 | Milestone | Scope                                                          |
 | --------- | -------------------------------------------------------------- |
@@ -24,6 +24,7 @@ apps/worker     Background worker (health check only for now)
 packages/config Environment validation helpers
 packages/domain Pure domain logic shared by web, backtester and runtime
 packages/db     Drizzle schema, migrations, row-level security, tenant scoping
+packages/ui     Design tokens and accessible UI primitives (Tailwind CSS)
 docs/adr        Architecture decision records
 docs/traceability.md  Requirement-to-code matrix
 ```

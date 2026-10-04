@@ -1,9 +1,9 @@
 'use client';
 
+import { Alert, Button, TextField } from '@tm/ui';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState, type FormEvent } from 'react';
-import { Field } from '@/components/form-field';
 import { authClient } from '@/lib/auth-client';
 
 function ResetForm() {
@@ -15,8 +15,8 @@ function ResetForm() {
 
   if (!token || params.get('error')) {
     return (
-      <div className="stack">
-        <h1>Link expired</h1>
+      <div className="space-y-4">
+        <h1 className="text-xl font-semibold">Link expired</h1>
         <p>This reset link is invalid or has expired.</p>
         <Link href="/forgot-password">Request a new link</Link>
       </div>
@@ -40,9 +40,9 @@ function ResetForm() {
   }
 
   return (
-    <form className="stack" onSubmit={onSubmit}>
-      <h1>Choose a new password</h1>
-      <Field
+    <form className="space-y-4" onSubmit={onSubmit}>
+      <h1 className="text-xl font-semibold">Choose a new password</h1>
+      <TextField
         label="New password (at least 12 characters)"
         name="password"
         type="password"
@@ -50,14 +50,10 @@ function ResetForm() {
         minLength={12}
         required
       />
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      <button className="primary" type="submit" disabled={pending}>
+      {error && <Alert>{error}</Alert>}
+      <Button variant="primary" type="submit" className="w-full" disabled={pending}>
         Save password
-      </button>
+      </Button>
     </form>
   );
 }
