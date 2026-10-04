@@ -1,0 +1,161 @@
+import {
+  STRATEGY_STATUSES,
+  type StrategyDefinition,
+  type StrategyStatus,
+  type ValidationResult,
+} from '@tm/domain';
+import { z } from 'zod';
+
+/**
+ * Request and response shapes for /api/v1/strategies (Design v1.0 §14.1).
+ * Requests are validated with these schemas on the server; responses are
+ * plain JSON, so dates travel as ISO strings and decimals as strings.
+ */
+
+const name = z
+  .string()
+  .trim()
+  .min(1, 'Give the strategy a name')
+  .max(120, 'Use 120 characters or fewer');
+const description = z.string().trim().max(2000, 'Use 2,000 characters or fewer');
+const tags = z
+  .array(z.string().trim().min(1).max(32, 'Tags are 32 characters at most'))
+  .max(20, 'Use up to 20 tags')
+  .transform((t) => [...new Set(t)]);
+const rowVersion = z.number().int().positive();
+
+export const STRATEGY_SORTS = ['updated', 'created', 'name', 'status'] as const;
+export const ARCHIVE_FILTERS = ['exclude', 'include', 'only'] as const;
+
+/** Query string for GET /strategies. Repeated `status` params filter by several statuses. */
+export const listStrategiesQuery = z.object({
+  q: z.string().trim().max(100).optional(),
+  status: z
+    .union([z.enum(STRATEGY_STATUSES), z.array(z.enum(STRATEGY_STATUSES))])
+    .transform((s) => (Array.isArray(s) ? s : [s]))
+    .optional(),
+  instrumentId: z.uuid().optional(),
+  updatedFrom: z.iso.date().optional(),
+  updatedTo: z.iso.date().optional(),
+  archived: z.enum(ARCHIVE_FILTERS).default('exclude'),
+  sort: z.enum(STRATEGY_SORTS).default('updated'),
+  direction: z.enum(['asc', 'desc']).default('desc'),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type ListStrategiesQuery = z.input<typeof listStrategiesQuery>;
+
+export const createStrategyRequest = z.object({
+  name,
+  description: description.optional(),
+  tags: tags.optional(),
+  /** Omit to start from an empty definition with the confirmed defaults. */
+  definition: z.unknown().optional(),
+});
+export type CreateStrategyRequest = z.input<typeof createStrategyRequest>;
+
+export const updateStrategyRequest = z
+  .object({
+    rowVersion,
+    name: name.optional(),
+    description: description.optional(),
+    tags: tags.optional(),
+    definition: z.unknown().optional(),
+    archived: z.boolean().optional(),
+    status: z.enum(['created', 'under_testing']).optional(),
+  })
+  .strict();
+export type UpdateStrategyRequest = z.input<typeof updateStrategyRequest>;
+
+export const rowVersionRequest = z.object({ rowVersion }).strict();
+export const duplicateStrategyRequest = z.object({ name: name.optional() }).strict();
+
+export const startStrategyRequest = z
+  .object({
+    rowVersion,
+    /** Paper only in this build; the field makes the mode explicit in every start. */
+    mode: z.literal('paper'),
+    confirmed: z.literal(true, { error: 'Confirm to start this strategy' }),
+    acknowledgedWarnings: z.array(z.string().max(64)).max(50).default([]),
+  })
+  .strict();
+export type StartStrategyRequest = z.input<typeof startStrategyRequest>;
+
+export const stopStrategyRequest = z
+  .object({ rowVersion, reason: z.string().trim().max(500).optional() })
+  .strict();
+
+// ---------------------------------------------------------------------------
+// Responses
+
+export interface StrategySummaryDto {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  status: StrategyStatus;
+  hasBeenActive: boolean;
+  currentVersionNo: number | null;
+  accountMode: 'paper' | 'live' | null;
+  instruments: { id: string; symbol: string }[];
+  latestBacktest: null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  rowVersion: number;
+}
+
+export interface StrategyListDto {
+  items: StrategySummaryDto[];
+  total: number;
+}
+
+export interface StrategyVersionSummaryDto {
+  id: string;
+  versionNo: number;
+  definitionHash: string;
+  createdAt: string;
+}
+
+export interface StrategyDetailDto {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  status: StrategyStatus;
+  hasBeenActive: boolean;
+  definition: StrategyDefinition;
+  definitionHash: string;
+  currentVersion: StrategyVersionSummaryDto | null;
+  hasUnpublishedChanges: boolean;
+  versions: StrategyVersionSummaryDto[];
+  statusHistory: {
+    fromStatus: StrategyStatus;
+    toStatus: StrategyStatus;
+    versionNo: number | null;
+    reason: string | null;
+    acknowledgedWarnings: string[];
+    changedAt: string;
+  }[];
+  baseCurrency: string;
+  timezone: string;
+  defaultAccountId: string | null;
+  dataRouteId: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  rowVersion: number;
+}
+
+export interface StrategyVersionDto extends StrategyVersionSummaryDto {
+  definition: StrategyDefinition;
+}
+
+export interface ValidateStrategyDto extends ValidationResult {
+  definitionHash: string;
+}
+
+export interface PublishVersionDto {
+  strategy: StrategyDetailDto;
+  created: boolean;
+}

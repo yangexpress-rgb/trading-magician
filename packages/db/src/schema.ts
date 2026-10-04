@@ -266,6 +266,7 @@ export const dataRoutes = pgTable(
     rowVersion: rowVersion(),
   },
   (t) => [
+    unique('data_route_id_user_uq').on(t.id, t.userId),
     foreignKey({
       columns: [t.primaryFeedId, t.userId],
       foreignColumns: [dataFeedConnections.id, dataFeedConnections.userId],
@@ -336,5 +337,142 @@ export const tradingAccounts = pgTable(
       .on(t.userId)
       .where(sql`${t.isDefault}`),
     check('trading_account_paper_only', sql`${t.mode} = 'paper'`),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Strategies (§6.1–6.3, §13.2; proposal §4.4). The definition is one validated
+// JSON document (schema in @tm/domain). The draft is mutable; versions are
+// immutable snapshots, protected by grants and a trigger.
+// ---------------------------------------------------------------------------
+
+export const strategyStatus = pgEnum('strategy_status', [
+  'created',
+  'under_testing',
+  'actively_executing',
+  'off',
+]);
+export const strategyPhase = pgEnum('strategy_phase', ['entry', 'exit']);
+export const strategyInstrumentRole = pgEnum('strategy_instrument_role', ['condition', 'order']);
+
+export const strategies = pgTable(
+  'strategy',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    tags: text('tags')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    status: strategyStatus('status').notNull().default('created'),
+    draftDefinition: jsonb('draft_definition').notNull(),
+    draftSchemaVersion: integer('draft_schema_version').notNull(),
+    /** sha256 of the canonical draft JSON; compared with versions and back tests. */
+    draftHash: text('draft_hash').notNull(),
+    /** Latest immutable version. FK added in 0005_strategy_security (circular). */
+    currentVersionId: uuid('current_version_id'),
+    hasBeenActive: boolean('has_been_active').notNull().default(false),
+    baseCurrency: char('base_currency', { length: 3 }).notNull(),
+    timezone: text('timezone').notNull(),
+    dataRouteId: uuid('data_route_id'),
+    defaultAccountId: uuid('default_account_id'),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    /** Soft delete: versions and history stay linked to orders (§6.2). */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    ...timestamps(),
+    rowVersion: rowVersion(),
+  },
+  (t) => [
+    unique('strategy_id_user_uq').on(t.id, t.userId),
+    foreignKey({
+      columns: [t.dataRouteId, t.userId],
+      foreignColumns: [dataRoutes.id, dataRoutes.userId],
+    }),
+    foreignKey({
+      columns: [t.defaultAccountId, t.userId],
+      foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
+    }),
+    index('strategy_user_updated_idx').on(t.userId, t.updatedAt),
+    check('strategy_name_length', sql`char_length(${t.name}) between 1 and 120`),
+    check('strategy_description_length', sql`char_length(${t.description}) <= 2000`),
+    check('strategy_tags_count', sql`coalesce(array_length(${t.tags}, 1), 0) <= 20`),
+  ],
+);
+
+export const strategyVersions = pgTable(
+  'strategy_version',
+  {
+    id: id(),
+    userId: uuid('user_id').notNull(),
+    strategyId: uuid('strategy_id').notNull(),
+    versionNo: integer('version_no').notNull(),
+    schemaVersion: integer('schema_version').notNull(),
+    definition: jsonb('definition').notNull(),
+    definitionHash: text('definition_hash').notNull(),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.strategyId, t.userId],
+      foreignColumns: [strategies.id, strategies.userId],
+    }).onDelete('cascade'),
+    unique('strategy_version_id_user_uq').on(t.id, t.userId),
+    unique('strategy_version_no_uq').on(t.strategyId, t.versionNo),
+    check('strategy_version_no_positive', sql`${t.versionNo} > 0`),
+  ],
+);
+
+export const strategyInstruments = pgTable(
+  'strategy_instrument',
+  {
+    userId: uuid('user_id').notNull(),
+    strategyId: uuid('strategy_id').notNull(),
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => instruments.id),
+    phase: strategyPhase('phase').notNull(),
+    role: strategyInstrumentRole('role').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.strategyId, t.userId],
+      foreignColumns: [strategies.id, strategies.userId],
+    }).onDelete('cascade'),
+    unique('strategy_instrument_uq').on(t.strategyId, t.instrumentId, t.phase, t.role),
+    index('strategy_instrument_lookup_idx').on(t.userId, t.instrumentId),
+  ],
+);
+
+export const strategyStatusChanges = pgTable(
+  'strategy_status_change',
+  {
+    id: id(),
+    userId: uuid('user_id').notNull(),
+    strategyId: uuid('strategy_id').notNull(),
+    fromStatus: strategyStatus('from_status').notNull(),
+    toStatus: strategyStatus('to_status').notNull(),
+    versionId: uuid('version_id'),
+    reason: text('reason'),
+    acknowledgedWarnings: text('acknowledged_warnings')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.strategyId, t.userId],
+      foreignColumns: [strategies.id, strategies.userId],
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.versionId, t.userId],
+      foreignColumns: [strategyVersions.id, strategyVersions.userId],
+    }),
+    index('strategy_status_change_strategy_idx').on(t.strategyId, t.changedAt),
   ],
 );
