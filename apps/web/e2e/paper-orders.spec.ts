@@ -192,4 +192,15 @@ test('start on paper, watch Entry fill live, read its timeline, cancel, stop and
   await expect(closeRow).toContainText('(you)');
   await expect(closeRow.getByText('Filled', { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole('row', { name: /Paper buyer.*DEMO-A.*Long 20/ })).toHaveCount(0);
+
+  // Each step was announced in-app (§16.3), unread until marked read.
+  await page.getByRole('link', { name: /^Notifications/ }).click();
+  await expect(page).toHaveURL(/\/notifications$/);
+  const notices = page.getByRole('list', { name: 'Notifications' });
+  for (const title of ['Paper buyer started on paper', 'Buy A filled', 'Paper buyer stopped']) {
+    await expect(notices.getByRole('listitem', { name: `${title}, unread` })).toBeVisible();
+  }
+  await page.getByRole('button', { name: 'Mark all as read' }).click();
+  await expect(notices.getByRole('listitem', { name: 'Buy A filled' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Mark all as read' })).toHaveCount(0);
 });

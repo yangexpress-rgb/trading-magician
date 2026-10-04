@@ -4,6 +4,7 @@ import {
   ApiError,
   ORDER_VIEWS,
   type ExecutionStatusDto,
+  type IncidentDto,
   type OrderRowDto,
   type PositionDto,
   type ScheduledRowDto,
@@ -31,6 +32,7 @@ import { apiClient } from '@/lib/api-client';
 import {
   describeHolding,
   formatPrice,
+  INCIDENT_LABELS,
   ORDER_STATE,
   PHASE_LABELS,
   RUNTIME_STATUS,
@@ -61,12 +63,16 @@ function errorText(e: unknown, fallback: string) {
 
 function ExecutionBanner({
   status,
+  when,
   onChanged,
 }: {
   status: ExecutionStatusDto;
+  when: (iso: string) => string;
   onChanged: () => void;
 }) {
   const [dialog, setDialog] = useState<null | 'release' | 'cancel-all'>(null);
+  const [resolving, setResolving] = useState<IncidentDto | null>(null);
+  const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -79,6 +85,7 @@ function ExecutionBanner({
     try {
       setDone(await fn());
       setDialog(null);
+      setResolving(null);
       onChanged();
     } catch (e) {
       setError(errorText(e, 'Something went wrong. Try again.'));
@@ -87,9 +94,42 @@ function ExecutionBanner({
     }
   }
 
-  if (!status.halted && paused.length === 0 && !done) return null;
+  if (!status.halted && paused.length === 0 && status.incidents.length === 0 && !done) return null;
   return (
     <div className="mb-4 space-y-2">
+      {status.incidents.length > 0 && (
+        <section
+          aria-labelledby="incidents-heading"
+          className="rounded-md border border-danger/40 bg-danger-soft px-3 py-2 text-sm"
+        >
+          <h2 id="incidents-heading" className="font-semibold text-danger">
+            {status.incidents.length === 1
+              ? '1 open incident'
+              : `${status.incidents.length} open incidents`}
+          </h2>
+          <ul className="mt-1 space-y-2">
+            {status.incidents.map((i) => (
+              <li key={i.id} className="flex flex-wrap items-start gap-2">
+                <Badge tone="danger">{INCIDENT_LABELS[i.kind]}</Badge>
+                <span className="min-w-0 flex-1">
+                  {i.summary}{' '}
+                  <span className="text-xs text-ink-muted">Opened {when(i.openedAt)}</span>
+                </span>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setNote('');
+                    setError(null);
+                    setResolving(i);
+                  }}
+                >
+                  Mark resolved
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {status.halted && (
         <div
           role="status"
@@ -144,7 +184,47 @@ function ExecutionBanner({
           </div>
         ))}
       {done && <Alert tone="ok">{done}</Alert>}
-      {error && !dialog && <Alert>{error}</Alert>}
+      {error && !dialog && !resolving && <Alert>{error}</Alert>}
+      <Dialog
+        open={resolving !== null}
+        onClose={() => setResolving(null)}
+        title="Mark this incident resolved?"
+        description="Confirm you have checked it. Paused strategies stay paused until you resume them."
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const incident = resolving;
+            if (!incident) return;
+            void run(async () => {
+              await apiClient.execution.resolveIncident(
+                incident.id,
+                note.trim() ? { note: note.trim() } : {},
+              );
+              return `${INCIDENT_LABELS[incident.kind]} marked resolved.`;
+            });
+          }}
+        >
+          <TextField
+            label="What you found (optional)"
+            name="incident-note"
+            value={note}
+            maxLength={500}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          {error && (
+            <div className="mt-3">
+              <Alert>{error}</Alert>
+            </div>
+          )}
+          <div className="mt-4 flex justify-end gap-2">
+            <Button onClick={() => setResolving(null)}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={busy}>
+              Mark resolved
+            </Button>
+          </div>
+        </form>
+      </Dialog>
       <Dialog
         open={dialog === 'cancel-all'}
         onClose={() => setDialog(null)}
@@ -613,7 +693,9 @@ export function OrdersView({
           </div>
         }
       />
-      {data.status && <ExecutionBanner status={data.status} onChanged={data.refresh} />}
+      {data.status && (
+        <ExecutionBanner status={data.status} when={(iso) => when(iso)} onChanged={data.refresh} />
+      )}
       {data.error && (
         <div className="mb-4">
           <Alert>{data.error}</Alert>

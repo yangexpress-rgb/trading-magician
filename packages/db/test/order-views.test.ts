@@ -10,7 +10,9 @@ import Decimal from 'decimal.js';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Transaction } from '../src/client';
+import { listOpenIncidents, openIncident, resolveIncident } from '../src/incidents';
 import { listenForExecutionChanges } from '../src/notify';
+import { listNotifications, markNotificationsRead, notify } from '../src/notifications';
 import {
   cancelOrderByUser,
   closePositions,
@@ -32,6 +34,7 @@ import { provisionWorkspace } from '../src/provision';
 import { stopRuntime } from '../src/runtime';
 import {
   auditEvents,
+  notifications,
   instruments,
   scheduledActions,
   strategyCycles,
@@ -408,5 +411,92 @@ describe('change notices', () => {
     } finally {
       await listener.close();
     }
+  });
+});
+
+describe('notifications (§16.3)', () => {
+  it('stores each event once, counts unread, and marks read', async () => {
+    const before = (await asA((tx) => listNotifications(tx))).unread;
+    for (let i = 0; i < 2; i++) {
+      await asA((tx) =>
+        notify(tx, {
+          userId: userA,
+          kind: 'filled',
+          title: 'Test notice',
+          link: '/orders',
+          dedupeKey: 'test:filled',
+        }),
+      );
+    }
+    const list = await asA((tx) => listNotifications(tx));
+    expect(list.unread).toBe(before + 1);
+    expect(list.notifications.filter((n) => n.title === 'Test notice')).toHaveLength(1);
+    expect(await asA((tx) => markNotificationsRead(tx, 'all'))).toBe(list.unread);
+    expect((await asA((tx) => listNotifications(tx))).unread).toBe(0);
+    expect((await as(userB, (tx) => listNotifications(tx))).notifications).toEqual([]);
+  });
+
+  it('lets the app change only the read time, and only to in-app links', async () => {
+    const error = await asA((tx) =>
+      tx.update(notifications).set({ title: 'changed' }).where(eq(notifications.userId, userA)),
+    ).then(
+      () => undefined,
+      (e: unknown) => e as { code?: string; cause?: { code?: string } },
+    );
+    expect(error?.code ?? error?.cause?.code).toBe('42501');
+    await expect(
+      asA((tx) =>
+        notify(tx, { userId: userA, kind: 'filled', title: 'x', link: 'https://evil.test' }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it('records order fills and strategy-level events as notifications', async () => {
+    const kinds = (await asA((tx) => listNotifications(tx, { limit: 200 }))).notifications.map(
+      (n) => n.kind,
+    );
+    expect(kinds).toContain('filled');
+    expect(kinds).toContain('order_rejected');
+  });
+});
+
+describe('incidents (§8.5, §8.6)', () => {
+  it('opens once per subject, pauses what it affects, and is resolved by a person', async () => {
+    const c = await startCycle('Incident');
+    const input = {
+      userId: userA,
+      kind: 'repeated_rejects' as const,
+      runtimeId: c.runtimeId,
+      summary: 'Paused after 3 rejected orders.',
+      pause: [c.runtimeId],
+    };
+    const first = await asA((tx) => openIncident(tx, input));
+    const again = await asA((tx) => openIncident(tx, input));
+    expect(first.created).toBe(true);
+    expect(again).toEqual({ incidentId: first.incidentId, created: false });
+    const status = await asA((tx) => getExecutionStatus(tx));
+    expect(status.incidents.map((i) => i.id)).toContain(first.incidentId);
+    expect(status.runtimes.find((r) => r.id === c.runtimeId)).toMatchObject({
+      status: 'paused',
+      pauseReason: 'Paused after 3 rejected orders.',
+    });
+    expect((await as(userB, (tx) => listOpenIncidents(tx))).length).toBe(0);
+
+    await asA((tx) =>
+      resolveIncident(tx, {
+        userId: userA,
+        incidentId: first.incidentId,
+        by: 'user',
+        note: 'Checked',
+      }),
+    );
+    await expectOrderError(
+      asA((tx) => resolveIncident(tx, { userId: userA, incidentId: first.incidentId, by: 'user' })),
+      'not_found',
+    );
+    const audit = await asA((tx) =>
+      tx.select().from(auditEvents).where(eq(auditEvents.resourceId, first.incidentId)),
+    );
+    expect(audit.map((a) => a.action).sort()).toEqual(['incident.opened', 'incident.resolved']);
   });
 });

@@ -1,6 +1,7 @@
 import { ChartIcon, LabIcon, ModeBadge, OrdersIcon, ResearchIcon, SettingsIcon } from '@tm/ui';
 import type { ReactNode } from 'react';
 import { NavLink } from './nav-link';
+import { NotificationsLink } from './notifications-link';
 import { SignOutButton } from './sign-out-button';
 
 /** Primary navigation, in the order fixed by Design v1.0 §5. */
@@ -42,6 +43,9 @@ export function AppShell({ email, children }: { email: string; children: ReactNo
             ))}
           </ul>
         </nav>
+        <div className="px-2 pb-2">
+          <NotificationsLink />
+        </div>
         <div className="hidden px-4 py-4 text-xs text-ink-muted md:absolute md:bottom-0 md:block md:w-full">
           <p className="truncate" title={email}>
             {email}

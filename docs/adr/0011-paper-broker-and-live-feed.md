@@ -1,6 +1,6 @@
 # ADR 0011: Paper broker and live demo feed
 
-- **Status:** accepted (the §20 #1 and #2 choices are proposed defaults awaiting confirmation)
+- **Status:** accepted (the §20 #1 and #2 defaults were confirmed 2026-10-04)
 - **Date:** 2026-10-04
 - **Design refs:** §6.5, §8.2–8.5, §9.2–9.3, §17.1, §17.4, §18 Phase 3, §20 #1–#2
 

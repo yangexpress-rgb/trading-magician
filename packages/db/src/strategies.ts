@@ -34,6 +34,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { recordAudit } from './audit';
+import { notify } from './notifications';
 import { cancelWorkingOrders, closePositions, listPositions } from './order-views';
 import { createRuntime, stopRuntime } from './runtime';
 import type { Transaction } from './client';
@@ -905,6 +906,16 @@ export async function startStrategy(
       runtimeId,
     },
   });
+  await notify(tx, {
+    userId,
+    kind: 'strategy_started',
+    title: `${row.name} started on paper`,
+    body: 'New orders appear in Orders as its rules trigger.',
+    link: `/orders?started=${id}`,
+    resourceType: 'strategy_runtime',
+    resourceId: runtimeId,
+    dedupeKey: `started:${runtimeId}`,
+  });
   return getStrategy(tx, id);
 }
 
@@ -965,5 +976,23 @@ export async function stopStrategy(
       ...(input.reason ? { reason: input.reason } : {}),
     },
   });
+  if (runtimeId) {
+    const choices = [
+      ...(canceledOrders > 0 ? [`${canceledOrders} working orders canceled`] : []),
+      ...(closeOrders > 0 ? [`${closeOrders} close orders sent`] : []),
+    ];
+    await notify(tx, {
+      userId,
+      kind: 'strategy_stopped',
+      title: `${row.name} stopped`,
+      body: choices.length
+        ? `No new orders. ${choices.join('; ')}.`
+        : 'No new orders. Working orders and positions were left as they are.',
+      link: `/orders?strategy=${id}`,
+      resourceType: 'strategy_runtime',
+      resourceId: runtimeId,
+      dedupeKey: `stopped:${runtimeId}`,
+    });
+  }
   return getStrategy(tx, id);
 }

@@ -171,7 +171,78 @@ export interface RuntimeSummaryDto {
   workingOrders: number;
 }
 
+export const INCIDENT_KINDS = [
+  'reconciliation_mismatch',
+  'repeated_rejects',
+  'stale_data',
+  'feed_loss',
+  'broker_disconnected',
+] as const;
+export type IncidentKindDto = (typeof INCIDENT_KINDS)[number];
+
+export interface IncidentDto {
+  id: string;
+  kind: IncidentKindDto;
+  runtimeId: string | null;
+  accountId: string | null;
+  summary: string;
+  details: Record<string, unknown>;
+  pausedRuntimes: number;
+  openedAt: string;
+}
+
+export const resolveIncidentRequest = z
+  .object({ note: z.string().trim().max(500).optional() })
+  .strict();
+export type ResolveIncidentRequest = z.input<typeof resolveIncidentRequest>;
+
 export interface ExecutionStatusDto {
   halted: { at: string; reason: string | null } | null;
   runtimes: RuntimeSummaryDto[];
+  /** Open incidents: reconciliation mismatches, repeated rejects, data and broker problems. */
+  incidents: IncidentDto[];
 }
+
+// ---------------------------------------------------------------------------
+// Notifications (§16.3)
+
+export const NOTIFICATION_KINDS = [
+  'strategy_started',
+  'strategy_stopped',
+  'triggered',
+  'order_rejected',
+  'partial_fill',
+  'filled',
+  'disconnect',
+  'stale_data',
+  'risk_pause',
+  'reconciliation_mismatch',
+] as const;
+export type NotificationKindDto = (typeof NOTIFICATION_KINDS)[number];
+
+export interface NotificationDto {
+  id: string;
+  kind: NotificationKindDto;
+  title: string;
+  body: string;
+  /** An in-app path. */
+  link: string | null;
+  createdAt: string;
+  read: boolean;
+}
+
+export interface NotificationListDto {
+  notifications: NotificationDto[];
+  unread: number;
+}
+
+export const listNotificationsQuery = z.object({
+  unread: z.enum(['true', 'false']).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export const markNotificationsReadRequest = z.union([
+  z.object({ all: z.literal(true) }).strict(),
+  z.object({ ids: z.array(z.uuid()).min(1).max(200) }).strict(),
+]);
+export type MarkNotificationsReadRequest = z.input<typeof markNotificationsReadRequest>;

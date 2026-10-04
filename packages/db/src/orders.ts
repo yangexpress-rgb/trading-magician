@@ -13,7 +13,8 @@ import Decimal from 'decimal.js';
 import { and, asc, eq } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Transaction } from './client';
-import { brokerOrders, fills, orderEvents, orderIntents } from './schema';
+import { notify } from './notifications';
+import { brokerOrders, fills, instruments, orderEvents, orderIntents, strategies } from './schema';
 
 /**
  * Order intents and their broker-side state (Design v1.0 §8.2–8.5; ADR 0010).
@@ -127,6 +128,15 @@ export async function recordOrderIntent(
     toState: state,
     payload: { kind: 'risk_check', risk: intent.risk },
   });
+  if (state === 'rejected') {
+    await announceOrderChange(
+      tx,
+      row.id,
+      'pending_risk',
+      state,
+      `Risk check failed: ${intent.risk.code ?? 'unknown'}`,
+    );
+  }
   await recordAudit(tx, {
     userId,
     actorType: intent.source === 'user' ? 'user' : 'system',
@@ -206,6 +216,7 @@ export async function markOrderFailed(
     toState: to,
     payload: { kind: 'submit_failed', reason: reason.slice(0, 500) },
   });
+  await announceOrderChange(tx, intentId, row.state, to, reason);
 }
 
 const BROKER_STATES: readonly OrderState[] = [
@@ -304,7 +315,87 @@ export async function applyBrokerUpdates(
       terminalAt: date(view.terminalAt),
     })
     .where(eq(brokerOrders.intentId, intentId));
+  if (view.state !== row.state) {
+    await announceOrderChange(tx, intentId, row.state, view.state, view.reason);
+  }
   return { state: view.state, applied };
+}
+
+const ANNOUNCED: Partial<Record<OrderState, 'filled' | 'partial_fill' | 'order_rejected' | null>> =
+  {
+    partially_filled: 'partial_fill',
+    filled: 'filled',
+    rejected: 'order_rejected',
+    failed: 'order_rejected',
+    canceled: null,
+    expired: null,
+  };
+
+/**
+ * Audit record and in-app notification for an order reaching a state people
+ * care about (§16.2, §16.3): fills, rejections, failures, cancels, expiry.
+ */
+async function announceOrderChange(
+  tx: Transaction,
+  intentId: string,
+  from: OrderState,
+  to: OrderState,
+  reason?: string | undefined,
+): Promise<void> {
+  if (!(to in ANNOUNCED)) return;
+  const [o] = await tx
+    .select({
+      userId: orderIntents.userId,
+      strategyId: orderIntents.strategyId,
+      strategyName: strategies.name,
+      legLabel: orderIntents.legLabel,
+      symbol: instruments.symbol,
+      quantity: orderIntents.quantity,
+      source: orderIntents.source,
+      filled: brokerOrders.filledQuantity,
+      averagePrice: brokerOrders.averagePrice,
+    })
+    .from(orderIntents)
+    .innerJoin(brokerOrders, eq(brokerOrders.intentId, orderIntents.id))
+    .leftJoin(strategies, eq(strategies.id, orderIntents.strategyId))
+    .leftJoin(instruments, eq(instruments.id, orderIntents.instrumentId))
+    .where(eq(orderIntents.id, intentId));
+  if (!o) return;
+  await recordAudit(tx, {
+    userId: o.userId,
+    actorType: 'system',
+    action: `order.${to}`,
+    resourceType: 'order_intent',
+    resourceId: intentId,
+    context: { fromState: from, ...(reason ? { reason: reason.slice(0, 200) } : {}) },
+  });
+  const kind = ANNOUNCED[to];
+  if (!kind) return;
+  const what = `${o.legLabel} (${o.symbol ?? 'order'}) for ${o.strategyName ?? 'a strategy'}`;
+  const price = o.averagePrice ? ` at an average of ${o.averagePrice}` : '';
+  const title =
+    kind === 'filled'
+      ? `${o.legLabel} filled`
+      : kind === 'partial_fill'
+        ? `${o.legLabel} partly filled`
+        : `${o.legLabel} ${to === 'failed' ? 'could not be sent' : 'rejected'}`;
+  const body =
+    kind === 'filled'
+      ? `${what}: ${o.filled} filled${price}.`
+      : kind === 'partial_fill'
+        ? `${what}: ${o.filled} of ${o.quantity} filled so far${price}.`
+        : `${what}${reason ? `: ${reason.slice(0, 300)}` : '.'}`;
+  await notify(tx, {
+    userId: o.userId,
+    kind,
+    title,
+    body,
+    link: `/orders?strategy=${o.strategyId}`,
+    resourceType: 'order_intent',
+    resourceId: intentId,
+    // A partial fill is announced once per order, not once per fill.
+    dedupeKey: `order:${intentId}:${kind}`,
+  });
 }
 
 export interface OrderTimelineEntry {

@@ -13,7 +13,7 @@ import {
   type StrategyDefinition,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
 import { OrderError } from './orders';
@@ -26,6 +26,7 @@ import {
   orderEvents,
   orderIntents,
   scheduledActions,
+  strategies,
   strategyCycles,
   strategyRuntimes,
   strategyVersions,
@@ -51,6 +52,10 @@ export interface RuntimeState {
   /** New York date and equity at its first pass, for the daily loss limit. */
   day?: { date: string; startEquity: string } | undefined;
   peakEquity?: string | undefined;
+  /** Since when the broker has not answered, epoch ms (§8.6 automatic pause). */
+  brokerDownSince?: number | undefined;
+  /** Since when a price used by the rules has been stale or missing, epoch ms. */
+  staleSince?: number | undefined;
 }
 
 export interface WorkingOrder {
@@ -190,7 +195,7 @@ export async function resumeRuntime(
   if (await isHalted(tx, userId)) return false;
   const rows = await tx
     .update(strategyRuntimes)
-    .set({ status: 'running', pauseReason: null })
+    .set({ status: 'running', pauseReason: null, resumedAt: new Date() })
     .where(and(eq(strategyRuntimes.id, runtimeId), eq(strategyRuntimes.status, 'paused')))
     .returning({ id: strategyRuntimes.id });
   return rows.length > 0;
@@ -240,8 +245,11 @@ export interface RuntimeWork {
   id: string;
   userId: string;
   strategyId: string;
+  strategyName: string;
   versionId: string;
   status: 'running' | 'paused' | 'stopped';
+  /** Start or last resume; automatic pauses only look at what happened since. */
+  activeSince: Date;
   state: RuntimeState;
   definition: StrategyDefinition;
   instruments: Map<string, InstrumentRef>;
@@ -268,9 +276,11 @@ export async function loadRuntimeWork(
     .select({
       runtime: strategyRuntimes,
       definition: strategyVersions.definition,
+      strategyName: strategies.name,
     })
     .from(strategyRuntimes)
     .innerJoin(strategyVersions, eq(strategyVersions.id, strategyRuntimes.versionId))
+    .leftJoin(strategies, eq(strategies.id, strategyRuntimes.strategyId))
     .where(eq(strategyRuntimes.id, runtimeId))
     .for('update', { of: strategyRuntimes });
   if (!rt || rt.runtime.leaseOwner !== workerId) return undefined;
@@ -434,8 +444,10 @@ export async function loadRuntimeWork(
     id: rt.runtime.id,
     userId: rt.runtime.userId,
     strategyId: rt.runtime.strategyId,
+    strategyName: rt.strategyName ?? 'A strategy',
     versionId: rt.runtime.versionId,
     status: rt.runtime.status,
+    activeSince: rt.runtime.resumedAt ?? rt.runtime.startedAt,
     state,
     definition,
     instruments: instrumentMap,
@@ -662,6 +674,16 @@ export async function requestCancel(
     return undefined;
   }
   if (!row.cancelRequestedAt) {
+    if (source === 'app') {
+      await recordAudit(tx, {
+        userId: row.userId,
+        actorType: 'system',
+        action: 'order.cancel_requested',
+        resourceType: 'order_intent',
+        resourceId: intentId,
+        context: { fromState: row.state, reason: reason.slice(0, 200) },
+      });
+    }
     await tx
       .update(brokerOrders)
       .set({ cancelRequestedAt: new Date() })
@@ -737,4 +759,42 @@ export async function runtimesForStrategy(tx: Transaction, strategyId: string) {
 /** Serializes paper-broker work per tenant, so two workers never fill one order twice. */
 export async function lockPaperBroker(tx: Transaction, userId: string) {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`paper:${userId}`}))`);
+}
+
+/** When the account was last reconciled (§8.5), or undefined if never. */
+export async function getReconciledAt(tx: Transaction, accountId: string) {
+  const [row] = await tx
+    .select({ at: brokerSyncs.reconciledAt })
+    .from(brokerSyncs)
+    .where(eq(brokerSyncs.accountId, accountId));
+  return row?.at ?? undefined;
+}
+
+export async function setReconciledAt(
+  tx: Transaction,
+  userId: string,
+  accountId: string,
+  at: Date,
+): Promise<void> {
+  await tx
+    .insert(brokerSyncs)
+    .values({ accountId, userId, reconciledAt: at })
+    .onConflictDoUpdate({ target: brokerSyncs.accountId, set: { reconciledAt: at } });
+}
+
+/** States of the runtime's newest orders created after `since`, newest first. */
+export async function recentOrderStates(
+  tx: Transaction,
+  runtimeId: string,
+  since: Date,
+  limit: number,
+): Promise<OrderState[]> {
+  const rows = await tx
+    .select({ state: brokerOrders.state })
+    .from(orderIntents)
+    .innerJoin(brokerOrders, eq(brokerOrders.intentId, orderIntents.id))
+    .where(and(eq(orderIntents.runtimeId, runtimeId), gt(orderIntents.createdAt, since)))
+    .orderBy(desc(orderIntents.createdAt), desc(orderIntents.id))
+    .limit(limit);
+  return rows.map((r) => r.state);
 }

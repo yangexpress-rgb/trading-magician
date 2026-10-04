@@ -1,6 +1,6 @@
 # ADR 0012: Strategy runtime and timing scheduler
 
-- **Status:** accepted (follows the Phase 3 §20 defaults awaiting confirmation)
+- **Status:** accepted (follows the Phase 3 §20 defaults, confirmed 2026-10-04)
 - **Date:** 2026-10-04
 - **Design refs:** §6.5–6.9, §8.1, §8.5, §12.4, §13.3, §18 Phase 3, §19.6
 
