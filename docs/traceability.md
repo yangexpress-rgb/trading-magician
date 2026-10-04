@@ -17,7 +17,7 @@ Maps requirements in the Trading App Design Document v1.0 to their implementatio
 | Secrets never written to logs                    | §9.2, §16.1   | Partial (M0.1: worker logger redaction)          | `apps/worker/src/logger.ts`             | `worker.test.ts`                 |
 | Live trading disabled                            | §18, §21      | Partial (M0.1: code guard; M0.2: DB constraints) | `packages/domain/src/trading-mode.ts`   | `trading-mode.test.ts`           |
 | Worker separate from web runtime                 | §12.1         | Partial (M0.1: health-only skeleton)             | `apps/worker`                           | `worker.test.ts`                 |
-| Dependency scanning                              | §16.1         | Done (M0.1)                                      | dependency-review job, Dependabot       | CI                               |
+| Dependency scanning                              | §16.1         | Done (M0.1)                                      | `pnpm audit` job, Dependabot            | CI                               |
 | Basic security headers                           | §16.1         | Partial (M0.1; CSP with nonces in M0.4)          | `apps/web/next.config.ts`               | —                                |
 | PostgreSQL migrations, generic demo seed         | §18 P0, §21   | Planned (M0.2)                                   |                                         |                                  |
 | Tenant isolation in app and database             | §4.1, §19.1   | Planned (M0.2)                                   |                                         |                                  |

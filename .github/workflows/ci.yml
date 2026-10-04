@@ -57,9 +57,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:integration
 
-  dependency-review:
-    if: github.event_name == 'pull_request'
+  audit:
+    # Dependency review needs GitHub Advanced Security, which private repos on
+    # this plan don't have, so known-vulnerability checks use the npm advisory DB.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/dependency-review-action@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level=high
