@@ -8,14 +8,14 @@ A web app for planning, testing and running multi-asset trading strategies, buil
 
 Phase 0 (foundation) complete: M0.1–M0.4. Phase 1 (Strategy Lab) next. See `docs/traceability.md` for what is done.
 
-| Milestone | Scope                                                            |
-| --------- | ---------------------------------------------------------------- |
-| M0.1      | Monorepo, strict TypeScript, lint, tests, CI, env validation     |
-| M0.2      | Database, migrations, row-level security, audit log, demo seed   |
-| M0.3      | Authentication and profile                                       |
-| M0.4      | App shell and five-tab navigation                                |
-| M1.1–M1.5 | Strategy Lab                                                     |
-| M2.1–M2.4 | Historical data, back-test engine, durable runs, API and results |
+| Milestone | Scope                                                                   |
+| --------- | ----------------------------------------------------------------------- |
+| M0.1      | Monorepo, strict TypeScript, lint, tests, CI, env validation            |
+| M0.2      | Database, migrations, row-level security, audit log, demo seed          |
+| M0.3      | Authentication and profile                                              |
+| M0.4      | App shell and five-tab navigation                                       |
+| M1.1–M1.5 | Strategy Lab                                                            |
+| M2.1–M2.5 | Back testing: data, engine, durable runs, API, results, activation gate |
 
 ## Layout
 

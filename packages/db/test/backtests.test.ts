@@ -17,8 +17,22 @@ import {
 } from '../src/backtests';
 import type { Transaction } from '../src/client';
 import { provisionWorkspace } from '../src/provision';
-import { backtestRuns, entitlements, instruments, tradingAccounts, users } from '../src/schema';
-import { createStrategy, getStrategy, StrategyError, updateStrategy } from '../src/strategies';
+import {
+  auditEvents,
+  backtestRuns,
+  entitlements,
+  instruments,
+  tradingAccounts,
+  users,
+} from '../src/schema';
+import {
+  createStrategy,
+  getStrategy,
+  startStrategy,
+  StrategyError,
+  updateStrategy,
+  validateStoredStrategy,
+} from '../src/strategies';
 import { withTenant } from '../src/tenant';
 import { createTestDatabase, type TestDatabase } from './harness';
 
@@ -394,5 +408,51 @@ describe('tenant isolation', () => {
       ),
     ).resolves.toHaveLength(0);
     expect((await asA((tx) => getBacktest(tx, run.id))).status).toBe('queued');
+  });
+});
+
+describe('activation gate', () => {
+  const warningCodes = async (id: string) =>
+    (await asA((tx) => validateStoredStrategy(tx, id))).validation.warnings.map((w) => w.code);
+
+  it('warns until a back test matches the draft, and records the one shown at Start', async () => {
+    let s = await newStrategy('Gated');
+    expect(await warningCodes(s.id)).toContain('no_backtest');
+
+    const run = await asA((tx) => startBacktest(tx, userA, s.id, inputs));
+    expect(await warningCodes(s.id)).toContain('no_backtest'); // queued is not tested
+    await claimBacktestRun(t.app.db, 'w1', QUEUE);
+    await asA((tx) => completeRun(tx, userA, run.id, 'w1', fakeResult()));
+    const tested = await asA((tx) => validateStoredStrategy(tx, s.id));
+    expect(tested.validation.warnings.map((w) => w.code)).not.toContain('no_backtest');
+    expect(tested.validation.warnings.map((w) => w.code)).not.toContain('stale_backtest');
+    expect(tested.backtest).toMatchObject({ runId: run.id, definitionHash: s.definitionHash });
+
+    // Changing the rules makes the test stale.
+    const def = readyDefinition();
+    def.risk.maxOrderNotional = '4000';
+    s = await asA((tx) =>
+      updateStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, definition: def }),
+    );
+    expect(await warningCodes(s.id)).toContain('stale_backtest');
+    s = await asA((tx) =>
+      updateStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, status: 'under_testing' }),
+    );
+    await expectStrategyError(
+      asA((tx) => startStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, confirmed: true })),
+      'transition_blocked',
+    );
+    s = await asA((tx) =>
+      startStrategy(tx, userA, s.id, {
+        rowVersion: s.rowVersion,
+        confirmed: true,
+        acknowledgedWarnings: ['stale_backtest'],
+      }),
+    );
+    expect(s.statusHistory[0]?.acknowledgedWarnings).toEqual(['stale_backtest']);
+    const [audit] = await asA((tx) =>
+      tx.select().from(auditEvents).where(eq(auditEvents.action, 'strategy.started')),
+    );
+    expect(audit?.context).toMatchObject({ latestBacktestId: run.id });
   });
 });

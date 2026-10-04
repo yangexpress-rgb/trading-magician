@@ -240,6 +240,7 @@ export function StrategyEditor({
           dirty={dirty}
           definition={definition}
           validation={validation}
+          onBacktestFinished={recheck}
           onChanged={(detail) => {
             setRowVersion(detail.rowVersion);
             router.refresh();

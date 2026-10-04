@@ -48,16 +48,16 @@ With M1.5, every §18 Phase 0 and Phase 1 item above is Done. The two Partial ro
 
 ## Phase 2: back testing (§18)
 
-| Requirement                                 | Design ref         | Status                                                                                                                                                                                                                |
-| ------------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Historical-data adapter contract            | §7.1, §18 P2       | Done (M2.1): `HistoricalDataProvider`, `BarSeries` in `packages/domain/src/market/bars.ts`; ADR 0007                                                                                                                  |
-| Generic demo price history                  | §21, §20 #1        | Done (M2.1): `packages/market-data` (factor model, split, dividends, missing hourly bars); `demo-history.test.ts`                                                                                                     |
-| NYSE trading calendar                       | §6.7, §20 #10      | Done (M2.1): `packages/domain/src/market/calendar.ts`; `calendar.test.ts`                                                                                                                                             |
-| Indicator calculations, no lookahead        | §6.4, §7.2         | Done (M2.1): `packages/domain/src/market/indicators.ts`; `indicators.test.ts` (property-based)                                                                                                                        |
-| Shared rule engine, alignment, fills, costs | §7.2               | Done (M2.2): `packages/backtest` (`simulate`, fill model, metrics); ADR 0008; `properties.test.ts` (no lookahead)                                                                                                     |
-| Durable jobs and run status; provenance     | §7.2, §13.3, §14.2 | Done (M2.3): `backtest_run`/`backtest_trade` + `claim_backtest_run` (0006–0007); `packages/db/src/backtests.ts`; `apps/worker/src/backtests.ts`; §14.2 routes; ADR 0009; `backtests.test.ts`, `backtests-api.spec.ts` |
-| Results, trade list, charts, assumptions    | §7.3               | Done (M2.4): `apps/web/components/strategy/backtest.tsx` (inputs, live status, history, tiles, SVG charts, trades, contribution, warnings, assumptions aside, CSV); `backtest.spec.ts` with axe                       |
-| Start placement and activation gate         | §7.4               | Planned (M2.5)                                                                                                                                                                                                        |
+| Requirement                                 | Design ref         | Status                                                                                                                                                                                                                               |
+| ------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Historical-data adapter contract            | §7.1, §18 P2       | Done (M2.1): `HistoricalDataProvider`, `BarSeries` in `packages/domain/src/market/bars.ts`; ADR 0007                                                                                                                                 |
+| Generic demo price history                  | §21, §20 #1        | Done (M2.1): `packages/market-data` (factor model, split, dividends, missing hourly bars); `demo-history.test.ts`                                                                                                                    |
+| NYSE trading calendar                       | §6.7, §20 #10      | Done (M2.1): `packages/domain/src/market/calendar.ts`; `calendar.test.ts`                                                                                                                                                            |
+| Indicator calculations, no lookahead        | §6.4, §7.2         | Done (M2.1): `packages/domain/src/market/indicators.ts`; `indicators.test.ts` (property-based)                                                                                                                                       |
+| Shared rule engine, alignment, fills, costs | §7.2               | Done (M2.2): `packages/backtest` (`simulate`, fill model, metrics); ADR 0008; `properties.test.ts` (no lookahead)                                                                                                                    |
+| Durable jobs and run status; provenance     | §7.2, §13.3, §14.2 | Done (M2.3): `backtest_run`/`backtest_trade` + `claim_backtest_run` (0006–0007); `packages/db/src/backtests.ts`; `apps/worker/src/backtests.ts`; §14.2 routes; ADR 0009; `backtests.test.ts`, `backtests-api.spec.ts`                |
+| Results, trade list, charts, assumptions    | §7.3               | Done (M2.4): `apps/web/components/strategy/backtest.tsx` (inputs, live status, history, tiles, SVG charts, trades, contribution, warnings, assumptions aside, CSV); `backtest.spec.ts` with axe                                      |
+| Start placement and activation gate         | §7.4               | Done (M2.5): `validateStoredStrategy` feeds the latest completed run to `no_backtest`/`stale_backtest`; panel and Start dialog show latest run and draft match; start audit records the run; `backtest.spec.ts`, `backtests.test.ts` |
 
 ## Product decisions confirmed (2026-10-04)
 
@@ -69,3 +69,14 @@ With M1.5, every §18 Phase 0 and Phase 1 item above is Done. The two Partial ro
 | #7, #8 Multi-leg default    | Concurrent submission; 60 s leg timeout, then cancel remaining legs and flag imbalance                                  |
 | #10 Market closed           | Queue to next regular session; NYSE holiday calendar                                                                    |
 | §20 closing defaults        | Paper only; one open cycle; on-transition triggers; full Entry fill before Exit                                         |
+
+## Phase 2 defaults proposed (2026-10-04, awaiting confirmation)
+
+Built with these until Yong answers; each is an editable input or a single constant.
+
+| §20 item                   | Proposed default                                                                                                                       |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| #1 Price history source    | Generated demo history for the DEMO instruments, behind `HistoricalDataProvider`                                                       |
+| #5 Resolution and range    | Daily by default, hourly optional; at most 5 years daily or 1 year hourly per run                                                      |
+| #6 Fill and cost defaults  | Market at next open; limits and stops when traded through; 5 bps slippage; no commission; 10% of bar volume per fill; 1% a year borrow |
+| #12 Back test before start | Not required on paper; a missing or out-of-date back test is a warning to acknowledge                                                  |

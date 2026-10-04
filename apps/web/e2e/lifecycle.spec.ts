@@ -109,6 +109,9 @@ test('define, validate, test, start on paper, stop, revise and review versions',
   await expect(dialog.getByText('Paper (simulated orders, no real money)')).toBeVisible();
   await expect(dialog.getByText('DEMO-A, DEMO-B')).toBeVisible();
   await expect(dialog.getByText('2 Entry, 2 Exit')).toBeVisible();
+  // The activation gate (§7.4): never back tested is a warning to acknowledge on paper.
+  await expect(dialog.getByText('None yet')).toBeVisible();
+  await expect(dialog.getByText('This strategy has not been back tested')).toBeVisible();
   const confirm = dialog.getByRole('button', { name: 'Start on paper' });
   await expect(confirm).toBeDisabled();
   await expectNoSeriousA11yIssues(page);
@@ -128,7 +131,7 @@ test('define, validate, test, start on paper, stop, revise and review versions',
     history.statusHistory.find((h: { toStatus: string }) => h.toStatus === 'actively_executing'),
   ).toMatchObject({
     versionNo: 1,
-    acknowledgedWarnings: ['non_atomic_multi_leg'],
+    acknowledgedWarnings: ['non_atomic_multi_leg', 'no_backtest'],
   });
 
   await backTest.getByRole('button', { name: 'Stop execution' }).click();

@@ -153,6 +153,8 @@ export interface StrategyVersionDto extends StrategyVersionSummaryDto {
 
 export interface ValidateStrategyDto extends ValidationResult {
   definitionHash: string;
+  /** The latest completed back test, shown before Start (§7.4). */
+  latestBacktest: { runId: string; definitionHash: string; finishedAt: string } | null;
 }
 
 export interface PublishVersionDto {

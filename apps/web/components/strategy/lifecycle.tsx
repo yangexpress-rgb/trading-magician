@@ -8,7 +8,7 @@ import {
   type ValidationIssue,
 } from '@tm/domain';
 import { Alert, Button, Card, Dialog } from '@tm/ui';
-import { useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { describeIssueLocation } from '@/lib/strategy-text';
 import {
@@ -54,7 +54,8 @@ export function useValidation(strategyId: string, rowVersion: number) {
     };
   }, [strategyId, rowVersion, nonce]);
 
-  return { state, recheck: () => setNonce((n) => n + 1) };
+  const recheck = useCallback(() => setNonce((n) => n + 1), []);
+  return { state, recheck };
 }
 
 function errorMessage(e: unknown, fallback: string): string {
@@ -169,6 +170,7 @@ function StartDialog({
   strategyName,
   definition,
   warnings,
+  backtest,
   busy,
   error,
   onConfirm,
@@ -178,6 +180,8 @@ function StartDialog({
   strategyName: string;
   definition: StrategyDefinition;
   warnings: readonly ValidationIssue[];
+  /** The activation gate (§7.4): when the strategy was last tested, and whether it changed since. */
+  backtest: [string, string][];
   busy: boolean;
   error: string | null;
   onConfirm: (acknowledged: string[]) => void;
@@ -207,6 +211,7 @@ function StartDialog({
     ],
     ['Maximum exposure', exposure ? `${baseCurrency} ${exposure}` : 'Not set'],
     ['Existing positions', 'Not tracked until paper execution is available'],
+    ...backtest,
   ];
 
   return (
@@ -348,6 +353,7 @@ export function BackTestPanel({
   definition,
   validation,
   onChanged,
+  onBacktestFinished,
 }: {
   strategyId: string;
   strategyName: string;
@@ -357,6 +363,8 @@ export function BackTestPanel({
   definition: StrategyDefinition;
   validation: ValidationState;
   onChanged: (detail: StrategyDetailDto) => void;
+  /** Called when a run ends, so validation can pick up the new back test. */
+  onBacktestFinished: () => void;
 }) {
   const [busy, setBusy] = useState<Busy>(null);
   const [dialog, setDialog] = useState<null | 'start' | 'stop'>(null);
@@ -364,6 +372,15 @@ export function BackTestPanel({
   const [panelError, setPanelError] = useState<{ message: string; conflict: boolean } | null>(null);
   const hintId = useId();
   const backtests = useBacktests(strategyId);
+  const activeId = backtests.active?.id;
+  const [watching, setWatching] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (activeId) setWatching(activeId);
+    else if (watching) {
+      setWatching(undefined);
+      onBacktestFinished();
+    }
+  }, [activeId, watching, onBacktestFinished]);
 
   async function act(kind: Exclude<Busy, null>, run: () => Promise<StrategyDetailDto>) {
     setBusy(kind);
@@ -410,6 +427,9 @@ export function BackTestPanel({
           : null;
   const latest = backtests.runs?.find((r) => r.status === 'completed');
   const draftHash = validation.kind === 'ready' ? validation.result.definitionHash : null;
+  const latestText = latest?.finishedAt
+    ? `${new Date(latest.finishedAt).toLocaleString('en-US')} (version ${latest.versionNo})`
+    : 'None yet';
   const draftTested = !latest
     ? 'Not tested'
     : dirty
@@ -433,11 +453,7 @@ export function BackTestPanel({
         <BacktestInputsForm state={backtests} blocked={runBlocked} />
         <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt className="text-ink-muted">Latest back test</dt>
-          <dd>
-            {latest?.finishedAt
-              ? `${new Date(latest.finishedAt).toLocaleString('en-US')} (version ${latest.versionNo})`
-              : 'None yet'}
-          </dd>
+          <dd>{latestText}</dd>
           <dt className="text-ink-muted">Current draft</dt>
           <dd>{draftTested}</dd>
         </dl>
@@ -516,6 +532,10 @@ export function BackTestPanel({
             strategyName={strategyName}
             definition={definition}
             warnings={validation.result.warnings}
+            backtest={[
+              ['Latest back test', latestText],
+              ['Rules since then', draftTested],
+            ]}
             busy={busy === 'start'}
             error={error}
             onConfirm={(acknowledgedWarnings) =>
