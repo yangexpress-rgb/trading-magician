@@ -8,10 +8,15 @@
     "start": "tsx src/main.ts",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run src",
+    "test:integration": "vitest run test/"
   },
   "dependencies": {
+    "@tm/backtest": "workspace:*",
     "@tm/config": "workspace:*",
+    "@tm/db": "workspace:*",
+    "@tm/domain": "workspace:*",
+    "@tm/market-data": "workspace:*",
     "pino": "^10.4.0",
     "zod": "^4.6.5"
   },

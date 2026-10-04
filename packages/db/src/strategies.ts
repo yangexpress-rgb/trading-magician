@@ -65,7 +65,12 @@ import {
  */
 
 export type StrategyErrorCode =
-  'not_found' | 'conflict' | 'invalid_state' | 'invalid_definition' | 'transition_blocked';
+  | 'not_found'
+  | 'conflict'
+  | 'invalid_state'
+  | 'invalid_definition'
+  | 'transition_blocked'
+  | 'limit_reached';
 
 export class StrategyError extends Error {
   constructor(
@@ -269,7 +274,7 @@ export interface StrategyDetail {
   rowVersion: number;
 }
 
-async function loadRow(tx: Transaction, id: string) {
+export async function loadStrategyRow(tx: Transaction, id: string) {
   const [row] = await tx
     .select()
     .from(strategies)
@@ -279,7 +284,7 @@ async function loadRow(tx: Transaction, id: string) {
 }
 
 export async function getStrategy(tx: Transaction, id: string): Promise<StrategyDetail> {
-  const row = await loadRow(tx, id);
+  const row = await loadStrategyRow(tx, id);
   const versions = await tx
     .select({
       id: strategyVersions.id,
@@ -331,7 +336,7 @@ export async function getStrategy(tx: Transaction, id: string): Promise<Strategy
 
 /** An immutable version's definition, for the version history view. */
 export async function getStrategyVersion(tx: Transaction, strategyId: string, versionNo: number) {
-  await loadRow(tx, strategyId);
+  await loadStrategyRow(tx, strategyId);
   const [v] = await tx
     .select()
     .from(strategyVersions)
@@ -398,7 +403,7 @@ export async function validateStoredStrategy(
   tx: Transaction,
   id: string,
 ): Promise<{ validation: ValidationResult; definitionHash: string }> {
-  const row = await loadRow(tx, id);
+  const row = await loadStrategyRow(tx, id);
   const definition = parseOrThrow(row.draftDefinition);
   const ctx = await loadValidationContext(tx);
   return {
@@ -472,6 +477,30 @@ async function insertVersion(
   return version;
 }
 
+/**
+ * The immutable version holding the current draft, for a back test to pin
+ * (§7.2). Reuses the current version, or any earlier one with the same rules,
+ * before snapshotting a new one. Only the version pointer moves: the draft and
+ * `rowVersion` stay as they are, so an editor open elsewhere isn't invalidated.
+ */
+export async function pinDraftVersion(tx: Transaction, userId: string, id: string) {
+  const row = await loadStrategyRow(tx, id);
+  const definition = parseOrThrow(row.draftDefinition);
+  const [existing] = await tx
+    .select({ id: strategyVersions.id, versionNo: strategyVersions.versionNo })
+    .from(strategyVersions)
+    .where(
+      and(eq(strategyVersions.strategyId, id), eq(strategyVersions.definitionHash, row.draftHash)),
+    )
+    .orderBy(desc(strategyVersions.versionNo))
+    .limit(1);
+  const version = existing ?? (await insertVersion(tx, userId, id, definition, row.draftHash));
+  if (row.currentVersionId !== version.id) {
+    await tx.update(strategies).set({ currentVersionId: version.id }).where(eq(strategies.id, id));
+  }
+  return { row, definition, versionId: version.id, versionNo: version.versionNo };
+}
+
 /** Updates the row if its version still matches; tells "gone" apart from "changed". */
 async function updateRow(
   tx: Transaction,
@@ -491,7 +520,7 @@ async function updateRow(
     )
     .returning();
   if (row) return row;
-  await loadRow(tx, id); // throws not_found
+  await loadStrategyRow(tx, id); // throws not_found
   throw new StrategyError(
     'conflict',
     'This strategy was changed somewhere else. Reload to see the latest version.',
@@ -562,7 +591,7 @@ export async function updateStrategy(
   id: string,
   input: UpdateStrategyInput,
 ): Promise<StrategyDetail> {
-  const before = await loadRow(tx, id);
+  const before = await loadStrategyRow(tx, id);
   const values: Partial<typeof strategies.$inferInsert> = {};
   const changed: string[] = [];
 
@@ -663,7 +692,7 @@ export async function publishVersion(
   id: string,
   input: { rowVersion: number },
 ): Promise<{ strategy: StrategyDetail; created: boolean }> {
-  const row = await loadRow(tx, id);
+  const row = await loadStrategyRow(tx, id);
   const current = row.currentVersionId
     ? (
         await tx
@@ -702,7 +731,7 @@ export async function duplicateStrategy(
   id: string,
   input: { name?: string | undefined } = {},
 ): Promise<StrategyDetail> {
-  const source = await loadRow(tx, id);
+  const source = await loadStrategyRow(tx, id);
   const name = input.name ?? `Copy of ${source.name}`.slice(0, 120);
   const copy = await createStrategy(tx, userId, {
     name,
@@ -728,7 +757,7 @@ export async function deleteStrategy(
   id: string,
   input: { rowVersion: number },
 ): Promise<void> {
-  const row = await loadRow(tx, id);
+  const row = await loadStrategyRow(tx, id);
   if (row.status === 'actively_executing') {
     throw new StrategyError('invalid_state', 'Stop this strategy before deleting it');
   }
@@ -761,7 +790,7 @@ export async function startStrategy(
   id: string,
   input: StartStrategyInput,
 ): Promise<StrategyDetail> {
-  const row = await loadRow(tx, id);
+  const row = await loadStrategyRow(tx, id);
   if (row.archivedAt)
     throw new StrategyError('invalid_state', 'Restore this strategy before starting it');
   const { validation } = await validateStoredStrategy(tx, id);
@@ -837,7 +866,7 @@ export async function stopStrategy(
   id: string,
   input: { rowVersion: number; reason?: string | undefined },
 ): Promise<StrategyDetail> {
-  const row = await loadRow(tx, id);
+  const row = await loadStrategyRow(tx, id);
   const plan = planTransition({ from: row.status, to: 'off' });
   if (!plan.ok) {
     throw new StrategyError(

@@ -53,6 +53,9 @@ importers:
       '@tm/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@tm/market-data':
+        specifier: workspace:*
+        version: link:../../packages/market-data
       '@tm/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -108,9 +111,21 @@ importers:
 
   apps/worker:
     dependencies:
+      '@tm/backtest':
+        specifier: workspace:*
+        version: link:../../packages/backtest
       '@tm/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@tm/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@tm/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@tm/market-data':
+        specifier: workspace:*
+        version: link:../../packages/market-data
       pino:
         specifier: ^10.4.0
         version: 10.4.0
@@ -149,6 +164,9 @@ importers:
 
   packages/contracts:
     dependencies:
+      '@tm/backtest':
+        specifier: workspace:*
+        version: link:../backtest
       '@tm/domain':
         specifier: workspace:*
         version: link:../domain
@@ -158,6 +176,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@tm/backtest':
+        specifier: workspace:*
+        version: link:../backtest
       '@tm/config':
         specifier: workspace:*
         version: link:../config

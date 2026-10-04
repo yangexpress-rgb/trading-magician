@@ -17,6 +17,7 @@
     "@tm/contracts": "workspace:*",
     "@tm/db": "workspace:*",
     "@tm/domain": "workspace:*",
+    "@tm/market-data": "workspace:*",
     "@tm/ui": "workspace:*",
     "better-auth": "^1.7.7",
     "clsx": "^2.1.1",

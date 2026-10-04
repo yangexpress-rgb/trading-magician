@@ -37,6 +37,7 @@ export const DEV_PLAN = {
     savedStrategies: 50,
     activeStrategies: 5,
     backtestRunsPerDay: 100,
+    concurrentBacktests: 2,
     liveData: false,
     paperIntegrations: true,
     realIntegrations: false,

@@ -3,19 +3,19 @@ import { createServer, type Server } from 'node:http';
 export interface HealthReport {
   status: 'ok';
   service: 'worker';
-  /** Phase 0/1 worker runs no jobs; queues and runtimes arrive in Phase 2–3. */
-  jobs: 'none';
+  /** Which job loops this worker runs. Order runtimes arrive in Phase 3. */
+  jobs: 'none' | 'backtests';
 }
 
-export function healthReport(): HealthReport {
-  return { status: 'ok', service: 'worker', jobs: 'none' };
+export function healthReport(jobs: HealthReport['jobs'] = 'none'): HealthReport {
+  return { status: 'ok', service: 'worker', jobs };
 }
 
-export function createHealthServer(): Server {
+export function createHealthServer(jobs: HealthReport['jobs'] = 'none'): Server {
   return createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/healthz') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify(healthReport()));
+      res.end(JSON.stringify(healthReport(jobs)));
       return;
     }
     res.writeHead(404).end();

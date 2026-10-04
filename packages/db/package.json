@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./test/harness.ts"
   },
   "scripts": {
     "lint": "eslint .",
@@ -17,6 +18,7 @@
     "db:seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
+    "@tm/backtest": "workspace:*",
     "@tm/config": "workspace:*",
     "@tm/domain": "workspace:*",
     "drizzle-orm": "^0.45.3",

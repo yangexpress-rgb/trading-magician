@@ -1,3 +1,9 @@
+import type {
+  BacktestListDto,
+  BacktestRunDto,
+  BacktestTradesDto,
+  StartBacktestRequest,
+} from './backtests';
 import { ApiError, type ApiErrorBody } from './errors';
 import type {
   CreateStrategyRequest,
@@ -70,6 +76,17 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
         call<StrategyDetailDto>('POST', `/strategies/${enc(id)}/start`, body),
       stop: (id: string, body: { rowVersion: number; reason?: string }) =>
         call<StrategyDetailDto>('POST', `/strategies/${enc(id)}/stop`, body),
+    },
+    backtests: {
+      start: (strategyId: string, body: StartBacktestRequest) =>
+        call<BacktestRunDto>('POST', `/strategies/${enc(strategyId)}/backtests`, body),
+      list: (strategyId: string) =>
+        call<BacktestListDto>('GET', `/strategies/${enc(strategyId)}/backtests`),
+      get: (runId: string) => call<BacktestRunDto>('GET', `/backtests/${enc(runId)}`),
+      cancel: (runId: string) => call<BacktestRunDto>('POST', `/backtests/${enc(runId)}/cancel`),
+      trades: (runId: string) => call<BacktestTradesDto>('GET', `/backtests/${enc(runId)}/trades`),
+      /** Same-origin link for the CSV download. */
+      exportUrl: (runId: string) => `${base}/backtests/${enc(runId)}/export`,
     },
   };
 }
