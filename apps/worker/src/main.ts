@@ -3,7 +3,7 @@ import { hostname } from 'node:os';
 import { createDb } from '@tm/db';
 import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
 import { startBacktestLoop, type BacktestLoop } from './backtests';
-import { loadWorkerEnv } from './env';
+import { loadWorkerEnv, shiftedClock } from './env';
 import { createHealthServer } from './health';
 import { createLogger } from './logger';
 import { startRuntimeLoop, type RuntimeLoop } from './runtime';
@@ -26,7 +26,10 @@ if (env.DATABASE_APP_URL) {
     pollMs: env.BACKTEST_POLL_MS,
   });
   logger.info({ workerId }, 'back-test queue started');
+  const now = env.PAPER_CLOCK_START ? shiftedClock(env.PAPER_CLOCK_START) : undefined;
+  if (now) logger.warn({ start: env.PAPER_CLOCK_START }, 'paper runtimes use a shifted clock');
   runtimes = startRuntimeLoop({
+    ...(now ? { now } : {}),
     db: handle.db,
     workerId,
     history: (now) => createDemoHistoryProvider({ now }),

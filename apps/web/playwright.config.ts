@@ -43,7 +43,7 @@ export default defineConfig({
       },
     },
     {
-      // Runs queued back tests; uses DATABASE_APP_URL from the environment.
+      // Runs queued back tests and paper strategies; uses DATABASE_APP_URL from the environment.
       command: 'pnpm --filter @tm/worker start',
       url: `http://localhost:${WORKER_PORT}/healthz`,
       reuseExistingServer: !process.env.CI,
@@ -51,6 +51,9 @@ export default defineConfig({
         WORKER_HEALTH_PORT: String(WORKER_PORT),
         BACKTEST_POLL_MS: '200',
         RUNTIME_POLL_MS: '200',
+        // Paper strategies trade in a simulated session that is open while the tests run.
+        PAPER_CLOCK_START: '2026-10-06T14:31:00Z',
+        E2E_TEST: '1',
         LOG_LEVEL: 'warn',
       },
     },

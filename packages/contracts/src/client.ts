@@ -6,10 +6,20 @@ import type {
 } from './backtests';
 import { ApiError, type ApiErrorBody } from './errors';
 import type {
+  ClosePositionsRequest,
+  ExecutionStatusDto,
+  KillSwitchRequest,
+  ListOrdersQuery,
+  OrderDetailDto,
+  OrderListDto,
+  PositionListDto,
+} from './orders';
+import type {
   CreateStrategyRequest,
   ListStrategiesQuery,
   PublishVersionDto,
   StartStrategyRequest,
+  StopStrategyRequest,
   StrategyDetailDto,
   StrategyListDto,
   StrategyVersionDto,
@@ -47,17 +57,18 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
   }
 
   const enc = encodeURIComponent;
+  const query = (q: Record<string, unknown>) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(q)) {
+      if (value === undefined) continue;
+      for (const v of Array.isArray(value) ? value : [value]) params.append(key, String(v));
+    }
+    const qs = params.toString();
+    return qs ? `?${qs}` : '';
+  };
   return {
     strategies: {
-      list(query: ListStrategiesQuery = {}) {
-        const params = new URLSearchParams();
-        for (const [key, value] of Object.entries(query)) {
-          if (value === undefined) continue;
-          for (const v of Array.isArray(value) ? value : [value]) params.append(key, String(v));
-        }
-        const qs = params.toString();
-        return call<StrategyListDto>('GET', `/strategies${qs ? `?${qs}` : ''}`);
-      },
+      list: (q: ListStrategiesQuery = {}) => call<StrategyListDto>('GET', `/strategies${query(q)}`),
       get: (id: string) => call<StrategyDetailDto>('GET', `/strategies/${enc(id)}`),
       create: (body: CreateStrategyRequest) => call<StrategyDetailDto>('POST', '/strategies', body),
       update: (id: string, body: UpdateStrategyRequest) =>
@@ -74,7 +85,7 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
         call<ValidateStrategyDto>('POST', `/strategies/${enc(id)}/validate`),
       start: (id: string, body: StartStrategyRequest) =>
         call<StrategyDetailDto>('POST', `/strategies/${enc(id)}/start`, body),
-      stop: (id: string, body: { rowVersion: number; reason?: string }) =>
+      stop: (id: string, body: StopStrategyRequest) =>
         call<StrategyDetailDto>('POST', `/strategies/${enc(id)}/stop`, body),
     },
     backtests: {
@@ -87,6 +98,27 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
       trades: (runId: string) => call<BacktestTradesDto>('GET', `/backtests/${enc(runId)}/trades`),
       /** Same-origin link for the CSV download. */
       exportUrl: (runId: string) => `${base}/backtests/${enc(runId)}/export`,
+    },
+    orders: {
+      list: (q: ListOrdersQuery = {}) => call<OrderListDto>('GET', `/orders${query(q)}`),
+      get: (id: string) => call<OrderDetailDto>('GET', `/orders/${enc(id)}`),
+      cancel: (id: string) => call<OrderDetailDto>('POST', `/orders/${enc(id)}/cancel`),
+      cancelAll: () =>
+        call<{ requested: number }>('POST', '/orders/cancel-all', { confirmed: true }),
+      /** Server-sent events: a `change` event whenever the user's orders may have changed. */
+      streamUrl: () => `${base}/orders/stream`,
+    },
+    positions: {
+      list: () => call<PositionListDto>('GET', '/positions'),
+      close: (body: ClosePositionsRequest) =>
+        call<{ orders: number }>('POST', '/positions/close', body),
+    },
+    execution: {
+      status: () => call<ExecutionStatusDto>('GET', '/execution'),
+      killSwitch: (body: KillSwitchRequest) =>
+        call<ExecutionStatusDto>('POST', '/execution/kill-switch', body),
+      resume: (runtimeId: string) =>
+        call<ExecutionStatusDto>('POST', `/execution/runtimes/${enc(runtimeId)}/resume`),
     },
   };
 }

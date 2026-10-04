@@ -1,7 +1,7 @@
 import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadWorkerEnv } from './env';
+import { loadWorkerEnv, shiftedClock } from './env';
 import { createHealthServer } from './health';
 import { createLogger } from './logger';
 
@@ -28,6 +28,19 @@ describe('worker env', () => {
       BACKTEST_POLL_MS: 1000,
       RUNTIME_POLL_MS: 1000,
     });
+  });
+
+  it('allows a shifted paper clock outside production only', () => {
+    const start = '2026-10-06T14:31:00Z';
+    expect(loadWorkerEnv({ PAPER_CLOCK_START: start }).PAPER_CLOCK_START).toBe(start);
+    expect(() => loadWorkerEnv({ NODE_ENV: 'production', PAPER_CLOCK_START: start })).toThrow(
+      /development and tests only/,
+    );
+    let real = 1_000_000;
+    const clock = shiftedClock(start, () => real);
+    expect(clock().toISOString()).toBe('2026-10-06T14:31:00.000Z');
+    real += 90_000;
+    expect(clock().toISOString()).toBe('2026-10-06T14:32:30.000Z');
   });
 });
 

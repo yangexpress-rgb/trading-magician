@@ -5,7 +5,13 @@ import {
   type ApiErrorCode,
   type ApiIssue,
 } from '@tm/contracts';
-import { provisionWorkspace, StrategyError, withTenant, type Transaction } from '@tm/db';
+import {
+  OrderError,
+  provisionWorkspace,
+  StrategyError,
+  withTenant,
+  type Transaction,
+} from '@tm/db';
 import { headers } from 'next/headers';
 import type { z } from 'zod';
 import { createRateLimiter } from '../rate-limit';
@@ -91,6 +97,12 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       if ('runId' in params && !UUID.test(params.runId ?? '')) {
         return errorResponse('not_found', 'Back test not found');
       }
+      if ('orderId' in params && !UUID.test(params.orderId ?? '')) {
+        return errorResponse('not_found', 'Order not found');
+      }
+      if ('runtimeId' in params && !UUID.test(params.runtimeId ?? '')) {
+        return errorResponse('not_found', 'Strategy run not found');
+      }
       return await handler(
         request,
         { userId, tx: (fn) => withTenant(appDb(), { userId }, fn) },
@@ -103,6 +115,7 @@ export function api<P extends Record<string, string> = Record<string, never>>(
           ...(error.details !== undefined ? { details: error.details } : {}),
         });
       }
+      if (error instanceof OrderError) return errorResponse(error.code, error.message);
       if (error instanceof StrategyError) {
         return errorResponse(error.code, error.message, {
           ...(error.code === 'invalid_definition' && Array.isArray(error.details)
