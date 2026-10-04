@@ -1,0 +1,376 @@
+import { describe, expect, it } from 'vitest';
+import type { StrategyDefinition } from './schema';
+import {
+  CAPS,
+  comparison,
+  constant,
+  context,
+  indicator,
+  market,
+  order,
+  OTHER_ACCOUNT,
+  PAPER_ACCOUNT,
+  STOCK_A,
+  STOCK_B,
+  UNKNOWN_INSTRUMENT,
+  validDefinition,
+} from './test-fixtures';
+import { validateStrategy, type ValidationContext } from './validate';
+
+function check(edit: (def: StrategyDefinition) => void, ctx: ValidationContext = context()) {
+  const def = validDefinition();
+  edit(def);
+  const { errors, warnings } = validateStrategy(def, ctx);
+  return {
+    errors: errors.map((e) => e.code),
+    warnings: warnings.map((w) => w.code),
+    raw: { errors, warnings },
+  };
+}
+
+describe('a complete strategy', () => {
+  it('has no errors or warnings', () => {
+    expect(check(() => undefined)).toMatchObject({ errors: [], warnings: [] });
+  });
+});
+
+describe('structure', () => {
+  it('requires a condition and an order in each phase', () => {
+    const { errors } = check((d) => {
+      d.entry.condition.children = [];
+      d.exit.orders = [];
+    });
+    expect(errors).toEqual(['empty_condition', 'no_orders']);
+  });
+
+  it('allows an empty condition when every leg is timing-only', () => {
+    const { errors } = check((d) => {
+      d.exit.condition.children = [];
+      d.exit.orders[0]!.timingOnly = true;
+      d.exit.orders[0]!.timing = {
+        mode: 'relative',
+        amount: 1,
+        unit: 'd',
+        reference: { kind: 'phase', event: 'position_opened' },
+      };
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('flags empty sub-groups', () => {
+    const { raw } = check((d) => {
+      d.entry.condition.children.push({
+        kind: 'group',
+        id: 'empty',
+        op: 'or',
+        negate: false,
+        children: [],
+      });
+    });
+    expect(raw.errors).toMatchObject([
+      { code: 'empty_group', nodeId: 'empty', path: ['entry', 'condition', 'children', 1] },
+    ]);
+  });
+
+  it('rejects duplicate ids and leg names', () => {
+    const { errors } = check((d) => {
+      d.exit.orders.push(order('sell-a', { side: 'sell', legLabel: 'Buy-A ' }));
+    });
+    expect(errors).toEqual(['duplicate_id', 'duplicate_leg_label']);
+  });
+
+  it('limits nesting depth', () => {
+    const { errors } = check((d) => {
+      let g = d.entry.condition;
+      for (let i = 0; i < 6; i++) {
+        const child = {
+          kind: 'group' as const,
+          id: `deep${i}`,
+          op: 'and' as const,
+          negate: false,
+          children: [] as never[],
+        };
+        g.children.push(child);
+        g = child;
+      }
+      g.children.push(comparison('leaf', market('ml'), 'gt', constant('1')));
+    });
+    expect(errors).toEqual(['condition_too_deep']);
+  });
+});
+
+describe('expressions', () => {
+  it('requires a known instrument with a data feed', () => {
+    expect(
+      check((d) => {
+        d.entry.condition.children = [
+          comparison('c', market('m', { instrumentId: UNKNOWN_INSTRUMENT }), 'gt', constant('1')),
+        ];
+      }).errors,
+    ).toEqual(['unknown_instrument']);
+
+    const noQuotes = context({ hasFeed: (_cls, type) => type === 'bars' });
+    expect(
+      check((d) => {
+        d.entry.condition.children = [
+          comparison('c', market('m', { field: 'bid' }), 'gt', constant('1')),
+        ];
+      }, noQuotes).errors,
+    ).toEqual(['missing_feed']);
+  });
+
+  it('checks indicators and their parameters', () => {
+    const { errors } = check((d) => {
+      d.entry.condition.children = [
+        comparison('c', market('m'), 'gt', indicator('i', { name: 'MAGIC' })),
+        comparison('d', market('m2'), 'gt', indicator('j', { params: { period: 0 } })),
+        comparison(
+          'e',
+          market('m3'),
+          'gt',
+          indicator('k', { name: 'BBANDS', params: { period: 20, stdDev: 2, band: 'side' } }),
+        ),
+      ];
+    });
+    expect(errors).toEqual([
+      'unknown_indicator',
+      'invalid_indicator_params',
+      'invalid_indicator_params',
+    ]);
+  });
+
+  it('catches division by a zero constant', () => {
+    const { errors } = check((d) => {
+      d.exit.condition.children = [
+        comparison(
+          'c',
+          { kind: 'calc', id: 'k', op: 'div', args: [market('m'), constant('0.0')] },
+          'gt',
+          constant('1'),
+        ),
+      ];
+    });
+    expect(errors).toEqual(['division_by_zero']);
+  });
+
+  it('warns about comparisons with no market data and rejects constant crossings', () => {
+    const result = check((d) => {
+      d.entry.condition.children = [
+        comparison('c', constant('1'), 'lt', constant('2')),
+        comparison('x', constant('1'), 'crosses_above', constant('2')),
+        comparison('s', constant('1'), 'is_stale'),
+      ];
+    });
+    expect(result.errors).toEqual(['cross_needs_market_data', 'state_needs_market_data']);
+    expect(result.warnings).toEqual(['constant_comparison', 'constant_comparison']);
+  });
+});
+
+describe('orders and accounts', () => {
+  it('requires entry legs to open a position', () => {
+    expect(check((d) => (d.entry.orders[0]!.side = 'sell')).errors).toContain(
+      'entry_side_not_opening',
+    );
+  });
+
+  it('requires a known paper account that is active', () => {
+    expect(check((d) => (d.entry.orders[0]!.accountId = OTHER_ACCOUNT)).errors).toEqual([
+      'missing_account',
+    ]);
+
+    const ctx = context();
+    const accounts = new Map(ctx.accounts);
+    accounts.set(OTHER_ACCOUNT, {
+      nickname: 'Live',
+      mode: 'live',
+      isActive: false,
+      capabilities: CAPS,
+    });
+    expect(
+      check((d) => (d.entry.orders[0]!.accountId = OTHER_ACCOUNT), { ...ctx, accounts }).errors,
+    ).toEqual(['live_account_not_allowed', 'account_inactive']);
+  });
+
+  it('checks account capabilities', () => {
+    const ctx = context();
+    const limited = {
+      ...CAPS,
+      orderTypes: ['market'],
+      timeInForce: ['day'],
+      shortSelling: false,
+      extendedHours: false,
+      assetClasses: ['etf'],
+    };
+    const accounts = new Map([
+      [PAPER_ACCOUNT, { nickname: 'Basic', mode: 'paper', isActive: true, capabilities: limited }],
+    ]);
+    const { errors } = check(
+      (d) => {
+        Object.assign(d.entry.orders[0]!, {
+          side: 'sell_short',
+          orderType: 'limit',
+          limitPrice: constant('100'),
+          timeInForce: 'gtc',
+          extendedHours: true,
+        });
+        d.exit.orders[0]!.side = 'buy_to_cover';
+      },
+      { ...ctx, accounts },
+    );
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        'unsupported_asset_class',
+        'unsupported_order_type',
+        'unsupported_time_in_force',
+        'short_selling_unsupported',
+        'extended_hours_unsupported',
+      ]),
+    );
+  });
+
+  it('checks quantities', () => {
+    expect(check((d) => (d.entry.orders[0]!.quantity.value = '2.5')).errors).toContain(
+      'invalid_quantity',
+    );
+    expect(
+      check(
+        (d) =>
+          (d.entry.orders[0]!.quantity = { type: 'pct_equity', value: '150', rounding: 'down' }),
+      ).errors,
+    ).toEqual(['invalid_quantity']);
+    expect(
+      check(
+        (d) =>
+          (d.entry.orders[0]!.quantity = { type: 'notional', value: '10000.01', rounding: 'down' }),
+      ).errors,
+    ).toEqual(['exceeds_max_order_notional']);
+    expect(
+      check(
+        (d) =>
+          (d.entry.orders[0]!.quantity = { type: 'risk_sized', value: '100', rounding: 'down' }),
+      ).errors,
+    ).toEqual(['risk_sizing_needs_stop']);
+  });
+
+  it('requires prices the order type needs', () => {
+    expect(check((d) => (d.entry.orders[0]!.orderType = 'stop_limit')).errors).toEqual([
+      'missing_limit_price',
+      'missing_stop_price',
+    ]);
+    expect(check((d) => (d.entry.orders[0]!.limitPrice = constant('100'))).warnings).toEqual([
+      'unused_limit_price',
+    ]);
+  });
+
+  it('rejects an exact time that has passed', () => {
+    const { errors } = check((d) => {
+      d.entry.orders[0]!.timing = { mode: 'exact', at: '2026-10-05T13:59:00Z', zone: 'UTC' };
+    });
+    expect(errors).toEqual(['exact_time_in_past']);
+  });
+
+  it('warns about extended hours and non-atomic multi-leg orders', () => {
+    const { warnings } = check((d) => {
+      d.entry.orders[0]!.extendedHours = true;
+      d.entry.orders.push(order('buy-b', { instrumentId: STOCK_B }));
+    });
+    expect(warnings).toEqual(['extended_hours', 'non_atomic_multi_leg']);
+  });
+});
+
+describe('exit exposure', () => {
+  it.each([
+    ['buy', 'exit_opens_position'],
+    ['sell_short', 'exit_opens_position'],
+    ['buy_to_cover', 'exit_cover_without_short'],
+  ] as const)('rejects an exit %s after a long entry', (side, code) => {
+    expect(check((d) => (d.exit.orders[0]!.side = side)).errors).toEqual([code]);
+  });
+
+  it('rejects a sell after a short entry', () => {
+    const { errors } = check((d) => (d.entry.orders[0]!.side = 'sell_short'));
+    expect(errors).toEqual(['exit_sell_without_long']);
+  });
+
+  it('rejects closing an instrument Entry never opens', () => {
+    expect(check((d) => (d.exit.orders[0]!.instrumentId = STOCK_B)).errors).toEqual([
+      'exit_without_entry',
+    ]);
+  });
+
+  it('rejects an exit larger than the entry', () => {
+    expect(check((d) => (d.exit.orders[0]!.quantity.value = '11')).errors).toEqual([
+      'exit_exceeds_position',
+    ]);
+    expect(check((d) => (d.exit.orders[0]!.side = 'close')).errors).toEqual([]);
+  });
+});
+
+describe('execution and risk', () => {
+  it('needs a leg order for sequential policies', () => {
+    expect(check((d) => (d.execution.multiLegPolicy = 'sequential')).errors).toEqual([
+      'invalid_leg_order',
+    ]);
+    expect(
+      check((d) => {
+        d.execution.multiLegPolicy = 'sequential';
+        d.execution.legOrder = ['buy-a', 'sell-a'];
+      }).errors,
+    ).toEqual([]);
+  });
+
+  it('needs a cap for pyramiding', () => {
+    expect(check((d) => (d.execution.reentry = { mode: 'pyramid' })).errors).toEqual([
+      'pyramid_needs_cap',
+    ]);
+  });
+
+  it('requires every confirmed risk limit', () => {
+    const { raw } = check((d) => {
+      delete d.risk.dailyLossLimit;
+    });
+    expect(raw.errors).toMatchObject([
+      {
+        code: 'missing_risk_limit',
+        path: ['risk', 'dailyLossLimit'],
+        message: 'Set the daily loss risk limit',
+      },
+    ]);
+  });
+
+  it('warns when one order may exceed the strategy exposure', () => {
+    expect(check((d) => (d.risk.maxOrderNotional = '30000')).warnings).toEqual([
+      'order_limit_above_exposure',
+    ]);
+  });
+});
+
+describe('back tests', () => {
+  it('says nothing until back testing exists', () => {
+    expect(check(() => undefined).warnings).toEqual([]);
+  });
+
+  it('warns when never tested or changed since', () => {
+    expect(check(() => undefined, context({ backtest: null })).warnings).toEqual(['no_backtest']);
+    expect(
+      check(
+        () => undefined,
+        context({
+          backtest: { definitionHash: 'old', completedAt: new Date() },
+          definitionHash: 'new',
+        }),
+      ).warnings,
+    ).toEqual(['stale_backtest']);
+  });
+});
+
+describe('issue locations', () => {
+  it('points at the leg and field', () => {
+    const { raw } = check((d) => (d.exit.orders[0]!.instrumentId = STOCK_B));
+    expect(raw.errors[0]).toMatchObject({
+      nodeId: 'sell-a',
+      path: ['exit', 'orders', 0, 'instrumentId'],
+    });
+    expect(STOCK_A).not.toBe(STOCK_B);
+  });
+});
