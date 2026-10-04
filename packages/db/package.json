@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@tm/backtest": "workspace:*",
+    "@tm/broker": "workspace:*",
     "@tm/config": "workspace:*",
     "@tm/domain": "workspace:*",
     "decimal.js": "^10.6.0",

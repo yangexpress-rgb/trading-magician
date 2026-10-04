@@ -15,6 +15,8 @@ export interface OrderIntent {
   phase: PhaseName;
   /** The planned order's id in the strategy version; absent for system orders. */
   plannedOrderId: string | undefined;
+  /** Entry batch or Exit round; part of the idempotency key. */
+  attempt: number;
   legLabel: string;
   triggerEventId: string | undefined;
   scheduledActionId: string | undefined;

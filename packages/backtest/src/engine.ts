@@ -7,15 +7,16 @@ import {
   regularSession,
   relativeDelaySeconds,
   sizeOrder,
+  stepTrigger,
   SUBSTITUTED_FIELDS,
   type RiskCheckCode,
   type SizingSkip,
+  type TriggerState,
   type OrderSide,
   type PhaseEvent,
   type PhaseName,
   type PlannedOrder,
   type StrategyDefinition,
-  type Truth,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { seriesExprs, seriesKey, type InstrumentRef, type LoadedData } from './data';
@@ -106,13 +107,6 @@ interface LegState {
   filledAt?: number;
 }
 
-interface TriggerState {
-  prev: Truth;
-  consecutive: number;
-  lastFired?: number;
-  fired: number;
-}
-
 interface CyclePosition {
   quantity: Decimal;
   /** Cash flows at actual prices (net) and before slippage (gross). */
@@ -169,31 +163,6 @@ function legOrderFor(def: StrategyDefinition, phase: PhaseName): PlannedOrder[] 
     (a, b) =>
       (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
   );
-}
-
-/** Advances an Entry or Exit trigger by one evaluation and says whether it fires (§6.5). */
-function stepTrigger(
-  state: TriggerState,
-  truth: Truth,
-  now: number,
-  trigger: StrategyDefinition['entry']['trigger'],
-): boolean {
-  const prev = state.prev;
-  state.prev = truth;
-  state.consecutive = truth === true ? state.consecutive + 1 : 0;
-  if (truth !== true || state.consecutive < trigger.confirmationBars + 1) return false;
-  if (state.lastFired !== undefined && now - state.lastFired < trigger.cooldownSec * 1000) {
-    return false;
-  }
-  if (trigger.mode === 'on_transition') {
-    // Fires once per run of true values: on the bar that completes the confirmation.
-    const justConfirmed = state.consecutive === trigger.confirmationBars + 1;
-    if (!justConfirmed || (trigger.confirmationBars === 0 && prev !== false)) return false;
-  }
-  if (trigger.mode === 'once_per_cycle' && state.fired > 0) return false;
-  state.lastFired = now;
-  state.fired += 1;
-  return true;
 }
 
 export function simulate({

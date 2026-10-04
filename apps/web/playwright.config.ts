@@ -47,7 +47,12 @@ export default defineConfig({
       command: 'pnpm --filter @tm/worker start',
       url: `http://localhost:${WORKER_PORT}/healthz`,
       reuseExistingServer: !process.env.CI,
-      env: { WORKER_HEALTH_PORT: String(WORKER_PORT), BACKTEST_POLL_MS: '200', LOG_LEVEL: 'warn' },
+      env: {
+        WORKER_HEALTH_PORT: String(WORKER_PORT),
+        BACKTEST_POLL_MS: '200',
+        RUNTIME_POLL_MS: '200',
+        LOG_LEVEL: 'warn',
+      },
     },
   ],
 });

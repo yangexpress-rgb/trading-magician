@@ -621,6 +621,8 @@ export const strategyRuntimes = pgTable(
     mode: tradingMode('mode').notNull().default('paper'),
     status: runtimeStatus('status').notNull().default('running'),
     pauseReason: text('pause_reason'),
+    /** Trigger state and day-start equity carried between passes (`RuntimeState` in db/runtime.ts). */
+    state: jsonb('state').notNull().default({}),
     leaseOwner: text('lease_owner'),
     leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
     lastEvaluatedAt: timestamp('last_evaluated_at', { withTimezone: true }),
@@ -671,6 +673,8 @@ export const strategyCycles = pgTable(
     exitTriggeredAt: timestamp('exit_triggered_at', { withTimezone: true }),
     closedAt: timestamp('closed_at', { withTimezone: true }),
     realizedPnl: numeric('realized_pnl'),
+    /** `CycleState` from @tm/domain, apart from `status`, which has its own column. */
+    state: jsonb('state').notNull(),
     note: text('note'),
     ...timestamps(),
     rowVersion: rowVersion(),
@@ -777,6 +781,8 @@ export const orderIntents = pgTable(
     cycleId: uuid('cycle_id').notNull(),
     phase: text('phase').notNull(),
     plannedOrderId: text('planned_order_id'),
+    /** Entry batch or Exit round the leg belongs to; part of the idempotency key. */
+    attempt: integer('attempt').notNull().default(1),
     legLabel: text('leg_label').notNull(),
     triggerEventId: uuid('trigger_event_id'),
     scheduledActionId: uuid('scheduled_action_id'),
@@ -953,5 +959,108 @@ export const positionSnapshots = pgTable(
     }).onDelete('cascade'),
     index('position_snapshot_lookup_idx').on(t.accountId, t.instrumentId, t.asOf),
     check('position_snapshot_source', sql`${t.source} in ('app', 'broker')`),
+  ],
+);
+
+/** Where the runtime has read each account's broker updates up to (§8.5). */
+export const brokerSyncs = pgTable(
+  'broker_sync',
+  {
+    accountId: uuid('account_id').primaryKey(),
+    userId: uuid('user_id').notNull(),
+    cursor: text('cursor'),
+    syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.accountId, t.userId],
+      foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
+    }).onDelete('cascade'),
+  ],
+);
+
+/** The per-user kill switch (§8.1): while set, no new orders are submitted. */
+export const executionControls = pgTable('execution_control', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  haltedAt: timestamp('halted_at', { withTimezone: true }),
+  haltedBy: uuid('halted_by'),
+  reason: text('reason'),
+  ...timestamps(),
+});
+
+// ---------------------------------------------------------------------------
+// The simulated paper broker's own books (ADR 0011). Kept apart from the app's
+// orders, as a real broker's would be, so reconciliation has two sides.
+// ---------------------------------------------------------------------------
+
+export const paperOrders = pgTable(
+  'paper_order',
+  {
+    brokerOrderId: text('broker_order_id').primaryKey(),
+    userId: uuid('user_id').notNull(),
+    accountId: uuid('account_id').notNull(),
+    clientOrderId: text('client_order_id').notNull(),
+    /** The `BrokerOrderRequest` as received. */
+    request: jsonb('request').notNull(),
+    status: text('status').notNull(),
+    filled: numeric('filled').notNull().default('0'),
+    triggered: boolean('triggered').notNull().default(false),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }).notNull(),
+    updateCount: integer('update_count').notNull().default(0),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.accountId, t.userId],
+      foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
+    }).onDelete('cascade'),
+    unique('paper_order_client_uq').on(t.accountId, t.clientOrderId),
+    index('paper_order_working_idx')
+      .on(t.userId)
+      .where(sql`${t.status} = 'working'`),
+    check(
+      'paper_order_status',
+      sql`${t.status} in ('working', 'filled', 'canceled', 'expired', 'rejected')`,
+    ),
+  ],
+);
+
+export const paperUpdates = pgTable(
+  'paper_update',
+  {
+    seq: bigint('seq', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    userId: uuid('user_id').notNull(),
+    accountId: uuid('account_id').notNull(),
+    brokerOrderId: text('broker_order_id').notNull(),
+    /** The `BrokerOrderUpdate` as published. */
+    update: jsonb('update').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.accountId, t.userId],
+      foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
+    }).onDelete('cascade'),
+    index('paper_update_account_idx').on(t.accountId, t.seq),
+    index('paper_update_order_idx').on(t.brokerOrderId, t.seq),
+  ],
+);
+
+export const paperPositions = pgTable(
+  'paper_position',
+  {
+    userId: uuid('user_id').notNull(),
+    accountId: uuid('account_id').notNull(),
+    instrumentId: uuid('instrument_id').notNull(),
+    quantity: numeric('quantity').notNull(),
+    averageCost: numeric('average_cost'),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.accountId, t.userId],
+      foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
+    }).onDelete('cascade'),
+    unique('paper_position_uq').on(t.accountId, t.instrumentId),
   ],
 );

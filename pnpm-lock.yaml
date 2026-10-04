@@ -117,6 +117,9 @@ importers:
       '@tm/backtest':
         specifier: workspace:*
         version: link:../../packages/backtest
+      '@tm/broker':
+        specifier: workspace:*
+        version: link:../../packages/broker
       '@tm/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -129,6 +132,9 @@ importers:
       '@tm/market-data':
         specifier: workspace:*
         version: link:../../packages/market-data
+      decimal.js:
+        specifier: ^10.6.0
+        version: 10.6.0
       pino:
         specifier: ^10.4.0
         version: 10.4.0
@@ -195,6 +201,9 @@ importers:
       '@tm/backtest':
         specifier: workspace:*
         version: link:../backtest
+      '@tm/broker':
+        specifier: workspace:*
+        version: link:../broker
       '@tm/config':
         specifier: workspace:*
         version: link:../config
