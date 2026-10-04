@@ -6,6 +6,13 @@ import type {
 } from './backtests';
 import { ApiError, type ApiErrorBody } from './errors';
 import type {
+  CreateCredentialRequest,
+  CredentialDto,
+  CredentialListDto,
+  RenameCredentialRequest,
+  RotateCredentialRequest,
+} from './integrations';
+import type {
   ClosePositionsRequest,
   ExecutionStatusDto,
   KillSwitchRequest,
@@ -129,6 +136,15 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
         call<NotificationListDto>('GET', `/notifications${query(q)}`),
       markRead: (body: MarkNotificationsReadRequest) =>
         call<{ marked: number }>('POST', '/notifications/read', body),
+    },
+    credentials: {
+      list: () => call<CredentialListDto>('GET', '/credentials'),
+      create: (body: CreateCredentialRequest) => call<CredentialDto>('POST', '/credentials', body),
+      rename: (id: string, body: RenameCredentialRequest) =>
+        call<CredentialDto>('PATCH', `/credentials/${enc(id)}`, body),
+      rotate: (id: string, body: RotateCredentialRequest) =>
+        call<CredentialDto>('POST', `/credentials/${enc(id)}/rotate`, body),
+      remove: (id: string) => call<undefined>('DELETE', `/credentials/${enc(id)}`),
     },
   };
 }

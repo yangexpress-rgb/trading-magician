@@ -6,7 +6,9 @@ import {
   type ApiIssue,
 } from '@tm/contracts';
 import {
+  CredentialError,
   OrderError,
+  SealError,
   provisionWorkspace,
   StrategyError,
   withTenant,
@@ -106,6 +108,9 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       if ('incidentId' in params && !UUID.test(params.incidentId ?? '')) {
         return errorResponse('not_found', 'Incident not found');
       }
+      if ('credentialId' in params && !UUID.test(params.credentialId ?? '')) {
+        return errorResponse('not_found', 'Credential not found');
+      }
       return await handler(
         request,
         { userId, tx: (fn) => withTenant(appDb(), { userId }, fn) },
@@ -119,6 +124,11 @@ export function api<P extends Record<string, string> = Record<string, never>>(
         });
       }
       if (error instanceof OrderError) return errorResponse(error.code, error.message);
+      if (error instanceof CredentialError) return errorResponse(error.code, error.message);
+      if (error instanceof SealError) {
+        // A misconfigured key; the message names no secret.
+        return errorResponse('unavailable', 'Secure credential storage is not set up correctly');
+      }
       if (error instanceof StrategyError) {
         return errorResponse(error.code, error.message, {
           ...(error.code === 'invalid_definition' && Array.isArray(error.details)

@@ -51,3 +51,13 @@ export { EXECUTION_CHANNEL, listenForExecutionChanges, type ExecutionListener } 
 export * from './incidents';
 export * from './notifications';
 export { reconcileAccount, type Mismatch, type ReconcileResult } from './reconcile';
+export * from './credentials';
+export {
+  generateCredentialKeyPair,
+  keyIdOf,
+  maskTail,
+  openSecret,
+  sealSecret,
+  SealError,
+  type SealedSecret,
+} from './sealed';

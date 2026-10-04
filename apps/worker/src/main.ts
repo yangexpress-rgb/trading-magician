@@ -14,8 +14,12 @@ const logger = createLogger(env.LOG_LEVEL);
 let loop: BacktestLoop | undefined;
 let runtimes: RuntimeLoop | undefined;
 let closeDb: (() => Promise<void>) | undefined;
-if (env.DATABASE_APP_URL) {
-  const handle = createDb(env.DATABASE_APP_URL, { max: 4 });
+const databaseUrl = env.DATABASE_WORKER_URL ?? env.DATABASE_APP_URL;
+if (databaseUrl) {
+  if (!env.DATABASE_WORKER_URL) {
+    logger.warn('DATABASE_WORKER_URL is not set; stored provider credentials cannot be opened');
+  }
+  const handle = createDb(databaseUrl, { max: 4 });
   closeDb = handle.close;
   const workerId = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
   loop = startBacktestLoop({
@@ -39,7 +43,7 @@ if (env.DATABASE_APP_URL) {
   });
   logger.info({ workerId }, 'paper strategy runtimes started');
 } else {
-  logger.warn('DATABASE_APP_URL is not set; the worker runs no jobs');
+  logger.warn('No database URL is set; the worker runs no jobs');
 }
 
 const server = createHealthServer(loop ? 'backtests+runtimes' : 'none');

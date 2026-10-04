@@ -93,8 +93,10 @@ jobs:
       DATABASE_URL: postgres://tm_owner:ci_only_password@localhost:5432/trading_magician
       DB_APP_LOGIN_PASSWORD: ci_only_app_password
       DB_AUTH_LOGIN_PASSWORD: ci_only_auth_password
+      DB_WORKER_LOGIN_PASSWORD: ci_only_worker_password
       DATABASE_APP_URL: postgres://tm_app_login:ci_only_app_password@localhost:5432/trading_magician
       DATABASE_AUTH_URL: postgres://tm_auth_login:ci_only_auth_password@localhost:5432/trading_magician
+      DATABASE_WORKER_URL: postgres://tm_worker_login:ci_only_worker_password@localhost:5432/trading_magician
       BETTER_AUTH_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
     steps:
       - uses: actions/checkout@v4

@@ -15,6 +15,8 @@ export interface TestDatabase {
   owner: DbHandle;
   app: DbHandle;
   auth: DbHandle;
+  /** The worker's login: tm_app plus tm_secrets, which may read sealed credentials. */
+  worker: DbHandle;
   ownerSql: postgres.Sql;
   appSql: postgres.Sql;
   /** Connection string for the tenant-scoped login. */
@@ -33,6 +35,7 @@ export async function createTestDatabase(): Promise<TestDatabase> {
   const dbName = `tm_test_${suffix}`;
   const appLogin = `tm_app_t${suffix}`;
   const authLogin = `tm_auth_t${suffix}`;
+  const workerLogin = `tm_worker_t${suffix}`;
   const password = randomBytes(16).toString('hex');
 
   const admin = postgres(adminUrl, { max: 1, onnotice: () => undefined });
@@ -60,9 +63,13 @@ export async function createTestDatabase(): Promise<TestDatabase> {
   await seedReferenceData(owner.db);
   await admin.unsafe(`CREATE ROLE ${appLogin} LOGIN PASSWORD '${password}' IN ROLE tm_app`);
   await admin.unsafe(`CREATE ROLE ${authLogin} LOGIN PASSWORD '${password}' IN ROLE tm_auth`);
+  await admin.unsafe(
+    `CREATE ROLE ${workerLogin} LOGIN PASSWORD '${password}' IN ROLE tm_app, tm_secrets`,
+  );
 
   const app = createDb(url(appLogin), { max: 4 });
   const auth = createDb(url(authLogin), { max: 2 });
+  const worker = createDb(url(workerLogin), { max: 2 });
   const ownerSql = postgres(url(), { max: 1, onnotice: () => undefined });
   const appSql = postgres(url(appLogin), { max: 1, onnotice: () => undefined });
 
@@ -70,14 +77,23 @@ export async function createTestDatabase(): Promise<TestDatabase> {
     owner,
     app,
     auth,
+    worker,
     ownerSql,
     appSql,
     appUrl: url(appLogin),
     drop: async () => {
-      await Promise.all([owner.close(), app.close(), auth.close(), ownerSql.end(), appSql.end()]);
+      await Promise.all([
+        owner.close(),
+        app.close(),
+        auth.close(),
+        worker.close(),
+        ownerSql.end(),
+        appSql.end(),
+      ]);
       await admin.unsafe(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
       await admin.unsafe(`DROP ROLE IF EXISTS ${appLogin}`);
       await admin.unsafe(`DROP ROLE IF EXISTS ${authLogin}`);
+      await admin.unsafe(`DROP ROLE IF EXISTS ${workerLogin}`);
       await admin.end();
     },
   };

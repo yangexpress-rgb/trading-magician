@@ -1,1 +1,1 @@
-export { EnvValidationError, logLevel, nodeEnv, parseEnv } from './env';
+export { EnvValidationError, logLevel, nodeEnv, parseEnv, pemKey } from './env';

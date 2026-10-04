@@ -18,3 +18,4 @@ export {
 export * from './strategy';
 export * from './market';
 export * from './execution';
+export * from './integrations/providers';

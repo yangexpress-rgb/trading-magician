@@ -53,7 +53,7 @@ docker compose up -d postgres
 export DATABASE_URL=postgres://tm_owner:tm_owner_local@localhost:5432/trading_magician
 pnpm --filter @tm/db db:migrate
 pnpm --filter @tm/db db:seed
-DB_APP_LOGIN_PASSWORD=... DB_AUTH_LOGIN_PASSWORD=... pnpm --filter @tm/db db:setup-logins
+DB_APP_LOGIN_PASSWORD=... DB_AUTH_LOGIN_PASSWORD=... DB_WORKER_LOGIN_PASSWORD=... pnpm --filter @tm/db db:setup-logins
 
 # Integration tests create and drop their own database:
 TEST_DATABASE_URL=postgres://tm_owner:tm_owner_local@localhost:5432/postgres pnpm test:integration
@@ -67,9 +67,15 @@ The app never connects as the owner at runtime. See `docs/adr/0003-tenant-isolat
 export DATABASE_APP_URL=postgres://tm_app_login:<password>@localhost:5432/trading_magician
 export DATABASE_AUTH_URL=postgres://tm_auth_login:<password>@localhost:5432/trading_magician
 export BETTER_AUTH_SECRET=$(openssl rand -hex 32)
+# Provider API keys are sealed with a key pair (docs/adr/0015-credential-storage.md).
+# Put CREDENTIALS_PUBLIC_KEY in the web app's env and CREDENTIALS_PRIVATE_KEY in the worker's only:
+pnpm --filter @tm/db credentials:keygen
 docker compose up -d mailpit   # verification and reset emails appear at http://localhost:8025
 pnpm --filter @tm/web dev
 ```
+
+The worker connects with its own login, which may also read sealed credentials:
+`DATABASE_WORKER_URL=postgres://tm_worker_login:<password>@localhost:5432/trading_magician`.
 
 ### End-to-end tests
 
