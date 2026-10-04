@@ -20,6 +20,9 @@ export interface TestDatabase {
   drop: () => Promise<void>;
 }
 
+/** Advisory lock key, on the admin database, held while a test database migrates. */
+const MIGRATION_LOCK = 7_231_001;
+
 export async function createTestDatabase(): Promise<TestDatabase> {
   const adminUrl = process.env.TEST_DATABASE_URL;
   if (!adminUrl) throw new Error('TEST_DATABASE_URL is required for integration tests');
@@ -44,7 +47,14 @@ export async function createTestDatabase(): Promise<TestDatabase> {
   };
 
   const owner = createDb(url(), { max: 2 });
-  await runMigrations(owner.db);
+  // Roles are cluster-wide: test files that migrate at the same time would race to
+  // create tm_app and tm_auth, so one database migrates at a time.
+  await admin`select pg_advisory_lock(${MIGRATION_LOCK})`;
+  try {
+    await runMigrations(owner.db);
+  } finally {
+    await admin`select pg_advisory_unlock(${MIGRATION_LOCK})`;
+  }
   await seedReferenceData(owner.db);
   await admin.unsafe(`CREATE ROLE ${appLogin} LOGIN PASSWORD '${password}' IN ROLE tm_app`);
   await admin.unsafe(`CREATE ROLE ${authLogin} LOGIN PASSWORD '${password}' IN ROLE tm_auth`);
