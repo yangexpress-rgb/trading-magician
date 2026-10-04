@@ -1,6 +1,6 @@
 /**
  * Local development only: creates login users for the tm_app and tm_auth group
- * roles. In deployed environments these are provisioned by infrastructure with
+ * roles, and the worker's login (tm_app plus tm_secrets, ADR 0015). In deployed environments these are provisioned by infrastructure with
  * secrets from the secret manager.
  */
 import { parseEnv } from '@tm/config';
@@ -11,6 +11,7 @@ const env = parseEnv({
   DATABASE_URL: z.string().min(1),
   DB_APP_LOGIN_PASSWORD: z.string().min(12),
   DB_AUTH_LOGIN_PASSWORD: z.string().min(12),
+  DB_WORKER_LOGIN_PASSWORD: z.string().min(12),
 });
 
 const sql = postgres(env.DATABASE_URL, { max: 1 });
@@ -18,6 +19,7 @@ try {
   for (const [login, role, password] of [
     ['tm_app_login', 'tm_app', env.DB_APP_LOGIN_PASSWORD],
     ['tm_auth_login', 'tm_auth', env.DB_AUTH_LOGIN_PASSWORD],
+    ['tm_worker_login', 'tm_app, tm_secrets', env.DB_WORKER_LOGIN_PASSWORD],
   ] as const) {
     const [exists] = await sql`select 1 from pg_roles where rolname = ${login}`;
     const verb = exists ? 'ALTER' : 'CREATE';

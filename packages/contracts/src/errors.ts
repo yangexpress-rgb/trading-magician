@@ -14,6 +14,7 @@ export const API_ERROR_CODES = [
   'rate_limited',
   'limit_reached',
   'internal',
+  'unavailable',
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
@@ -43,6 +44,7 @@ export const API_ERROR_STATUS: Record<ApiErrorCode, number> = {
   rate_limited: 429,
   limit_reached: 429,
   internal: 500,
+  unavailable: 503,
 };
 
 export class ApiError extends Error {

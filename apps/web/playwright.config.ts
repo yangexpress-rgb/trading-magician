@@ -1,7 +1,16 @@
+import { generateKeyPairSync } from 'node:crypto';
 import { defineConfig, devices } from '@playwright/test';
 
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 const WORKER_PORT = PORT + 1001;
+
+// A throwaway credential key pair for this run (ADR 0015): the web server gets
+// only the public half, the worker the private half.
+const credentialKeys = generateKeyPairSync('rsa', {
+  modulusLength: 3072,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+});
 
 /**
  * End-to-end tests run against a production build (`pnpm build` first) with
@@ -40,10 +49,11 @@ export default defineConfig({
         MAIL_TRANSPORT: 'outbox',
         MAIL_OUTBOX_DIR: '.mail-outbox',
         E2E_TEST: '1',
+        CREDENTIALS_PUBLIC_KEY: credentialKeys.publicKey,
       },
     },
     {
-      // Runs queued back tests and paper strategies; uses DATABASE_APP_URL from the environment.
+      // Runs queued back tests and paper strategies; uses DATABASE_WORKER_URL from the environment.
       command: 'pnpm --filter @tm/worker start',
       url: `http://localhost:${WORKER_PORT}/healthz`,
       reuseExistingServer: !process.env.CI,
@@ -55,6 +65,7 @@ export default defineConfig({
         PAPER_CLOCK_START: '2026-10-06T14:31:00Z',
         E2E_TEST: '1',
         LOG_LEVEL: 'warn',
+        CREDENTIALS_PRIVATE_KEY: credentialKeys.privateKey,
       },
     },
   ],

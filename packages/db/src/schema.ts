@@ -4,6 +4,7 @@ import {
   boolean,
   char,
   check,
+  customType,
   date,
   foreignKey,
   index,
@@ -33,6 +34,7 @@ const timestamps = () => ({
 });
 /** Incremented by the application on every update; used for optimistic concurrency. */
 const rowVersion = () => integer('row_version').notNull().default(1);
+const bytea = customType<{ data: Buffer }>({ dataType: () => 'bytea' });
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -228,6 +230,40 @@ export const instruments = pgTable(
 // Composite (id, user_id) keys let child rows reference only same-tenant parents.
 // ---------------------------------------------------------------------------
 
+/**
+ * Provider credentials (§9.2–9.3, §16.1; ADR 0015). The secret is sealed before
+ * it reaches the database: an AES-256-GCM data key per secret, wrapped with the
+ * worker's RSA public key. The web role can write these columns but cannot read
+ * the sealed ones; only the worker's login (tm_secrets) can, and only the worker
+ * holds the private key. `hint` keeps the last characters of each field.
+ */
+export const credentials = pgTable(
+  'credential',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    label: text('label').notNull(),
+    environment: tradingMode('environment').notNull().default('paper'),
+    /** Field name to its masked tail, e.g. { keyId: '••••7Q2A' }. Never the value. */
+    hint: jsonb('hint').notNull(),
+    keyId: text('key_id').notNull(),
+    wrappedKey: bytea('wrapped_key').notNull(),
+    iv: bytea('iv').notNull(),
+    ciphertext: bytea('ciphertext').notNull(),
+    authTag: bytea('auth_tag').notNull(),
+    rotatedAt: timestamp('rotated_at', { withTimezone: true }),
+    ...timestamps(),
+    rowVersion: rowVersion(),
+  },
+  (t) => [
+    unique('credential_id_user_uq').on(t.id, t.userId),
+    check('credential_paper_only', sql`${t.environment} = 'paper'`),
+  ],
+);
+
 export const dataFeedConnections = pgTable(
   'data_feed_connection',
   {
@@ -237,8 +273,8 @@ export const dataFeedConnections = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     provider: text('provider').notNull(),
-    /** Reference into the secret vault; never the secret itself (§9.2). */
-    credentialRef: text('credential_ref'),
+    /** The credential this feed signs in with; never the secret itself (§9.2). */
+    credentialRef: uuid('credential_ref'),
     assetClasses: assetClass('asset_classes').array().notNull(),
     isRealtime: boolean('is_realtime').notNull().default(false),
     isActive: boolean('is_active').notNull().default(true),
@@ -247,7 +283,14 @@ export const dataFeedConnections = pgTable(
     ...timestamps(),
     rowVersion: rowVersion(),
   },
-  (t) => [unique('data_feed_connection_id_user_uq').on(t.id, t.userId)],
+  (t) => [
+    unique('data_feed_connection_id_user_uq').on(t.id, t.userId),
+    foreignKey({
+      name: 'data_feed_connection_credential_fk',
+      columns: [t.credentialRef, t.userId],
+      foreignColumns: [credentials.id, credentials.userId],
+    }),
+  ],
 );
 
 export const dataRoutes = pgTable(
@@ -295,7 +338,7 @@ export const brokerConnections = pgTable(
     name: text('name').notNull(),
     provider: text('provider').notNull(),
     environment: tradingMode('environment').notNull().default('paper'),
-    credentialRef: text('credential_ref'),
+    credentialRef: uuid('credential_ref'),
     isActive: boolean('is_active').notNull().default(true),
     health: connectionHealth('health').notNull().default('unknown'),
     ...timestamps(),
@@ -303,6 +346,11 @@ export const brokerConnections = pgTable(
   },
   (t) => [
     unique('broker_connection_id_user_uq').on(t.id, t.userId),
+    foreignKey({
+      name: 'broker_connection_credential_fk',
+      columns: [t.credentialRef, t.userId],
+      foreignColumns: [credentials.id, credentials.userId],
+    }),
     check('broker_connection_paper_only', sql`${t.environment} = 'paper'`),
   ],
 );

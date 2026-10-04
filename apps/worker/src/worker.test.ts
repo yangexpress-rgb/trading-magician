@@ -54,13 +54,18 @@ describe('worker logger', () => {
       },
     });
     createLogger('info', sink).info(
-      { credentials: { token: 'abc123', apiKey: 'k-999' }, headers: { authorization: 'Bearer x' } },
+      {
+        credentials: { token: 'abc123', apiKey: 'k-999' },
+        headers: { authorization: 'Bearer x' },
+        opened: { fields: { keyId: 'PK1', secretKey: 's-777' } },
+      },
       'connecting',
     );
     const out = lines.join('');
     expect(out).not.toContain('abc123');
     expect(out).not.toContain('k-999');
     expect(out).not.toContain('Bearer x');
+    expect(out).not.toContain('s-777');
     expect(out).toContain('[redacted]');
   });
 });

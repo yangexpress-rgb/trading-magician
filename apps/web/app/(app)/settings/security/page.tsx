@@ -2,6 +2,7 @@ import { Card } from '@tm/ui';
 import type { Metadata } from 'next';
 import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
+import { CredentialsPanel } from '@/components/integrations/credentials-panel';
 import { DeleteAccount } from './delete-account';
 import { SessionsPanel } from './sessions-panel';
 
@@ -20,6 +21,12 @@ export default async function SecurityPage() {
           In-app notifications for strategy and order events arrive with paper execution. Email and
           push channels will be configurable here.
         </p>
+      </Card>
+      <Card aria-labelledby="keys-heading">
+        <h2 id="keys-heading" className="mb-3 text-lg font-semibold">
+          Stored API keys
+        </h2>
+        <CredentialsPanel prefs={{ timeZone: profile.timezone, locale: profile.locale }} />
       </Card>
       <Card aria-labelledby="sessions-heading">
         <h2 id="sessions-heading" className="mb-3 text-lg font-semibold">

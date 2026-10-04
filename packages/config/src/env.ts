@@ -31,3 +31,13 @@ export const nodeEnv = z.enum(['development', 'test', 'production']).default('de
 export const logLevel = z
   .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
   .default('info');
+
+/**
+ * A PEM key from the environment. Many hosts cannot hold multi-line values, so
+ * literal "\n" sequences are turned back into line breaks.
+ */
+export const pemKey = (kind: 'PUBLIC KEY' | 'PRIVATE KEY') =>
+  z
+    .string()
+    .transform((v) => v.replace(/\\n/g, '\n').trim())
+    .refine((v) => v.startsWith(`-----BEGIN ${kind}-----`), `must be a PEM ${kind.toLowerCase()}`);

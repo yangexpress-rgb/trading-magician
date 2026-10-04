@@ -106,6 +106,20 @@
       "when": 1791150135442,
       "tag": "0014_incidents_notifications_security",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791157521655,
+      "tag": "0015_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791157541086,
+      "tag": "0016_credentials_security",
+      "breakpoints": true
     }
   ]
 }

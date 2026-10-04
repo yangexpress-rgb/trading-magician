@@ -87,6 +87,16 @@ With M1.5, every §18 Phase 0 and Phase 1 item above is Done. The two Partial ro
 | Orders show strategy, version, cycle, phase, trigger and broker timeline         | Done (M3.4): order table and drawer; `order-views.test.ts`, `paper-orders.spec.ts`                                   |
 | Stop prevents new orders without silently canceling or liquidating               | Done (M3.4): `runtime.test.ts` (stops without canceling; cancels and closes only when asked), `paper-orders.spec.ts` |
 
+## Phase 4: settings and integrations (§18)
+
+| Requirement                                   | Design ref         | Status                                                                                                                                                                                                                       |
+| --------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Secure credential capture, never returned     | §9.2, §9.3, §16.1  | Done (M4.1): `packages/db/src/sealed.ts`, `credentials.ts`, `credential` table and `tm_secrets` grants (0015–0016); `/api/v1/credentials`; Stored API keys panel; ADR 0015; `credentials.test.ts`, `e2e/credentials.spec.ts` |
+| Feed list, routes, health and connection flow | §9.2, §9.4, §14.4  | Planned (M4.2)                                                                                                                                                                                                               |
+| First real provider and capability discovery  | §9.3, §20 #1–2     | Planned (M4.3)                                                                                                                                                                                                               |
+| Broker platform and multi-account management  | §9.3, §9.4, §14.4  | Planned (M4.4)                                                                                                                                                                                                               |
+| User profile and notifications                | §9.1, §15.4, §16.3 | Planned (M4.5)                                                                                                                                                                                                               |
+
 ## Product decisions confirmed (2026-10-04)
 
 | §20 item                    | Decision                                                                                                                |
@@ -119,3 +129,13 @@ Each is an editable input or a single constant.
 | #9 Re-entry             | One open cycle per strategy, no pyramiding; a new cycle may start after the previous one exits                   |
 | #13 Notifications       | In-app only for now                                                                                              |
 | §8.6 Safety pauses      | 3 rejects in a row; prices stale for 60 s past the threshold; broker silent for 60 s; reconcile every 60 s       |
+
+## Phase 4 defaults confirmed (2026-10-04)
+
+| §20 item                   | Decision                                                                                                   |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| #1, #2 First real provider | Alpaca: IEX prices and a paper broker on one key; demo feed and simulated broker stay built in             |
+| Credential storage         | Sealed in the app's Postgres; private key only in the worker's environment, a cloud key service in Phase 6 |
+| Connection method          | Paste a paper API key into a write-only form; OAuth later                                                  |
+| #13 Notifications          | In-app only; each kind can be muted except risk pauses, reconciliation mismatches and disconnects          |
+| Feed failover              | Switch back to the primary after it has been healthy for 5 minutes; both switches audited and notified     |
