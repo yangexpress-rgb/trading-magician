@@ -3,7 +3,7 @@ import { expect } from '@playwright/test';
 import { createTestedStrategy } from './backtest-fixtures';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
-test('run a back test on a pair strategy and read the results beside their assumptions', async ({
+test('back test a pair strategy, read the results beside their assumptions, and start through the gate', async ({
   page,
   baseURL,
 }) => {
@@ -84,4 +84,41 @@ test('run a back test on a pair strategy and read the results beside their assum
   await panel.getByLabel('From').fill('2021-01-04');
   await panel.getByRole('button', { name: 'Run back test' }).click();
   await expect(panel.getByText('Hourly back tests can cover at most 1 year')).toBeVisible();
+
+  // Validation picked up the finished run: no back-test warning remains.
+  const validation = page.getByRole('region', { name: 'Validation' });
+  await expect(
+    validation.getByText('No problems found.').or(validation.getByText(/warnings? to acknowledge/)),
+  ).toBeVisible();
+  await expect(validation.getByText('This strategy has not been back tested')).toHaveCount(0);
+
+  // Change the rules after testing: the gate says so before Start (§7.4).
+  const current = await (await page.request.get(`/api/v1/strategies/${strategy.id}`)).json();
+  const changed = structuredClone(current.definition);
+  changed.risk.maxOrderNotional = '9000';
+  const saved = await page.request.patch(`/api/v1/strategies/${strategy.id}`, {
+    data: { rowVersion: current.rowVersion, definition: changed, status: 'under_testing' },
+    headers: { origin: baseURL! },
+  });
+  expect(saved.status()).toBe(200);
+  await page.reload();
+  await expect(panel.getByText('Changed since the latest back test')).toBeVisible();
+  await expect(
+    validation.getByText('The strategy changed after its latest back test'),
+  ).toBeVisible();
+
+  await panel.getByRole('button', { name: 'Start execution' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Start on paper?' });
+  await expect(dialog.getByText('Latest back test', { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/\(version 1\)$/)).toBeVisible();
+  await expect(dialog.getByText('Changed since the latest back test')).toBeVisible();
+  for (const box of await dialog.getByRole('checkbox').all()) await box.check();
+  await dialog.getByRole('button', { name: 'Start on paper' }).click();
+  await expect(panel.getByText('Status: Actively executing')).toBeVisible();
+  const started = await (await page.request.get(`/api/v1/strategies/${strategy.id}`)).json();
+  expect(started.statusHistory[0]).toMatchObject({
+    toStatus: 'actively_executing',
+    versionNo: 2,
+  });
+  expect(started.statusHistory[0].acknowledgedWarnings).toContain('stale_backtest');
 });

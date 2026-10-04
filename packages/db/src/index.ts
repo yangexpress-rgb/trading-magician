@@ -31,6 +31,7 @@ export {
   updateStrategy,
   validateStoredStrategy,
   type CreateStrategyInput,
+  type LatestBacktest,
   type StartStrategyInput,
   type StrategyDetail,
   type StrategyErrorCode,

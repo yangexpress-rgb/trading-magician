@@ -36,6 +36,7 @@ import {
 import { recordAudit } from './audit';
 import type { Transaction } from './client';
 import {
+  backtestRuns,
   dataFeedConnections,
   dataRoutes,
   instruments,
@@ -399,16 +400,56 @@ export async function loadValidationContext(
   };
 }
 
+export interface LatestBacktest {
+  runId: string;
+  definitionHash: string;
+  finishedAt: Date;
+}
+
+/**
+ * The latest completed back test, for the activation gate (§7.4). A missing
+ * or mismatched one is a warning to acknowledge on paper (§20 #12, proposed).
+ */
+async function latestBacktestFor(
+  tx: Transaction,
+  strategyId: string,
+): Promise<LatestBacktest | null> {
+  const [run] = await tx
+    .select({
+      runId: backtestRuns.id,
+      definitionHash: backtestRuns.definitionHash,
+      finishedAt: backtestRuns.finishedAt,
+    })
+    .from(backtestRuns)
+    .where(and(eq(backtestRuns.strategyId, strategyId), eq(backtestRuns.status, 'completed')))
+    .orderBy(desc(backtestRuns.finishedAt))
+    .limit(1);
+  return run?.finishedAt ? { ...run, finishedAt: run.finishedAt } : null;
+}
+
 export async function validateStoredStrategy(
   tx: Transaction,
   id: string,
-): Promise<{ validation: ValidationResult; definitionHash: string }> {
+): Promise<{
+  validation: ValidationResult;
+  definitionHash: string;
+  backtest: LatestBacktest | null;
+}> {
   const row = await loadStrategyRow(tx, id);
   const definition = parseOrThrow(row.draftDefinition);
   const ctx = await loadValidationContext(tx);
+  const backtest = await latestBacktestFor(tx, id);
   return {
-    validation: validateStrategy(definition, { ...ctx, definitionHash: row.draftHash }),
+    validation: validateStrategy(definition, {
+      ...ctx,
+      definitionHash: row.draftHash,
+      backtest: backtest && {
+        definitionHash: backtest.definitionHash,
+        completedAt: backtest.finishedAt,
+      },
+    }),
     definitionHash: row.draftHash,
+    backtest,
   };
 }
 
@@ -793,7 +834,7 @@ export async function startStrategy(
   const row = await loadStrategyRow(tx, id);
   if (row.archivedAt)
     throw new StrategyError('invalid_state', 'Restore this strategy before starting it');
-  const { validation } = await validateStoredStrategy(tx, id);
+  const { validation, backtest } = await validateStoredStrategy(tx, id);
   const plan = planTransition({
     from: row.status,
     to: 'actively_executing',
@@ -855,6 +896,7 @@ export async function startStrategy(
       versionId,
       fromStatus: row.status,
       acknowledgedWarnings: acknowledged,
+      latestBacktestId: backtest?.runId ?? null,
     },
   });
   return getStrategy(tx, id);

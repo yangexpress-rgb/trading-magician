@@ -294,13 +294,23 @@ describe('lifecycle', () => {
     expect(s.status).toBe('under_testing');
 
     const unconfirmed = await expectStrategyError(
-      asA((tx) => startStrategy(tx, userA, s.id, { rowVersion: s.rowVersion })),
+      asA((tx) =>
+        startStrategy(tx, userA, s.id, {
+          rowVersion: s.rowVersion,
+          acknowledgedWarnings: ['no_backtest'],
+        }),
+      ),
       'transition_blocked',
     );
     expect(unconfirmed.details).toMatchObject({ reason: 'not_confirmed' });
 
+    // Never back tested: a warning to acknowledge on paper (§7.4, §20 #12).
     s = await asA((tx) =>
-      startStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, confirmed: true }),
+      startStrategy(tx, userA, s.id, {
+        rowVersion: s.rowVersion,
+        confirmed: true,
+        acknowledgedWarnings: ['no_backtest'],
+      }),
     );
     expect(s).toMatchObject({ status: 'actively_executing', hasBeenActive: true });
     expect(s.currentVersion?.versionNo).toBe(1);
@@ -334,7 +344,11 @@ describe('lifecycle', () => {
     expect(s.hasUnpublishedChanges).toBe(false);
 
     s = await asA((tx) =>
-      startStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, confirmed: true }),
+      startStrategy(tx, userA, s.id, {
+        rowVersion: s.rowVersion,
+        confirmed: true,
+        acknowledgedWarnings: ['no_backtest'],
+      }),
     );
     expect(s.versions).toHaveLength(2); // unchanged draft re-uses the current version
     expect(s.statusHistory.map((h) => `${h.fromStatus}>${h.toStatus}@${h.versionNo}`)).toEqual([
@@ -369,17 +383,17 @@ describe('lifecycle', () => {
     );
     expect(warned.details).toMatchObject({
       reason: 'unacknowledged_warnings',
-      details: ['extended_hours'],
+      details: ['extended_hours', 'no_backtest'],
     });
 
     s = await asA((tx) =>
       startStrategy(tx, userA, s.id, {
         rowVersion: s.rowVersion,
         confirmed: true,
-        acknowledgedWarnings: ['extended_hours'],
+        acknowledgedWarnings: ['extended_hours', 'no_backtest'],
       }),
     );
-    expect(s.statusHistory[0]?.acknowledgedWarnings).toEqual(['extended_hours']);
+    expect(s.statusHistory[0]?.acknowledgedWarnings).toEqual(['extended_hours', 'no_backtest']);
   });
 
   it('validates with the tenant’s own accounts and feeds', async () => {
@@ -443,7 +457,11 @@ describe('library', () => {
       updateStrategy(tx, userA, s.id, { rowVersion: 1, status: 'under_testing' }),
     );
     s = await asA((tx) =>
-      startStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, confirmed: true }),
+      startStrategy(tx, userA, s.id, {
+        rowVersion: s.rowVersion,
+        confirmed: true,
+        acknowledgedWarnings: ['no_backtest'],
+      }),
     );
     const copy = await asA((tx) => duplicateStrategy(tx, userA, s.id));
     expect(copy).toMatchObject({
