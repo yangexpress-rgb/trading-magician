@@ -46,6 +46,19 @@ Maps requirements in the Trading App Design Document v1.0 to their implementatio
 
 With M1.5, every §18 Phase 0 and Phase 1 item above is Done. The two Partial rows in Phase 0 come from §9.2, §12.1 and §16.1 rather than the §18 list, and are finished as the worker and credential storage arrive in later phases.
 
+## Phase 2: back testing (§18)
+
+| Requirement                                 | Design ref         | Status                                                                                                            |
+| ------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| Historical-data adapter contract            | §7.1, §18 P2       | Done (M2.1): `HistoricalDataProvider`, `BarSeries` in `packages/domain/src/market/bars.ts`; ADR 0007              |
+| Generic demo price history                  | §21, §20 #1        | Done (M2.1): `packages/market-data` (factor model, split, dividends, missing hourly bars); `demo-history.test.ts` |
+| NYSE trading calendar                       | §6.7, §20 #10      | Done (M2.1): `packages/domain/src/market/calendar.ts`; `calendar.test.ts`                                         |
+| Indicator calculations, no lookahead        | §6.4, §7.2         | Done (M2.1): `packages/domain/src/market/indicators.ts`; `indicators.test.ts` (property-based)                    |
+| Shared rule engine, alignment, fills, costs | §7.2               | Planned (M2.2)                                                                                                    |
+| Durable jobs and run status; provenance     | §7.2, §13.3, §14.2 | Planned (M2.3)                                                                                                    |
+| Results, trade list, charts, assumptions    | §7.3               | Planned (M2.4)                                                                                                    |
+| Start placement and activation gate         | §7.4               | Planned (M2.5)                                                                                                    |
+
 ## Product decisions confirmed (2026-10-04)
 
 | §20 item                    | Decision                                                                                                                |

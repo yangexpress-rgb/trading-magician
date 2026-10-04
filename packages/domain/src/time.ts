@@ -31,26 +31,39 @@ export function formatDateTimeWithZone(instant: Date | string | number, prefs: D
 }
 
 export function isValidTimeZone(zone: string): boolean {
+  if (offsetFormatters.has(zone)) return true;
   try {
-    new Intl.DateTimeFormat('en-US', { timeZone: zone });
+    offsetFormatter(zone);
     return true;
   } catch {
     return false;
   }
 }
 
+// Building a formatter is far slower than using one, and the back tester converts
+// thousands of session times, so formatters are kept per zone.
+const offsetFormatters = new Map<string, Intl.DateTimeFormat>();
+function offsetFormatter(zone: string): Intl.DateTimeFormat {
+  let f = offsetFormatters.get(zone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    offsetFormatters.set(zone, f);
+  }
+  return f;
+}
+
 /** Offset of `zone` from UTC at `instant`, in minutes (e.g. -240 for New York in summer). */
 export function zoneOffsetMinutes(instant: Date, zone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: zone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(instant);
+  const parts = offsetFormatter(zone).formatToParts(instant);
   const n = (type: string) => Number(parts.find((p) => p.type === type)?.value);
   const asUtc = Date.UTC(n('year'), n('month') - 1, n('day'), n('hour'), n('minute'), n('second'));
   return Math.round((asUtc - Math.floor(instant.getTime() / 1000) * 1000) / 60_000);
