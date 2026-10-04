@@ -10,14 +10,9 @@ import {
   type StrategyDefinition,
 } from '@tm/domain';
 import { Card } from '@tm/ui';
+import { RISK_FIELDS, TRIGGER_LABELS } from '@/lib/strategy-text';
 import { useEditor } from './editor-context';
 import { MiniInput, MiniSelect, RowButton } from './fields';
-
-const TRIGGER_LABELS: Record<(typeof TRIGGER_MODES)[number], string> = {
-  on_transition: 'When it becomes true (default)',
-  while_true: 'Repeatedly while true, after the cooldown',
-  once_per_cycle: 'Once per strategy cycle',
-};
 
 const intOrNaN = (v: string) => (v === '' ? Number.NaN : Number(v));
 
@@ -74,20 +69,6 @@ export function TriggerSettings({
     </details>
   );
 }
-
-const RISK_FIELDS: {
-  key: keyof RiskProfile;
-  label: string;
-  unit: 'money' | 'pct' | 'count';
-}[] = [
-  { key: 'maxOrderNotional', label: 'Maximum order size', unit: 'money' },
-  { key: 'maxStrategyExposure', label: 'Maximum strategy exposure', unit: 'money' },
-  { key: 'maxActiveOrders', label: 'Maximum active orders', unit: 'count' },
-  { key: 'dailyLossLimit', label: 'Daily loss limit', unit: 'money' },
-  { key: 'priceCollarPct', label: 'Price collar', unit: 'pct' },
-  { key: 'maxOpenPositions', label: 'Maximum open positions', unit: 'count' },
-  { key: 'maxDrawdownPct', label: 'Maximum drawdown', unit: 'pct' },
-];
 
 /** Execution policy (§6.7, §6.9) and risk limits (§6.10). Advanced fields sit in disclosures. */
 export function ExecutionAndRisk({

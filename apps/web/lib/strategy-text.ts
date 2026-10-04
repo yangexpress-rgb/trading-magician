@@ -1,4 +1,13 @@
-import { getIndicator, type ComparisonOperator, type ConditionNode, type Expr } from '@tm/domain';
+import {
+  getIndicator,
+  type ComparisonOperator,
+  type ConditionNode,
+  type Expr,
+  type PlannedOrder,
+  type RiskProfile,
+  type StrategyDefinition,
+  type TRIGGER_MODES,
+} from '@tm/domain';
 
 /** Human labels for the strategy vocabulary, shared by the editor and summaries. */
 
@@ -168,3 +177,106 @@ export const PHASE_EVENT_LABELS = {
 } as const;
 
 export const LEG_EVENT_LABELS = { submitted: 'submitted', filled: 'filled' } as const;
+
+/** When a planned order becomes eligible, e.g. "5 minutes after entry order submitted". */
+export function describeTiming(
+  order: PlannedOrder,
+  labelOf: (legId: string) => string | undefined,
+): string {
+  const t = order.timing;
+  if (t.mode === 'immediate') return 'Immediately when the conditions qualify';
+  const suffix = order.timingOnly ? ' (timing only)' : '';
+  if (t.mode === 'exact') return `At ${t.at || '…'} (${t.zone})${suffix}`;
+  const ref =
+    t.reference.kind === 'phase'
+      ? PHASE_EVENT_LABELS[t.reference.event].toLowerCase()
+      : `“${labelOf(t.reference.legId) ?? 'removed leg'}” ${t.reference.event}`;
+  return `${t.amount} ${UNIT_LABELS[t.unit]} after ${ref}${suffix}`;
+}
+
+const QUANTITY_UNITS = {
+  units: (v: string) => v,
+  notional: (v: string, ccy: string) => `${ccy} ${v} of`,
+  pct_equity: (v: string) => `${v}% of equity in`,
+  risk_sized: (v: string, ccy: string) => `${ccy} ${v} at risk in`,
+} as const;
+
+/** One-line text for a leg, e.g. "Buy 100 DEMO-A · Limit at 99.5 · Day". */
+export function describeLeg(order: PlannedOrder, symbol: SymbolLookup, currency: string): string {
+  const qty = QUANTITY_UNITS[order.quantity.type](order.quantity.value, currency);
+  const parts = [`${SIDE_LABELS[order.side]} ${qty} ${symbol(order.instrumentId) ?? '?'}`];
+  let type: string = ORDER_TYPE_LABELS[order.orderType];
+  if (order.limitPrice) type += ` at ${describeExpr(order.limitPrice, symbol)}`;
+  if (order.stopPrice) type += `, stop ${describeExpr(order.stopPrice, symbol)}`;
+  parts.push(type, TIF_LABELS[order.timeInForce]);
+  if (order.extendedHours) parts.push('extended hours');
+  return parts.join(' · ');
+}
+
+const PHASE_NAMES = { entry: 'Entry', exit: 'Exit' } as const;
+const SECTION_NAMES: Record<string, string> = {
+  condition: 'conditions',
+  trigger: 'trigger options',
+  orders: 'orders',
+};
+
+/**
+ * Where a validation issue lives, in the words the editor uses, e.g.
+ * "Entry leg 2 (Short B)" or "Risk limits".
+ */
+export function describeIssueLocation(
+  path: readonly (string | number)[],
+  def: StrategyDefinition,
+): string {
+  const [head, section, index] = path;
+  if (head === 'entry' || head === 'exit') {
+    const phase = PHASE_NAMES[head];
+    if (section === 'orders' && typeof index === 'number') {
+      const label = def[head].orders[index]?.legLabel;
+      return `${phase} leg ${index + 1}${label ? ` (${label})` : ''}`;
+    }
+    const name = typeof section === 'string' ? SECTION_NAMES[section] : undefined;
+    return name ? `${phase} ${name}` : phase;
+  }
+  if (head === 'execution') return 'Execution';
+  if (head === 'risk') return 'Risk limits';
+  return 'Strategy';
+}
+
+export const TRIGGER_LABELS: Record<(typeof TRIGGER_MODES)[number], string> = {
+  on_transition: 'When it becomes true (default)',
+  while_true: 'Repeatedly while true, after the cooldown',
+  once_per_cycle: 'Once per strategy cycle',
+};
+
+export const RISK_FIELDS: {
+  key: keyof RiskProfile;
+  label: string;
+  unit: 'money' | 'pct' | 'count';
+}[] = [
+  { key: 'maxOrderNotional', label: 'Maximum order size', unit: 'money' },
+  { key: 'maxStrategyExposure', label: 'Maximum strategy exposure', unit: 'money' },
+  { key: 'maxActiveOrders', label: 'Maximum active orders', unit: 'count' },
+  { key: 'dailyLossLimit', label: 'Daily loss limit', unit: 'money' },
+  { key: 'priceCollarPct', label: 'Price collar', unit: 'pct' },
+  { key: 'maxOpenPositions', label: 'Maximum open positions', unit: 'count' },
+  { key: 'maxDrawdownPct', label: 'Maximum drawdown', unit: 'pct' },
+];
+
+export const MULTI_LEG_LABELS = {
+  concurrent: 'All at once',
+  sequential: 'One after another, in order',
+  after_prior_fill: 'Next leg only after the previous one fills',
+} as const;
+
+export const LEG_FAILURE_LABELS = {
+  cancel_remaining: 'Cancel the remaining legs',
+  flatten_filled: 'Cancel the rest and close filled legs',
+  leave_and_alert: 'Leave orders as they are and alert me',
+} as const;
+
+export const MARKET_HOURS_LABELS = {
+  queue: 'Queue until the next regular session',
+  cancel: 'Cancel the order',
+  extended_if_supported: 'Send in extended hours if allowed',
+} as const;

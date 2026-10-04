@@ -20,12 +20,14 @@ import {
   type EditorContextValue,
   type InstrumentOption,
 } from '@/components/strategy/editor-context';
+import { BackTestPanel, useValidation, ValidationPanel } from '@/components/strategy/lifecycle';
 import { OrdersEditor } from '@/components/strategy/orders-editor';
 import { ExecutionAndRisk, TriggerSettings } from '@/components/strategy/settings-editor';
 import { apiClient } from '@/lib/api-client';
 
 interface Props {
   strategyId: string;
+  strategyName: string;
   status: StrategyStatus;
   initialDefinition: StrategyDefinition;
   initialRowVersion: number;
@@ -33,7 +35,7 @@ interface Props {
   accounts: AccountOption[];
   timeZone: string;
   baseCurrency: string;
-  /** Rendered after the editor sections (the back test panel arrives in M1.5). */
+  /** Rendered after the Back Test panel. */
   children?: ReactNode;
 }
 
@@ -58,6 +60,7 @@ function structuralIssues(def: StrategyDefinition): Map<string, string> {
 
 export function StrategyEditor({
   strategyId,
+  strategyName,
   status,
   initialDefinition,
   initialRowVersion,
@@ -76,6 +79,7 @@ export function StrategyEditor({
   const editable = status !== 'actively_executing';
   const dirty = useMemo(() => canonicalJson(definition) !== savedJson, [definition, savedJson]);
   const issues = useMemo(() => structuralIssues(definition), [definition]);
+  const { state: validation, recheck } = useValidation(strategyId, rowVersion);
 
   // Warn before leaving with unsaved edits (§5.1).
   useEffect(() => {
@@ -147,9 +151,22 @@ export function StrategyEditor({
   return (
     <EditorContext.Provider value={ctx}>
       <div className="sticky top-0 z-10 -mx-1 mb-4 flex flex-wrap items-center gap-3 border-b border-line bg-canvas/95 px-1 py-2 backdrop-blur">
-        <p className="text-sm text-ink-muted" role="status" aria-live="polite">
+        <p id="save-state" className="text-sm text-ink-muted" role="status" aria-live="polite">
           {stateText}
         </p>
+        {validation.kind === 'ready' &&
+          (validation.result.errors.length > 0 || validation.result.warnings.length > 0) && (
+            <a href="#validation" className="text-sm">
+              {[
+                validation.result.errors.length > 0 &&
+                  `${validation.result.errors.length} ${validation.result.errors.length === 1 ? 'problem' : 'problems'}`,
+                validation.result.warnings.length > 0 &&
+                  `${validation.result.warnings.length} ${validation.result.warnings.length === 1 ? 'warning' : 'warnings'}`,
+              ]
+                .filter(Boolean)
+                .join(', ')}
+            </a>
+          )}
         {editable && (
           <Button
             variant="primary"
@@ -209,6 +226,25 @@ export function StrategyEditor({
           );
         })}
         <ExecutionAndRisk definition={definition} onChange={edit} />
+        <ValidationPanel
+          validation={validation}
+          definition={definition}
+          dirty={dirty}
+          onRecheck={recheck}
+        />
+        <BackTestPanel
+          strategyId={strategyId}
+          strategyName={strategyName}
+          status={status}
+          rowVersion={rowVersion}
+          dirty={dirty}
+          definition={definition}
+          validation={validation}
+          onChanged={(detail) => {
+            setRowVersion(detail.rowVersion);
+            router.refresh();
+          }}
+        />
         {children}
       </div>
     </EditorContext.Provider>
