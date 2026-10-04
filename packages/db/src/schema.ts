@@ -572,3 +572,386 @@ export const backtestTrades = pgTable(
     check('backtest_trade_status', sql`${t.status} in ('closed', 'open', 'aborted')`),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Paper execution (§6.5–6.9, §8, §13.3–13.4; ADR 0010). A runtime runs one
+// pinned strategy version; each Entry-to-Exit pass is a cycle. Order intents
+// are immutable (§8.2); the broker's view of each order lives beside the
+// intent in `broker_order`, and every change is appended to `order_event`.
+// ---------------------------------------------------------------------------
+
+export const runtimeStatus = pgEnum('runtime_status', ['running', 'paused', 'stopped']);
+export const cycleStatus = pgEnum('cycle_status', [
+  'entry_working',
+  'open',
+  'exit_working',
+  'closed',
+  'aborted',
+]);
+/** Canonical order states (§8.4), mirrored from `ORDER_STATES` in @tm/domain. */
+export const orderState = pgEnum('order_state', [
+  'planned',
+  'scheduled',
+  'pending_risk',
+  'ready',
+  'submitted',
+  'acknowledged',
+  'partially_filled',
+  'filled',
+  'canceled',
+  'rejected',
+  'expired',
+  'failed',
+]);
+export const scheduledActionStatus = pgEnum('scheduled_action_status', [
+  'pending',
+  'done',
+  'canceled',
+]);
+
+export const strategyRuntimes = pgTable(
+  'strategy_runtime',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    strategyId: uuid('strategy_id').notNull(),
+    versionId: uuid('version_id').notNull(),
+    mode: tradingMode('mode').notNull().default('paper'),
+    status: runtimeStatus('status').notNull().default('running'),
+    pauseReason: text('pause_reason'),
+    leaseOwner: text('lease_owner'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    lastEvaluatedAt: timestamp('last_evaluated_at', { withTimezone: true }),
+    startedBy: uuid('started_by').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    stoppedBy: uuid('stopped_by'),
+    stoppedAt: timestamp('stopped_at', { withTimezone: true }),
+    ...timestamps(),
+    rowVersion: rowVersion(),
+  },
+  (t) => [
+    unique('strategy_runtime_id_user_uq').on(t.id, t.userId),
+    foreignKey({
+      columns: [t.strategyId, t.userId],
+      foreignColumns: [strategies.id, strategies.userId],
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.versionId, t.userId],
+      foreignColumns: [strategyVersions.id, strategyVersions.userId],
+    }),
+    uniqueIndex('strategy_runtime_one_active_idx')
+      .on(t.strategyId)
+      .where(sql`${t.status} <> 'stopped'`),
+    index('strategy_runtime_lease_idx')
+      .on(t.leaseExpiresAt)
+      .where(sql`${t.status} = 'running'`),
+    check('strategy_runtime_paper_only', sql`${t.mode} = 'paper'`),
+    check(
+      'strategy_runtime_stopped',
+      sql`(${t.status} = 'stopped') = (${t.stoppedAt} is not null)`,
+    ),
+    check('strategy_runtime_pause_reason_length', sql`char_length(${t.pauseReason}) <= 500`),
+  ],
+);
+
+export const strategyCycles = pgTable(
+  'strategy_cycle',
+  {
+    id: id(),
+    userId: uuid('user_id').notNull(),
+    runtimeId: uuid('runtime_id').notNull(),
+    seq: integer('seq').notNull(),
+    status: cycleStatus('status').notNull().default('entry_working'),
+    entryTriggerEventId: uuid('entry_trigger_event_id'),
+    exitTriggerEventId: uuid('exit_trigger_event_id'),
+    entryTriggeredAt: timestamp('entry_triggered_at', { withTimezone: true }).notNull(),
+    positionOpenedAt: timestamp('position_opened_at', { withTimezone: true }),
+    exitTriggeredAt: timestamp('exit_triggered_at', { withTimezone: true }),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    realizedPnl: numeric('realized_pnl'),
+    note: text('note'),
+    ...timestamps(),
+    rowVersion: rowVersion(),
+  },
+  (t) => [
+    unique('strategy_cycle_id_user_uq').on(t.id, t.userId),
+    unique('strategy_cycle_seq_uq').on(t.runtimeId, t.seq),
+    foreignKey({
+      columns: [t.runtimeId, t.userId],
+      foreignColumns: [strategyRuntimes.id, strategyRuntimes.userId],
+    }).onDelete('cascade'),
+    check('strategy_cycle_seq_positive', sql`${t.seq} > 0`),
+    check(
+      'strategy_cycle_closed',
+      sql`(${t.status} in ('closed', 'aborted')) = (${t.closedAt} is not null)`,
+    ),
+  ],
+);
+
+export const triggerEvents = pgTable(
+  'trigger_event',
+  {
+    id: id(),
+    userId: uuid('user_id').notNull(),
+    runtimeId: uuid('runtime_id').notNull(),
+    cycleId: uuid('cycle_id'),
+    phase: strategyPhase('phase').notNull(),
+    /** Time of the newest market data the evaluation used. */
+    dataTime: timestamp('data_time', { withTimezone: true }).notNull(),
+    evaluatedAt: timestamp('evaluated_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Truth of the condition tree: true, false or unknown (missing or stale data). */
+    result: text('result').notNull(),
+    /** Whether the trigger mode and debounce rules let it fire (§6.5 step 6). */
+    qualified: boolean('qualified').notNull(),
+    /** Evaluated leaf values by node id. */
+    values: jsonb('values').notNull(),
+  },
+  (t) => [
+    unique('trigger_event_id_user_uq').on(t.id, t.userId),
+    foreignKey({
+      columns: [t.runtimeId, t.userId],
+      foreignColumns: [strategyRuntimes.id, strategyRuntimes.userId],
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.cycleId, t.userId],
+      foreignColumns: [strategyCycles.id, strategyCycles.userId],
+    }).onDelete('cascade'),
+    index('trigger_event_runtime_idx').on(t.runtimeId, t.evaluatedAt),
+    check('trigger_event_result', sql`${t.result} in ('true', 'false', 'unknown')`),
+  ],
+);
+
+export const scheduledActions = pgTable(
+  'scheduled_action',
+  {
+    id: id(),
+    userId: uuid('user_id').notNull(),
+    runtimeId: uuid('runtime_id').notNull(),
+    cycleId: uuid('cycle_id').notNull(),
+    kind: text('kind').notNull(),
+    phase: text('phase').notNull(),
+    legId: text('leg_id'),
+    dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
+    /** The durable event the timing is relative to (§6.8), e.g. `order_event`. */
+    referenceKind: text('reference_kind'),
+    referenceId: uuid('reference_id'),
+    /** One action per purpose, so a restarted worker cannot schedule it twice. */
+    dedupeKey: text('dedupe_key').notNull(),
+    status: scheduledActionStatus('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    leaseOwner: text('lease_owner'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    doneAt: timestamp('done_at', { withTimezone: true }),
+    ...timestamps(),
+  },
+  (t) => [
+    unique('scheduled_action_id_user_uq').on(t.id, t.userId),
+    unique('scheduled_action_dedupe_uq').on(t.userId, t.dedupeKey),
+    foreignKey({
+      columns: [t.cycleId, t.userId],
+      foreignColumns: [strategyCycles.id, strategyCycles.userId],
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.runtimeId, t.userId],
+      foreignColumns: [strategyRuntimes.id, strategyRuntimes.userId],
+    }).onDelete('cascade'),
+    index('scheduled_action_due_idx')
+      .on(t.dueAt)
+      .where(sql`${t.status} = 'pending'`),
+    check('scheduled_action_kind', sql`${t.kind} in ('submit_leg', 'leg_timeout', 'expire_order')`),
+    check('scheduled_action_phase', sql`${t.phase} in ('entry', 'exit', 'flatten')`),
+    check('scheduled_action_done', sql`(${t.status} = 'pending') = (${t.doneAt} is null)`),
+  ],
+);
+
+export const orderIntents = pgTable(
+  'order_intent',
+  {
+    id: id(),
+    userId: uuid('user_id').notNull(),
+    runtimeId: uuid('runtime_id').notNull(),
+    strategyId: uuid('strategy_id').notNull(),
+    versionId: uuid('version_id').notNull(),
+    cycleId: uuid('cycle_id').notNull(),
+    phase: text('phase').notNull(),
+    plannedOrderId: text('planned_order_id'),
+    legLabel: text('leg_label').notNull(),
+    triggerEventId: uuid('trigger_event_id'),
+    scheduledActionId: uuid('scheduled_action_id'),
+    eligibleAt: timestamp('eligible_at', { withTimezone: true }).notNull(),
+    accountId: uuid('account_id').notNull(),
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => instruments.id),
+    side: text('side').notNull(),
+    direction: text('direction').notNull(),
+    quantity: numeric('quantity').notNull(),
+    orderType: text('order_type').notNull(),
+    limitPrice: numeric('limit_price'),
+    stopPrice: numeric('stop_price'),
+    timeInForce: text('time_in_force').notNull(),
+    extendedHours: boolean('extended_hours').notNull().default(false),
+    referencePrice: numeric('reference_price').notNull(),
+    /** `RiskCheckResult` from @tm/domain: every check that ran, with limits and values. */
+    risk: jsonb('risk').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    source: text('source').notNull().default('strategy'),
+    mode: tradingMode('mode').notNull().default('paper'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('order_intent_id_user_uq').on(t.id, t.userId),
+    unique('order_intent_idempotency_uq').on(t.userId, t.idempotencyKey),
+    foreignKey({
+      columns: [t.runtimeId, t.userId],
+      foreignColumns: [strategyRuntimes.id, strategyRuntimes.userId],
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.cycleId, t.userId],
+      foreignColumns: [strategyCycles.id, strategyCycles.userId],
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.versionId, t.userId],
+      foreignColumns: [strategyVersions.id, strategyVersions.userId],
+    }),
+    foreignKey({
+      columns: [t.accountId, t.userId],
+      foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.triggerEventId, t.userId],
+      foreignColumns: [triggerEvents.id, triggerEvents.userId],
+    }),
+    index('order_intent_cycle_idx').on(t.cycleId, t.createdAt),
+    index('order_intent_user_created_idx').on(t.userId, t.createdAt),
+    check('order_intent_paper_only', sql`${t.mode} = 'paper'`),
+    check('order_intent_quantity_positive', sql`${t.quantity} > 0`),
+    check('order_intent_phase', sql`${t.phase} in ('entry', 'exit', 'flatten')`),
+    check('order_intent_direction', sql`${t.direction} in ('buy', 'sell')`),
+    check(
+      'order_intent_side',
+      sql`${t.side} in ('buy', 'sell', 'sell_short', 'buy_to_cover', 'close', 'reduce')`,
+    ),
+    check(
+      'order_intent_order_type',
+      sql`${t.orderType} in ('market', 'limit', 'stop', 'stop_limit')`,
+    ),
+    check('order_intent_tif', sql`${t.timeInForce} in ('day', 'gtc', 'ioc', 'fok')`),
+    check('order_intent_source', sql`${t.source} in ('strategy', 'user', 'system')`),
+  ],
+);
+
+export const brokerOrders = pgTable(
+  'broker_order',
+  {
+    intentId: uuid('intent_id').primaryKey(),
+    userId: uuid('user_id').notNull(),
+    state: orderState('state').notNull(),
+    brokerOrderId: text('broker_order_id'),
+    rawStatus: text('raw_status'),
+    filledQuantity: numeric('filled_quantity').notNull().default('0'),
+    averagePrice: numeric('average_price'),
+    fees: numeric('fees').notNull().default('0'),
+    overfilled: boolean('overfilled').notNull().default(false),
+    reason: text('reason'),
+    cancelRequestedAt: timestamp('cancel_requested_at', { withTimezone: true }),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
+    filledAt: timestamp('filled_at', { withTimezone: true }),
+    terminalAt: timestamp('terminal_at', { withTimezone: true }),
+    ...timestamps(),
+    rowVersion: rowVersion(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.intentId, t.userId],
+      foreignColumns: [orderIntents.id, orderIntents.userId],
+    }).onDelete('cascade'),
+    index('broker_order_state_idx').on(t.userId, t.state),
+    check('broker_order_filled_nonnegative', sql`${t.filledQuantity} >= 0`),
+    check('broker_order_reason_length', sql`char_length(${t.reason}) <= 500`),
+  ],
+);
+
+export const orderEvents = pgTable(
+  'order_event',
+  {
+    id: id(),
+    userId: uuid('user_id').notNull(),
+    intentId: uuid('intent_id').notNull(),
+    /** Insertion order; several events can share one transaction's timestamp. */
+    seq: bigint('seq', { mode: 'number' }).generatedAlwaysAsIdentity(),
+    /** Who caused it: the app, the broker, a person, or reconciliation (§16.2). */
+    source: text('source').notNull(),
+    fromState: orderState('from_state'),
+    toState: orderState('to_state'),
+    /** The broker's update id; a repeat of the same id is ignored (§8.5). */
+    brokerEventId: text('broker_event_id'),
+    /** Normalized update, including the raw broker status. Never holds secrets. */
+    payload: jsonb('payload').notNull(),
+    providerAt: timestamp('provider_at', { withTimezone: true }),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.intentId, t.userId],
+      foreignColumns: [orderIntents.id, orderIntents.userId],
+    }).onDelete('cascade'),
+    unique('order_event_broker_uq').on(t.intentId, t.brokerEventId),
+    index('order_event_intent_idx').on(t.intentId, t.seq),
+    check('order_event_source', sql`${t.source} in ('app', 'broker', 'user', 'reconciliation')`),
+  ],
+);
+
+export const fills = pgTable(
+  'fill',
+  {
+    id: id(),
+    userId: uuid('user_id').notNull(),
+    intentId: uuid('intent_id').notNull(),
+    brokerFillId: text('broker_fill_id').notNull(),
+    quantity: numeric('quantity').notNull(),
+    price: numeric('price').notNull(),
+    fee: numeric('fee').notNull().default('0'),
+    filledAt: timestamp('filled_at', { withTimezone: true }).notNull(),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.intentId, t.userId],
+      foreignColumns: [orderIntents.id, orderIntents.userId],
+    }).onDelete('cascade'),
+    unique('fill_broker_uq').on(t.intentId, t.brokerFillId),
+    index('fill_user_time_idx').on(t.userId, t.filledAt),
+    check('fill_quantity_positive', sql`${t.quantity} > 0`),
+    check('fill_price_positive', sql`${t.price} > 0`),
+  ],
+);
+
+export const positionSnapshots = pgTable(
+  'position_snapshot',
+  {
+    id: id(),
+    userId: uuid('user_id').notNull(),
+    accountId: uuid('account_id').notNull(),
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => instruments.id),
+    quantity: numeric('quantity').notNull(),
+    averageCost: numeric('average_cost'),
+    /** `app` is derived from fills; `broker` is what the broker reported. */
+    source: text('source').notNull(),
+    asOf: timestamp('as_of', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.accountId, t.userId],
+      foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
+    }).onDelete('cascade'),
+    index('position_snapshot_lookup_idx').on(t.accountId, t.instrumentId, t.asOf),
+    check('position_snapshot_source', sql`${t.source} in ('app', 'broker')`),
+  ],
+);

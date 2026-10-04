@@ -41,5 +41,6 @@ export {
   type StrategyVersionSummary,
   type UpdateStrategyInput,
 } from './strategies';
+export * from './orders';
 export { withTenant, type TenantContext } from './tenant';
 export { and, desc, eq, sql } from 'drizzle-orm';

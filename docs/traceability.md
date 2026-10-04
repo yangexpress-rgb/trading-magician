@@ -59,6 +59,21 @@ With M1.5, every §18 Phase 0 and Phase 1 item above is Done. The two Partial ro
 | Results, trade list, charts, assumptions    | §7.3               | Done (M2.4): `apps/web/components/strategy/backtest.tsx` (inputs, live status, history, tiles, SVG charts, trades, contribution, warnings, assumptions aside, CSV); `backtest.spec.ts` with axe                                      |
 | Start placement and activation gate         | §7.4               | Done (M2.5): `validateStoredStrategy` feeds the latest completed run to `no_backtest`/`stale_backtest`; panel and Start dialog show latest run and draft match; start audit records the run; `backtest.spec.ts`, `backtests.test.ts` |
 
+## Phase 3: paper execution (§18)
+
+| Requirement                                      | Design ref              | Status                                                                                                                                                                                             |
+| ------------------------------------------------ | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canonical order model and states                 | §8.4, §13.4, §17.4      | Done (M3.1): `packages/domain/src/execution/order-state.ts` (`transitionOrder`, `deriveBrokerOrder`); ADR 0010; `order-state.test.ts` (property-based: arrival order, duplicates, terminal states) |
+| Immutable order intents with idempotency keys    | §8.2, §8.5              | Done (M3.1): `order_intent` append-only (0008–0009); `packages/db/src/orders.ts` (`recordOrderIntent`, `idempotencyKey`); `orders.test.ts`                                                         |
+| Broker updates replayable and out-of-order safe  | §8.5                    | Done (M3.1): `applyBrokerUpdates` stores each update once and re-derives state; `order_event` timeline, `fill`; `orders.test.ts`                                                                   |
+| Sizing and pre-trade risk shared with back test  | §6.6, §8.6              | Done (M3.1): `sizeOrder`, `checkPreTradeRisk` in `@tm/domain`, used by `simulate`; `sizing.test.ts`, `risk.test.ts`, back-test suite unchanged                                                     |
+| Runtime, cycle, trigger and schedule records     | §13.3                   | Partial (M3.1): tables and tenant isolation; behavior in M3.3                                                                                                                                      |
+| One paper-broker adapter first                   | §18 P3, §9.3            | Planned (M3.2)                                                                                                                                                                                     |
+| Runtime orchestration and timing scheduler       | §6.5, §6.8, §8.1, §12.4 | Planned (M3.3)                                                                                                                                                                                     |
+| Entry-first/Exit-second lifecycle                | §6.9, §19.6             | Planned (M3.3)                                                                                                                                                                                     |
+| Orders tab with live updates                     | §8.3, §14.3, §15.2      | Planned (M3.4)                                                                                                                                                                                     |
+| Reconciliation, risk pause, audit, notifications | §8.5, §8.6, §16.2–16.3  | Planned (M3.5)                                                                                                                                                                                     |
+
 ## Product decisions confirmed (2026-10-04)
 
 | §20 item                    | Decision                                                                                                                |
@@ -80,3 +95,13 @@ Built with these until Yong answers; each is an editable input or a single const
 | #5 Resolution and range    | Daily by default, hourly optional; at most 5 years daily or 1 year hourly per run                                                      |
 | #6 Fill and cost defaults  | Market at next open; limits and stops when traded through; 5 bps slippage; no commission; 10% of bar volume per fill; 1% a year borrow |
 | #12 Back test before start | Not required on paper; a missing or out-of-date back test is a warning to acknowledge                                                  |
+
+## Phase 3 defaults proposed (2026-10-04, awaiting confirmation)
+
+| §20 item                | Proposed default                                                                                                 |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| #2 Paper broker         | Built-in simulated paper broker behind `BrokerAdapter`; a real broker's paper account in Phase 4                 |
+| #1 Live prices on paper | Simulated live feed for the DEMO instruments following NYSE hours and holidays; tests drive the clock            |
+| #8 Partial fills        | Exit waits for full Entry fill; after the 60 s timeout the filled part stays open and Exit sizes to what is held |
+| #9 Re-entry             | One open cycle per strategy, no pyramiding; a new cycle may start after the previous one exits                   |
+| #13 Notifications       | In-app only for now                                                                                              |

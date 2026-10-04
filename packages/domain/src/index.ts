@@ -17,3 +17,4 @@ export {
 } from './time';
 export * from './strategy';
 export * from './market';
+export * from './execution';

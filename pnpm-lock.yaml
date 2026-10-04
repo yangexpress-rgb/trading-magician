@@ -188,6 +188,9 @@ importers:
       '@tm/domain':
         specifier: workspace:*
         version: link:../domain
+      decimal.js:
+        specifier: ^10.6.0
+        version: 10.6.0
       drizzle-orm:
         specifier: ^0.45.3
         version: 0.45.3(kysely@0.29.6)(postgres@3.4.9)
