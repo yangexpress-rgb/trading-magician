@@ -12,3 +12,4 @@ export {
   isValidTimeZone,
   type DisplayPreferences,
 } from './time';
+export * from './strategy';
