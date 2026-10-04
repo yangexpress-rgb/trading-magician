@@ -1,11 +1,15 @@
 import {
+  checkPreTradeRisk,
   evaluateCondition,
   evaluateExpr,
   nyDate,
   nextTradingDay,
   regularSession,
   relativeDelaySeconds,
+  sizeOrder,
   SUBSTITUTED_FIELDS,
+  type RiskCheckCode,
+  type SizingSkip,
   type OrderSide,
   type PhaseEvent,
   type PhaseName,
@@ -44,6 +48,25 @@ import {
  */
 
 const ZERO = new Decimal(0);
+
+const SIZING_MESSAGES: Record<SizingSkip, string> = {
+  no_price: 'Some orders were skipped because there was no price yet',
+  no_stop_distance: 'Risk-sized orders were skipped because the stop was at the current price',
+  nothing_to_close: 'Some Exit legs had no position left to close',
+  zero_quantity: 'Some orders were skipped because their quantity rounded to zero',
+};
+const RISK_MESSAGES: Record<RiskCheckCode, string> = {
+  risk_active_orders: 'Orders were rejected by the maximum active orders limit',
+  risk_order_size: 'Orders were rejected by the maximum order size',
+  risk_exposure: 'Orders were rejected by the maximum strategy exposure',
+  buying_power: 'Orders were rejected for lack of buying power (no leverage)',
+  risk_daily_loss: 'New entries stopped for the day after the daily loss limit was hit',
+  risk_drawdown: 'New entries stopped after the maximum drawdown was hit',
+  risk_open_positions: 'Orders were rejected by the maximum open positions',
+  risk_collar: 'Limit orders were rejected by the price collar',
+  stale_data: 'Orders were rejected because the price was stale',
+  market_closed: 'Orders were canceled because the market was closed',
+};
 const HUNDRED = new Decimal(100);
 
 type LegStatus = 'waiting' | 'working' | 'filled' | 'partial' | 'failed' | 'skipped' | 'canceled';
@@ -427,143 +450,39 @@ export function simulate({
       );
     }
 
-    let qty: Decimal;
-    const v = new Decimal(o.quantity.value);
-    switch (o.quantity.type) {
-      case 'units':
-        qty = v;
-        break;
-      case 'notional':
-        qty = v.div(ref);
-        break;
-      case 'pct_equity':
-        qty = equityNow().times(v).div(100).div(ref);
-        break;
-      case 'risk_sized': {
-        const perShareRisk = stop ? ref.minus(stop).abs() : ZERO;
-        if (perShareRisk.isZero())
-          return reject(
-            leg,
-            now,
-            'no_stop_distance',
-            'Risk-sized orders were skipped because the stop was at the current price',
-          );
-        qty = v.div(perShareRisk);
-        break;
-      }
-    }
-    const step = lot(o.instrumentId);
-    const lots = qty.div(step);
-    qty = (o.quantity.rounding === 'nearest' ? lots.round() : lots.floor()).times(step);
-
-    let direction: Direction;
-    let closing = false;
-    switch (o.side) {
-      case 'buy':
-        direction = 'buy';
-        break;
-      case 'sell_short':
-        direction = 'sell';
-        break;
-      case 'sell':
-        direction = 'sell';
-        closing = true;
-        qty = Decimal.min(qty, Decimal.max(pos, 0));
-        break;
-      case 'buy_to_cover':
-        direction = 'buy';
-        closing = true;
-        qty = Decimal.min(qty, Decimal.max(pos.negated(), 0));
-        break;
-      case 'close':
-        direction = pos.gt(0) ? 'sell' : 'buy';
-        closing = true;
-        qty = pos.abs();
-        break;
-      case 'reduce':
-        direction = pos.gt(0) ? 'sell' : 'buy';
-        closing = true;
-        qty = Decimal.min(qty, pos.abs());
-        break;
-    }
-    if (qty.lte(0)) {
-      endLeg(
-        leg,
-        'skipped',
-        now,
-        closing ? 'nothing_to_close' : 'zero_quantity',
-        closing
-          ? 'Some Exit legs had no position left to close'
-          : 'Some orders were skipped because their quantity rounded to zero',
-      );
+    const sized = sizeOrder({
+      order: o,
+      referencePrice: ref,
+      stopPrice: stop,
+      equity: equityNow(),
+      position: pos,
+      lotSize: lot(o.instrumentId),
+    });
+    if (!sized.ok) {
+      if (sized.code === 'no_stop_distance')
+        return reject(leg, now, sized.code, SIZING_MESSAGES[sized.code]);
+      endLeg(leg, 'skipped', now, sized.code, SIZING_MESSAGES[sized.code]);
       return false;
     }
+    const { quantity: qty, direction, closing } = sized;
 
-    // Pre-trade risk checks (§8.6). Closing orders always pass; they reduce risk.
-    if (risk.maxActiveOrders !== undefined && working().length >= risk.maxActiveOrders) {
-      return reject(
-        leg,
-        now,
-        'risk_active_orders',
-        'Orders were rejected by the maximum active orders limit',
-      );
-    }
-    if (!closing) {
-      const notional = qty.times(ref);
-      if (risk.maxOrderNotional && notional.gt(risk.maxOrderNotional)) {
-        return reject(
-          leg,
-          now,
-          'risk_order_size',
-          'Orders were rejected by the maximum order size',
-        );
-      }
-      const { gross } = positionValue();
-      if (risk.maxStrategyExposure && gross.plus(notional).gt(risk.maxStrategyExposure)) {
-        return reject(
-          leg,
-          now,
-          'risk_exposure',
-          'Orders were rejected by the maximum strategy exposure',
-        );
-      }
-      if (gross.plus(notional).gt(equityNow())) {
-        return reject(
-          leg,
-          now,
-          'buying_power',
-          'Orders were rejected for lack of buying power (no leverage)',
-        );
-      }
-      if (dailyHalt)
-        return reject(
-          leg,
-          now,
-          'risk_daily_loss',
-          'New entries stopped for the day after the daily loss limit was hit',
-        );
-      if (drawdownHalt)
-        return reject(
-          leg,
-          now,
-          'risk_drawdown',
-          'New entries stopped after the maximum drawdown was hit',
-        );
-      if (risk.maxOpenPositions !== undefined && (portfolio.get(o.instrumentId) ?? ZERO).isZero()) {
-        const open = [...portfolio.values()].filter((q) => !q.isZero()).length;
-        if (open >= risk.maxOpenPositions) {
-          return reject(
-            leg,
-            now,
-            'risk_open_positions',
-            'Orders were rejected by the maximum open positions',
-          );
-        }
-      }
-    }
-    const collar = risk.priceCollarPct ? new Decimal(risk.priceCollarPct) : undefined;
-    if (collar && limit && limit.minus(ref).abs().div(ref).times(100).gt(collar)) {
-      return reject(leg, now, 'risk_collar', 'Limit orders were rejected by the price collar');
+    // Pre-trade risk checks (§8.6), shared with paper execution.
+    const checked = checkPreTradeRisk({
+      risk,
+      closing,
+      quantity: qty,
+      referencePrice: ref,
+      limitPrice: limit,
+      activeOrders: working().length,
+      grossExposure: positionValue().gross,
+      equity: equityNow(),
+      dailyLossHit: dailyHalt,
+      drawdownHit: drawdownHalt,
+      openPositions: [...portfolio.values()].filter((q) => !q.isZero()).length,
+      instrumentHeld: !(portfolio.get(o.instrumentId) ?? ZERO).isZero(),
+    });
+    if (!checked.ok && checked.code) {
+      return reject(leg, now, checked.code, RISK_MESSAGES[checked.code]);
     }
     return placeOrder(c, leg, qty, direction, closing, now, { limit, stop });
   }
