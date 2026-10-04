@@ -13,6 +13,8 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
         .regex(/^postgres(ql)?:\/\//, 'must be a postgres:// URL')
         .optional(),
       BACKTEST_POLL_MS: z.coerce.number().int().min(100).max(60_000).default(1000),
+      /** How often running paper strategies are claimed and stepped. */
+      RUNTIME_POLL_MS: z.coerce.number().int().min(100).max(60_000).default(1000),
     },
     source,
   );

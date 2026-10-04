@@ -70,6 +70,7 @@ export async function recordOrderIntent(
       cycleId: intent.cycleId,
       phase: intent.phase,
       plannedOrderId: intent.plannedOrderId ?? null,
+      attempt: intent.attempt,
       legLabel: intent.legLabel,
       triggerEventId: intent.triggerEventId ?? null,
       scheduledActionId: intent.scheduledActionId ?? null,

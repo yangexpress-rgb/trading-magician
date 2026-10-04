@@ -3,8 +3,8 @@ import { createServer, type Server } from 'node:http';
 export interface HealthReport {
   status: 'ok';
   service: 'worker';
-  /** Which job loops this worker runs. Order runtimes arrive in Phase 3. */
-  jobs: 'none' | 'backtests';
+  /** Which job loops this worker runs. */
+  jobs: 'none' | 'backtests+runtimes';
 }
 
 export function healthReport(jobs: HealthReport['jobs'] = 'none'): HealthReport {

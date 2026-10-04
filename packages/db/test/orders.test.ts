@@ -1,6 +1,7 @@
 import {
   checkPreTradeRisk,
   createDefinition,
+  newCycleState,
   type BrokerUpdate,
   type OrderIntent,
   type StrategyDefinition,
@@ -124,7 +125,13 @@ async function startCycle(userId: string, accountId: string): Promise<Cycle> {
       .returning();
     const [cycle] = await tx
       .insert(strategyCycles)
-      .values({ userId, runtimeId: runtime!.id, seq: 1, entryTriggeredAt: new Date() })
+      .values({
+        userId,
+        runtimeId: runtime!.id,
+        seq: 1,
+        entryTriggeredAt: new Date(),
+        state: newCycleState(Date.now()),
+      })
       .returning();
     return {
       userId,
@@ -158,6 +165,7 @@ function intentFor(c: Cycle, overrides: Partial<OrderIntent> = {}): OrderIntent 
     cycleId: c.cycleId,
     phase: 'entry',
     plannedOrderId: 'buy',
+    attempt: 1,
     legLabel: 'Buy A',
     triggerEventId: undefined,
     scheduledActionId: undefined,

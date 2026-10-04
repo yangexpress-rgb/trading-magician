@@ -21,7 +21,7 @@ Phase 0 (foundation) complete: M0.1–M0.4. Phase 1 (Strategy Lab) next. See `do
 
 ```text
 apps/web        Next.js UI and REST API
-apps/worker     Background worker: runs queued back tests (needs DATABASE_APP_URL)
+apps/worker     Background worker: runs queued back tests and paper strategies (needs DATABASE_APP_URL)
 packages/config Environment validation helpers
 packages/domain Pure domain logic shared by web, backtester and runtime
 packages/market-data Demo market data: generated history and a simulated live feed

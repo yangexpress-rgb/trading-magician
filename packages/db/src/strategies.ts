@@ -34,6 +34,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { recordAudit } from './audit';
+import { createRuntime, stopRuntime } from './runtime';
 import type { Transaction } from './client';
 import {
   backtestRuns,
@@ -876,6 +877,9 @@ export async function startStrategy(
     hasBeenActive: true,
     currentVersionId: versionId,
   });
+  if (!versionId) throw new StrategyError('invalid_state', 'The strategy has no version to run');
+  // The worker picks the runtime up on its next poll (§8.1).
+  const runtimeId = await createRuntime(tx, userId, id, versionId);
   await tx.insert(strategyStatusChanges).values({
     userId,
     strategyId: id,
@@ -897,6 +901,7 @@ export async function startStrategy(
       fromStatus: row.status,
       acknowledgedWarnings: acknowledged,
       latestBacktestId: backtest?.runId ?? null,
+      runtimeId,
     },
   });
   return getStrategy(tx, id);
@@ -917,6 +922,8 @@ export async function stopStrategy(
     );
   }
   await updateRow(tx, id, input.rowVersion, { status: 'off' });
+  // No new orders from here on; working orders and positions are left alone (§8.1).
+  const runtimeId = await stopRuntime(tx, userId, id);
   await tx.insert(strategyStatusChanges).values({
     userId,
     strategyId: id,
@@ -931,7 +938,11 @@ export async function stopStrategy(
     action: 'strategy.stopped',
     resourceType: 'strategy',
     resourceId: id,
-    context: { versionId: row.currentVersionId, ...(input.reason ? { reason: input.reason } : {}) },
+    context: {
+      versionId: row.currentVersionId,
+      runtimeId: runtimeId ?? null,
+      ...(input.reason ? { reason: input.reason } : {}),
+    },
   });
   return getStrategy(tx, id);
 }
