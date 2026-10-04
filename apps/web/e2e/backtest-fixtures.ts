@@ -1,7 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 
 /** Instrument ids as the editor lists them, read from a leg's Instrument picker. */
-async function instrumentIds(page: Page, strategyId: string) {
+export async function instrumentIds(page: Page, strategyId: string) {
   await page.goto(`/strategy-lab/${strategyId}`);
   await page.getByRole('button', { name: '+ Add Entry order' }).click();
   const options = page
@@ -17,7 +17,7 @@ async function instrumentIds(page: Page, strategyId: string) {
   return ids;
 }
 
-const series = (instrumentId: string) => ({
+export const series = (instrumentId: string) => ({
   instrumentId,
   field: 'close',
   interval: '1d',
@@ -26,7 +26,13 @@ const series = (instrumentId: string) => ({
   offset: 0,
 });
 
-function leg(id: string, label: string, instrumentId: string, accountId: string, side: string) {
+export function leg(
+  id: string,
+  label: string,
+  instrumentId: string,
+  accountId: string,
+  side: string,
+) {
   return {
     id,
     legLabel: label,
@@ -42,7 +48,7 @@ function leg(id: string, label: string, instrumentId: string, accountId: string,
   };
 }
 
-const group = (id: string, comparison: Record<string, unknown>) => ({
+export const group = (id: string, comparison: Record<string, unknown>) => ({
   kind: 'group',
   id,
   op: 'and',
@@ -121,4 +127,29 @@ export async function createTestedStrategy(
   });
   expect(saved.status()).toBe(200);
   return (await saved.json()) as { id: string; rowVersion: number; definitionHash: string };
+}
+
+/**
+ * Creates a strategy whose rules come from `rules` (given the DEMO instrument
+ * ids and the default paper account) and moves it to Under testing.
+ */
+export async function createStrategyWithRules(
+  page: Page,
+  baseURL: string,
+  name: string,
+  rules: (ids: Record<string, string>, accountId: string) => Record<string, unknown>,
+) {
+  const headers = { origin: baseURL };
+  const created = await (
+    await page.request.post('/api/v1/strategies', { data: { name }, headers })
+  ).json();
+  const ids = await instrumentIds(page, created.id);
+  const base = await (await page.request.get(`/api/v1/strategies/${created.id}`)).json();
+  const definition = { ...base.definition, ...rules(ids, created.defaultAccountId) };
+  const saved = await page.request.patch(`/api/v1/strategies/${created.id}`, {
+    data: { rowVersion: base.rowVersion, definition, status: 'under_testing' },
+    headers,
+  });
+  expect(saved.status()).toBe(200);
+  return (await saved.json()) as { id: string; rowVersion: number };
 }

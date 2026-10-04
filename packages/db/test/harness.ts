@@ -17,6 +17,8 @@ export interface TestDatabase {
   auth: DbHandle;
   ownerSql: postgres.Sql;
   appSql: postgres.Sql;
+  /** Connection string for the tenant-scoped login. */
+  appUrl: string;
   drop: () => Promise<void>;
 }
 
@@ -70,6 +72,7 @@ export async function createTestDatabase(): Promise<TestDatabase> {
     auth,
     ownerSql,
     appSql,
+    appUrl: url(appLogin),
     drop: async () => {
       await Promise.all([owner.close(), app.close(), auth.close(), ownerSql.end(), appSql.end()]);
       await admin.unsafe(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);

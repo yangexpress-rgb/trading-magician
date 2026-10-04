@@ -34,6 +34,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { recordAudit } from './audit';
+import { cancelWorkingOrders, closePositions, listPositions } from './order-views';
 import { createRuntime, stopRuntime } from './runtime';
 import type { Transaction } from './client';
 import {
@@ -911,7 +912,13 @@ export async function stopStrategy(
   tx: Transaction,
   userId: string,
   id: string,
-  input: { rowVersion: number; reason?: string | undefined },
+  input: {
+    rowVersion: number;
+    reason?: string | undefined;
+    /** Separate, explicit choices (§8.1); neither happens by default. */
+    cancelOpenOrders?: boolean | undefined;
+    closePositions?: boolean | undefined;
+  },
 ): Promise<StrategyDetail> {
   const row = await loadStrategyRow(tx, id);
   const plan = planTransition({ from: row.status, to: 'off' });
@@ -922,8 +929,20 @@ export async function stopStrategy(
     );
   }
   await updateRow(tx, id, input.rowVersion, { status: 'off' });
-  // No new orders from here on; working orders and positions are left alone (§8.1).
+  // No new orders from here on. Working orders and positions are left alone
+  // unless the person chose otherwise (§8.1).
   const runtimeId = await stopRuntime(tx, userId, id);
+  let canceledOrders = 0;
+  let closeOrders = 0;
+  if (runtimeId && input.cancelOpenOrders) {
+    canceledOrders = await cancelWorkingOrders(tx, userId, {
+      runtimeId,
+      reason: 'Canceled when the strategy was stopped',
+    });
+  }
+  if (runtimeId && input.closePositions && (await listPositions(tx, { runtimeId })).length > 0) {
+    closeOrders = (await closePositions(tx, userId, { runtimeId })).orders;
+  }
   await tx.insert(strategyStatusChanges).values({
     userId,
     strategyId: id,
@@ -941,6 +960,8 @@ export async function stopStrategy(
     context: {
       versionId: row.currentVersionId,
       runtimeId: runtimeId ?? null,
+      canceledOrders,
+      closeOrders,
       ...(input.reason ? { reason: input.reason } : {}),
     },
   });

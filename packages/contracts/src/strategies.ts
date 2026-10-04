@@ -81,9 +81,16 @@ export const startStrategyRequest = z
   .strict();
 export type StartStrategyRequest = z.input<typeof startStrategyRequest>;
 
+/** Stopping ends new orders only; cancelling and closing are separate, explicit choices (§8.1). */
 export const stopStrategyRequest = z
-  .object({ rowVersion, reason: z.string().trim().max(500).optional() })
+  .object({
+    rowVersion,
+    reason: z.string().trim().max(500).optional(),
+    cancelOpenOrders: z.boolean().default(false),
+    closePositions: z.boolean().default(false),
+  })
   .strict();
+export type StopStrategyRequest = z.input<typeof stopStrategyRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses

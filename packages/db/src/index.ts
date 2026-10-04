@@ -45,4 +45,6 @@ export * from './orders';
 export { DbPaperBrokerStore } from './paper-broker-store';
 export * from './runtime';
 export { withTenant, type TenantContext } from './tenant';
-export { and, desc, eq, sql } from 'drizzle-orm';
+export { and, asc, desc, eq, sql } from 'drizzle-orm';
+export * from './order-views';
+export { EXECUTION_CHANNEL, listenForExecutionChanges, type ExecutionListener } from './notify';

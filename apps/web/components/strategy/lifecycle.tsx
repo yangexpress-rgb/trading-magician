@@ -9,7 +9,9 @@ import {
 } from '@tm/domain';
 import { Alert, Button, Card, Dialog } from '@tm/ui';
 import { useCallback, useEffect, useId, useState } from 'react';
+import Link from 'next/link';
 import { apiClient } from '@/lib/api-client';
+import { describeHolding } from '@/lib/order-text';
 import { describeIssueLocation } from '@/lib/strategy-text';
 import {
   ActiveRun,
@@ -171,6 +173,7 @@ function StartDialog({
   definition,
   warnings,
   backtest,
+  positions,
   busy,
   error,
   onConfirm,
@@ -182,6 +185,8 @@ function StartDialog({
   warnings: readonly ValidationIssue[];
   /** The activation gate (§7.4): when the strategy was last tested, and whether it changed since. */
   backtest: [string, string][];
+  /** What earlier runs of this strategy still hold. */
+  positions: string;
   busy: boolean;
   error: string | null;
   onConfirm: (acknowledged: string[]) => void;
@@ -210,7 +215,7 @@ function StartDialog({
       `${definition.entry.orders.length} Entry, ${definition.exit.orders.length} Exit`,
     ],
     ['Maximum exposure', exposure ? `${baseCurrency} ${exposure}` : 'Not set'],
-    ['Existing positions', 'Not tracked until paper execution is available'],
+    ['Existing positions', positions],
     ...backtest,
   ];
 
@@ -264,7 +269,8 @@ function StartDialog({
           </fieldset>
         )}
         <p className="mt-3 text-sm text-ink-muted">
-          This release records the start but does not place paper orders yet.
+          Orders go to the simulated paper broker as the rules trigger. You can follow them in
+          Orders.
         </p>
         {error && (
           <div className="mt-3">
@@ -293,23 +299,50 @@ function StopDialog({
   onClose: () => void;
   busy: boolean;
   error: string | null;
-  onConfirm: (reason: string) => void;
+  onConfirm: (choice: {
+    reason: string;
+    cancelOpenOrders: boolean;
+    closePositions: boolean;
+  }) => void;
 }) {
   const reasonId = useId();
   const [reason, setReason] = useState('');
+  const [cancelOpenOrders, setCancelOpenOrders] = useState(false);
+  const [closePositions, setClosePositions] = useState(false);
   return (
     <Dialog
       open={open}
       onClose={onClose}
       title="Stop execution?"
-      description="The strategy stops generating new orders. Working orders and positions are left as they are."
+      description="The strategy stops generating new orders. Working orders and positions are left as they are. You can choose to cancel or close them below."
     >
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          onConfirm(reason.trim());
+          onConfirm({ reason: reason.trim(), cancelOpenOrders, closePositions });
         }}
       >
+        <fieldset className="mb-3 space-y-2">
+          <legend className="text-sm font-medium">Also, separately</legend>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={cancelOpenOrders}
+              onChange={(e) => setCancelOpenOrders(e.target.checked)}
+            />
+            <span>Cancel this strategy&apos;s working orders</span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={closePositions}
+              onChange={(e) => setClosePositions(e.target.checked)}
+            />
+            <span>Close this strategy&apos;s positions with market orders</span>
+          </label>
+        </fieldset>
         <label htmlFor={reasonId} className="text-sm font-medium">
           Reason (optional)
         </label>
@@ -370,6 +403,27 @@ export function BackTestPanel({
   const [dialog, setDialog] = useState<null | 'start' | 'stop'>(null);
   const [error, setError] = useState<string | null>(null);
   const [panelError, setPanelError] = useState<{ message: string; conflict: boolean } | null>(null);
+  const [justStarted, setJustStarted] = useState(false);
+  const [positions, setPositions] = useState('Checking…');
+  useEffect(() => {
+    if (dialog !== 'start') return;
+    let cancelled = false;
+    apiClient.positions.list().then(
+      ({ positions: all }) => {
+        if (cancelled) return;
+        const mine = all.filter((p) => p.strategyId === strategyId);
+        setPositions(
+          mine.length === 0
+            ? 'None'
+            : `${mine.map((p) => `${p.symbol} ${describeHolding(p.quantity).toLowerCase()}`).join(', ')} from an earlier run`,
+        );
+      },
+      () => !cancelled && setPositions('Could not be checked'),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [dialog, strategyId]);
   const hintId = useId();
   const backtests = useBacktests(strategyId);
   const activeId = backtests.active?.id;
@@ -388,6 +442,7 @@ export function BackTestPanel({
     setPanelError(null);
     try {
       onChanged(await run());
+      setJustStarted(kind === 'start');
       setDialog(null);
     } catch (e) {
       const message = errorMessage(e, 'Something went wrong. Try again.');
@@ -494,6 +549,16 @@ export function BackTestPanel({
               </Button>
             )}
           </div>
+          {status === 'actively_executing' && justStarted && (
+            <div className="mt-3">
+              <Alert tone="ok">
+                Started on paper.{' '}
+                <Link href={`/orders?started=${strategyId}`} className="underline">
+                  Follow its orders in Orders
+                </Link>
+              </Alert>
+            </div>
+          )}
           {status !== 'actively_executing' && startBlocked && (
             <p id={hintId} className="mt-2 text-sm text-ink-muted">
               {startBlocked}
@@ -536,6 +601,7 @@ export function BackTestPanel({
               ['Latest back test', latestText],
               ['Rules since then', draftTested],
             ]}
+            positions={positions}
             busy={busy === 'start'}
             error={error}
             onConfirm={(acknowledgedWarnings) =>
@@ -556,10 +622,11 @@ export function BackTestPanel({
             onClose={() => setDialog(null)}
             busy={busy === 'stop'}
             error={error}
-            onConfirm={(reason) =>
+            onConfirm={({ reason, ...choices }) =>
               act('stop', () =>
                 apiClient.strategies.stop(strategyId, {
                   rowVersion,
+                  ...choices,
                   ...(reason ? { reason } : {}),
                 }),
               )

@@ -2,6 +2,7 @@ import {
   claimRuntimes,
   createStrategy,
   eq,
+  listPositions,
   provisionWorkspace,
   schema,
   setKillSwitch,
@@ -349,6 +350,72 @@ describe('paper runtime: restarts, stop and kill switch (§8.1, §8.5)', () => {
       tx.select().from(schema.strategyRuntimes).where(eq(schema.strategyRuntimes.id, runtimeId)),
     );
     expect(runtime!.status).toBe('stopped');
+    await stopAll();
+  });
+
+  it('cancels working orders and closes positions on stop, only when asked (§8.1)', async () => {
+    clock = T0 + 10 * 86_400_000;
+    const def = pairDefinition();
+    def.entry.orders = [
+      leg('long', { legLabel: 'Long A' }),
+      leg('bid', {
+        legLabel: 'Low bid',
+        instrumentId: demoB,
+        orderType: 'limit',
+        limitPrice: { kind: 'constant', id: 'lp', value: '1' },
+        timeInForce: 'gtc',
+      }),
+    ];
+    def.exit.orders = [
+      leg('sell', { legLabel: 'Sell A', side: 'close' }),
+      leg('sell-b', { legLabel: 'Sell B', instrumentId: demoB, side: 'close' }),
+    ];
+    // Exit never triggers, so only the stop choices act on what is open.
+    def.exit.condition = {
+      kind: 'group',
+      id: 'out-g',
+      op: 'and',
+      negate: false,
+      children: [
+        {
+          kind: 'comparison',
+          id: 'out',
+          operator: 'lt',
+          left: hourly(demoA, 'out-px'),
+          right: { kind: 'constant', id: 'out-k', value: '1' },
+        },
+      ],
+    };
+    def.risk.priceCollarPct = '100';
+    const { strategy, runtimeId } = await startPaper('Wind down', def);
+    await pass();
+    clock += 10_000;
+    await pass();
+    expect((await orders(runtimeId)).map((o) => [o.legLabel, o.state])).toEqual([
+      ['Long A', 'filled'],
+      ['Low bid', 'acknowledged'],
+    ]);
+
+    await asUser((tx) =>
+      stopStrategy(tx, userId, strategy.id, {
+        rowVersion: strategy.rowVersion,
+        cancelOpenOrders: true,
+        closePositions: true,
+      }),
+    );
+    clock += 10_000;
+    await pass();
+    clock += 10_000;
+    await pass();
+    const after = await orders(runtimeId);
+    expect(after.map((o) => [o.phase, o.legLabel, o.side, o.state])).toEqual([
+      ['entry', 'Long A', 'buy', 'filled'],
+      ['entry', 'Low bid', 'buy', 'canceled'],
+      ['flatten', 'Close DEMO-A', 'sell', 'filled'],
+    ]);
+    expect(await asUser((tx) => listPositions(tx, { runtimeId }))).toEqual([]);
+    // Nothing left working, so the stopped runtime is no longer claimed.
+    expect(await pass()).toBe(0);
     await stopAll();
   });
 
