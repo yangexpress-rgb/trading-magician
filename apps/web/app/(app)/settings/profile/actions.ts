@@ -46,6 +46,6 @@ export async function updateProfile(
       context: { changedFields: changed },
     });
   });
-  revalidatePath('/settings');
+  revalidatePath('/settings', 'layout');
   return { status: 'saved' };
 }

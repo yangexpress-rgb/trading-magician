@@ -1,8 +1,8 @@
 'use client';
 
+import { Button, TextField } from '@tm/ui';
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
-import { Field } from '@/components/form-field';
 import { authClient } from '@/lib/auth-client';
 
 export default function ForgotPasswordPage() {
@@ -24,8 +24,8 @@ export default function ForgotPasswordPage() {
 
   if (sent) {
     return (
-      <div className="stack">
-        <h1>Check your email</h1>
+      <div className="space-y-4">
+        <h1 className="text-xl font-semibold">Check your email</h1>
         <p>If an account exists for that address, we sent a link to reset the password.</p>
         <Link href="/sign-in">Back to sign in</Link>
       </div>
@@ -33,12 +33,12 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <form className="stack" onSubmit={onSubmit}>
-      <h1>Reset your password</h1>
-      <Field label="Email" name="email" type="email" autoComplete="email" required />
-      <button className="primary" type="submit" disabled={pending}>
+    <form className="space-y-4" onSubmit={onSubmit}>
+      <h1 className="text-xl font-semibold">Reset your password</h1>
+      <TextField label="Email" name="email" type="email" autoComplete="email" required />
+      <Button variant="primary" type="submit" className="w-full" disabled={pending}>
         Send reset link
-      </button>
+      </Button>
       <Link href="/sign-in">Back to sign in</Link>
     </form>
   );

@@ -1,8 +1,8 @@
 'use client';
 
+import { Alert, Button, TextField } from '@tm/ui';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
-import { Field } from '@/components/form-field';
 import { authClient } from '@/lib/auth-client';
 
 export function DeleteAccount() {
@@ -31,36 +31,32 @@ export function DeleteAccount() {
 
   if (!open) {
     return (
-      <button type="button" className="danger" onClick={() => setOpen(true)}>
+      <Button variant="danger" onClick={() => setOpen(true)}>
         Delete account…
-      </button>
+      </Button>
     );
   }
 
   return (
-    <form className="stack" onSubmit={onSubmit} aria-label="Delete account">
-      <p>
+    <form className="max-w-md space-y-4" onSubmit={onSubmit} aria-label="Delete account">
+      <p className="text-sm">
         This permanently deletes your strategies, settings and connections. It cannot be undone.
       </p>
-      <Field
+      <TextField
         label="Password"
         name="password"
         type="password"
         autoComplete="current-password"
         required
       />
-      <Field label="Type DELETE to confirm" name="confirm" autoComplete="off" required />
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      <button type="submit" className="danger" disabled={pending}>
-        Permanently delete my account
-      </button>
-      <button type="button" onClick={() => setOpen(false)}>
-        Cancel
-      </button>
+      <TextField label="Type DELETE to confirm" name="confirm" autoComplete="off" required />
+      {error && <Alert>{error}</Alert>}
+      <div className="flex gap-2">
+        <Button type="submit" variant="danger" disabled={pending}>
+          Permanently delete my account
+        </Button>
+        <Button onClick={() => setOpen(false)}>Cancel</Button>
+      </div>
     </form>
   );
 }

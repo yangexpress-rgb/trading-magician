@@ -1,5 +1,6 @@
 import { getSessionCookie } from 'better-auth/cookies';
 import { NextResponse, type NextRequest } from 'next/server';
+import { buildCsp } from './lib/csp';
 
 const PUBLIC_PATHS = [
   '/sign-in',
@@ -9,21 +10,36 @@ const PUBLIC_PATHS = [
   '/reset-password',
 ];
 
-/**
- * Fast redirect for visitors without a session cookie. This is a convenience
- * only; every protected page and action re-checks the session on the server.
- */
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
-    return NextResponse.next();
-  }
-  if (!getSessionCookie(request)) {
+  const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+
+  // Fast redirect for visitors without a session cookie. This is a convenience
+  // only; every protected page and action re-checks the session on the server.
+  if (!isPublic && !getSessionCookie(request)) {
     return NextResponse.redirect(new URL('/sign-in', request.url));
   }
-  return NextResponse.next();
+
+  const nonce = btoa(crypto.randomUUID());
+  const csp = buildCsp(nonce, { dev: process.env.NODE_ENV === 'development' });
+  const requestHeaders = new Headers(request.headers);
+  // Next.js reads the nonce from the request's CSP header and applies it to its scripts.
+  requestHeaders.set('x-nonce', nonce);
+  requestHeaders.set('Content-Security-Policy', csp);
+
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set('Content-Security-Policy', csp);
+  return response;
 }
 
 export const config = {
-  matcher: ['/((?!api/|_next/|favicon.ico).*)'],
+  matcher: [
+    {
+      source: '/((?!api/|_next/static|_next/image|favicon.ico).*)',
+      missing: [
+        { type: 'header', key: 'next-router-prefetch' },
+        { type: 'header', key: 'purpose', value: 'prefetch' },
+      ],
+    },
+  ],
 };

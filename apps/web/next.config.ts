@@ -10,7 +10,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  transpilePackages: ['@tm/config', '@tm/db', '@tm/domain'],
+  transpilePackages: ['@tm/config', '@tm/db', '@tm/domain', '@tm/ui'],
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },

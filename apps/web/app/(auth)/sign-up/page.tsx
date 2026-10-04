@@ -1,9 +1,9 @@
 'use client';
 
+import { Alert, Button, TextField } from '@tm/ui';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
-import { Field } from '@/components/form-field';
 import { authClient } from '@/lib/auth-client';
 
 export default function SignUpPage() {
@@ -32,11 +32,11 @@ export default function SignUpPage() {
   }
 
   return (
-    <form className="stack" onSubmit={onSubmit}>
-      <h1>Create your account</h1>
-      <Field label="Name" name="name" autoComplete="name" required maxLength={80} />
-      <Field label="Email" name="email" type="email" autoComplete="email" required />
-      <Field
+    <form className="space-y-4" onSubmit={onSubmit}>
+      <h1 className="text-xl font-semibold">Create your account</h1>
+      <TextField label="Name" name="name" autoComplete="name" required maxLength={80} />
+      <TextField label="Email" name="email" type="email" autoComplete="email" required />
+      <TextField
         label="Password (at least 12 characters)"
         name="password"
         type="password"
@@ -44,15 +44,11 @@ export default function SignUpPage() {
         minLength={12}
         required
       />
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      <button className="primary" type="submit" disabled={pending}>
+      {error && <Alert>{error}</Alert>}
+      <Button variant="primary" type="submit" className="w-full" disabled={pending}>
         {pending ? 'Creating account…' : 'Create account'}
-      </button>
-      <p>
+      </Button>
+      <p className="text-sm">
         Already have an account? <Link href="/sign-in">Sign in</Link>
       </p>
     </form>

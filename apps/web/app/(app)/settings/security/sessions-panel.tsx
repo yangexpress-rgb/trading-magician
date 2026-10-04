@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDateTime, type DisplayPreferences } from '@tm/domain';
+import { Badge, Button, Table, Td, Th } from '@tm/ui';
 import { useCallback, useEffect, useState } from 'react';
 import { authClient } from '@/lib/auth-client';
 
@@ -8,22 +10,16 @@ interface SessionRow {
   token: string;
   createdAt: Date;
   userAgent?: string | null;
-  ipAddress?: string | null;
 }
 
 export function SessionsPanel({
   currentSessionId,
-  timezone,
+  prefs,
 }: {
   currentSessionId: string;
-  timezone: string;
+  prefs: DisplayPreferences;
 }) {
   const [sessions, setSessions] = useState<SessionRow[]>();
-  const fmt = new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: timezone,
-  });
 
   const load = useCallback(async () => {
     const { data } = await authClient.listSessions();
@@ -33,55 +29,54 @@ export function SessionsPanel({
     void load();
   }, [load]);
 
-  if (!sessions) return <p className="muted">Loading sessions…</p>;
+  if (!sessions) return <p className="text-sm text-ink-muted">Loading sessions…</p>;
   const others = sessions.filter((s) => s.id !== currentSessionId);
 
   return (
-    <div className="stack">
-      <table>
+    <div className="space-y-3">
+      <Table label="Active sessions">
         <thead>
           <tr>
-            <th scope="col">Signed in</th>
-            <th scope="col">Device</th>
-            <th scope="col">
-              <span className="muted">Action</span>
-            </th>
+            <Th>Signed in ({prefs.timeZone})</Th>
+            <Th>Device</Th>
+            <Th>
+              <span className="sr-only">Action</span>
+            </Th>
           </tr>
         </thead>
         <tbody>
           {sessions.map((s) => (
             <tr key={s.id}>
-              <td>{fmt.format(new Date(s.createdAt))}</td>
-              <td>{s.userAgent ?? 'Unknown device'}</td>
-              <td>
+              <Td>{formatDateTime(s.createdAt, prefs)}</Td>
+              <Td className="max-w-xs truncate">{s.userAgent ?? 'Unknown device'}</Td>
+              <Td className="text-right">
                 {s.id === currentSessionId ? (
-                  <span className="badge">This device</span>
+                  <Badge tone="info">This device</Badge>
                 ) : (
-                  <button
-                    type="button"
+                  <Button
+                    size="sm"
                     onClick={async () => {
                       await authClient.revokeSession({ token: s.token });
                       await load();
                     }}
                   >
                     Sign out
-                  </button>
+                  </Button>
                 )}
-              </td>
+              </Td>
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
       {others.length > 0 && (
-        <button
-          type="button"
+        <Button
           onClick={async () => {
             await authClient.revokeOtherSessions();
             await load();
           }}
         >
           Sign out all other devices
-        </button>
+        </Button>
       )}
     </div>
   );
