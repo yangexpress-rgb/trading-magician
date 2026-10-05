@@ -5,3 +5,4 @@ export * from './integrations';
 export * from './orders';
 export * from './strategies';
 export * from './performance';
+export * from './billing';

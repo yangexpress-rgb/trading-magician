@@ -4,6 +4,7 @@ import type {
   BacktestTradesDto,
   StartBacktestRequest,
 } from './backtests';
+import type { EntitlementDto, PlanListDto } from './billing';
 import { ApiError, type ApiErrorBody } from './errors';
 import type {
   PerformanceQuery,
@@ -150,6 +151,10 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
         call<PerformanceTimeseriesDto>('GET', `/performance/timeseries${query(q)}`),
       trades: (q: PerformanceQuery = {}) =>
         call<PerformanceTradesDto>('GET', `/performance/trades${query(q)}`),
+    },
+    billing: {
+      plans: () => call<PlanListDto>('GET', '/plans'),
+      entitlement: () => call<EntitlementDto>('GET', '/entitlement'),
     },
     positions: {
       list: () => call<PositionListDto>('GET', '/positions'),

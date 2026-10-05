@@ -181,7 +181,7 @@ beforeAll(async () => {
   // Room for the queue tests to hold several runs at once.
   await t.owner.db
     .update(entitlements)
-    .set({ limits: { concurrentBacktests: 5, backtestRunsPerDay: 100 } })
+    .set({ overrides: { concurrentBacktests: 5, backtestRunsPerDay: 100 } })
     .where(eq(entitlements.userId, userA));
 }, 60_000);
 
@@ -235,19 +235,19 @@ describe('queuing a back test', () => {
     const s = await newStrategy();
     await t.owner.db
       .update(entitlements)
-      .set({ limits: { concurrentBacktests: 2, backtestRunsPerDay: 100 } })
+      .set({ overrides: { concurrentBacktests: 2, backtestRunsPerDay: 100 } })
       .where(eq(entitlements.userId, userA));
     try {
       await asA((tx) => startBacktest(tx, userA, s.id, inputs));
       await asA((tx) => startBacktest(tx, userA, s.id, inputs));
-      await expectStrategyError(
-        asA((tx) => startBacktest(tx, userA, s.id, inputs)),
-        'limit_reached',
-      );
+      await expect(asA((tx) => startBacktest(tx, userA, s.id, inputs))).rejects.toMatchObject({
+        code: 'plan_limit',
+        details: { limit: 'concurrentBacktests', allowed: 2, used: 2 },
+      });
     } finally {
       await t.owner.db
         .update(entitlements)
-        .set({ limits: { concurrentBacktests: 5, backtestRunsPerDay: 100 } })
+        .set({ overrides: { concurrentBacktests: 5, backtestRunsPerDay: 100 } })
         .where(eq(entitlements.userId, userA));
     }
   });

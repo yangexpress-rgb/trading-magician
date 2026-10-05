@@ -2,7 +2,8 @@ import { eq } from 'drizzle-orm';
 import { DEMO_STARTING_EQUITY } from '@tm/domain';
 import { recordAudit } from './audit';
 import type { Database } from './client';
-import { DEMO_ACCOUNT_CAPABILITIES, DEMO_ASSET_CLASSES, DEMO_VENUE, DEV_PLAN } from './demo';
+import { DEMO_ACCOUNT_CAPABILITIES, DEMO_ASSET_CLASSES, DEMO_VENUE } from './demo';
+import { startingPlanCode } from './entitlements';
 import {
   brokerConnections,
   dataFeedConnections,
@@ -17,10 +18,12 @@ export interface ProvisionInput {
   userId: string;
   displayName: string;
   timezone?: string;
+  /** A plan to start on instead of the catalog's default, if it exists (tests, staging). */
+  planCode?: string | undefined;
 }
 
 /**
- * Creates a new user's workspace: profile, placeholder entitlement, the demo
+ * Creates a new user's workspace: profile, entitlement to a plan, the demo
  * data feed with routes for every Phase 1 asset class, and one demo paper
  * account. Idempotent: does nothing if the profile already exists.
  */
@@ -40,7 +43,7 @@ export async function provisionWorkspace(db: Database, input: ProvisionInput): P
     });
     await tx
       .insert(entitlements)
-      .values({ userId, planCode: DEV_PLAN.code, limits: DEV_PLAN.limits });
+      .values({ userId, planCode: await startingPlanCode(tx, input.planCode) });
 
     const [feed] = await tx
       .insert(dataFeedConnections)

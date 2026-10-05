@@ -9,6 +9,7 @@ import {
   CredentialError,
   IntegrationError,
   OrderError,
+  PlanLimitError,
   SealError,
   provisionWorkspace,
   StrategyError,
@@ -91,7 +92,11 @@ export function api<P extends Record<string, string> = Record<string, never>>(
           );
         }
       }
-      await provisionWorkspace(appDb(), { userId, displayName: session.user.name });
+      await provisionWorkspace(appDb(), {
+        userId,
+        displayName: session.user.name,
+        planCode: serverEnv().SIGNUP_PLAN,
+      });
       // Routes without dynamic segments receive no params.
       const params = ((await route?.params) ?? {}) as P;
       if ('id' in params && !UUID.test(params.id ?? '')) {
@@ -138,6 +143,9 @@ export function api<P extends Record<string, string> = Record<string, never>>(
           ...(error.issues ? { issues: error.issues } : {}),
           ...(error.details !== undefined ? { details: error.details } : {}),
         });
+      }
+      if (error instanceof PlanLimitError) {
+        return errorResponse('plan_limit', error.message, { details: error.details });
       }
       if (error instanceof OrderError) return errorResponse(error.code, error.message);
       if (error instanceof CredentialError) return errorResponse(error.code, error.message);

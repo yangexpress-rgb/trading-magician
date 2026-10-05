@@ -148,15 +148,50 @@ export const profiles = pgTable('profile', {
   rowVersion: rowVersion(),
 });
 
+/**
+ * The plan catalog (§4.3; ADR 0022). Global configuration, read-only to the
+ * app: a limit changes by updating a row, without a release. `offered` plans
+ * are the ones people can choose; exactly one is the default for new users.
+ */
+export const plans = pgTable(
+  'plan',
+  {
+    code: text('code').primaryKey(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    /** Price per interval in minor units (cents); 0 for a free plan. */
+    priceMinor: integer('price_minor').notNull().default(0),
+    currency: char('currency', { length: 3 }).notNull().default('USD'),
+    interval: text('interval').notNull().default('month'),
+    limits: jsonb('limits').notNull(),
+    offered: boolean('offered').notNull().default(false),
+    isDefault: boolean('is_default').notNull().default(false),
+    sortOrder: integer('sort_order').notNull().default(0),
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex('plan_one_default')
+      .on(t.isDefault)
+      .where(sql`${t.isDefault}`),
+    check('plan_price_not_negative', sql`${t.priceMinor} >= 0`),
+    check(
+      'plan_paper_only',
+      sql`coalesce((${t.limits} ->> 'realIntegrations')::boolean, false) = false`,
+    ),
+  ],
+);
+
 export const entitlements = pgTable('entitlement', {
   id: id(),
   userId: uuid('user_id')
     .notNull()
     .unique()
     .references(() => users.id, { onDelete: 'cascade' }),
-  planCode: text('plan_code').notNull(),
-  /** Resolved feature and limit values; plans are configuration, not code (§4.3). */
-  limits: jsonb('limits').notNull(),
+  planCode: text('plan_code')
+    .notNull()
+    .references(() => plans.code),
+  /** Per-user exceptions on top of the plan's limits; usually empty. */
+  overrides: jsonb('overrides').notNull().default({}),
   ...timestamps(),
   rowVersion: rowVersion(),
 });

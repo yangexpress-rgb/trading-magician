@@ -17,7 +17,7 @@ import { createCredential } from '../src/credentials';
 import { registerInstrument } from '../src/instruments';
 import { IntegrationError } from '../src/feeds';
 import { provisionWorkspace } from '../src/provision';
-import { instruments, notifications, strategyRuntimes, users } from '../src/schema';
+import { entitlements, instruments, notifications, strategyRuntimes, users } from '../src/schema';
 import { generateCredentialKeyPair } from '../src/sealed';
 import {
   createStrategy,
@@ -172,6 +172,8 @@ beforeAll(async () => {
   for (const userId of [userA, userB]) {
     await provisionWorkspace(t.app.db, { userId, displayName: 'Test' });
   }
+  // These tests connect more accounts than the dev plan allows; entitlements.test.ts covers the limit.
+  await t.owner.db.update(entitlements).set({ overrides: { connectedAccounts: 10 } });
   demoA = (await t.owner.db.select().from(instruments)).find((r) => r.symbol === 'DEMO-A')!.id;
   usA = await asWorker(userA, (tx) =>
     registerInstrument(tx, {

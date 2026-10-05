@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { createDb, type DbHandle } from '../src/client';
 import { runMigrations } from '../src/migrate';
@@ -61,6 +62,10 @@ export async function createTestDatabase(): Promise<TestDatabase> {
     await admin`select pg_advisory_unlock(${MIGRATION_LOCK})`;
   }
   await seedReferenceData(owner.db);
+  // Most tests create more strategies than the Free plan keeps; new workspaces
+  // start on the dev plan here. entitlements.test.ts covers the real default.
+  await owner.db.execute(sql`update plan set is_default = false`);
+  await owner.db.execute(sql`update plan set is_default = true where code = 'dev'`);
   await admin.unsafe(`CREATE ROLE ${appLogin} LOGIN PASSWORD '${password}' IN ROLE tm_app`);
   await admin.unsafe(`CREATE ROLE ${authLogin} LOGIN PASSWORD '${password}' IN ROLE tm_auth`);
   await admin.unsafe(

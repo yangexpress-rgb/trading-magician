@@ -246,6 +246,8 @@ beforeAll(async () => {
     .returning({ id: schema.users.id });
   userId = user!.id;
   await provisionWorkspace(t.app.db, { userId, displayName: 'Runner' });
+  // Each test leaves a strategy running; more than the dev plan runs at once.
+  await t.owner.db.update(schema.entitlements).set({ overrides: { activeStrategies: 100 } });
   const rows = await t.owner.db.select().from(schema.instruments);
   demoA = rows.find((r) => r.symbol === 'DEMO-A')!.id;
   demoB = rows.find((r) => r.symbol === 'DEMO-B')!.id;
