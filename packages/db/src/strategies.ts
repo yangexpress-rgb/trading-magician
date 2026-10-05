@@ -134,12 +134,20 @@ export interface StrategySummary {
   currentVersionNo: number | null;
   accountMode: 'paper' | 'live' | null;
   instruments: { id: string; symbol: string }[];
-  /** Back testing arrives in Phase 2. */
-  latestBacktest: null;
+  /** The newest back test of any version, or null when none has run. */
+  latestBacktest: StrategyLatestBacktest | null;
   archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   rowVersion: number;
+}
+
+export interface StrategyLatestBacktest {
+  runId: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'canceled';
+  /** Net return in percent, for a completed run. */
+  netReturnPct: string | null;
+  finishedAt: Date | null;
 }
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
@@ -218,6 +226,21 @@ export async function listStrategies(
         .orderBy(instruments.symbol)
     : [];
 
+  const latestRuns = ids.length
+    ? await tx
+        .selectDistinctOn([backtestRuns.strategyId], {
+          strategyId: backtestRuns.strategyId,
+          runId: backtestRuns.id,
+          status: backtestRuns.status,
+          netReturnPct: sql<string | null>`${backtestRuns.summary} ->> 'netReturnPct'`,
+          finishedAt: backtestRuns.finishedAt,
+        })
+        .from(backtestRuns)
+        .where(inArray(backtestRuns.strategyId, ids))
+        .orderBy(backtestRuns.strategyId, desc(backtestRuns.createdAt))
+    : [];
+  const latestByStrategy = new Map(latestRuns.map(({ strategyId, ...run }) => [strategyId, run]));
+
   return {
     total: rows[0]?.total ?? 0,
     items: rows.map(({ s, currentVersionNo, accountMode }) => ({
@@ -232,7 +255,7 @@ export async function listStrategies(
       instruments: uses
         .filter((u) => u.strategyId === s.id)
         .map((u) => ({ id: u.id, symbol: u.symbol })),
-      latestBacktest: null,
+      latestBacktest: latestByStrategy.get(s.id) ?? null,
       archivedAt: s.archivedAt,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
