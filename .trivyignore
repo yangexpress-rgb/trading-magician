@@ -1,0 +1,11 @@
+# Accepted container-image findings (docs/security-review.md, ADR 0026).
+# Everything else at HIGH or CRITICAL fails CI.
+
+# DS002: the image runs as root. Railway runs one process per container with no
+# shell access, and the app needs no privileged work; adding a user would also
+# have to move .next and the pnpm store. Revisit before a wider launch.
+AVD-DS-0002
+
+# DS026: no HEALTHCHECK in the image. The platform checks /api/health and
+# /healthz itself (deploy/railway/*.json), which is the check that matters.
+AVD-DS-0026

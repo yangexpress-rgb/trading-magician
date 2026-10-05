@@ -75,35 +75,29 @@ jobs:
 
   scan:
     # Known vulnerabilities in what ships, and secrets in the history (§16.1,
-    # ADR 0026). Advanced Security is not available on this plan, so these use
-    # open-source scanners instead of GitHub's own.
+    # ADR 0026). Advanced Security is not available on this plan, and the
+    # scanners run from their own images rather than third-party actions, so
+    # this job needs no allow-listed action.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Secrets in the repository and its history
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 \
+            detect --source=/repo --redact --no-banner --exit-code 1
       - name: Build the runtime image
         run: docker build -t trading-magician:ci .
       - name: Vulnerabilities in the image
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          image-ref: trading-magician:ci
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: '1'
-          format: table
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image --scanners vuln --severity HIGH,CRITICAL \
+            --ignore-unfixed --exit-code 1 --no-progress trading-magician:ci
       - name: Misconfiguration in the deploy files
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          scan-type: config
-          scan-ref: .
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          format: table
+        run: |
+          docker run --rm -v "$PWD:/repo" aquasec/trivy:latest config /repo \
+            --severity HIGH,CRITICAL --exit-code 1 --no-progress
 
   e2e:
     runs-on: ubuntu-latest
