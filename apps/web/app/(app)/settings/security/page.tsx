@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
 import { CredentialsPanel } from '@/components/integrations/credentials-panel';
+import { NotificationPrefsPanel } from '@/components/notification-prefs-panel';
 import { DeleteAccount } from './delete-account';
 import { SessionsPanel } from './sessions-panel';
 
@@ -17,10 +18,9 @@ export default async function SecurityPage() {
         <h2 id="notifications-heading" className="text-lg font-semibold">
           Notifications
         </h2>
-        <p className="mt-1 text-sm text-ink-muted">
-          In-app notifications for strategy and order events arrive with paper execution. Email and
-          push channels will be configurable here.
-        </p>
+        <div className="mt-3">
+          <NotificationPrefsPanel />
+        </div>
       </Card>
       <Card aria-labelledby="keys-heading">
         <h2 id="keys-heading" className="mb-3 text-lg font-semibold">
