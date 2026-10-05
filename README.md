@@ -46,6 +46,8 @@ pnpm build
 
 Copy `.env.example` to `.env` and fill in values locally. Never commit `.env`.
 
+To deploy, see `docs/deploy.md` (Railway).
+
 ### Database
 
 ```sh
