@@ -6,6 +6,12 @@ import type {
 } from './backtests';
 import { ApiError, type ApiErrorBody } from './errors';
 import type {
+  PerformanceQuery,
+  PerformanceSummaryDto,
+  PerformanceTimeseriesDto,
+  PerformanceTradesDto,
+} from './performance';
+import type {
   CreateFeedRequest,
   CreateRouteRequest,
   FeedDto,
@@ -136,6 +142,14 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
         call<{ requested: number }>('POST', '/orders/cancel-all', { confirmed: true }),
       /** Server-sent events: a `change` event whenever the user's orders may have changed. */
       streamUrl: () => `${base}/orders/stream`,
+    },
+    performance: {
+      summary: (q: PerformanceQuery = {}) =>
+        call<PerformanceSummaryDto>('GET', `/performance/summary${query(q)}`),
+      timeseries: (q: PerformanceQuery = {}) =>
+        call<PerformanceTimeseriesDto>('GET', `/performance/timeseries${query(q)}`),
+      trades: (q: PerformanceQuery = {}) =>
+        call<PerformanceTradesDto>('GET', `/performance/trades${query(q)}`),
     },
     positions: {
       list: () => call<PositionListDto>('GET', '/positions'),
