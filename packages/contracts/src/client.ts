@@ -6,6 +6,14 @@ import type {
 } from './backtests';
 import { ApiError, type ApiErrorBody } from './errors';
 import type {
+  CreateFeedRequest,
+  CreateRouteRequest,
+  FeedDto,
+  FeedListDto,
+  RouteDto,
+  SetFeedActiveRequest,
+  UpdateFeedRequest,
+  UpdateRouteRequest,
   CreateCredentialRequest,
   CredentialDto,
   CredentialListDto,
@@ -145,6 +153,22 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
       rotate: (id: string, body: RotateCredentialRequest) =>
         call<CredentialDto>('POST', `/credentials/${enc(id)}/rotate`, body),
       remove: (id: string) => call<undefined>('DELETE', `/credentials/${enc(id)}`),
+    },
+    feeds: {
+      list: () => call<FeedListDto>('GET', '/data-feeds'),
+      create: (body: CreateFeedRequest) => call<FeedDto>('POST', '/data-feeds', body),
+      update: (id: string, body: UpdateFeedRequest) =>
+        call<FeedDto>('PATCH', `/data-feeds/${enc(id)}`, body),
+      setActive: (id: string, body: SetFeedActiveRequest) =>
+        call<FeedDto>('POST', `/data-feeds/${enc(id)}/active`, body),
+      test: (id: string) => call<FeedDto>('POST', `/data-feeds/${enc(id)}/test`),
+      remove: (id: string) => call<undefined>('DELETE', `/data-feeds/${enc(id)}`),
+    },
+    routes: {
+      create: (body: CreateRouteRequest) => call<RouteDto>('POST', '/data-routes', body),
+      update: (id: string, body: UpdateRouteRequest) =>
+        call<RouteDto>('PATCH', `/data-routes/${enc(id)}`, body),
+      remove: (id: string) => call<undefined>('DELETE', `/data-routes/${enc(id)}`),
     },
   };
 }

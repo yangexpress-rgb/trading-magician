@@ -22,6 +22,8 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
       BACKTEST_POLL_MS: z.coerce.number().int().min(100).max(60_000).default(1000),
       /** How often running paper strategies are claimed and stepped. */
       RUNTIME_POLL_MS: z.coerce.number().int().min(100).max(60_000).default(1000),
+      /** How often due data-feed checks are looked for. */
+      FEED_CHECK_POLL_MS: z.coerce.number().int().min(100).max(60_000).default(2000),
       /**
        * Development and tests only: the paper runtimes' clock starts at this
        * instant and then runs in real time, so the simulated market can be open

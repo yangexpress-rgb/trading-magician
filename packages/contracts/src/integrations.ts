@@ -41,3 +41,99 @@ export interface CredentialListDto {
   /** False until the server has a key to seal new credentials with. */
   storageReady: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Data feeds and routes (§9.2, §14.4)
+// ---------------------------------------------------------------------------
+
+const assetClassList = z.array(z.string().min(1).max(20)).min(1).max(10);
+
+export const createFeedRequest = z.object({
+  name: z.string().trim().min(1).max(100),
+  provider: z.string().min(1).max(40),
+  credentialId: z.uuid().nullable().optional(),
+  assetClasses: assetClassList,
+});
+export type CreateFeedRequest = z.infer<typeof createFeedRequest>;
+
+export const updateFeedRequest = z.object({
+  rowVersion: z.number().int().positive(),
+  name: z.string().trim().min(1).max(100).optional(),
+  credentialId: z.uuid().nullable().optional(),
+  assetClasses: assetClassList.optional(),
+});
+export type UpdateFeedRequest = z.infer<typeof updateFeedRequest>;
+
+export const setFeedActiveRequest = z.object({
+  active: z.boolean(),
+  replacementFeedId: z.uuid().optional(),
+  pauseStrategies: z.boolean().optional(),
+});
+export type SetFeedActiveRequest = z.infer<typeof setFeedActiveRequest>;
+
+export const ROUTE_DATA_TYPES = ['quotes', 'trades', 'bars'] as const;
+
+export const createRouteRequest = z.object({
+  assetClass: z.string().min(1).max(20),
+  venue: z.string().trim().min(1).max(20).nullable(),
+  dataType: z.enum(ROUTE_DATA_TYPES),
+  primaryFeedId: z.uuid(),
+  fallbackFeedId: z.uuid().nullable(),
+});
+export type CreateRouteRequest = z.infer<typeof createRouteRequest>;
+
+export const updateRouteRequest = z.object({
+  rowVersion: z.number().int().positive(),
+  primaryFeedId: z.uuid(),
+  fallbackFeedId: z.uuid().nullable(),
+});
+export type UpdateRouteRequest = z.infer<typeof updateRouteRequest>;
+
+export type ConnectionHealthDto = 'healthy' | 'degraded' | 'down' | 'unknown';
+
+export interface FeedDto {
+  id: string;
+  name: string;
+  provider: string;
+  credential: { id: string; label: string } | null;
+  assetClasses: string[];
+  isRealtime: boolean;
+  isActive: boolean;
+  health: ConnectionHealthDto;
+  entitlement: 'unknown' | 'entitled' | 'not_entitled';
+  lastSuccessAt: string | null;
+  lastCheckedAt: string | null;
+  lastError: string | null;
+  checking: boolean;
+  routes: {
+    routeId: string;
+    role: 'primary' | 'fallback';
+    assetClass: string;
+    venue: string | null;
+    dataType: (typeof ROUTE_DATA_TYPES)[number];
+    serving: boolean;
+  }[];
+  rowVersion: number;
+}
+
+export interface RouteDto {
+  id: string;
+  assetClass: string;
+  venue: string | null;
+  dataType: (typeof ROUTE_DATA_TYPES)[number];
+  primary: { id: string; name: string; isActive: boolean };
+  fallback: { id: string; name: string; isActive: boolean } | null;
+  activeSource: 'primary' | 'fallback';
+  switchedAt: string | null;
+  rowVersion: number;
+}
+
+export interface FeedListDto {
+  feeds: FeedDto[];
+  routes: RouteDto[];
+}
+
+/** `details` of the invalid_state error when a feed in use is turned off. */
+export interface FeedInUseDetails {
+  dependents: { runtimeId: string; strategyId: string; strategyName: string; status: string }[];
+}

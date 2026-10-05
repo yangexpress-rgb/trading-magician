@@ -27,6 +27,7 @@ describe('worker env', () => {
       WORKER_HEALTH_PORT: 4001,
       BACKTEST_POLL_MS: 1000,
       RUNTIME_POLL_MS: 1000,
+      FEED_CHECK_POLL_MS: 2000,
     });
   });
 

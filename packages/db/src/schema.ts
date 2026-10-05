@@ -58,6 +58,8 @@ export const connectionHealth = pgEnum('connection_health', [
   'down',
 ]);
 export const marketDataType = pgEnum('market_data_type', ['quotes', 'trades', 'bars']);
+export const feedEntitlement = pgEnum('feed_entitlement', ['unknown', 'entitled', 'not_entitled']);
+export const routeSource = pgEnum('route_source', ['primary', 'fallback']);
 export const auditActorType = pgEnum('audit_actor_type', ['user', 'system']);
 
 // ---------------------------------------------------------------------------
@@ -280,6 +282,14 @@ export const dataFeedConnections = pgTable(
     isActive: boolean('is_active').notNull().default(true),
     health: connectionHealth('health').notNull().default('unknown'),
     lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+    /** Whether the account may receive this data (§9.2), from the last check. */
+    entitlement: feedEntitlement('entitlement').notNull().default('unknown'),
+    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+    /** A short, secret-free reason from the last failed check. */
+    lastError: text('last_error'),
+    /** Set by "Test"; the worker checks the feed soon after and clears it. */
+    checkRequestedAt: timestamp('check_requested_at', { withTimezone: true }),
+    checkLeaseExpiresAt: timestamp('check_lease_expires_at', { withTimezone: true }),
     ...timestamps(),
     rowVersion: rowVersion(),
   },
@@ -305,6 +315,11 @@ export const dataRoutes = pgTable(
     dataType: marketDataType('data_type').notNull(),
     primaryFeedId: uuid('primary_feed_id').notNull(),
     fallbackFeedId: uuid('fallback_feed_id'),
+    /** Which feed prices come from now; the runtime fails over and back (ADR 0016). */
+    activeSource: routeSource('active_source').notNull().default('primary'),
+    switchedAt: timestamp('switched_at', { withTimezone: true }),
+    /** While on the fallback: since when the primary has looked healthy again. */
+    primaryOkSince: timestamp('primary_ok_since', { withTimezone: true }),
     ...timestamps(),
     rowVersion: rowVersion(),
   },
@@ -321,6 +336,10 @@ export const dataRoutes = pgTable(
     unique('data_route_target_uq')
       .on(t.userId, t.assetClass, t.venue, t.dataType)
       .nullsNotDistinct(),
+    check(
+      'data_route_fallback_present',
+      sql`${t.activeSource} = 'primary' OR ${t.fallbackFeedId} IS NOT NULL`,
+    ),
     check(
       'data_route_fallback_differs',
       sql`${t.fallbackFeedId} IS NULL OR ${t.fallbackFeedId} <> ${t.primaryFeedId}`,
