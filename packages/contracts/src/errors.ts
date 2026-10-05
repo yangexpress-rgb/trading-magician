@@ -13,6 +13,8 @@ export const API_ERROR_CODES = [
   'transition_blocked',
   'rate_limited',
   'limit_reached',
+  /** The user's plan doesn't allow this; `details` names the limit (ADR 0022). */
+  'plan_limit',
   'internal',
   'unavailable',
 ] as const;
@@ -43,6 +45,7 @@ export const API_ERROR_STATUS: Record<ApiErrorCode, number> = {
   transition_blocked: 422,
   rate_limited: 429,
   limit_reached: 429,
+  plan_limit: 403,
   internal: 500,
   unavailable: 503,
 };

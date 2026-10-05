@@ -145,6 +145,24 @@ With M1.5, every §18 Phase 0 and Phase 1 item above is Done. The two Partial ro
 | Method and base currency                    | Methodology page; USD only, labelled (Phase 5 decision 6)                                            | Done   |
 | Broker authoritative, discrepancies flagged | Final valuation at the close; always-shown notification; differences table; broker equity tile       | Done   |
 
+## Phase 6: subscriptions and deployment (§18)
+
+| Item                                                           | Design ref       | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Billing checkout, webhooks, plans and entitlements             | §4.3, §13.1, §14 | Plans and entitlements done (M6.1): plan catalog table, limits resolved from the plan plus per-user overrides, enforced on the server in `packages/db/src/entitlements.ts` (saved and active strategies, back tests, active accounts, paper brokers, provider data), `GET /api/v1/plans`, `/entitlement`, Settings › Subscription and billing (ADR 0022); `plans.test.ts`, db `entitlements.test.ts`, e2e `billing.spec.ts`. Checkout and webhooks: M6.2 |
+| Production infrastructure, observability, backups and runbooks | §11, §16.1       | Planned (M6.4)                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Security review and load testing                               | §16.1, §19       | Planned (M6.5)                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Controlled multi-user launch                                   | §16.4            | Planned (M6.5)                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+
+### §19.8 acceptance criteria
+
+| Criterion                                                               | Status                                                                                                     |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Users can sign up, subscribe, and access features allowed by their plan | Partly (M6.1): features follow the plan; subscribing is M6.2                                               |
+| Billing webhook replay does not duplicate state changes                 | Planned (M6.2)                                                                                             |
+| Plan limits are enforced server-side                                    | Done (M6.1): every limit is checked in the database layer under a per-user lock; db `entitlements.test.ts` |
+| Subscription changes do not create unsafe, silent execution behavior    | Planned (M6.3)                                                                                             |
+
 ## Product decisions confirmed (2026-10-04)
 
 | §20 item                    | Decision                                                                                                                |
@@ -199,3 +217,16 @@ Each is an editable input or a single constant.
 | Fees               | As the broker reports them per fill (none on paper today)                                                               |
 | Base currency      | USD only, labelled; conversion when a non-USD account exists                                                            |
 | Broker differences | Any position quantity difference, or equity differing by more than $1.00, flagged; the broker's figure is authoritative |
+
+## Phase 6 defaults confirmed (2026-10-05)
+
+| §20 item or choice  | Decision                                                                                                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| #4 Plans and limits | Free: 3 saved, 1 active, 10 back tests a day, demo account only. Pro: 25 saved, 5 active, 100 a day, 5 accounts with Alpaca paper, $20 a month (placeholder) |
+| Billing provider    | Stripe Billing in test mode, hosted Checkout and customer portal                                                                                             |
+| Failed payment      | 7-day grace period with notices on days 0, 3 and 6, then Free; strategies over Free's limits pause. Downgrades take effect at period end                     |
+| Launch audience     | Invite-only, up to 20 people, by invite code                                                                                                                 |
+| #14 Data retention  | Kept while the account exists; purged 30 days after deletion, audit and order records kept without personal details (legal review first)                     |
+| Monitoring          | Sentry free plan for errors, Railway logs and metrics, an uptime check on the health endpoint                                                                |
+| Backups             | Nightly database dump to Cloudflare R2, kept 30 days, monthly restore test on staging                                                                        |
+| Load target         | 20 users × 5 active strategies and 10 back tests at once; pages p95 under 1 s; orders within 5 s of their trigger                                            |

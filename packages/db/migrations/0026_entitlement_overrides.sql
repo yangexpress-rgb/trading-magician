@@ -1,0 +1,1 @@
+ALTER TABLE "entitlement" DROP COLUMN "limits";

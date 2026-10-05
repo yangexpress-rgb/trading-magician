@@ -9,13 +9,8 @@ import { parseDefinition, validateStrategy, type StrategyDefinition } from '@tm/
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
-import {
-  backtestRuns,
-  backtestTrades,
-  entitlements,
-  instruments,
-  strategyVersions,
-} from './schema';
+import { assertWithinLimit } from './entitlements';
+import { backtestRuns, backtestTrades, instruments, strategyVersions } from './schema';
 import { loadValidationContext, pinDraftVersion, StrategyError } from './strategies';
 
 /**
@@ -32,8 +27,6 @@ export type BacktestRunStatus = (typeof backtestRuns.$inferSelect)['status'];
 
 /** The only data source until a real provider is chosen (§20 #1). */
 export const BACKTEST_DATA_SOURCE = 'demo-history';
-export const DEFAULT_CONCURRENT_BACKTESTS = 2;
-export const DEFAULT_BACKTESTS_PER_DAY = 100;
 
 export interface BacktestRunSummary {
   id: string;
@@ -116,7 +109,7 @@ function selectRuns(tx: Transaction) {
 /**
  * Queues a back test of the strategy's current draft, pinned to an immutable
  * version. Blocked while validation has errors, and by the plan's limits on
- * concurrent and daily runs.
+ * concurrent and daily runs (ADR 0022).
  */
 export async function startBacktest(
   tx: Transaction,
@@ -140,28 +133,8 @@ export async function startBacktest(
     );
   }
 
-  const [entitlement] = await tx.select({ limits: entitlements.limits }).from(entitlements);
-  const limits = (entitlement?.limits ?? {}) as Record<string, unknown>;
-  const concurrent = numberOr(limits.concurrentBacktests, DEFAULT_CONCURRENT_BACKTESTS);
-  const perDay = numberOr(limits.backtestRunsPerDay, DEFAULT_BACKTESTS_PER_DAY);
-  const [counts] = await tx
-    .select({
-      active: sql<number>`count(*) filter (where ${backtestRuns.status} in ('queued', 'running'))::int`,
-      today: sql<number>`count(*) filter (where ${backtestRuns.createdAt} > now() - interval '1 day')::int`,
-    })
-    .from(backtestRuns);
-  if ((counts?.active ?? 0) >= concurrent) {
-    throw new StrategyError(
-      'limit_reached',
-      `You can run ${concurrent} back tests at a time. Wait for one to finish or cancel it.`,
-    );
-  }
-  if ((counts?.today ?? 0) >= perDay) {
-    throw new StrategyError(
-      'limit_reached',
-      `Your plan allows ${perDay} back tests a day. Try again tomorrow.`,
-    );
-  }
+  await assertWithinLimit(tx, userId, 'concurrentBacktests');
+  await assertWithinLimit(tx, userId, 'backtestRunsPerDay');
 
   const [run] = await tx
     .insert(backtestRuns)
@@ -187,9 +160,6 @@ export async function startBacktest(
   });
   return getBacktest(tx, run.id);
 }
-
-const numberOr = (v: unknown, fallback: number) =>
-  typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback;
 
 export async function getBacktest(tx: Transaction, runId: string): Promise<BacktestRunDetail> {
   const [row] = await tx

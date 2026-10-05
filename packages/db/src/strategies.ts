@@ -34,6 +34,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { recordAudit } from './audit';
+import { assertWithinLimit } from './entitlements';
 import { notify } from './notifications';
 import { cancelWorkingOrders, closePositions, listPositions } from './order-views';
 import { createRuntime, stopRuntime } from './runtime';
@@ -619,6 +620,7 @@ export async function createStrategy(
   input: CreateStrategyInput,
 ): Promise<StrategyDetail> {
   const def = input.definition === undefined ? createDefinition() : parseOrThrow(input.definition);
+  await assertWithinLimit(tx, userId, 'savedStrategies');
   const [profile] = await tx.select().from(profiles).where(eq(profiles.userId, userId));
   const [account] = await tx
     .select({ id: tradingAccounts.id })
@@ -887,6 +889,7 @@ export async function startStrategy(
       validation,
     });
   }
+  await assertWithinLimit(tx, userId, 'activeStrategies');
 
   let versionId = row.currentVersionId;
   const current = versionId

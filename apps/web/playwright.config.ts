@@ -49,6 +49,8 @@ export default defineConfig({
         MAIL_TRANSPORT: 'outbox',
         MAIL_OUTBOX_DIR: '.mail-outbox',
         E2E_TEST: '1',
+        // Tests make more strategies than Free keeps; the limits have their own tests (ADR 0022).
+        SIGNUP_PLAN: 'dev',
         CREDENTIALS_PUBLIC_KEY: credentialKeys.publicKey,
       },
     },

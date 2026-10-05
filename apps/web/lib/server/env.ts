@@ -22,6 +22,14 @@ export function loadServerEnv(source: Record<string, string | undefined> = proce
        * store a secret but never read one back. Without it, saving is refused.
        */
       CREDENTIALS_PUBLIC_KEY: pemKey('PUBLIC KEY').optional(),
+      /**
+       * Starts new workspaces on this plan instead of the catalog's default
+       * (ADR 0022). For tests and staging; leave unset in production.
+       */
+      SIGNUP_PLAN: z
+        .string()
+        .regex(/^[a-z0-9_-]{1,40}$/)
+        .optional(),
     },
     source,
   );

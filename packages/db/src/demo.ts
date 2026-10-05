@@ -31,18 +31,3 @@ export const DEMO_ACCOUNT_CAPABILITIES = {
   atomicMultiLeg: false,
   coverage: 'demo',
 } as const;
-
-/** Placeholder plan until billing exists (Phase 6). Limits are data, not code (§4.3). */
-export const DEV_PLAN = {
-  code: 'dev',
-  limits: {
-    savedStrategies: 50,
-    activeStrategies: 5,
-    backtestRunsPerDay: 100,
-    concurrentBacktests: 2,
-    liveData: false,
-    paperIntegrations: true,
-    realIntegrations: false,
-    connectedAccounts: 3,
-  },
-} as const;

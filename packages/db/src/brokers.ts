@@ -2,6 +2,7 @@ import { isProviderId, PROVIDERS, type AccountCapabilities } from '@tm/domain';
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
+import { assertFeature, assertWithinLimit, hasRoomFor } from './entitlements';
 import { IntegrationError } from './feeds';
 import { notify } from './notifications';
 import {
@@ -211,6 +212,7 @@ export async function createPlatform(
   },
 ): Promise<PlatformSummary> {
   const credentialRef = await checkPlatformInput(tx, input);
+  await assertFeature(tx, 'paperIntegrations');
   const [row] = await tx
     .insert(brokerConnections)
     .values({
@@ -474,6 +476,9 @@ export async function updateAccount(
   if (input.active === true && !platform.isActive) {
     throw new IntegrationError('invalid_state', `Turn on ${platform.name} first`);
   }
+  if (input.active === true && !account.isActive) {
+    await assertWithinLimit(tx, input.userId, 'connectedAccounts');
+  }
   if (input.makeDefault && !account.isDefault) {
     if (!(input.active ?? account.isActive) || !platform.isActive) {
       throw new IntegrationError('invalid_state', 'Only an active account can be the default');
@@ -667,15 +672,20 @@ export async function recordPlatformCheck(
         currency: found.currency,
         capabilities: found.capabilities,
         lastSyncedAt: now,
+        // Past the plan's limit an account is listed but left off (ADR 0022).
+        isActive: await hasRoomFor(tx, 'connectedAccounts'),
       })
-      .returning({ id: tradingAccounts.id });
+      .returning({ id: tradingAccounts.id, isActive: tradingAccounts.isActive });
     await recordAudit(tx, {
       userId: input.userId,
       actorType: 'system',
       action: 'trading_account.discovered',
       resourceType: 'trading_account',
       resourceId: created?.id ?? platform.id,
-      context: { brokerConnectionId: platform.id },
+      context: {
+        brokerConnectionId: platform.id,
+        ...(created?.isActive === false ? { leftOff: 'plan_limit' } : {}),
+      },
     });
   }
 

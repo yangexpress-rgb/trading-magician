@@ -6,7 +6,6 @@ export {
   DEMO_ASSET_CLASSES,
   DEMO_INSTRUMENTS,
   DEMO_VENUE,
-  DEV_PLAN,
 } from './demo';
 export { loadOwnerDbEnv, loadRuntimeDbEnv } from './env';
 export { provisionWorkspace, type ProvisionInput } from './provision';
@@ -67,3 +66,4 @@ export * from './brokers';
 export * from './performance';
 export * from './valuations';
 export * from './performance-views';
+export * from './entitlements';

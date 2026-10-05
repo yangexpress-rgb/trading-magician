@@ -10,6 +10,7 @@ import {
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
+import { assertFeature } from './entitlements';
 import { notify } from './notifications';
 import {
   credentials,
@@ -288,6 +289,7 @@ export async function createFeed(
   input: FeedInput & { userId: string },
 ): Promise<FeedSummary> {
   const credentialRef = await checkFeedInput(tx, input);
+  await assertFeature(tx, 'liveData');
   const [row] = await tx
     .insert(dataFeedConnections)
     .values({
