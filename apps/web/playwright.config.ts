@@ -64,6 +64,8 @@ export default defineConfig({
         FEED_CHECK_POLL_MS: '200',
         // Paper strategies trade in a simulated session that is open while the tests run.
         PAPER_CLOCK_START: '2026-10-06T14:31:00Z',
+        // Alpaca calls go to an in-process fake with made-up symbols; no keys or network.
+        ALPACA_FAKE: 'true',
         E2E_TEST: '1',
         LOG_LEVEL: 'warn',
         CREDENTIALS_PRIVATE_KEY: credentialKeys.privateKey,

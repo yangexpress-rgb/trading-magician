@@ -1,0 +1,21 @@
+{
+  "name": "@tm/alpaca",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tm/broker": "workspace:*",
+    "@tm/domain": "workspace:*",
+    "@tm/market-data": "workspace:*",
+    "decimal.js": "^10.6.0"
+  }
+}

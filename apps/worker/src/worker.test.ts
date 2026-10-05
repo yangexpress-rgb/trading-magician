@@ -28,7 +28,15 @@ describe('worker env', () => {
       BACKTEST_POLL_MS: 1000,
       RUNTIME_POLL_MS: 1000,
       FEED_CHECK_POLL_MS: 2000,
+      ALPACA_FAKE: false,
     });
+  });
+
+  it('allows the fake Alpaca outside production only', () => {
+    expect(loadWorkerEnv({ ALPACA_FAKE: 'true' }).ALPACA_FAKE).toBe(true);
+    expect(() => loadWorkerEnv({ NODE_ENV: 'production', ALPACA_FAKE: 'true' })).toThrow(
+      /tests only/,
+    );
   });
 
   it('allows a shifted paper clock outside production only', () => {

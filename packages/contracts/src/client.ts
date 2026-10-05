@@ -19,6 +19,8 @@ import type {
   CredentialListDto,
   RenameCredentialRequest,
   RotateCredentialRequest,
+  CreateInstrumentLookupRequest,
+  InstrumentLookupDto,
 } from './integrations';
 import type {
   ClosePositionsRequest,
@@ -169,6 +171,12 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
       update: (id: string, body: UpdateRouteRequest) =>
         call<RouteDto>('PATCH', `/data-routes/${enc(id)}`, body),
       remove: (id: string) => call<undefined>('DELETE', `/data-routes/${enc(id)}`),
+    },
+    instruments: {
+      /** Asks the worker to find a US stock or ETF; poll `getLookup` until it settles. */
+      lookup: (body: CreateInstrumentLookupRequest) =>
+        call<InstrumentLookupDto>('POST', '/instrument-lookups', body),
+      getLookup: (id: string) => call<InstrumentLookupDto>('GET', `/instrument-lookups/${enc(id)}`),
     },
   };
 }

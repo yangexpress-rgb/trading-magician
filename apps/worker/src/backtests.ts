@@ -23,7 +23,8 @@ import type { Logger } from 'pino';
 
 export interface BacktestWorkerOptions {
   db: Database;
-  provider: HistoricalDataProvider;
+  /** Bars for a run: one provider, or one per tenant that resolves its routes (ADR 0017). */
+  provider: HistoricalDataProvider | ((userId: string) => HistoricalDataProvider);
   workerId: string;
   logger: Pick<Logger, 'info' | 'warn' | 'error'>;
   leaseSeconds?: number;
@@ -42,7 +43,7 @@ function userMessage(error: unknown): string {
 }
 
 export async function processNextRun(options: BacktestWorkerOptions): Promise<ProcessOutcome> {
-  const { db, provider, workerId, logger } = options;
+  const { db, workerId, logger } = options;
   const leaseSeconds = options.leaseSeconds ?? 120;
   const claim = await claimBacktestRun(db, workerId, {
     leaseSeconds,
@@ -50,6 +51,8 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
   });
   if (!claim) return 'idle';
   const { runId, userId } = claim;
+  const provider =
+    typeof options.provider === 'function' ? options.provider(userId) : options.provider;
   const inTenant = <T>(fn: Parameters<typeof withTenant<T>>[2]) => withTenant(db, { userId }, fn);
   const started = Date.now();
   logger.info({ runId }, 'back test claimed');

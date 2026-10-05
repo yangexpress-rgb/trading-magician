@@ -239,6 +239,46 @@ export const instruments = pgTable(
  * the sealed ones; only the worker's login (tm_secrets) can, and only the worker
  * holds the private key. `hint` keeps the last characters of each field.
  */
+export const instrumentLookupStatus = pgEnum('instrument_lookup_status', [
+  'pending',
+  'found',
+  'not_found',
+  'failed',
+]);
+
+/**
+ * A person's request to find a real US stock or ETF by symbol (ADR 0017). The
+ * worker answers it through the tenant's data feed, since only it can open
+ * the provider key, and registers the instrument it finds.
+ */
+export const instrumentLookups = pgTable(
+  'instrument_lookup',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    symbol: text('symbol').notNull(),
+    status: instrumentLookupStatus('status').notNull().default('pending'),
+    instrumentId: uuid('instrument_id').references(() => instruments.id),
+    /** Short and secret-free; shown to the person. */
+    message: text('message'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    attempts: integer('attempts').notNull().default(0),
+    ...timestamps(),
+  },
+  (t) => [
+    index('instrument_lookup_pending_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'pending'`),
+    check('instrument_lookup_symbol', sql`${t.symbol} ~ '^[A-Z][A-Z0-9.]{0,9}$'`),
+    check(
+      'instrument_lookup_found_has_instrument',
+      sql`(${t.status} = 'found') = (${t.instrumentId} IS NOT NULL)`,
+    ),
+  ],
+);
+
 export const credentials = pgTable(
   'credential',
   {

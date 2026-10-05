@@ -35,7 +35,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['**/*.test.ts', '**/test/**/*.ts', '**/e2e/**/*.ts'],
+    files: ['**/*.test.ts', '**/test/**/*.ts', '**/testing/**/*.ts', '**/e2e/**/*.ts'],
     rules: { '@typescript-eslint/no-non-null-assertion': 'off' },
   },
   prettier,

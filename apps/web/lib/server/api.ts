@@ -118,6 +118,9 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       if ('routeId' in params && !UUID.test(params.routeId ?? '')) {
         return errorResponse('not_found', 'Route not found');
       }
+      if ('lookupId' in params && !UUID.test(params.lookupId ?? '')) {
+        return errorResponse('not_found', 'Lookup not found');
+      }
       return await handler(
         request,
         { userId, tx: (fn) => withTenant(appDb(), { userId }, fn) },

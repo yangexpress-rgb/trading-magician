@@ -137,3 +137,29 @@ export interface FeedListDto {
 export interface FeedInUseDetails {
   dependents: { runtimeId: string; strategyId: string; strategyName: string; status: string }[];
 }
+
+// ---------------------------------------------------------------------------
+// Instrument lookups (ADR 0017)
+
+export const createInstrumentLookupRequest = z.object({
+  symbol: z.string().trim().min(1).max(12),
+});
+export type CreateInstrumentLookupRequest = z.infer<typeof createInstrumentLookupRequest>;
+
+export interface InstrumentOptionDto {
+  id: string;
+  symbol: string;
+  displayName: string;
+  assetClass: string;
+  venue: string;
+}
+
+export interface InstrumentLookupDto {
+  id: string;
+  symbol: string;
+  status: 'pending' | 'found' | 'not_found' | 'failed';
+  /** Why nothing was found, in words for the person. */
+  message: string | null;
+  instrument: InstrumentOptionDto | null;
+  createdAt: string;
+}
