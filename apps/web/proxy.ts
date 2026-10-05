@@ -8,6 +8,8 @@ const PUBLIC_PATHS = [
   '/check-email',
   '/forgot-password',
   '/reset-password',
+  '/terms',
+  '/privacy',
 ];
 
 export function proxy(request: NextRequest) {

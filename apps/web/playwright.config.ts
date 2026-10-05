@@ -3,6 +3,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 const WORKER_PORT = PORT + 1001;
+// A second web server, invite-only, for the launch test (ADR 0026).
+const INVITE_PORT = PORT + 1;
 
 // A throwaway credential key pair for this run (ADR 0015): the web server gets
 // only the public half, the worker the private half.
@@ -30,9 +32,21 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      testIgnore: /invite\.spec\.ts$/,
       use: {
         ...devices['Desktop Chrome'],
         // Lets a pre-installed browser be used instead of `playwright install`.
+        ...(process.env.PW_CHROMIUM_PATH
+          ? { launchOptions: { executablePath: process.env.PW_CHROMIUM_PATH } }
+          : {}),
+      },
+    },
+    {
+      name: 'invite-only',
+      testMatch: /invite\.spec\.ts$/,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://localhost:${INVITE_PORT}`,
         ...(process.env.PW_CHROMIUM_PATH
           ? { launchOptions: { executablePath: process.env.PW_CHROMIUM_PATH } }
           : {}),
@@ -51,8 +65,24 @@ export default defineConfig({
         E2E_TEST: '1',
         // Tests make more strategies than Free keeps; the limits have their own tests (ADR 0022).
         SIGNUP_PLAN: 'dev',
+        // Sign-up needs no code here; the invite-only server below covers that (ADR 0026).
+        SIGNUP_MODE: 'open',
         // Stripe is replaced by an in-process stand-in with its own pages (ADR 0023).
         BILLING_FAKE: 'true',
+        CREDENTIALS_PUBLIC_KEY: credentialKeys.publicKey,
+      },
+    },
+    {
+      command: `pnpm exec next start -p ${INVITE_PORT}`,
+      url: `http://localhost:${INVITE_PORT}/api/health`,
+      reuseExistingServer: !process.env.CI,
+      env: {
+        APP_URL: `http://localhost:${INVITE_PORT}`,
+        MAIL_TRANSPORT: 'outbox',
+        MAIL_OUTBOX_DIR: '.mail-outbox',
+        E2E_TEST: '1',
+        SIGNUP_PLAN: 'dev',
+        SIGNUP_MODE: 'invite',
         CREDENTIALS_PUBLIC_KEY: credentialKeys.publicKey,
       },
     },

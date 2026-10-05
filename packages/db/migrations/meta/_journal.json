@@ -239,6 +239,20 @@
       "when": 1791214596006,
       "tag": "0033_ops_functions",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791215900087,
+      "tag": "0034_invites",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791215901691,
+      "tag": "0035_invite_functions",
+      "breakpoints": true
     }
   ]
 }

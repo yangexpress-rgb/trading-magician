@@ -73,6 +73,51 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit --prod --audit-level=high
 
+  scan:
+    # Known vulnerabilities in what ships, and secrets in the history (§16.1,
+    # ADR 0026). Advanced Security is not available on this plan, and the
+    # scanners run from their own images rather than third-party actions, so
+    # this job needs no allow-listed action.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Secrets in the repository and its history
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 \
+            detect --source=/repo --redact --no-banner --exit-code 1
+      - name: Build the runtime image
+        run: docker build -t trading-magician:ci .
+      - name: Vulnerabilities in the image
+        # Each finding becomes an annotation on the run, so it can be read
+        # without opening the log. esbuild's Go binaries are skipped: they only
+        # bundle the app's own code at build and migration time, never handle
+        # outside input, and their Go runtime findings are not reachable
+        # (.trivyignore, docs/security-review.md).
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/out" \
+            aquasec/trivy:latest image --ignorefile /out/.trivyignore --scanners vuln --severity HIGH,CRITICAL \
+            --ignore-unfixed --skip-files '**/@esbuild/*/bin/esbuild' \
+            --format json --output /out/trivy-image.json \
+            --no-progress trading-magician:ci
+          jq -r '[.Results[]? | .Target as $t | .Vulnerabilities[]?
+                  | "\(.PkgName) \(.InstalledVersion) in \($t): \(.VulnerabilityID) \(.Severity), fixed in \(.FixedVersion)"]
+                 | unique | .[] | "::error title=Image vulnerability::" + .' trivy-image.json
+          test "$(jq '[.Results[]?.Vulnerabilities[]?] | length' trivy-image.json)" -eq 0
+      - name: Misconfiguration in the deploy files
+        run: |
+          if ! docker run --rm -v "$PWD:/repo" aquasec/trivy:latest config /repo \
+            --ignorefile /repo/.trivyignore --severity HIGH,CRITICAL \
+            --format json --output /repo/trivy-config.json 2> trivy-config.err; then
+            echo "::error title=Trivy config scan did not run::$(tail -c 1500 trivy-config.err | tr '\n' ' ')"
+            exit 1
+          fi
+          jq -r '[.Results[]? | .Target as $t | .Misconfigurations[]?
+                  | "\($t): \(.ID) \(.Severity) \(.Title)"]
+                 | unique | .[] | "::error title=Misconfiguration::" + .' trivy-config.json
+          test "$(jq '[.Results[]?.Misconfigurations[]?] | length' trivy-config.json)" -eq 0
+
   e2e:
     runs-on: ubuntu-latest
     services:

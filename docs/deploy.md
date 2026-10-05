@@ -62,8 +62,20 @@ Paper trading only, as everywhere else (`docs/adr/0002-paper-only-guard.md`).
 
    The worker restarts until the web service's first deploy has created its database login.
 
-5. **Deploy and sign up.** Deploy both services, open the web domain, and sign up with your
-   Resend address. The verification email arrives from `onboarding@resend.dev`.
+5. **Mint your own invite code.** Sign-up is invite-only (ADR 0026), so make a code before you
+   try to sign up. From a checkout with `DATABASE_URL` pointing at the Railway database:
+
+   ```sh
+   pnpm --filter @tm/db invites:mint 1 "me"
+   ```
+
+   Codes are printed once. `invites:list` shows how many are left, and `invites:release <code>`
+   frees one that was claimed but never used. To let anyone sign up without a code, set
+   `SIGNUP_MODE=open` on web; keep it unset in production.
+
+6. **Deploy and sign up.** Deploy both services, open the web domain, and sign up with your
+   Resend address, using the code you minted. The verification email arrives from
+   `onboarding@resend.dev`.
 
 ## Staging and production
 
@@ -131,6 +143,8 @@ Railway environments keep two full copies apart (ADR 0025). Once production work
      `STRIPE_SECRET_KEY=sk_test_…` (it re-reads subscriptions hourly in case a webhook is missed).
 - **Plans.** Prices and limits live in the `plan` table (`docs/adr/0022-plans-and-limits.md`).
   Change them with an `update plan …` in the same query editor; they apply at once.
+- **More invites.** Mint one code per person, up to the 20 Yong settled on: `invites:mint 5
+"second round"`.
 - **Your own domain.** Add it under the web service's Networking, then change `APP_URL`.
 - **Owner connection.** `DATABASE_URL` stays on the web service only because Railway runs the
   pre-deploy step with that service's variables. The running app never connects with it.

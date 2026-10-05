@@ -36,6 +36,11 @@ export function loadServerEnv(source: Record<string, string | undefined> = proce
         .regex(/^(sk|rk)_test_[A-Za-z0-9]+$/, 'must be a Stripe test-mode key')
         .optional(),
       STRIPE_WEBHOOK_SECRET: z.string().min(10).optional(),
+      /**
+       * Controlled launch (§16.4, ADR 0026): 'invite' needs a code to sign up,
+       * 'open' does not. Production keeps 'invite' until Yong says otherwise.
+       */
+      SIGNUP_MODE: z.enum(['invite', 'open']).default('invite'),
       /** Sends server errors to Sentry (ADR 0025). Optional. */
       SENTRY_DSN: z.string().url().optional(),
       /** Names the environment in error reports; Railway sets RAILWAY_ENVIRONMENT_NAME. */
