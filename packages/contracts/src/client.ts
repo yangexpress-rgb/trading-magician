@@ -36,6 +36,8 @@ import type {
   KillSwitchRequest,
   ListOrdersQuery,
   MarkNotificationsReadRequest,
+  NotificationPrefsDto,
+  UpdateNotificationPrefsRequest,
   NotificationListDto,
   OrderDetailDto,
   OrderListDto,
@@ -154,6 +156,9 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
         call<NotificationListDto>('GET', `/notifications${query(q)}`),
       markRead: (body: MarkNotificationsReadRequest) =>
         call<{ marked: number }>('POST', '/notifications/read', body),
+      prefs: () => call<NotificationPrefsDto>('GET', '/notifications/preferences'),
+      updatePrefs: (body: UpdateNotificationPrefsRequest) =>
+        call<NotificationPrefsDto>('PUT', '/notifications/preferences', body),
     },
     credentials: {
       list: () => call<CredentialListDto>('GET', '/credentials'),

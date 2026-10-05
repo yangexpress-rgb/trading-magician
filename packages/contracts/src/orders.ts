@@ -246,3 +246,19 @@ export const markNotificationsReadRequest = z.union([
   z.object({ ids: z.array(z.uuid()).min(1).max(200) }).strict(),
 ]);
 export type MarkNotificationsReadRequest = z.input<typeof markNotificationsReadRequest>;
+
+/** Kinds that always show because they stop trading; they cannot be muted. */
+export const ALWAYS_SHOWN_NOTIFICATION_KINDS = [
+  'risk_pause',
+  'reconciliation_mismatch',
+  'disconnect',
+] as const satisfies readonly NotificationKindDto[];
+
+export interface NotificationPrefsDto {
+  muted: NotificationKindDto[];
+}
+
+export const updateNotificationPrefsRequest = z
+  .object({ muted: z.array(z.enum(NOTIFICATION_KINDS)).max(NOTIFICATION_KINDS.length) })
+  .strict();
+export type UpdateNotificationPrefsRequest = z.input<typeof updateNotificationPrefsRequest>;
