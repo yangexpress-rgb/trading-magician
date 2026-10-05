@@ -4,7 +4,13 @@ import type {
   BacktestTradesDto,
   StartBacktestRequest,
 } from './backtests';
-import type { EntitlementDto, PlanListDto } from './billing';
+import type {
+  BillingRedirectDto,
+  CheckoutSessionRequest,
+  EntitlementDto,
+  PlanListDto,
+  SubscriptionDto,
+} from './billing';
 import { ApiError, type ApiErrorBody } from './errors';
 import type {
   PerformanceQuery,
@@ -155,6 +161,10 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
     billing: {
       plans: () => call<PlanListDto>('GET', '/plans'),
       entitlement: () => call<EntitlementDto>('GET', '/entitlement'),
+      subscription: () => call<SubscriptionDto>('GET', '/subscription'),
+      checkout: (body: CheckoutSessionRequest) =>
+        call<BillingRedirectDto>('POST', '/billing/checkout-session', body),
+      portal: () => call<BillingRedirectDto>('POST', '/billing/portal-session'),
     },
     positions: {
       list: () => call<PositionListDto>('GET', '/positions'),

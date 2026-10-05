@@ -32,6 +32,14 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
        * whenever a test runs. Never set in production.
        */
       PAPER_CLOCK_START: z.iso.datetime({ offset: true }).optional(),
+      /**
+       * Stripe, test mode only (ADR 0023): with it the worker re-reads each
+       * subscription hourly in case a webhook was missed.
+       */
+      STRIPE_SECRET_KEY: z
+        .string()
+        .regex(/^(sk|rk)_test_[A-Za-z0-9]+$/, 'must be a Stripe test-mode key')
+        .optional(),
       /** Tests only: Alpaca calls go to an in-process fake with made-up symbols. */
       ALPACA_FAKE: z
         .enum(['true', 'false'])

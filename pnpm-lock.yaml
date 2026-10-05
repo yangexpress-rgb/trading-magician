@@ -44,6 +44,9 @@ importers:
       '@tm/backtest':
         specifier: workspace:*
         version: link:../../packages/backtest
+      '@tm/billing':
+        specifier: workspace:*
+        version: link:../../packages/billing
       '@tm/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -120,6 +123,9 @@ importers:
       '@tm/backtest':
         specifier: workspace:*
         version: link:../../packages/backtest
+      '@tm/billing':
+        specifier: workspace:*
+        version: link:../../packages/billing
       '@tm/broker':
         specifier: workspace:*
         version: link:../../packages/broker
@@ -182,6 +188,8 @@ importers:
       fast-check:
         specifier: ^4.10.2
         version: 4.10.2
+
+  packages/billing: {}
 
   packages/broker:
     dependencies:

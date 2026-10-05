@@ -158,6 +158,7 @@ export interface PlanSummary {
   currency: string;
   interval: string;
   limits: PlanLimits;
+  isDefault: boolean;
 }
 
 /** The plans people can choose, cheapest first. */
@@ -175,6 +176,7 @@ export async function listOfferedPlans(tx: Transaction): Promise<PlanSummary[]> 
     currency: r.currency,
     interval: r.interval,
     limits: resolveLimits(r.limits),
+    isDefault: r.isDefault,
   }));
 }
 

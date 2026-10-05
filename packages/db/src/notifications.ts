@@ -14,12 +14,14 @@ export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
 /**
  * Kinds that always show because they stop trading (Phase 4 decision 4):
- * risk pauses, reconciliation mismatches and disconnects cannot be muted.
+ * risk pauses, reconciliation mismatches and disconnects cannot be muted, nor
+ * can billing changes, which can pause strategies (ADR 0023).
  */
 export const ALWAYS_SHOWN_KINDS = [
   'risk_pause',
   'reconciliation_mismatch',
   'disconnect',
+  'billing',
 ] as const satisfies readonly NotificationKind[];
 
 export interface NotificationPrefs {

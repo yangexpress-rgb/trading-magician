@@ -14,6 +14,7 @@
   "dependencies": {
     "@tm/alpaca": "workspace:*",
     "@tm/backtest": "workspace:*",
+    "@tm/billing": "workspace:*",
     "@tm/broker": "workspace:*",
     "@tm/config": "workspace:*",
     "@tm/db": "workspace:*",
