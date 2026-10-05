@@ -3,6 +3,7 @@ import {
   createStrategy,
   eq,
   isNull,
+  listCycleTrades,
   listNotifications,
   listPositions,
   resumeRuntime,
@@ -258,7 +259,8 @@ afterAll(async () => {
 describe('paper runtime: Entry first, Exit second (§6.9)', () => {
   it('runs a pair strategy from Entry to Exit and closes the cycle', async () => {
     clock = T0;
-    const { runtimeId } = await startPaper('Pair', pairDefinition());
+    const { runtimeId, strategy } = await startPaper('Pair', pairDefinition());
+    const strategyId = strategy.id;
 
     // The Entry trigger fires on the bar that just closed; both legs go to the broker.
     expect(await pass()).toBe(1);
@@ -298,6 +300,31 @@ describe('paper runtime: Entry first, Exit second (§6.9)', () => {
     expect(cycle!.status).toBe('closed');
     expect(cycle!.realizedPnl).not.toBeNull();
     expect(cycle!.exitTriggerEventId).not.toBeNull();
+
+    // The ledger (§10) gives one trade for the cycle, with each leg's part, and agrees
+    // with the runtime's own cash count and with a hand calculation from the fills.
+    const filled = await t.ownerSql<
+      { leg: string; direction: string; qty: string; price: string }[]
+    >`
+      select i.leg_label as leg, i.direction, f.quantity as qty, f.price
+        from fill f join order_intent i on i.id = f.intent_id where i.runtime_id = ${runtimeId}`;
+    const px = (leg: string) => Number(filled.find((f) => f.leg === leg)!.price);
+    const longA = (px('Sell A') - px('Long A')) * 10;
+    const shortB = (px('Short B') - px('Cover B')) * 10;
+    const [trade, ...others] = await asUser((tx) =>
+      listCycleTrades(tx, { strategyIds: [strategyId] }),
+    );
+    expect(others).toEqual([]);
+    expect(trade).toMatchObject({ seq: 1, strategyName: 'Pair', versionNo: 1, mode: 'paper' });
+    expect(trade!.closedAt).not.toBeNull();
+    expect(trade!.legs.map((l) => [l.legLabel, l.symbol, l.side, l.opened, l.closed])).toEqual([
+      ['Long A', 'DEMO-A', 'long', '10', '10'],
+      ['Short B', 'DEMO-B', 'short', '10', '10'],
+    ]);
+    expect(Number(trade!.legs[0]!.net)).toBeCloseTo(longA, 2);
+    expect(Number(trade!.legs[1]!.net)).toBeCloseTo(shortB, 2);
+    expect(trade!.net).toBe(Number(cycle!.realizedPnl).toFixed(2));
+    expect(Number(trade!.net)).toBeCloseTo(longA + shortB, 2);
 
     // Positions at the paper broker are flat again.
     const held =

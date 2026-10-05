@@ -20,3 +20,4 @@ export * from './market';
 export * from './execution';
 export * from './integrations/providers';
 export * from './integrations/routing';
+export * from './performance';
