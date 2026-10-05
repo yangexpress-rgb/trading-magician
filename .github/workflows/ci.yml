@@ -107,9 +107,12 @@ jobs:
           test "$(jq '[.Results[]?.Vulnerabilities[]?] | length' trivy-image.json)" -eq 0
       - name: Misconfiguration in the deploy files
         run: |
-          docker run --rm -v "$PWD:/repo" aquasec/trivy:latest config /repo \
+          if ! docker run --rm -v "$PWD:/repo" aquasec/trivy:latest config /repo \
             --ignorefile /repo/.trivyignore --severity HIGH,CRITICAL \
-            --format json --output /repo/trivy-config.json --no-progress
+            --format json --output /repo/trivy-config.json 2> trivy-config.err; then
+            echo "::error title=Trivy config scan did not run::$(tail -c 1500 trivy-config.err | tr '\n' ' ')"
+            exit 1
+          fi
           jq -r '[.Results[]? | .Target as $t | .Misconfigurations[]?
                   | "\($t): \(.ID) \(.Severity) \(.Title)"]
                  | unique | .[] | "::error title=Misconfiguration::" + .' trivy-config.json
