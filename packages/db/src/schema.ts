@@ -439,6 +439,13 @@ export const tradingAccounts = pgTable(
     isDefault: boolean('is_default').notNull().default(false),
     isActive: boolean('is_active').notNull().default(true),
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    /**
+     * Equity before anything the app traded (ADR 0020): fixed for the demo
+     * account, taken from the broker at the first valuation for others.
+     */
+    startingEquity: numeric('starting_equity'),
+    valuedAt: timestamp('valued_at', { withTimezone: true }),
+    valuationLeaseExpiresAt: timestamp('valuation_lease_expires_at', { withTimezone: true }),
     ...timestamps(),
     rowVersion: rowVersion(),
   },
@@ -1096,6 +1103,83 @@ export const brokerSyncs = pgTable(
       columns: [t.accountId, t.userId],
       foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
     }).onDelete('cascade'),
+  ],
+);
+
+/**
+ * Daily equity per account (Design v1.0 §10.2; ADR 0020): one row per NYSE
+ * session, rewritten during it and final from its 4:00 pm close.
+ */
+export const accountValuations = pgTable(
+  'account_valuation',
+  {
+    id: id(),
+    userId: uuid('user_id').notNull(),
+    accountId: uuid('account_id').notNull(),
+    sessionDate: date('session_date').notNull(),
+    asOf: timestamp('as_of', { withTimezone: true }).notNull(),
+    final: boolean('final').notNull().default(false),
+    startingEquity: numeric('starting_equity'),
+    appEquity: numeric('app_equity'),
+    brokerEquity: numeric('broker_equity'),
+    brokerCash: numeric('broker_cash'),
+    realized: numeric('realized').notNull(),
+    unrealized: numeric('unrealized').notNull(),
+    fees: numeric('fees').notNull(),
+    marketValue: numeric('market_value').notNull(),
+    /** Open books valued at a stale or missing price. */
+    staleMarks: integer('stale_marks').notNull().default(0),
+    /** Broker equity less app equity; null when the broker reports none. */
+    difference: numeric('difference'),
+    positionDifferences: jsonb('position_differences').notNull().default([]),
+    flagged: boolean('flagged').notNull().default(false),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.accountId, t.userId],
+      foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
+    }).onDelete('cascade'),
+    unique('account_valuation_session_uq').on(t.accountId, t.sessionDate),
+    index('account_valuation_user_idx').on(t.userId, t.sessionDate),
+  ],
+);
+
+/** Daily value per book: strategy runtime, account and instrument (ADR 0020). */
+export const bookValuations = pgTable(
+  'book_valuation',
+  {
+    id: id(),
+    userId: uuid('user_id').notNull(),
+    runtimeId: uuid('runtime_id').notNull(),
+    accountId: uuid('account_id').notNull(),
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => instruments.id),
+    sessionDate: date('session_date').notNull(),
+    asOf: timestamp('as_of', { withTimezone: true }).notNull(),
+    quantity: numeric('quantity').notNull(),
+    costBasis: numeric('cost_basis').notNull(),
+    mark: numeric('mark'),
+    markAt: timestamp('mark_at', { withTimezone: true }),
+    markStale: boolean('mark_stale').notNull().default(false),
+    marketValue: numeric('market_value').notNull(),
+    unrealized: numeric('unrealized').notNull(),
+    realized: numeric('realized').notNull(),
+    realizedGross: numeric('realized_gross').notNull(),
+    fees: numeric('fees').notNull(),
+    openFees: numeric('open_fees').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.accountId, t.userId],
+      foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.runtimeId, t.userId],
+      foreignColumns: [strategyRuntimes.id, strategyRuntimes.userId],
+    }).onDelete('cascade'),
+    unique('book_valuation_session_uq').on(t.runtimeId, t.accountId, t.instrumentId, t.sessionDate),
+    index('book_valuation_user_idx').on(t.userId, t.sessionDate),
   ],
 );
 

@@ -14,6 +14,7 @@ import { startInstrumentLookupLoop, type LookupLoop } from './instrument-lookups
 import { demoProvider, type ProviderRegistry } from './providers';
 import { createRoutedHistory } from './routed-history';
 import { startRuntimeLoop, type RuntimeLoop } from './runtime';
+import { startValuationLoop, type ValuationLoop } from './valuations';
 
 const env = loadWorkerEnv();
 const logger = createLogger(env.LOG_LEVEL);
@@ -23,6 +24,7 @@ let runtimes: RuntimeLoop | undefined;
 let feedChecks: FeedCheckLoop | undefined;
 let lookups: LookupLoop | undefined;
 let brokerChecks: BrokerCheckLoop | undefined;
+let valuations: ValuationLoop | undefined;
 let fakeTicker: ReturnType<typeof setInterval> | undefined;
 let closeDb: (() => Promise<void>) | undefined;
 const databaseUrl = env.DATABASE_WORKER_URL ?? env.DATABASE_APP_URL;
@@ -98,6 +100,16 @@ if (databaseUrl) {
     logger,
     pollMs: env.FEED_CHECK_POLL_MS,
   });
+  valuations = startValuationLoop({
+    ...(now ? { now } : {}),
+    db,
+    providers,
+    brokers,
+    privateKey: env.CREDENTIALS_PRIVATE_KEY,
+    logger,
+    pollMs: env.FEED_CHECK_POLL_MS,
+    everySeconds: env.VALUATION_EVERY_SEC,
+  });
   lookups = startInstrumentLookupLoop({
     db,
     providers,
@@ -125,6 +137,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         feedChecks?.stop(),
         lookups?.stop(),
         brokerChecks?.stop(),
+        valuations?.stop(),
       ]);
       clearInterval(fakeTicker);
       await closeDb?.();

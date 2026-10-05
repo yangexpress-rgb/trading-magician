@@ -28,6 +28,7 @@ describe('worker env', () => {
       BACKTEST_POLL_MS: 1000,
       RUNTIME_POLL_MS: 1000,
       FEED_CHECK_POLL_MS: 2000,
+      VALUATION_EVERY_SEC: 300,
       ALPACA_FAKE: false,
     });
   });

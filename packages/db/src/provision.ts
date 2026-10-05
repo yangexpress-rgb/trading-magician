@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { DEMO_STARTING_EQUITY } from '@tm/domain';
 import { recordAudit } from './audit';
 import type { Database } from './client';
 import { DEMO_ACCOUNT_CAPABILITIES, DEMO_ASSET_CLASSES, DEMO_VENUE, DEV_PLAN } from './demo';
@@ -79,6 +80,7 @@ export async function provisionWorkspace(db: Database, input: ProvisionInput): P
         currency: 'USD',
         capabilities: DEMO_ACCOUNT_CAPABILITIES,
         isDefault: true,
+        startingEquity: DEMO_STARTING_EQUITY.toString(),
       })
       .returning({ id: tradingAccounts.id });
 

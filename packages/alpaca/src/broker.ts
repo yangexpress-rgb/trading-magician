@@ -1,5 +1,6 @@
 import {
   BrokerRejectedError,
+  type BrokerAccountBalance,
   type BrokerAdapter,
   type BrokerCapabilities,
   type BrokerOrderRequest,
@@ -8,7 +9,7 @@ import {
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { AlpacaRequestError, type AlpacaClient } from './client';
-import type { AlpacaFillActivity, AlpacaOrder, AlpacaPosition } from './types';
+import type { AlpacaAccount, AlpacaFillActivity, AlpacaOrder, AlpacaPosition } from './types';
 
 /**
  * The Alpaca paper broker behind the app's broker contract (§8.2–8.5, §9.3;
@@ -264,6 +265,11 @@ export class AlpacaBroker implements BrokerAdapter {
       }
     }
     return updates;
+  }
+
+  async account(_accountId: string): Promise<BrokerAccountBalance> {
+    const a = await this.client.trading<AlpacaAccount>('GET', '/v2/account');
+    return { currency: a.currency, cash: a.cash, equity: a.equity };
   }
 
   async positions(_accountId: string): Promise<BrokerPosition[]> {

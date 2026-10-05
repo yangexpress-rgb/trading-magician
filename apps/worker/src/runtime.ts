@@ -37,11 +37,8 @@ import {
   type RuntimeWork,
   type WorkingOrder,
   type Transaction,
-  instrumentIdForSymbol,
   loadAccountRouting,
   loadRouting,
-  openCredential,
-  type OpenedCredential,
 } from '@tm/db';
 import {
   activeFromFor,
@@ -74,7 +71,7 @@ import { randomUUID } from 'node:crypto';
 import Decimal from 'decimal.js';
 import type { Logger } from 'pino';
 import { demoProvider, type ProviderRegistry } from './providers';
-import { AccountUnavailableError, createAccountRouter } from './account-router';
+import { accountResolver, createAccountRouter } from './account-router';
 import type { BrokerRegistry } from './brokers';
 import { createRoutedHistory } from './routed-history';
 import { createRoutedQuotes } from './routed-quotes';
@@ -203,33 +200,15 @@ export async function runRuntimePass(
     const accounts = await loadAccountRouting(tx, work.accounts);
     const router = createAccountRouter({
       paper,
-      resolve: async (accountId) => {
-        const account = accounts.get(accountId);
-        if (!account || account.provider === 'demo') return paper;
-        const provider = options.brokers?.[account.provider];
-        if (!provider) throw new AccountUnavailableError(`${account.nickname} has no adapter here`);
-        if (!account.platformActive) {
-          throw new AccountUnavailableError(`${account.nickname}'s platform is turned off`);
-        }
-        let credential: OpenedCredential | undefined;
-        if (provider.needsCredential) {
-          if (!account.credentialRef) {
-            throw new AccountUnavailableError(`${account.nickname} has no API key`);
-          }
-          try {
-            credential = await openCredential(tx, {
-              userId,
-              id: account.credentialRef,
-              privateKey: options.privateKey,
-            });
-          } catch {
-            throw new AccountUnavailableError(`${account.nickname}'s API key could not be opened`);
-          }
-        }
-        return provider.adapter({ now: at, credential }, account, (symbol) =>
-          instrumentIdForSymbol(tx, symbol),
-        );
-      },
+      resolve: accountResolver({
+        tx,
+        userId,
+        accounts,
+        paper,
+        brokers: options.brokers,
+        privateKey: options.privateKey,
+        now: at,
+      }),
     });
     const broker = options.wrapBroker ? options.wrapBroker(router) : router;
 
