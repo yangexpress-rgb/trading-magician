@@ -121,6 +121,12 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       if ('lookupId' in params && !UUID.test(params.lookupId ?? '')) {
         return errorResponse('not_found', 'Lookup not found');
       }
+      if ('brokerId' in params && !UUID.test(params.brokerId ?? '')) {
+        return errorResponse('not_found', 'Trading platform not found');
+      }
+      if ('accountId' in params && !UUID.test(params.accountId ?? '')) {
+        return errorResponse('not_found', 'Trading account not found');
+      }
       return await handler(
         request,
         { userId, tx: (fn) => withTenant(appDb(), { userId }, fn) },

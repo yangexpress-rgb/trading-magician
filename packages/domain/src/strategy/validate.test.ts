@@ -228,6 +228,32 @@ describe('orders and accounts', () => {
     );
   });
 
+  it('keeps demo instruments on demo accounts and real ones off them', () => {
+    const base = context();
+    const instruments = new Map([
+      [STOCK_A, { symbol: 'DEMO-A', assetClass: 'stock', lotSize: '1', venue: 'DEMO' }],
+      [STOCK_B, { symbol: 'REAL', assetClass: 'stock', lotSize: '1', venue: 'NASDAQ' }],
+    ]);
+    const account = (coverage: 'demo' | 'us') =>
+      new Map([
+        [
+          PAPER_ACCOUNT,
+          { nickname: 'Acct', mode: 'paper', isActive: true, capabilities: { ...CAPS, coverage } },
+        ],
+      ]);
+    const onDemo = check(() => undefined, { ...base, instruments, accounts: account('demo') });
+    expect(onDemo.errors).not.toContain('unsupported_venue');
+    const onUs = check(() => undefined, { ...base, instruments, accounts: account('us') });
+    expect(onUs.errors).toContain('unsupported_venue');
+    const realOnDemo = check(
+      (d) => {
+        for (const o of [...d.entry.orders, ...d.exit.orders]) o.instrumentId = STOCK_B;
+      },
+      { ...base, instruments, accounts: account('demo') },
+    );
+    expect(realOnDemo.errors).toContain('unsupported_venue');
+  });
+
   it('checks quantities', () => {
     expect(check((d) => (d.entry.orders[0]!.quantity.value = '2.5')).errors).toContain(
       'invalid_quantity',

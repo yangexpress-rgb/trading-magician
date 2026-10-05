@@ -21,6 +21,14 @@ import type {
   RotateCredentialRequest,
   CreateInstrumentLookupRequest,
   InstrumentLookupDto,
+  AccountUpdateDto,
+  CreatePlatformRequest,
+  PlatformDto,
+  PlatformListDto,
+  SetPlatformActiveRequest,
+  UpdateAccountRequest,
+  UpdatePlatformRequest,
+  AccountDto,
 } from './integrations';
 import type {
   ClosePositionsRequest,
@@ -171,6 +179,23 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
       update: (id: string, body: UpdateRouteRequest) =>
         call<RouteDto>('PATCH', `/data-routes/${enc(id)}`, body),
       remove: (id: string) => call<undefined>('DELETE', `/data-routes/${enc(id)}`),
+    },
+    brokers: {
+      list: () => call<PlatformListDto>('GET', '/brokers'),
+      create: (body: CreatePlatformRequest) => call<PlatformDto>('POST', '/brokers', body),
+      update: (id: string, body: UpdatePlatformRequest) =>
+        call<PlatformDto>('PATCH', `/brokers/${enc(id)}`, body),
+      setActive: (id: string, body: SetPlatformActiveRequest) =>
+        call<PlatformDto>('POST', `/brokers/${enc(id)}/active`, body),
+      /** Connects or reconnects: the worker checks the key and discovers accounts. */
+      connect: (id: string) => call<PlatformDto>('POST', `/brokers/${enc(id)}/connect`),
+      test: (id: string) => call<PlatformDto>('POST', `/brokers/${enc(id)}/test`),
+      accounts: (id: string) => call<AccountDto[]>('GET', `/brokers/${enc(id)}/accounts`),
+      remove: (id: string) => call<undefined>('DELETE', `/brokers/${enc(id)}`),
+    },
+    accounts: {
+      update: (id: string, body: UpdateAccountRequest) =>
+        call<AccountUpdateDto>('PATCH', `/trading-accounts/${enc(id)}`, body),
     },
     instruments: {
       /** Asks the worker to find a US stock or ETF; poll `getLookup` until it settles. */

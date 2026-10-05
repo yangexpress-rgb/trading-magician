@@ -400,6 +400,12 @@ export const brokerConnections = pgTable(
     credentialRef: uuid('credential_ref'),
     isActive: boolean('is_active').notNull().default(true),
     health: connectionHealth('health').notNull().default('unknown'),
+    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+    /** Short and secret-free; shown to the person. */
+    lastError: text('last_error'),
+    /** Set by Connect or Test; the worker checks the platform and discovers its accounts. */
+    checkRequestedAt: timestamp('check_requested_at', { withTimezone: true }),
+    checkLeaseExpiresAt: timestamp('check_lease_expires_at', { withTimezone: true }),
     ...timestamps(),
     rowVersion: rowVersion(),
   },
@@ -423,6 +429,8 @@ export const tradingAccounts = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     brokerConnectionId: uuid('broker_connection_id').notNull(),
     nickname: text('nickname').notNull(),
+    /** The broker's own account id, matched on rediscovery; shown only masked. */
+    externalId: text('external_id'),
     maskedExternalId: text('masked_external_id').notNull(),
     mode: tradingMode('mode').notNull().default('paper'),
     currency: char('currency', { length: 3 }).notNull(),
@@ -440,6 +448,7 @@ export const tradingAccounts = pgTable(
       foreignColumns: [brokerConnections.id, brokerConnections.userId],
     }).onDelete('cascade'),
     unique('trading_account_id_user_uq').on(t.id, t.userId),
+    unique('trading_account_external_uq').on(t.brokerConnectionId, t.externalId),
     uniqueIndex('trading_account_one_default_idx')
       .on(t.userId)
       .where(sql`${t.isDefault}`),

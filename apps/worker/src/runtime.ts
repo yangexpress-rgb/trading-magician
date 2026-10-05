@@ -37,7 +37,11 @@ import {
   type RuntimeWork,
   type WorkingOrder,
   type Transaction,
+  instrumentIdForSymbol,
+  loadAccountRouting,
   loadRouting,
+  openCredential,
+  type OpenedCredential,
 } from '@tm/db';
 import {
   activeFromFor,
@@ -70,6 +74,8 @@ import { randomUUID } from 'node:crypto';
 import Decimal from 'decimal.js';
 import type { Logger } from 'pino';
 import { demoProvider, type ProviderRegistry } from './providers';
+import { AccountUnavailableError, createAccountRouter } from './account-router';
+import type { BrokerRegistry } from './brokers';
 import { createRoutedHistory } from './routed-history';
 import { createRoutedQuotes } from './routed-quotes';
 
@@ -97,6 +103,8 @@ export interface RuntimeWorkerOptions {
   quotes: (now: () => Date) => LiveQuoteProvider;
   /** Market-data providers for non-demo feeds (ADR 0016). */
   providers?: ProviderRegistry;
+  /** Broker platforms for non-demo accounts (ADR 0018). */
+  brokers?: BrokerRegistry;
   /** Opens stored provider credentials; only the worker has it (ADR 0015). */
   privateKey?: string | undefined;
   now?: () => Date;
@@ -187,10 +195,43 @@ export async function runRuntimePass(
     });
     const store = new DbPaperBrokerStore(tx, userId);
     const paper = new PaperBroker({ quotes, store, now: at });
-    const broker = options.wrapBroker ? options.wrapBroker(paper) : paper;
 
     let work = await loadRuntimeWork(tx, runtimeId, workerId);
     if (!work) return 'lost';
+
+    // Each account's orders go to its own platform: the demo one to the simulator (ADR 0018).
+    const accounts = await loadAccountRouting(tx, work.accounts);
+    const router = createAccountRouter({
+      paper,
+      resolve: async (accountId) => {
+        const account = accounts.get(accountId);
+        if (!account || account.provider === 'demo') return paper;
+        const provider = options.brokers?.[account.provider];
+        if (!provider) throw new AccountUnavailableError(`${account.nickname} has no adapter here`);
+        if (!account.platformActive) {
+          throw new AccountUnavailableError(`${account.nickname}'s platform is turned off`);
+        }
+        let credential: OpenedCredential | undefined;
+        if (provider.needsCredential) {
+          if (!account.credentialRef) {
+            throw new AccountUnavailableError(`${account.nickname} has no API key`);
+          }
+          try {
+            credential = await openCredential(tx, {
+              userId,
+              id: account.credentialRef,
+              privateKey: options.privateKey,
+            });
+          } catch {
+            throw new AccountUnavailableError(`${account.nickname}'s API key could not be opened`);
+          }
+        }
+        return provider.adapter({ now: at, credential }, account, (symbol) =>
+          instrumentIdForSymbol(tx, symbol),
+        );
+      },
+    });
+    const broker = options.wrapBroker ? options.wrapBroker(router) : router;
 
     // 1–2. Orders at the broker move on; read what happened.
     const health: PassHealth = { brokerDown: false };

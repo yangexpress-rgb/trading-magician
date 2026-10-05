@@ -23,11 +23,13 @@ export const DEMO_ACCOUNT_CAPABILITIES = {
   orderTypes: ['market', 'limit', 'stop', 'stop_limit'],
   timeInForce: ['day', 'gtc', 'ioc', 'fok'],
   sides: ['buy', 'sell', 'sell_short', 'buy_to_cover'],
-  extendedHours: true,
+  /** The simulated broker has no extended session (ADR 0018). */
+  extendedHours: false,
   shortSelling: true,
   fractionalQuantity: false,
   /** Multi-leg submission is never atomic on the demo broker (§6.7). */
   atomicMultiLeg: false,
+  coverage: 'demo',
 } as const;
 
 /** Placeholder plan until billing exists (Phase 6). Limits are data, not code (§4.3). */
