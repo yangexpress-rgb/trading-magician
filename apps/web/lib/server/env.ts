@@ -36,6 +36,12 @@ export function loadServerEnv(source: Record<string, string | undefined> = proce
         .regex(/^(sk|rk)_test_[A-Za-z0-9]+$/, 'must be a Stripe test-mode key')
         .optional(),
       STRIPE_WEBHOOK_SECRET: z.string().min(10).optional(),
+      /** Sends server errors to Sentry (ADR 0025). Optional. */
+      SENTRY_DSN: z.string().url().optional(),
+      /** Names the environment in error reports; Railway sets RAILWAY_ENVIRONMENT_NAME. */
+      SENTRY_ENVIRONMENT: z.string().max(40).optional(),
+      RAILWAY_ENVIRONMENT_NAME: z.string().max(40).optional(),
+      RAILWAY_GIT_COMMIT_SHA: z.string().max(64).optional(),
       /** Tests only: an in-process stand-in for Stripe with its own checkout and portal pages. */
       BILLING_FAKE: z
         .enum(['true', 'false'])

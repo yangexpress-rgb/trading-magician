@@ -134,6 +134,23 @@ export const rateLimits = pgTable('rate_limit', {
   lastRequest: bigint('last_request', { mode: 'number' }).notNull(),
 });
 
+/**
+ * Fixed-window counters for the app's own rate limits, shared by every web
+ * instance (ADR 0025). Only `rate_limit_hit` touches it.
+ */
+export const apiRateLimits = pgTable('api_rate_limit', {
+  key: text('key').primaryKey(),
+  windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
+  count: integer('count').notNull(),
+});
+
+/** When each worker last showed it was alive, for the system health check (ADR 0025). */
+export const serviceHeartbeats = pgTable('service_heartbeat', {
+  service: text('service').primaryKey(),
+  instance: text('instance').notNull(),
+  beatAt: timestamp('beat_at', { withTimezone: true }).notNull(),
+});
+
 export const profiles = pgTable('profile', {
   userId: uuid('user_id')
     .primaryKey()

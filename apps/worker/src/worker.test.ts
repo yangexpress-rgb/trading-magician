@@ -29,6 +29,7 @@ describe('worker env', () => {
       RUNTIME_POLL_MS: 1000,
       FEED_CHECK_POLL_MS: 2000,
       VALUATION_EVERY_SEC: 300,
+      HEARTBEAT_MS: 30_000,
       BILLING_FAKE: false,
       ALPACA_FAKE: false,
     });
@@ -74,7 +75,7 @@ describe('worker logger', () => {
         done();
       },
     });
-    createLogger('info', sink).info(
+    createLogger('info', { destination: sink }).info(
       {
         credentials: { token: 'abc123', apiKey: 'k-999' },
         headers: { authorization: 'Bearer x' },
