@@ -1,4 +1,5 @@
 import { handleBillingWebhook, WebhookRejected } from '@/lib/server/billing';
+import { logger } from '@/lib/server/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,9 +19,7 @@ export async function POST(request: Request): Promise<Response> {
     if (error instanceof WebhookRejected) {
       return Response.json({ received: false, error: error.message }, { status: error.status });
     }
-    const e = error as { name?: string; message?: string };
-    // eslint-disable-next-line no-console -- server log; the web app has no structured logger yet
-    console.error('Billing webhook failed', { name: e.name, message: e.message });
+    logger().error({ err: error }, 'Billing webhook failed');
     return Response.json({ received: false }, { status: 500 });
   }
 }

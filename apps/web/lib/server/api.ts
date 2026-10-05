@@ -13,16 +13,17 @@ import {
   PlanLimitError,
   SealError,
   provisionWorkspace,
+  rateLimitHit,
   StrategyError,
   withTenant,
   type Transaction,
 } from '@tm/db';
 import { headers } from 'next/headers';
 import type { z } from 'zod';
-import { createRateLimiter } from '../rate-limit';
 import { auth } from './auth';
 import { appDb } from './db';
 import { serverEnv } from './env';
+import { logger } from './log';
 
 /**
  * Plumbing shared by the /api/v1 route handlers:
@@ -46,7 +47,8 @@ export class HttpError extends Error {
 }
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-const limiter = createRateLimiter({ limit: 120, windowMs: 60_000 });
+/** Changes per user per minute, counted across every web instance (ADR 0025). */
+const MUTATIONS_PER_MINUTE = 120;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface ApiContext {
@@ -85,7 +87,12 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       if (!session) return errorResponse('unauthenticated', 'Sign in to continue');
       const userId = session.user.id;
       if (mutating) {
-        const retryAfter = limiter.hit(userId);
+        const retryAfter = await rateLimitHit(
+          appDb(),
+          `mutate:${userId}`,
+          MUTATIONS_PER_MINUTE,
+          60,
+        );
         if (retryAfter > 0) {
           return errorResponse(
             'rate_limited',
@@ -154,8 +161,11 @@ export function api<P extends Record<string, string> = Record<string, never>>(
         );
       }
       if (error instanceof BillingRequestError) {
-        // eslint-disable-next-line no-console -- server log; the message carries no key
-        console.error('Billing provider refused a request', error.status, error.message);
+        // The message carries no key.
+        logger().warn(
+          { status: error.status, reason: error.message },
+          'Billing provider refused a request',
+        );
         return errorResponse(
           'unavailable',
           'Billing could not do that right now. Try again later.',
@@ -187,13 +197,10 @@ export function api<P extends Record<string, string> = Record<string, never>>(
         });
       }
       // Log the failure without request bodies or query parameters, which may hold user data.
-      const e = error as { name?: string; message?: string; code?: string };
-      // eslint-disable-next-line no-console -- server log; the web app has no structured logger yet
-      console.error('Unhandled API error', request.method, new URL(request.url).pathname, {
-        name: e.name,
-        code: e.code,
-        message: e.message,
-      });
+      logger().error(
+        { err: error, method: request.method, path: new URL(request.url).pathname },
+        'Unhandled API error',
+      );
       return errorResponse('internal', 'Something went wrong. Try again.');
     }
   };

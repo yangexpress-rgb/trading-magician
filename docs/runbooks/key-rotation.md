@@ -1,0 +1,18 @@
+# Key rotation
+
+Secrets live only in Railway variables (and Stripe, Resend, R2 and Sentry's own dashboards).
+Never paste one into chat, an issue or a commit. Rotate at once if one may have leaked; otherwise
+yearly. After changing a variable, Railway redeploys the service.
+
+| Secret                                    | Where            | How to rotate and what happens                                                                                                                                                                                                     |
+| ----------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DB_*_LOGIN_PASSWORD`                     | Shared variables | Set a new random value; redeploy web (its pre-deploy step updates the login), then worker. A minute of errors while they catch up.                                                                                                 |
+| `BETTER_AUTH_SECRET`                      | web              | New random value of 32+ characters. Everyone is signed out.                                                                                                                                                                        |
+| `STRIPE_SECRET_KEY`                       | web, worker      | Stripe → Developers → API keys → Roll key (test mode). Update both services before the old key expires.                                                                                                                            |
+| `STRIPE_WEBHOOK_SECRET`                   | web              | Stripe → Webhooks → endpoint → Roll secret. Update web; resend any deliveries that failed in between.                                                                                                                              |
+| `SMTP_URL` (Resend key)                   | web              | Create a new Resend key, update `SMTP_URL`, then delete the old key.                                                                                                                                                               |
+| `CREDENTIALS_PUBLIC_KEY` / `_PRIVATE_KEY` | web / worker     | `pnpm --filter @tm/db credentials:keygen`, set both. Stored provider keys were sealed to the old pair and can no longer be opened: people must enter their provider keys again in Settings. Only rotate if the private key leaked. |
+| R2 token (`AWS_*`)                        | backup           | Create a new R2 API token for the bucket, update the backup service, delete the old token.                                                                                                                                         |
+| `SENTRY_DSN`                              | web, worker      | Sentry → project → Client Keys → generate a new key, update both, disable the old one.                                                                                                                                             |
+
+After rotating, check `/api/health/system`, sign in, and look for new errors in Sentry.

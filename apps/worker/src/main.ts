@@ -9,7 +9,8 @@ import { startBillingLoop, type BillingLoop } from './billing-sync';
 import { loadWorkerEnv, shiftedClock } from './env';
 import { createHealthServer } from './health';
 import { startFeedCheckLoop, type FeedCheckLoop } from './feed-checks';
-import { createLogger } from './logger';
+import { startHeartbeatLoop, type HeartbeatLoop } from './heartbeat';
+import { createErrorReporter, createLogger } from './logger';
 import { alpacaBrokerProvider, alpacaProvider, type AlpacaProviderOptions } from './alpaca';
 import { startBrokerCheckLoop, type BrokerCheckLoop } from './broker-checks';
 import { startInstrumentLookupLoop, type LookupLoop } from './instrument-lookups';
@@ -19,7 +20,23 @@ import { startRuntimeLoop, type RuntimeLoop } from './runtime';
 import { startValuationLoop, type ValuationLoop } from './valuations';
 
 const env = loadWorkerEnv();
-const logger = createLogger(env.LOG_LEVEL);
+const reporter = createErrorReporter({
+  dsn: env.SENTRY_DSN,
+  service: 'worker',
+  environment: env.SENTRY_ENVIRONMENT ?? env.RAILWAY_ENVIRONMENT_NAME ?? env.NODE_ENV,
+  release: env.RAILWAY_GIT_COMMIT_SHA,
+});
+const logger = createLogger(env.LOG_LEVEL, { reporter });
+
+// Report what would otherwise only crash the process, then crash as before
+// so Railway restarts it (restartPolicyType ALWAYS).
+const crash = (kind: string, reason: unknown) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  logger.fatal({ err, kind }, 'worker crashed');
+  void reporter.flush().finally(() => process.exit(1));
+};
+process.on('uncaughtException', (error) => crash('uncaught exception', error));
+process.on('unhandledRejection', (reason) => crash('unhandled rejection', reason));
 
 let loop: BacktestLoop | undefined;
 let runtimes: RuntimeLoop | undefined;
@@ -28,6 +45,7 @@ let lookups: LookupLoop | undefined;
 let brokerChecks: BrokerCheckLoop | undefined;
 let valuations: ValuationLoop | undefined;
 let billing: BillingLoop | undefined;
+let heartbeat: HeartbeatLoop | undefined;
 let fakeTicker: ReturnType<typeof setInterval> | undefined;
 let closeDb: (() => Promise<void>) | undefined;
 const databaseUrl = env.DATABASE_WORKER_URL ?? env.DATABASE_APP_URL;
@@ -122,6 +140,7 @@ if (databaseUrl) {
     logger,
     pollMs: 60_000,
   });
+  heartbeat = startHeartbeatLoop({ db, instance: workerId, logger, everyMs: env.HEARTBEAT_MS });
   lookups = startInstrumentLookupLoop({
     db,
     providers,
@@ -151,9 +170,10 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         brokerChecks?.stop(),
         valuations?.stop(),
         billing?.stop(),
+        heartbeat?.stop(),
       ]);
       clearInterval(fakeTicker);
-      await closeDb?.();
+      await Promise.all([closeDb?.(), reporter.flush()]);
       server.close(() => process.exit(0));
     })();
   });

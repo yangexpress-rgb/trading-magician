@@ -40,6 +40,14 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
         .string()
         .regex(/^(sk|rk)_test_[A-Za-z0-9]+$/, 'must be a Stripe test-mode key')
         .optional(),
+      /** Sends worker errors to Sentry (ADR 0025). Optional. */
+      SENTRY_DSN: z.string().url().optional(),
+      /** Names the environment in error reports; Railway sets RAILWAY_ENVIRONMENT_NAME. */
+      SENTRY_ENVIRONMENT: z.string().max(40).optional(),
+      RAILWAY_ENVIRONMENT_NAME: z.string().max(40).optional(),
+      RAILWAY_GIT_COMMIT_SHA: z.string().max(64).optional(),
+      /** How often the worker marks itself alive for the system health check. */
+      HEARTBEAT_MS: z.coerce.number().int().min(1000).max(60_000).default(30_000),
       /** Tests only: plans' prices are the billing stand-in's made-up ones (ADR 0023). */
       BILLING_FAKE: z
         .enum(['true', 'false'])

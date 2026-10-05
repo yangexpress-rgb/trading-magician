@@ -65,6 +65,51 @@ Paper trading only, as everywhere else (`docs/adr/0002-paper-only-guard.md`).
 5. **Deploy and sign up.** Deploy both services, open the web domain, and sign up with your
    Resend address. The verification email arrives from `onboarding@resend.dev`.
 
+## Staging and production
+
+Railway environments keep two full copies apart (ADR 0025). Once production works:
+
+1. Project Settings → Environments → New Environment → **Duplicate** `production`, name it
+   `staging`. Railway copies the services and variable names; it gives staging its own Postgres.
+2. In staging, set every random string and key again with **new** values (shared variables,
+   `BETTER_AUTH_SECRET`, Stripe webhook secret for a second endpoint pointing at staging's
+   domain). Never share a secret between the two.
+3. Point staging's web and worker at the branch you want to try; keep production on `main`
+   once the stack is merged.
+4. Optional for staging only: `SIGNUP_PLAN=pro` on web, so test sign-ups skip checkout.
+
+## Monitoring
+
+- **Error reports (Sentry).** Create a free Sentry account and a Node project, copy its DSN
+  (Settings → Client Keys), and add `SENTRY_DSN=<dsn>` to web and worker in each environment.
+  Reports are tagged with the Railway environment and commit.
+- **Uptime check.** In an uptime service such as Better Stack or UptimeRobot (free tiers are
+  enough), add an HTTP monitor for `https://<web domain>/api/health/system` every minute,
+  alerting by email when it is not 200 for 2 checks in a row. It turns red when the database
+  or the worker is down.
+- **Logs.** Railway's Logs tab per service; lines are JSON, so filter by field, e.g. `@level:50`.
+
+## Backups
+
+1. **R2.** In Cloudflare → R2, create a bucket (e.g. `tm-backups`). Under Manage R2 API tokens,
+   create a token with Object Read & Write on that bucket only. Note the access key id, secret
+   and the S3 endpoint `https://<account id>.r2.cloudflarestorage.com`.
+2. **Backup service.** New → GitHub Repo → this repository, same branch. Name it `backup`.
+   Config-as-code path: `/deploy/railway/backup.json` (a daily cron at 07:30 UTC). Variables:
+
+   ```text
+   DATABASE_URL=${{Postgres.DATABASE_URL}}
+   R2_ENDPOINT=https://<account id>.r2.cloudflarestorage.com
+   R2_BUCKET=tm-backups
+   AWS_ACCESS_KEY_ID=<R2 token access key id>
+   AWS_SECRET_ACCESS_KEY=<R2 token secret>
+   ```
+
+   Dumps go under `<environment name>/` in the bucket and are kept 30 days.
+
+3. Run it once by hand (the service's Cron Runs → Run now) and check the log ends with
+   `backup: done`. Then follow `docs/runbooks/backups.md` for the monthly restore test.
+
 ## Later
 
 - **Alpaca paper keys.** Saving a provider key needs the credential key pair

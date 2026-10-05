@@ -10,12 +10,14 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  serverExternalPackages: ['pino'],
   transpilePackages: [
     '@tm/billing',
     '@tm/config',
     '@tm/contracts',
     '@tm/db',
     '@tm/domain',
+    '@tm/observability',
     '@tm/ui',
   ],
   async headers() {

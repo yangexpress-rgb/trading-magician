@@ -68,3 +68,4 @@ export * from './valuations';
 export * from './performance-views';
 export * from './entitlements';
 export * from './billing';
+export * from './ops';

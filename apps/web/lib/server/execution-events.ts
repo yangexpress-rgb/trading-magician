@@ -1,6 +1,7 @@
 import 'server-only';
 import { listenForExecutionChanges, type ExecutionListener } from '@tm/db';
 import { serverEnv } from './env';
+import { logger } from './log';
 
 /**
  * Fans the database's execution change notices (ADR 0013) out to the open
@@ -24,8 +25,7 @@ function ensureListening() {
     for (const notify of hub.subscribers.get(userId) ?? []) notify();
   }).catch((error: unknown) => {
     // Tabs fall back to their slow refresh; the next subscriber tries again.
-    // eslint-disable-next-line no-console -- server log; the web app has no structured logger yet
-    console.error('Execution change listener failed', (error as Error).message);
+    logger().warn({ reason: (error as Error).message }, 'Execution change listener failed');
     hub.listener = undefined;
     return undefined;
   });

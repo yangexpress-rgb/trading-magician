@@ -20,6 +20,7 @@
     "@tm/db": "workspace:*",
     "@tm/domain": "workspace:*",
     "@tm/market-data": "workspace:*",
+    "@tm/observability": "workspace:*",
     "decimal.js": "^10.6.0",
     "pino": "^10.4.0",
     "zod": "^4.6.5"

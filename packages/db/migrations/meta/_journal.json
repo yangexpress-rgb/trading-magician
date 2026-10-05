@@ -225,6 +225,20 @@
       "when": 1791213735741,
       "tag": "0031_billing_grace_functions",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791214594454,
+      "tag": "0032_ops_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791214596006,
+      "tag": "0033_ops_functions",
+      "breakpoints": true
     }
   ]
 }
