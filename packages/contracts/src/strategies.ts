@@ -105,7 +105,12 @@ export interface StrategySummaryDto {
   currentVersionNo: number | null;
   accountMode: 'paper' | 'live' | null;
   instruments: { id: string; symbol: string }[];
-  latestBacktest: null;
+  latestBacktest: {
+    runId: string;
+    status: 'queued' | 'running' | 'completed' | 'failed' | 'canceled';
+    netReturnPct: string | null;
+    finishedAt: string | null;
+  } | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;

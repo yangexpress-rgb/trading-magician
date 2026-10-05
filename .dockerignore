@@ -1,0 +1,12 @@
+**/node_modules
+**/.next
+**/.turbo
+**/dist
+**/coverage
+**/*.tsbuildinfo
+**/.mail-outbox
+**/playwright-report
+**/test-results
+.env
+.env.*
+.git

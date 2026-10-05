@@ -1,6 +1,11 @@
 import { listStrategiesQuery } from '@tm/contracts';
-import { listStrategies, schema, withTenant } from '@tm/db';
-import { formatDateTime, STATUS_LABELS, STRATEGY_STATUSES } from '@tm/domain';
+import { listStrategies, schema, type StrategySummary, withTenant } from '@tm/db';
+import {
+  type DisplayPreferences,
+  formatDateTime,
+  STATUS_LABELS,
+  STRATEGY_STATUSES,
+} from '@tm/domain';
 import {
   Badge,
   buttonClasses,
@@ -17,6 +22,7 @@ import {
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { StrategyStatusBadge } from '@/components/strategy-status-badge';
+import { formatPct } from '@/lib/backtest-text';
 import { appDb } from '@/lib/server/db';
 import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
@@ -198,7 +204,9 @@ export default async function StrategyLabPage({
                   </Td>
                   <Td>{s.currentVersionNo ? `v${s.currentVersionNo}` : 'Draft'}</Td>
                   <Td>{s.accountMode ? <ModeBadge mode={s.accountMode} /> : '—'}</Td>
-                  <Td className="text-ink-muted">Not run</Td>
+                  <Td>
+                    <LatestBacktest run={s.latestBacktest} prefs={prefs} />
+                  </Td>
                   <Td className="whitespace-nowrap">{formatDateTime(s.updatedAt, prefs)}</Td>
                   <Td className="text-right">
                     <RowActions
@@ -216,6 +224,36 @@ export default async function StrategyLabPage({
             </tbody>
           </Table>
         </>
+      )}
+    </>
+  );
+}
+
+const RUN_LABELS = {
+  queued: 'Queued',
+  running: 'Running',
+  failed: 'Failed',
+  canceled: 'Canceled',
+} as const;
+
+function LatestBacktest({
+  run,
+  prefs,
+}: {
+  run: StrategySummary['latestBacktest'];
+  prefs: DisplayPreferences;
+}) {
+  if (!run) return <span className="text-ink-muted">Not run</span>;
+  if (run.status !== 'completed') {
+    return <span className="text-ink-muted">{RUN_LABELS[run.status]}</span>;
+  }
+  return (
+    <>
+      <span className="tabular-nums">{formatPct(run.netReturnPct, true)}</span>
+      {run.finishedAt && (
+        <p className="mt-0.5 whitespace-nowrap text-xs text-ink-muted">
+          {formatDateTime(run.finishedAt, prefs)}
+        </p>
       )}
     </>
   );

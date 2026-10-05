@@ -28,6 +28,7 @@ import {
 import {
   createStrategy,
   getStrategy,
+  listStrategies,
   startStrategy,
   StrategyError,
   updateStrategy,
@@ -285,6 +286,9 @@ describe('the queue', () => {
   it('gives the worker the pinned rules and instruments, and stores the result', async () => {
     const s = await newStrategy();
     const run = await asA((tx) => startBacktest(tx, userA, s.id, inputs));
+    const latest = async () =>
+      (await asA((tx) => listStrategies(tx))).items.find((i) => i.id === s.id)?.latestBacktest;
+    expect(await latest()).toMatchObject({ runId: run.id, status: 'queued', netReturnPct: null });
     const claim = await claimBacktestRun(t.app.db, 'w1', QUEUE);
     expect(claim?.runId).toBe(run.id);
 
@@ -310,6 +314,13 @@ describe('the queue', () => {
     expect(trades).toMatchObject([{ cycle: 1, status: 'closed', netPnl: '10', returnPct: '1' }]);
     expect((await asA((tx) => latestCompletedBacktest(tx, s.id)))?.id).toBe(run.id);
     expect((await asA((tx) => listBacktests(tx, s.id))).map((r) => r.id)).toEqual([run.id]);
+    // The Strategy Lab list shows the newest run's net return.
+    expect(await latest()).toEqual({
+      runId: run.id,
+      status: 'completed',
+      netReturnPct: '0.01',
+      finishedAt: done.finishedAt,
+    });
   });
 
   it('lets another worker take over a run whose lease lapsed, and shuts out the first', async () => {
