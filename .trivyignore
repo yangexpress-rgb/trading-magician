@@ -5,10 +5,12 @@
 # shell access, and the app needs no privileged work; adding a user would also
 # have to move .next and the pnpm store. Revisit before a wider launch.
 AVD-DS-0002
+DS002
 
 # DS026: no HEALTHCHECK in the image. The platform checks /api/health and
 # /healthz itself (deploy/railway/*.json), which is the check that matters.
 AVD-DS-0026
+DS026
 
 # esbuild binaries (skipped in ci.yml with --skip-files, as Trivy reports them
 # under the Go standard library rather than by CVE we could list here): build

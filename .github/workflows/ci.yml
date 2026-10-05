@@ -97,7 +97,7 @@ jobs:
         # (.trivyignore, docs/security-review.md).
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/out" \
-            aquasec/trivy:latest image --scanners vuln --severity HIGH,CRITICAL \
+            aquasec/trivy:latest image --ignorefile /out/.trivyignore --scanners vuln --severity HIGH,CRITICAL \
             --ignore-unfixed --skip-files '**/@esbuild/*/bin/esbuild' \
             --format json --output /out/trivy-image.json \
             --no-progress trading-magician:ci
@@ -108,7 +108,12 @@ jobs:
       - name: Misconfiguration in the deploy files
         run: |
           docker run --rm -v "$PWD:/repo" aquasec/trivy:latest config /repo \
-            --severity HIGH,CRITICAL --exit-code 1 --no-progress
+            --ignorefile /repo/.trivyignore --severity HIGH,CRITICAL \
+            --format json --output /repo/trivy-config.json --no-progress
+          jq -r '[.Results[]? | .Target as $t | .Misconfigurations[]?
+                  | "\($t): \(.ID) \(.Severity) \(.Title)"]
+                 | unique | .[] | "::error title=Misconfiguration::" + .' trivy-config.json
+          test "$(jq '[.Results[]?.Misconfigurations[]?] | length' trivy-config.json)" -eq 0
 
   e2e:
     runs-on: ubuntu-latest
