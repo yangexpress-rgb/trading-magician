@@ -5,7 +5,7 @@ import { StripeBilling } from '@tm/billing';
 import { createDb, withTenant } from '@tm/db';
 import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
 import { startBacktestLoop, type BacktestLoop } from './backtests';
-import { startSubscriptionSyncLoop, type SubscriptionSyncLoop } from './billing-sync';
+import { startBillingLoop, type BillingLoop } from './billing-sync';
 import { loadWorkerEnv, shiftedClock } from './env';
 import { createHealthServer } from './health';
 import { startFeedCheckLoop, type FeedCheckLoop } from './feed-checks';
@@ -27,7 +27,7 @@ let feedChecks: FeedCheckLoop | undefined;
 let lookups: LookupLoop | undefined;
 let brokerChecks: BrokerCheckLoop | undefined;
 let valuations: ValuationLoop | undefined;
-let subscriptionSyncs: SubscriptionSyncLoop | undefined;
+let billing: BillingLoop | undefined;
 let fakeTicker: ReturnType<typeof setInterval> | undefined;
 let closeDb: (() => Promise<void>) | undefined;
 const databaseUrl = env.DATABASE_WORKER_URL ?? env.DATABASE_APP_URL;
@@ -113,14 +113,15 @@ if (databaseUrl) {
     pollMs: env.FEED_CHECK_POLL_MS,
     everySeconds: env.VALUATION_EVERY_SEC,
   });
-  if (env.STRIPE_SECRET_KEY) {
-    subscriptionSyncs = startSubscriptionSyncLoop({
-      db,
-      provider: new StripeBilling({ secretKey: env.STRIPE_SECRET_KEY }),
-      logger,
-      pollMs: 60_000,
-    });
-  }
+  billing = startBillingLoop({
+    db,
+    provider: env.STRIPE_SECRET_KEY
+      ? new StripeBilling({ secretKey: env.STRIPE_SECRET_KEY })
+      : undefined,
+    fakePrices: env.BILLING_FAKE,
+    logger,
+    pollMs: 60_000,
+  });
   lookups = startInstrumentLookupLoop({
     db,
     providers,
@@ -149,7 +150,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         lookups?.stop(),
         brokerChecks?.stop(),
         valuations?.stop(),
-        subscriptionSyncs?.stop(),
+        billing?.stop(),
       ]);
       clearInterval(fakeTicker);
       await closeDb?.();

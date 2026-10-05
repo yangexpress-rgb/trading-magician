@@ -54,6 +54,8 @@ export interface SubscriptionDto {
   status: SubscriptionStatusDto | null;
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
+  /** When a failed payment stops keeping the paid plan (ADR 0024), or null. */
+  graceEndsAt: string | null;
   /** Whether there is a customer record to manage in the provider's portal. */
   canManage: boolean;
   /** Whether checkout is set up on this server. */

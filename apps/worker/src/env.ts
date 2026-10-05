@@ -40,6 +40,11 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
         .string()
         .regex(/^(sk|rk)_test_[A-Za-z0-9]+$/, 'must be a Stripe test-mode key')
         .optional(),
+      /** Tests only: plans' prices are the billing stand-in's made-up ones (ADR 0023). */
+      BILLING_FAKE: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((v) => v === 'true'),
       /** Tests only: Alpaca calls go to an in-process fake with made-up symbols. */
       ALPACA_FAKE: z
         .enum(['true', 'false'])
@@ -50,6 +55,9 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
   );
   if (env.NODE_ENV === 'production' && env.PAPER_CLOCK_START && !source.E2E_TEST) {
     throw new Error('PAPER_CLOCK_START is for development and tests only');
+  }
+  if (env.NODE_ENV === 'production' && env.BILLING_FAKE && !source.E2E_TEST) {
+    throw new Error('BILLING_FAKE is for tests only');
   }
   if (env.NODE_ENV === 'production' && env.ALPACA_FAKE && !source.E2E_TEST) {
     throw new Error('ALPACA_FAKE is for tests only');

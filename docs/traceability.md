@@ -156,12 +156,12 @@ With M1.5, every §18 Phase 0 and Phase 1 item above is Done. The two Partial ro
 
 ### §19.8 acceptance criteria
 
-| Criterion                                                               | Status                                                                                                                                               |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Users can sign up, subscribe, and access features allowed by their plan | Done (M6.1, M6.2): Stripe Checkout and portal; the plan moves with the subscription; e2e `billing-checkout.spec.ts`                                  |
-| Billing webhook replay does not duplicate state changes                 | Done (M6.2): event ids stored once, the subscription read back from Stripe; db `billing.test.ts`, e2e `billing-checkout.spec.ts` replays every event |
-| Plan limits are enforced server-side                                    | Done (M6.1): every limit is checked in the database layer under a per-user lock; db `entitlements.test.ts`                                           |
-| Subscription changes do not create unsafe, silent execution behavior    | Planned (M6.3)                                                                                                                                       |
+| Criterion                                                               | Status                                                                                                                                                        |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Users can sign up, subscribe, and access features allowed by their plan | Done (M6.1, M6.2): Stripe Checkout and portal; the plan moves with the subscription; e2e `billing-checkout.spec.ts`                                           |
+| Billing webhook replay does not duplicate state changes                 | Done (M6.2): event ids stored once, the subscription read back from Stripe; db `billing.test.ts`, e2e `billing-checkout.spec.ts` replays every event          |
+| Plan limits are enforced server-side                                    | Done (M6.1): every limit is checked in the database layer under a per-user lock; db `entitlements.test.ts`                                                    |
+| Subscription changes do not create unsafe, silent execution behavior    | Done (M6.3): 7-day grace with notices; over-limit strategies pause with an audited reason and a notice; nothing auto-resumes; db `billing.test.ts` (ADR 0024) |
 
 ## Product decisions confirmed (2026-10-04)
 

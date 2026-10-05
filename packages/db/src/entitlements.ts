@@ -1,7 +1,17 @@
 import { resolveLimits, type CountLimit, type FeatureLimit, type PlanLimits } from '@tm/domain';
-import { asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
+import { recordAudit } from './audit';
 import type { Transaction } from './client';
-import { backtestRuns, entitlements, plans, strategies, tradingAccounts } from './schema';
+import {
+  backtestRuns,
+  brokerConnections,
+  entitlements,
+  plans,
+  strategies,
+  strategyRuntimes,
+  tradingAccounts,
+} from './schema';
+import { definitionAccounts } from './strategy-accounts';
 
 /**
  * Plan limits, enforced on the server (Design v1.0 §4.3, §19.8; ADR 0022).
@@ -195,4 +205,128 @@ export async function startingPlanCode(
   const [row] = await tx.select({ code: plans.code }).from(plans).where(eq(plans.isDefault, true));
   if (!row) throw new Error('The plan catalog has no default plan');
   return row.code;
+}
+
+// ---------------------------------------------------------------------------
+// Running strategies and the plan (ADR 0024)
+
+interface RunningStrategy {
+  runtimeId: string;
+  strategyName: string;
+  accounts: string[];
+}
+
+async function runningStrategies(
+  tx: Transaction,
+  where: 'running' | { runtimeId: string },
+): Promise<RunningStrategy[]> {
+  const rows = await tx
+    .select({
+      runtimeId: strategyRuntimes.id,
+      strategyName: strategies.name,
+      definition: strategies.draftDefinition,
+    })
+    .from(strategyRuntimes)
+    .innerJoin(strategies, eq(strategies.id, strategyRuntimes.strategyId))
+    .where(
+      where === 'running'
+        ? eq(strategyRuntimes.status, 'running')
+        : eq(strategyRuntimes.id, where.runtimeId),
+    )
+    .orderBy(asc(strategyRuntimes.startedAt), asc(strategyRuntimes.id));
+  return rows.map((r) => ({
+    runtimeId: r.runtimeId,
+    strategyName: r.strategyName,
+    accounts: definitionAccounts(r.definition),
+  }));
+}
+
+/** Accounts on a broker other than the built-in demo one. */
+async function outsideAccounts(tx: Transaction): Promise<Set<string>> {
+  const rows = await tx
+    .select({ id: tradingAccounts.id })
+    .from(tradingAccounts)
+    .innerJoin(brokerConnections, eq(brokerConnections.id, tradingAccounts.brokerConnectionId))
+    .where(ne(brokerConnections.provider, 'demo'));
+  return new Set(rows.map((r) => r.id));
+}
+
+export interface PausedForPlan {
+  runtimeId: string;
+  strategyName: string;
+}
+
+/**
+ * Pauses running strategies the plan no longer covers: those trading through
+ * a broker it doesn't include, then the most recently started beyond its
+ * limit. Nothing is stopped or deleted, and nothing restarts by itself.
+ */
+export async function pauseStrategiesOverPlan(
+  tx: Transaction,
+  userId: string,
+  context: Record<string, unknown>,
+): Promise<PausedForPlan[]> {
+  const { planName, planCode, limits } = await loadEntitlement(tx);
+  const running = await runningStrategies(tx, 'running');
+  const outside = limits.paperIntegrations ? new Set<string>() : await outsideAccounts(tx);
+  const pause: (RunningStrategy & { reason: string })[] = [];
+  const keep: RunningStrategy[] = [];
+  for (const r of running) {
+    if (r.accounts.some((a) => outside.has(a))) {
+      pause.push({
+        ...r,
+        reason: `The ${planName} plan doesn't include the broker this strategy trades through.`,
+      });
+    } else keep.push(r);
+  }
+  const over = keep.length - limits.activeStrategies;
+  for (const r of over > 0 ? keep.slice(-over) : []) {
+    pause.push({
+      ...r,
+      reason: `The ${planName} plan runs ${limits.activeStrategies} ${limits.activeStrategies === 1 ? 'strategy' : 'strategies'} at a time.`,
+    });
+  }
+  for (const r of pause) {
+    await tx
+      .update(strategyRuntimes)
+      .set({ status: 'paused', pauseReason: r.reason })
+      .where(and(eq(strategyRuntimes.id, r.runtimeId), eq(strategyRuntimes.status, 'running')));
+    await recordAudit(tx, {
+      userId,
+      actorType: 'system',
+      action: 'runtime.paused',
+      resourceType: 'strategy_runtime',
+      resourceId: r.runtimeId,
+      context: { ...context, cause: 'plan_limit', plan: planCode },
+    });
+  }
+  return pause.map((r) => ({ runtimeId: r.runtimeId, strategyName: r.strategyName }));
+}
+
+/** Throws unless resuming this paused strategy fits the plan. */
+export async function assertCanResume(tx: Transaction, runtimeId: string): Promise<void> {
+  const { planCode, planName, limits } = await loadEntitlement(tx);
+  const [target] = await runningStrategies(tx, { runtimeId });
+  if (!target) return;
+  if (!limits.paperIntegrations) {
+    const outside = await outsideAccounts(tx);
+    if (target.accounts.some((a) => outside.has(a))) {
+      throw new PlanLimitError(FEATURE_MESSAGES.paperIntegrations(planName), {
+        limit: 'paperIntegrations',
+        planCode,
+        planName,
+        allowed: false,
+      });
+    }
+  }
+  const used = (await runningStrategies(tx, 'running')).length;
+  if (used >= limits.activeStrategies) {
+    throw new PlanLimitError(COUNT_MESSAGES.activeStrategies(planName, limits.activeStrategies), {
+      limit: 'activeStrategies',
+      planCode,
+      planName,
+      allowed: limits.activeStrategies,
+      used,
+    });
+  }
 }

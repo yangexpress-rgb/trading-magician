@@ -8,6 +8,7 @@ import {
 import Decimal from 'decimal.js';
 import { and, asc, count, desc, eq, inArray, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { recordAudit } from './audit';
+import { assertCanResume } from './entitlements';
 import { listOpenIncidents, type IncidentRow } from './incidents';
 import type { Transaction } from './client';
 import { idempotencyKey, OrderError, recordOrderIntent } from './orders';
@@ -927,6 +928,8 @@ export async function resumeRuntimeByUser(
     .where(eq(strategyRuntimes.id, runtimeId));
   if (!row) throw new OrderError('not_found', 'Strategy run not found');
   if (row.status !== 'paused') throw new OrderError('invalid_state', 'This strategy is not paused');
+  // A strategy paused by a plan change resumes only when the plan covers it (ADR 0024).
+  await assertCanResume(tx, runtimeId);
   if (!(await resumeRuntime(tx, userId, runtimeId))) {
     throw new OrderError('invalid_state', 'Release the kill switch before resuming a strategy');
   }

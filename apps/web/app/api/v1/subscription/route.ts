@@ -13,6 +13,7 @@ export const GET = api(async (_request, { tx }) => {
     status: s.status,
     currentPeriodEnd: s.currentPeriodEnd?.toISOString() ?? null,
     cancelAtPeriodEnd: s.cancelAtPeriodEnd,
+    graceEndsAt: s.graceEndsAt?.toISOString() ?? null,
     canManage: s.customerId !== null,
     billingAvailable: billingProvider() !== undefined,
   };

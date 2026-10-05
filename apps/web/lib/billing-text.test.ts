@@ -53,6 +53,9 @@ describe('subscription note', () => {
       'Your Pro plan ends on Nov 6, 2026, and you move to Free then.',
     );
     expect(subscriptionNote({ ...base, status: 'past_due' })).toMatchObject({ warn: true });
+    expect(subscriptionNote({ ...base, status: 'past_due', graceEnd: 'Oct 12, 2026' })?.text).toBe(
+      'Your last payment failed. Update your card in Manage billing by Oct 12, 2026 to keep your Pro plan; after that you move to Free and strategies over its limits pause.',
+    );
     expect(subscriptionNote({ ...base, status: null })).toBeNull();
     expect(subscriptionNote({ ...base, status: 'canceled' })).toBeNull();
   });

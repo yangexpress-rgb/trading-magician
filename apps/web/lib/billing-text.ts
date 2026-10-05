@@ -55,6 +55,8 @@ export interface SubscriptionNoteInput {
   cancelAtPeriodEnd: boolean;
   /** Already formatted for the person. */
   periodEnd: string | null;
+  /** Already formatted; when a failed payment stops keeping the plan. */
+  graceEnd?: string | null;
   defaultPlanName: string;
 }
 
@@ -62,7 +64,9 @@ export interface SubscriptionNoteInput {
 export function subscriptionNote(s: SubscriptionNoteInput): { text: string; warn: boolean } | null {
   if (s.status === 'past_due') {
     return {
-      text: 'Your last payment failed. Update your card in Manage billing to keep your plan.',
+      text: s.graceEnd
+        ? `Your last payment failed. Update your card in Manage billing by ${s.graceEnd} to keep your ${s.planName} plan; after that you move to ${s.defaultPlanName} and strategies over its limits pause.`
+        : 'Your last payment failed. Update your card in Manage billing to keep your plan.',
       warn: true,
     };
   }

@@ -4,15 +4,17 @@ import {
   claimSubscriptionSyncs,
   getSubscription,
   planPrices,
+  runBillingGrace,
   withTenant,
   type Database,
 } from '@tm/db';
 import type { Logger } from 'pino';
 
 /**
- * Re-reads each live subscription from the billing provider every hour, in
- * case a webhook was missed (ADR 0023). Webhooks stay the main path; this only
- * catches up.
+ * The worker's billing jobs. Every minute: payment grace reminders and the
+ * grace period's end (ADR 0024). With a provider key: each live subscription
+ * is re-read hourly in case a webhook was missed (ADR 0023); webhooks stay
+ * the main path and this only catches up.
  */
 
 export const SUBSCRIPTION_SYNC = {
@@ -75,13 +77,22 @@ export async function runSubscriptionSyncs(options: SubscriptionSyncOptions): Pr
   return claimed.length;
 }
 
-export interface SubscriptionSyncLoop {
+export interface BillingLoop {
   stop: () => Promise<void>;
 }
 
-export function startSubscriptionSyncLoop(
-  options: SubscriptionSyncOptions & { pollMs: number },
-): SubscriptionSyncLoop {
+export interface BillingLoopOptions {
+  db: Database;
+  /** Without one, only the grace period is looked after. */
+  provider: BillingProvider | undefined;
+  /** Tests only: plans' prices are the stand-in's made-up ones. */
+  fakePrices: boolean;
+  logger: Pick<Logger, 'info' | 'warn'>;
+  pollMs: number;
+}
+
+export function startBillingLoop(options: BillingLoopOptions): BillingLoop {
+  const { provider } = options;
   let running = true;
   let wake: (() => void) | undefined;
   const sleep = () =>
@@ -95,13 +106,13 @@ export function startSubscriptionSyncLoop(
   const done = (async () => {
     while (running) {
       try {
-        await runSubscriptionSyncs(options);
+        await runBillingGrace(options.db, {
+          prices: (tx) => planPrices(tx, options.fakePrices),
+        });
+        if (provider) await runSubscriptionSyncs({ ...options, provider });
       } catch (error) {
         const e = error as { name?: string; message?: string };
-        options.logger.warn(
-          { err: { name: e.name, message: e.message } },
-          'subscription syncs unavailable',
-        );
+        options.logger.warn({ err: { name: e.name, message: e.message } }, 'billing jobs failed');
       }
       if (running) await sleep();
     }
