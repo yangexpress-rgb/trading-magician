@@ -90,10 +90,17 @@ jobs:
       - name: Build the runtime image
         run: docker build -t trading-magician:ci .
       - name: Vulnerabilities in the image
+        # Each finding becomes an annotation on the run, so it can be read
+        # without opening the log.
         run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/out" \
             aquasec/trivy:latest image --scanners vuln --severity HIGH,CRITICAL \
-            --ignore-unfixed --exit-code 1 --no-progress trading-magician:ci
+            --ignore-unfixed --format json --output /out/trivy-image.json \
+            --no-progress trading-magician:ci
+          jq -r '[.Results[]? | .Target as $t | .Vulnerabilities[]?
+                  | "\(.PkgName) \(.InstalledVersion) in \($t): \(.VulnerabilityID) \(.Severity), fixed in \(.FixedVersion)"]
+                 | unique | .[] | "::error title=Image vulnerability::" + .' trivy-image.json
+          test "$(jq '[.Results[]?.Vulnerabilities[]?] | length' trivy-image.json)" -eq 0
       - name: Misconfiguration in the deploy files
         run: |
           docker run --rm -v "$PWD:/repo" aquasec/trivy:latest config /repo \
