@@ -31,14 +31,15 @@ Reviewed 5 October 2026 against the Phase 6 stack (PRs #31 to #35).
 
 ## Risks accepted for the invite-only launch
 
-| Risk                                                         | Why it is acceptable now                                                                         |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| No second factor on sign-in                                  | Up to 20 invited people, paper trading only, no payment instrument stored in the app.            |
-| Terms and Privacy are placeholders, not reviewed by a lawyer | Stated plainly on both pages; they are replaced before charging anyone or allowing live trading. |
-| Stripe stays in test mode, so no real payment is taken       | Yong's decision; going live needs a reviewed change to the key check and legal review (§16.4).   |
-| Browser-side errors are not reported                         | Server errors are, and the people testing can say what they saw.                                 |
-| The owner's database connection can read everything          | It is used only by migrations, seeding and the backup job, and never by the running app.         |
-| Email delivery is limited to verified Resend addresses       | It also keeps strangers from finishing sign-up during the invite-only test.                      |
+| Risk                                                                             | Why it is acceptable now                                                                              |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| No second factor on sign-in                                                      | Up to 20 invited people, paper trading only, no payment instrument stored in the app.                 |
+| Terms and Privacy are placeholders, not reviewed by a lawyer                     | Stated plainly on both pages; they are replaced before charging anyone or allowing live trading.      |
+| Stripe stays in test mode, so no real payment is taken                           | Yong's decision; going live needs a reviewed change to the key check and legal review (§16.4).        |
+| Browser-side errors are not reported                                             | Server errors are, and the people testing can say what they saw.                                      |
+| The owner's database connection can read everything                              | It is used only by migrations, seeding and the backup job, and never by the running app.              |
+| Go standard-library findings in esbuild's binaries are skipped by the image scan | esbuild only bundles the app's own source at build and migration time and never handles outside input |
+| Email delivery is limited to verified Resend addresses                           | It also keeps strangers from finishing sign-up during the invite-only test.                           |
 
 ## Still to do before a wider launch
 

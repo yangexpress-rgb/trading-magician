@@ -91,11 +91,15 @@ jobs:
         run: docker build -t trading-magician:ci .
       - name: Vulnerabilities in the image
         # Each finding becomes an annotation on the run, so it can be read
-        # without opening the log.
+        # without opening the log. esbuild's Go binaries are skipped: they only
+        # bundle the app's own code at build and migration time, never handle
+        # outside input, and their Go runtime findings are not reachable
+        # (.trivyignore, docs/security-review.md).
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/out" \
             aquasec/trivy:latest image --scanners vuln --severity HIGH,CRITICAL \
-            --ignore-unfixed --format json --output /out/trivy-image.json \
+            --ignore-unfixed --skip-files '**/@esbuild/*/bin/esbuild' \
+            --format json --output /out/trivy-image.json \
             --no-progress trading-magician:ci
           jq -r '[.Results[]? | .Target as $t | .Vulnerabilities[]?
                   | "\(.PkgName) \(.InstalledVersion) in \($t): \(.VulnerabilityID) \(.Severity), fixed in \(.FixedVersion)"]
