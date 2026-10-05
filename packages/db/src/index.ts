@@ -66,3 +66,4 @@ export * from './instruments';
 export * from './brokers';
 export * from './performance';
 export * from './valuations';
+export * from './performance-views';
