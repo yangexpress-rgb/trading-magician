@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
 import { assertFeature, assertWithinLimit, hasRoomFor } from './entitlements';
+import { definitionAccounts, type Leg } from './strategy-accounts';
 import { IntegrationError } from './feeds';
 import { notify } from './notifications';
 import {
@@ -64,17 +65,6 @@ export interface PlatformSummary {
 }
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
-
-interface Leg {
-  accountId?: unknown;
-}
-function definitionAccounts(def: unknown): string[] {
-  const d = def as { entry?: { orders?: Leg[] }; exit?: { orders?: Leg[] } } | null;
-  const legs = [...(d?.entry?.orders ?? []), ...(d?.exit?.orders ?? [])];
-  return [
-    ...new Set(legs.map((l) => l.accountId).filter((a): a is string => typeof a === 'string')),
-  ];
-}
 
 /** Running or paused strategies whose orders go to any of `accountIds`. */
 export async function accountDependents(

@@ -54,6 +54,13 @@ export default async function BillingPage({
           { dateStyle: 'medium' },
         )
       : null,
+    graceEnd: subscription.graceEndsAt
+      ? formatDateTime(
+          subscription.graceEndsAt,
+          { timeZone: profile.timezone, locale: profile.locale },
+          { dateStyle: 'medium' },
+        )
+      : null,
     defaultPlanName: plans.find((p) => p.isDefault)?.name ?? 'Free',
   });
   return (

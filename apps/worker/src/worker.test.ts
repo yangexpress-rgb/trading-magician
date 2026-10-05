@@ -29,8 +29,19 @@ describe('worker env', () => {
       RUNTIME_POLL_MS: 1000,
       FEED_CHECK_POLL_MS: 2000,
       VALUATION_EVERY_SEC: 300,
+      BILLING_FAKE: false,
       ALPACA_FAKE: false,
     });
+  });
+
+  it('takes Stripe test-mode keys only, and the billing stand-in outside production only', () => {
+    expect(loadWorkerEnv({ STRIPE_SECRET_KEY: 'sk_test_abc123' }).STRIPE_SECRET_KEY).toBe(
+      'sk_test_abc123',
+    );
+    expect(() => loadWorkerEnv({ STRIPE_SECRET_KEY: 'sk_live_abc123' })).toThrow();
+    expect(() => loadWorkerEnv({ NODE_ENV: 'production', BILLING_FAKE: 'true' })).toThrow(
+      /tests only/,
+    );
   });
 
   it('allows the fake Alpaca outside production only', () => {

@@ -231,6 +231,8 @@ export const subscriptions = pgTable(
     planCode: text('plan_code').references(() => plans.code),
     currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
     cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+    /** Set when a payment fails; the paid plan holds until then (ADR 0024). */
+    graceEndsAt: timestamp('grace_ends_at', { withTimezone: true }),
     syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
     syncLeaseExpiresAt: timestamp('sync_lease_expires_at', { withTimezone: true }),
     ...timestamps(),

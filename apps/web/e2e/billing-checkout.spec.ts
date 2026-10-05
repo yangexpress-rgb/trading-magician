@@ -54,7 +54,11 @@ test('subscribes, survives replayed and failed payments, cancels and is held to 
   expect(await billingNotes()).toHaveLength(1);
 
   await portal('Make the next payment fail');
-  const failed = page.getByRole('main').getByText(/Your last payment failed/);
+  const failed = page
+    .getByRole('main')
+    .getByText(
+      /Your last payment failed\. Update your card in Manage billing by .+ to keep your Pro plan/,
+    );
   await expect(failed).toBeVisible();
   await portal('Pay the overdue invoice');
   await expect(failed).toHaveCount(0);

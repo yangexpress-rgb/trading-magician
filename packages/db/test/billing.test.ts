@@ -1,5 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createDefinition, type StrategyDefinition } from '@tm/domain';
 import {
   applySubscription,
   billingUserFor,
@@ -7,18 +8,31 @@ import {
   getSubscription,
   planPrices,
   recordBillingEvent,
+  runBillingGrace,
   type SubscriptionState,
 } from '../src/billing';
 import type { Transaction } from '../src/client';
-import { loadEntitlement } from '../src/entitlements';
+import { loadEntitlement, PlanLimitError } from '../src/entitlements';
+import { resumeRuntimeByUser } from '../src/order-views';
 import { provisionWorkspace } from '../src/provision';
-import { auditEvents, notifications, subscriptions, users } from '../src/schema';
+import {
+  auditEvents,
+  instruments,
+  notifications,
+  strategyRuntimes,
+  subscriptions,
+  tradingAccounts,
+  users,
+} from '../src/schema';
+import { createStrategy, startStrategy, updateStrategy } from '../src/strategies';
 import { withTenant } from '../src/tenant';
 import { createTestDatabase, type TestDatabase } from './harness';
 
 let t: TestDatabase;
 let userA: string;
 let userB: string;
+let userC: string;
+let demoA: string;
 
 const as = <T>(userId: string, fn: (tx: Transaction) => Promise<T>) =>
   withTenant(t.app.db, { userId }, fn);
@@ -59,6 +73,9 @@ beforeAll(async () => {
   userB = await createUser('billing-b@example.test');
   await provisionWorkspace(t.app.db, { userId: userA, displayName: 'A' });
   await provisionWorkspace(t.app.db, { userId: userB, displayName: 'B' });
+  userC = await createUser('billing-c@example.test');
+  await provisionWorkspace(t.app.db, { userId: userC, displayName: 'C' });
+  demoA = (await t.owner.db.select().from(instruments)).find((r) => r.symbol === 'DEMO-A')!.id;
 }, 60_000);
 
 afterAll(async () => {
@@ -68,7 +85,12 @@ afterAll(async () => {
 describe('applying a subscription', () => {
   it('moves the workspace to the plan it pays for, once, and tells the person', async () => {
     expect(await planOf(userA)).toBe('free');
-    expect(await apply(userA, state())).toEqual({ fromPlan: 'free', toPlan: 'pro', changed: true });
+    expect(await apply(userA, state())).toEqual({
+      fromPlan: 'free',
+      toPlan: 'pro',
+      changed: true,
+      paused: [],
+    });
     expect(await planOf(userA)).toBe('pro');
     expect(await as(userA, getSubscription)).toMatchObject({
       planCode: 'pro',
@@ -113,6 +135,7 @@ describe('applying a subscription', () => {
       fromPlan: 'pro',
       toPlan: 'pro',
       changed: false,
+      paused: [],
     });
     expect(await planOf(userA)).toBe('pro');
     expect((await as(userA, getSubscription)).subscriptionId).toBe('sub_a2');
@@ -185,5 +208,158 @@ describe('isolation', () => {
           .where(and(eq(subscriptions.userId, userB))),
       ),
     ).toEqual([]);
+  });
+});
+
+function definition(accountId: string): StrategyDefinition {
+  const def = createDefinition();
+  const series = {
+    instrumentId: demoA,
+    field: 'close' as const,
+    interval: '1d' as const,
+    adjustment: 'split_and_dividend' as const,
+    session: 'regular' as const,
+    offset: 0,
+  };
+  const cmp = (id: string) => ({
+    kind: 'comparison' as const,
+    id,
+    operator: 'lt' as const,
+    left: { kind: 'market' as const, id: `${id}-px`, ...series },
+    right: { kind: 'constant' as const, id: `${id}-k`, value: '1' },
+  });
+  def.entry.condition.children = [cmp('in')];
+  def.exit.condition.children = [cmp('out')];
+  const leg = {
+    instrumentId: demoA,
+    accountId,
+    quantity: { type: 'units' as const, value: '1', rounding: 'down' as const },
+    orderType: 'market' as const,
+    timeInForce: 'day' as const,
+    extendedHours: false,
+    timing: { mode: 'immediate' as const },
+    timingOnly: false,
+  };
+  def.entry.orders = [{ id: 'buy', legLabel: 'Buy', side: 'buy', ...leg }];
+  def.exit.orders = [{ id: 'sell', legLabel: 'Sell', side: 'sell', ...leg }];
+  return def;
+}
+
+async function startRunning(userId: string, name: string) {
+  const [account] = await as(userId, (tx) => tx.select().from(tradingAccounts));
+  let s = await as(userId, (tx) =>
+    createStrategy(tx, userId, { name, definition: definition(account!.id) }),
+  );
+  s = await as(userId, (tx) =>
+    updateStrategy(tx, userId, s.id, { rowVersion: s.rowVersion, status: 'under_testing' }),
+  );
+  await as(userId, (tx) =>
+    startStrategy(tx, userId, s.id, {
+      rowVersion: s.rowVersion,
+      confirmed: true,
+      acknowledgedWarnings: ['no_backtest'],
+    }),
+  );
+  const [runtime] = await as(userId, (tx) =>
+    tx.select().from(strategyRuntimes).where(eq(strategyRuntimes.strategyId, s.id)),
+  );
+  return runtime!.id;
+}
+
+describe('a failed payment and running strategies (ADR 0024)', () => {
+  const day = 24 * 3600_000;
+  const failedAt = new Date('2026-10-06T15:00:00Z');
+  const at = (days: number) => new Date(failedAt.getTime() + days * day);
+  const sub = (over: Partial<SubscriptionState> = {}) =>
+    state({ customerId: 'cus_c', subscriptionId: 'sub_c1', ...over });
+  const applyC = (s: SubscriptionState, now: Date) =>
+    as(userC, async (tx) =>
+      applySubscription(tx, {
+        userId: userC,
+        state: s,
+        prices: await planPrices(tx),
+        reason: 'test',
+        now,
+      }),
+    );
+  const notes = async () =>
+    (
+      await as(userC, (tx) =>
+        tx
+          .select()
+          .from(notifications)
+          .where(eq(notifications.kind, 'billing'))
+          .orderBy(notifications.createdAt),
+      )
+    ).map((n) => n.title);
+  const grace = (now: Date) => runBillingGrace(t.app.db, { prices: (tx) => planPrices(tx), now });
+  const runtimes: string[] = [];
+
+  it('keeps the paid plan through a 7-day grace period, with reminders on days 3 and 6', async () => {
+    await applyC(sub(), at(-10));
+    for (const name of ['First', 'Second', 'Third']) runtimes.push(await startRunning(userC, name));
+
+    await applyC(sub({ status: 'past_due' }), failedAt);
+    expect(await planOf(userC)).toBe('pro');
+    expect((await as(userC, getSubscription)).graceEndsAt).toEqual(at(7));
+    // A later event during the grace period keeps its end.
+    await applyC(sub({ status: 'past_due' }), at(1));
+    expect((await as(userC, getSubscription)).graceEndsAt).toEqual(at(7));
+
+    await grace(at(2));
+    await grace(at(3.1));
+    await grace(at(3.5));
+    await grace(at(6.2));
+    expect(await notes()).toEqual([
+      'You are now on the Pro plan',
+      'Your payment failed',
+      'Your payment is still due: 4 days left',
+      'Your payment is still due: 1 day left',
+    ]);
+  });
+
+  it('moves to Free when the grace period ends and pauses the newest strategies beyond its limit', async () => {
+    await grace(at(7.01));
+    expect(await planOf(userC)).toBe('free');
+    const rows = await as(userC, (tx) => tx.select().from(strategyRuntimes));
+    const status = (id: string) => rows.find((r) => r.id === id)?.status;
+    expect(runtimes.map(status)).toEqual(['running', 'paused', 'paused']);
+    expect(rows.find((r) => r.id === runtimes[2])?.pauseReason).toBe(
+      'The Free plan runs 1 strategy at a time.',
+    );
+    const [last] = (
+      await as(userC, (tx) =>
+        tx.select().from(notifications).where(eq(notifications.kind, 'billing')),
+      )
+    ).filter((n) => n.title === 'You are now on the Free plan');
+    expect(last?.body).toBe(
+      "Your payment was not made within the grace period. Paused because the plan doesn't cover them: Second, Third. Resume them in Orders when your plan allows.",
+    );
+    const paused = await as(userC, (tx) =>
+      tx.select().from(auditEvents).where(eq(auditEvents.action, 'runtime.paused')),
+    );
+    expect(paused.map((a) => [a.actorType, (a.context as { cause: string }).cause])).toEqual([
+      ['system', 'plan_limit'],
+      ['system', 'plan_limit'],
+    ]);
+    // Running the job again changes nothing.
+    await grace(at(7.5));
+    expect(await notes()).toHaveLength(5);
+  });
+
+  it('refuses to resume past the limit, and never restarts anything after an upgrade', async () => {
+    await expect(
+      as(userC, (tx) => resumeRuntimeByUser(tx, userC, runtimes[1]!)),
+    ).rejects.toBeInstanceOf(PlanLimitError);
+
+    await applyC(sub({ subscriptionId: 'sub_c2' }), at(8));
+    expect(await planOf(userC)).toBe('pro');
+    const rows = await as(userC, (tx) => tx.select().from(strategyRuntimes));
+    expect(rows.filter((r) => r.status === 'paused')).toHaveLength(2);
+    await as(userC, (tx) => resumeRuntimeByUser(tx, userC, runtimes[1]!));
+    const after = await as(userC, (tx) =>
+      tx.select().from(strategyRuntimes).where(eq(strategyRuntimes.id, runtimes[1]!)),
+    );
+    expect(after[0]?.status).toBe('running');
   });
 });
