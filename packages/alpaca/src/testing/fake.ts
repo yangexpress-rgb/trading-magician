@@ -164,7 +164,7 @@ export class FakeAlpaca {
     if (u.host !== 'paper-api.alpaca.markets') return json(404, { message: 'not found' });
     await this.sync();
 
-    if (method === 'GET' && path === '/v2/account') return json(200, this.account());
+    if (method === 'GET' && path === '/v2/account') return json(200, await this.account());
     if (method === 'GET' && path === '/v2/clock') {
       const now = this.now();
       return json(200, {
@@ -213,8 +213,27 @@ export class FakeAlpaca {
     return json(404, { message: 'not found' });
   };
 
-  private account(): AlpacaAccount {
-    return { ...accountFixture, shorting_enabled: this.shortingEnabled };
+  /** Cash moves with every fill; equity marks what is held at the latest price. */
+  private async account(): Promise<AlpacaAccount> {
+    let cash = new Decimal(accountFixture.cash);
+    for (const a of this.activities) {
+      const value = new Decimal(a.price).times(a.qty);
+      cash = a.side === 'buy' ? cash.minus(value) : cash.plus(value);
+    }
+    let held = new Decimal(0);
+    for (const p of await this.broker.positions(ACCOUNT)) {
+      const asset = FAKE_ALPACA_ASSETS[p.instrumentId];
+      const quote = asset
+        ? await this.demoQuotes.latestQuote({ instrumentId: p.instrumentId, symbol: asset.demo })
+        : undefined;
+      held = held.plus(new Decimal(p.quantity).times(quote?.last ?? p.averageCost ?? 0));
+    }
+    return {
+      ...accountFixture,
+      shorting_enabled: this.shortingEnabled,
+      cash: cash.toString(),
+      equity: cash.plus(held).toString(),
+    };
   }
 
   private asset(symbol: string): AlpacaAsset | undefined {

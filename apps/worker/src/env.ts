@@ -24,6 +24,8 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
       RUNTIME_POLL_MS: z.coerce.number().int().min(100).max(60_000).default(1000),
       /** How often due data-feed checks are looked for. */
       FEED_CHECK_POLL_MS: z.coerce.number().int().min(100).max(60_000).default(2000),
+      /** How often each trading account is valued (ADR 0020). */
+      VALUATION_EVERY_SEC: z.coerce.number().int().min(10).max(3600).default(300),
       /**
        * Development and tests only: the paper runtimes' clock starts at this
        * instant and then runs in real time, so the simulated market can be open

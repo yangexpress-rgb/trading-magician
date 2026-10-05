@@ -162,6 +162,20 @@
       "when": 1791161591514,
       "tag": "0022_brokers_worker",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791170634443,
+      "tag": "0023_valuations",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791170635941,
+      "tag": "0024_valuations_worker",
+      "breakpoints": true
     }
   ]
 }

@@ -47,6 +47,13 @@ export interface BrokerPosition {
   averageCost: string | undefined;
 }
 
+/** Cash and equity as the broker reports them; the authority for performance (§10). */
+export interface BrokerAccountBalance {
+  currency: string;
+  cash: string;
+  equity: string;
+}
+
 export interface BrokerAdapter {
   readonly id: string;
   readonly capabilities: BrokerCapabilities;
@@ -70,6 +77,11 @@ export interface BrokerAdapter {
   /** Every update for one order, for reconciliation. */
   orderUpdates(accountId: string, brokerOrderId: string): Promise<BrokerOrderUpdate[]>;
   positions(accountId: string): Promise<BrokerPosition[]>;
+  /**
+   * Cash and equity, where the broker keeps them. The built-in simulator does
+   * not; its accounts are valued from the app's own ledger (ADR 0020).
+   */
+  account?(accountId: string): Promise<BrokerAccountBalance | undefined>;
 }
 
 /** The broker refused the request outright; retrying will not help. */

@@ -28,6 +28,7 @@ import { runBrokerChecks } from '../src/broker-checks';
 import type { BrokerRegistry } from '../src/brokers';
 import { demoProvider, type ProviderRegistry } from '../src/providers';
 import { runRuntimePass, type RuntimeWorkerOptions } from '../src/runtime';
+import { valueAccount } from '../src/valuations';
 
 /**
  * Trading platforms through the worker (ADR 0018), against the fake Alpaca:
@@ -304,5 +305,95 @@ describe('routing per account', () => {
         .where(eq(schema.strategyRuntimes.strategyId, strategy.id)),
     );
     expect(runtime?.status).toBe('paused');
+  });
+});
+
+describe('valuation', () => {
+  const value = async (accountId: string) =>
+    valueAccount(
+      { db: t.worker.db, providers, brokers, privateKey: keys.privateKey, logger: quiet, now },
+      accountId,
+      userId,
+    );
+  const valuations = (accountId: string) =>
+    as((tx) =>
+      tx
+        .select()
+        .from(schema.accountValuations)
+        .where(eq(schema.accountValuations.accountId, accountId))
+        .orderBy(schema.accountValuations.sessionDate),
+    );
+
+  it('values the Alpaca account against the broker and flags what was traded outside the app', async () => {
+    const account = (await as(listPlatforms)).find((p) => p.name === 'Alpaca')!.accounts[0]!;
+
+    // During the session: the starting equity comes from Alpaca, so the two agree.
+    clock += 60_000;
+    await value(account.id);
+    const [during] = await valuations(account.id);
+    expect(during).toMatchObject({ sessionDate: '2026-10-06', final: false, flagged: false });
+    expect(Math.abs(Number(during!.difference))).toBeLessThanOrEqual(0.01);
+    expect(during!.startingEquity).not.toBeNull();
+    const [book] = await as((tx) =>
+      tx
+        .select()
+        .from(schema.bookValuations)
+        .where(eq(schema.bookValuations.accountId, account.id)),
+    );
+    expect(book).toMatchObject({ instrumentId: ztsta, quantity: '3', markStale: false });
+
+    // Someone buys 2 more straight at Alpaca; the app never sees the order.
+    const outside = await fake.fetch(`${FAKE_ALPACA_TRADING_URL}/v2/orders`, {
+      method: 'POST',
+      headers: {
+        'APCA-API-KEY-ID': fake.credentials.keyId,
+        'APCA-API-SECRET-KEY': fake.credentials.secretKey,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        symbol: 'ZTSTA',
+        qty: '2',
+        side: 'buy',
+        type: 'market',
+        time_in_force: 'day',
+      }),
+    });
+    expect(outside.status).toBe(200);
+    clock += 5_000;
+    await fake.tick();
+
+    // After the 4:00 pm close the valuation is final and names the difference.
+    clock = Date.parse('2026-10-06T20:05:00Z');
+    await value(account.id);
+    const [close] = await valuations(account.id);
+    expect(close).toMatchObject({ final: true, flagged: true });
+    expect(close!.positionDifferences).toEqual([
+      { instrumentId: ztsta, symbol: 'ZTSTA', app: '3', broker: '5' },
+    ]);
+    const notes = await as((tx) =>
+      tx
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.kind, 'reconciliation_mismatch')),
+    );
+    expect(notes.map((n) => n.body).join(' ')).toContain('ZTSTA: app 3, broker 5');
+
+    // The close is kept: valuing again later changes nothing.
+    clock += 600_000;
+    await value(account.id);
+    expect((await valuations(account.id))[0]!.asOf).toEqual(close!.asOf);
+  });
+
+  it('values the demo account from its $100,000 start', async () => {
+    const demo = (await as(listPlatforms)).find((p) => p.provider === 'demo')!.accounts[0]!;
+    await value(demo.id);
+    const [row] = await valuations(demo.id);
+    expect(row).toMatchObject({
+      final: true,
+      startingEquity: '100000',
+      appEquity: '100000',
+      brokerEquity: null,
+      flagged: false,
+    });
   });
 });
