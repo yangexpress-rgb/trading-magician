@@ -75,7 +75,12 @@ export interface PerformanceSummaryDto {
   /** Sessions in the range with a valuation; under 20 makes drawdown and Sharpe weak. */
   sessions: number;
   shortHistory: boolean;
-  pnl: { net: string; realized: string; unrealized: string; fees: string };
+  /** Gross is before fees; net after. */
+  pnl: { net: string; gross: string; realized: string; unrealized: string; fees: string };
+  /** What is held at the last session in range, and as a share of equity (account view only). */
+  exposure: { gross: string; pctOfEquity: string | null };
+  /** The value of every fill in range, and as a share of average equity (account view only). */
+  turnover: { traded: string; pctOfEquity: string | null };
   /** Most capital at work on any day, and net over it. */
   peakCapital: string;
   returnOnPeakCapitalPct: string | null;
@@ -88,6 +93,8 @@ export interface PerformanceSummaryDto {
     winRatePct: string | null;
     profitFactor: string | null;
     averageNet: string | null;
+    averageWin: string | null;
+    averageLoss: string | null;
     best: string | null;
     worst: string | null;
   };

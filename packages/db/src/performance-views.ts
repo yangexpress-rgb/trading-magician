@@ -17,7 +17,9 @@ import { listCycleTrades, type CycleTrade } from './performance';
 import {
   accountValuations,
   bookValuations,
+  fills,
   instruments,
+  orderIntents,
   strategies,
   strategyRuntimes,
   tradingAccounts,
@@ -104,6 +106,7 @@ interface BookRow {
   unrealized: Decimal;
   fees: Decimal;
   costBasis: Decimal;
+  marketValue: Decimal;
   markStale: boolean;
 }
 
@@ -130,6 +133,7 @@ async function loadBooks(tx: Transaction, scope: Scope, to: string | undefined) 
       fees: bookValuations.fees,
       openFees: bookValuations.openFees,
       costBasis: bookValuations.costBasis,
+      marketValue: bookValuations.marketValue,
       markStale: bookValuations.markStale,
     })
     .from(bookValuations)
@@ -144,6 +148,7 @@ async function loadBooks(tx: Transaction, scope: Scope, to: string | undefined) 
     unrealized: new Decimal(r.unrealized).minus(r.openFees),
     fees: new Decimal(r.fees).plus(r.openFees),
     costBasis: new Decimal(r.costBasis).abs(),
+    marketValue: new Decimal(r.marketValue).abs(),
   }));
 }
 
@@ -345,9 +350,11 @@ export interface PerformanceSummary {
   };
   sessions: number;
   shortHistory: boolean;
-  pnl: { net: string; realized: string; unrealized: string; fees: string };
+  pnl: { net: string; gross: string; realized: string; unrealized: string; fees: string };
   peakCapital: string;
   returnOnPeakCapitalPct: string | null;
+  exposure: { gross: string; pctOfEquity: string | null };
+  turnover: { traded: string; pctOfEquity: string | null };
   trades: {
     count: number;
     open: number;
@@ -357,6 +364,8 @@ export interface PerformanceSummary {
     winRatePct: string | null;
     profitFactor: string | null;
     averageNet: string | null;
+    averageWin: string | null;
+    averageLoss: string | null;
     best: string | null;
     worst: string | null;
   };
@@ -404,6 +413,29 @@ function bookTotals(books: readonly BookRow[], f: PerformanceFilter) {
   };
 }
 
+/** The value of every fill in scope and range: quantity times price times multiplier. */
+async function tradedNotional(tx: Transaction, f: PerformanceFilter, scope: Scope) {
+  if (scope.empty) return ZERO;
+  const where: SQL[] = [];
+  if (scope.accountIds) where.push(inArray(orderIntents.accountId, scope.accountIds));
+  if (scope.runtimeIds) where.push(inArray(orderIntents.runtimeId, scope.runtimeIds));
+  if (scope.instrumentIds) where.push(inArray(orderIntents.instrumentId, scope.instrumentIds));
+  const rows = await tx
+    .select({
+      quantity: fills.quantity,
+      price: fills.price,
+      multiplier: instruments.multiplier,
+      filledAt: fills.filledAt,
+    })
+    .from(fills)
+    .innerJoin(orderIntents, eq(orderIntents.id, fills.intentId))
+    .innerJoin(instruments, eq(instruments.id, orderIntents.instrumentId))
+    .where(where.length > 0 ? and(...where) : undefined);
+  return rows
+    .filter((r) => inRange(nyDate(r.filledAt), f))
+    .reduce((a, r) => a.plus(new Decimal(r.quantity).times(r.price).times(r.multiplier)), ZERO);
+}
+
 const returnOn = (net: Decimal, capital: Decimal) => (capital.gt(0) ? pct(net.div(capital)) : null);
 
 export async function performanceSummary(
@@ -446,6 +478,16 @@ export async function performanceSummary(
       sharpe: s ? s.toDecimalPlaces(2).toFixed(2) : null,
     };
   }
+  // Exposure: what is held at the last session in range. Turnover: what was traded in it.
+  const exposureSeries = bookSeries(books, (b) => b.marketValue);
+  const grossExposure = lastIn(new Map([...exposureSeries].filter(([d]) => inRange(d, f))));
+  const traded = await tradedNotional(tx, f, scope);
+  const endEquity = scope.filtered || ranged.length === 0 ? null : (ranged.at(-1)?.value ?? null);
+  const averageEquity =
+    scope.filtered || ranged.length === 0
+      ? null
+      : ranged.reduce((a, p) => a.plus(p.value), ZERO).div(ranged.length);
+
   const sessions = new Set(
     (scope.filtered ? books.map((b) => b.sessionDate) : accounts.map((a) => a.sessionDate)).filter(
       (d) => inRange(d, f),
@@ -502,12 +544,21 @@ export async function performanceSummary(
     shortHistory: sessions < MIN_SHARPE_DAYS,
     pnl: {
       net: money(totals.net),
+      gross: money(totals.net.plus(totals.fees)),
       realized: money(totals.realized),
       unrealized: money(totals.unrealized),
       fees: money(totals.fees),
     },
     peakCapital: money(peakCapital),
     returnOnPeakCapitalPct: returnOn(totals.net, peakCapital),
+    exposure: {
+      gross: money(grossExposure),
+      pctOfEquity: endEquity?.gt(0) ? pct(grossExposure.div(endEquity)) : null,
+    },
+    turnover: {
+      traded: money(traded),
+      pctOfEquity: averageEquity?.gt(0) ? pct(traded.div(averageEquity)) : null,
+    },
     trades: {
       count: trades.length,
       open: trades.length - closed.length,
@@ -517,6 +568,8 @@ export async function performanceSummary(
       winRatePct: stats.winRate ? pct(stats.winRate) : null,
       profitFactor: stats.profitFactor ? stats.profitFactor.toDecimalPlaces(2).toFixed(2) : null,
       averageNet: stats.averageNet ? money(stats.averageNet) : null,
+      averageWin: stats.averageWin ? money(stats.averageWin) : null,
+      averageLoss: stats.averageLoss ? money(stats.averageLoss) : null,
       best: stats.best ? money(stats.best) : null,
       worst: stats.worst ? money(stats.worst) : null,
     },

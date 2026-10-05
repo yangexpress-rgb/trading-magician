@@ -69,6 +69,8 @@ describe('shared formulas', () => {
     expect(s.winRate?.toString()).toBe('0.4');
     expect(s.profitFactor?.toString()).toBe('2.5');
     expect(s.averageNet?.toString()).toBe('6');
+    expect(s.averageWin?.toString()).toBe('25');
+    expect(s.averageLoss?.toString()).toBe('-10');
     expect(s.best?.toString()).toBe('30');
     expect(s.worst?.toString()).toBe('-10');
     expect(tradeStats([])).toMatchObject({ trades: 0, winRate: null, profitFactor: null });

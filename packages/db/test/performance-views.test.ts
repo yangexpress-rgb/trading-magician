@@ -209,8 +209,17 @@ describe('performanceSummary', () => {
       },
       sessions: 3,
       shortHistory: true,
-      pnl: { net: '150.00', realized: '200.00', unrealized: '-50.00', fees: '0.00' },
+      pnl: {
+        net: '150.00',
+        gross: '150.00',
+        realized: '200.00',
+        unrealized: '-50.00',
+        fees: '0.00',
+      },
       peakCapital: '2000.00',
+      // 5 DEMO-IDX at 190 held at the end, against 100,150 of equity.
+      exposure: { gross: '950.00', pctOfEquity: '0.95' },
+      turnover: { traded: '0.00' },
       returnOnPeakCapitalPct: '7.50',
     });
     expect(s.byStrategy).toEqual([
