@@ -108,6 +108,14 @@ With M1.5, every §18 Phase 0 and Phase 1 item above is Done. The two Partial ro
 | Disconnecting an in-use integration safely pauses or reroutes affected strategies    | Done (M4.2, M4.4): feeds move routes or pause, platforms and accounts pause with consent; `e2e/data-feeds.spec.ts`, `e2e/trading-platforms.spec.ts`             |
 | Every Settings section passes automated accessibility checks                         | Done (M4.5): `e2e/settings.spec.ts`, `e2e/shell.spec.ts`                                                                                                        |
 
+## Phase 5: performance (§18)
+
+| Requirement                                           | Design ref   | Status                                                                                                                                                                                                                                                                                           |
+| ----------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Reconciled fills and positions                        | §10, §10.2   | Partial (M5.1): first-in, first-out trade ledger and cycle results with per-leg contribution, `packages/domain/src/performance/ledger.ts`, `packages/db/src/performance.ts`; ADR 0019; `ledger.test.ts` (with property tests), worker `runtime.test.ts`. Valuation and broker comparison in M5.2 |
+| Core metrics and charts                               | §10.2, §15.3 | Planned (M5.3, M5.4)                                                                                                                                                                                                                                                                             |
+| Strategy, account, asset, date and Paper/Live filters | §10.1, §14.3 | Planned (M5.3)                                                                                                                                                                                                                                                                                   |
+
 ## Product decisions confirmed (2026-10-04)
 
 | §20 item                    | Decision                                                                                                                |
@@ -150,3 +158,15 @@ Each is an editable input or a single constant.
 | Connection method          | Paste a paper API key into a write-only form; OAuth later                                                  |
 | #13 Notifications          | In-app only; each kind can be muted except risk pauses, reconciliation mismatches and disconnects          |
 | Feed failover              | Switch back to the primary after it has been healthy for 5 minutes; both switches audited and notified     |
+
+## Phase 5 defaults confirmed (2026-10-05)
+
+| §10.2 item         | Decision                                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| Lot matching       | First in, first out per strategy runtime, account and instrument                                                        |
+| One trade          | One completed strategy cycle, with each leg's contribution inside it                                                    |
+| Return             | Accounts: daily time-weighted return on equity. Strategies: P&L in dollars and return on peak capital used              |
+| Marks              | Last price from the tenant's routed feed; stale prices flagged                                                          |
+| Fees               | As the broker reports them per fill (none on paper today)                                                               |
+| Base currency      | USD only, labelled; conversion when a non-USD account exists                                                            |
+| Broker differences | Any position quantity difference, or equity differing by more than $1.00, flagged; the broker's figure is authoritative |

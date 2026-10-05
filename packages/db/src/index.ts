@@ -64,3 +64,4 @@ export {
 export * from './feeds';
 export * from './instruments';
 export * from './brokers';
+export * from './performance';
