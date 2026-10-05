@@ -1,6 +1,12 @@
 import { resolveLimits } from '@tm/domain';
 import { describe, expect, it } from 'vitest';
-import { COMPARED_LIMITS, formatPrice, limitValue, usageRows } from './billing-text';
+import {
+  COMPARED_LIMITS,
+  formatPrice,
+  limitValue,
+  subscriptionNote,
+  usageRows,
+} from './billing-text';
 
 describe('billing text', () => {
   it('formats prices', () => {
@@ -29,5 +35,25 @@ describe('billing text', () => {
   it('never lists real-money trading', () => {
     expect(COMPARED_LIMITS).not.toContain('realIntegrations');
     expect(limitValue(resolveLimits({ liveData: true }), 'liveData')).toBe('Included');
+  });
+});
+
+describe('subscription note', () => {
+  const base = {
+    planName: 'Pro',
+    cancelAtPeriodEnd: false,
+    periodEnd: 'Nov 6, 2026',
+    defaultPlanName: 'Free',
+  };
+  it('says when the plan renews, ends or needs a new card', () => {
+    expect(subscriptionNote({ ...base, status: 'active' })?.text).toBe(
+      'Your Pro plan renews on Nov 6, 2026.',
+    );
+    expect(subscriptionNote({ ...base, status: 'active', cancelAtPeriodEnd: true })?.text).toBe(
+      'Your Pro plan ends on Nov 6, 2026, and you move to Free then.',
+    );
+    expect(subscriptionNote({ ...base, status: 'past_due' })).toMatchObject({ warn: true });
+    expect(subscriptionNote({ ...base, status: null })).toBeNull();
+    expect(subscriptionNote({ ...base, status: 'canceled' })).toBeNull();
   });
 });

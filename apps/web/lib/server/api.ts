@@ -1,4 +1,5 @@
 import 'server-only';
+import { BillingRequestError, BillingUnavailableError } from '@tm/billing';
 import {
   API_ERROR_STATUS,
   type ApiErrorBody,
@@ -50,6 +51,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface ApiContext {
   userId: string;
+  /** The signed-in user's email, from the session. */
+  email: string;
   /** Runs `fn` in a transaction scoped to the signed-in tenant. */
   tx: <T>(fn: (tx: Transaction) => Promise<T>) => Promise<T>;
 }
@@ -134,7 +137,7 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       }
       return await handler(
         request,
-        { userId, tx: (fn) => withTenant(appDb(), { userId }, fn) },
+        { userId, email: session.user.email, tx: (fn) => withTenant(appDb(), { userId }, fn) },
         params,
       );
     } catch (error) {
@@ -143,6 +146,20 @@ export function api<P extends Record<string, string> = Record<string, never>>(
           ...(error.issues ? { issues: error.issues } : {}),
           ...(error.details !== undefined ? { details: error.details } : {}),
         });
+      }
+      if (error instanceof BillingUnavailableError) {
+        return errorResponse(
+          'unavailable',
+          'Billing is not reachable right now. Try again shortly.',
+        );
+      }
+      if (error instanceof BillingRequestError) {
+        // eslint-disable-next-line no-console -- server log; the message carries no key
+        console.error('Billing provider refused a request', error.status, error.message);
+        return errorResponse(
+          'unavailable',
+          'Billing could not do that right now. Try again later.',
+        );
       }
       if (error instanceof PlanLimitError) {
         return errorResponse('plan_limit', error.message, { details: error.details });

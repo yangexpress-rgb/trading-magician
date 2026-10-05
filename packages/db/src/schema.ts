@@ -167,6 +167,8 @@ export const plans = pgTable(
     offered: boolean('offered').notNull().default(false),
     isDefault: boolean('is_default').notNull().default(false),
     sortOrder: integer('sort_order').notNull().default(0),
+    /** The billing provider's price for this plan (ADR 0023); null when it can't be bought. */
+    stripePriceId: text('stripe_price_id').unique(),
     ...timestamps(),
   },
   (t) => [
@@ -194,6 +196,58 @@ export const entitlements = pgTable('entitlement', {
   overrides: jsonb('overrides').notNull().default({}),
   ...timestamps(),
   rowVersion: rowVersion(),
+});
+
+export const subscriptionStatus = pgEnum('subscription_status', [
+  'incomplete',
+  'incomplete_expired',
+  'trialing',
+  'active',
+  'past_due',
+  'canceled',
+  'unpaid',
+  'paused',
+]);
+
+/**
+ * A workspace's subscription as the billing provider last reported it (§13.1;
+ * ADR 0023). Webhooks are authoritative; the app writes it only through the
+ * apply_subscription function, which also moves the entitlement's plan.
+ */
+export const subscriptions = pgTable(
+  'subscription',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull().default('stripe'),
+    customerId: text('customer_id').notNull(),
+    subscriptionId: text('subscription_id').unique(),
+    status: subscriptionStatus('status'),
+    priceId: text('price_id'),
+    /** The plan this subscription pays for; the entitlement may differ during a grace period. */
+    planCode: text('plan_code').references(() => plans.code),
+    currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+    cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+    syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
+    syncLeaseExpiresAt: timestamp('sync_lease_expires_at', { withTimezone: true }),
+    ...timestamps(),
+  },
+  (t) => [unique('subscription_customer_unique').on(t.provider, t.customerId)],
+);
+
+/**
+ * Billing webhook events already applied, by the provider's event id, so a
+ * replayed event changes nothing (§19.8). Ids and types only; no payloads.
+ */
+export const billingEvents = pgTable('billing_event', {
+  id: text('id').primaryKey(),
+  provider: text('provider').notNull().default('stripe'),
+  type: text('type').notNull(),
+  userId: uuid('user_id'),
+  receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ---------------------------------------------------------------------------
@@ -1374,6 +1428,7 @@ export const NOTIFICATION_KINDS = [
   'stale_data',
   'risk_pause',
   'reconciliation_mismatch',
+  'billing',
 ] as const;
 
 /** In-app notifications (§16.3). Email and push come with Phase 4 preferences. */
@@ -1404,7 +1459,7 @@ export const notifications = pgTable(
       .where(sql`${t.readAt} is null`),
     check(
       'notification_kind',
-      sql`${t.kind} in ('strategy_started', 'strategy_stopped', 'triggered', 'order_rejected', 'partial_fill', 'filled', 'disconnect', 'stale_data', 'risk_pause', 'reconciliation_mismatch')`,
+      sql`${t.kind} in ('strategy_started', 'strategy_stopped', 'triggered', 'order_rejected', 'partial_fill', 'filled', 'disconnect', 'stale_data', 'risk_pause', 'reconciliation_mismatch', 'billing')`,
     ),
     check('notification_title_length', sql`char_length(${t.title}) <= 200`),
     check('notification_body_length', sql`char_length(${t.body}) <= 1000`),

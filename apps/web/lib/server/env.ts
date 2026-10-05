@@ -30,6 +30,17 @@ export function loadServerEnv(source: Record<string, string | undefined> = proce
         .string()
         .regex(/^[a-z0-9_-]{1,40}$/)
         .optional(),
+      /** Stripe Billing, test mode only (ADR 0023). Without it, checkout is unavailable. */
+      STRIPE_SECRET_KEY: z
+        .string()
+        .regex(/^(sk|rk)_test_[A-Za-z0-9]+$/, 'must be a Stripe test-mode key')
+        .optional(),
+      STRIPE_WEBHOOK_SECRET: z.string().min(10).optional(),
+      /** Tests only: an in-process stand-in for Stripe with its own checkout and portal pages. */
+      BILLING_FAKE: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((v) => v === 'true'),
     },
     source,
   );
@@ -37,6 +48,9 @@ export function loadServerEnv(source: Record<string, string | undefined> = proce
     throw new Error(
       'CREDENTIALS_PRIVATE_KEY belongs to the worker only; remove it from the web app',
     );
+  }
+  if (env.NODE_ENV === 'production' && env.BILLING_FAKE && !source.E2E_TEST) {
+    throw new Error('BILLING_FAKE is for tests only');
   }
   if (env.NODE_ENV === 'production' && env.MAIL_TRANSPORT === 'outbox' && !source.E2E_TEST) {
     throw new Error('MAIL_TRANSPORT=outbox is for development and tests only');

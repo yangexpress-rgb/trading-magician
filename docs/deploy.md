@@ -71,6 +71,21 @@ Paper trading only, as everywhere else (`docs/adr/0002-paper-only-guard.md`).
   (`docs/adr/0015-credential-storage.md`). Run `pnpm --filter @tm/db credentials:keygen`
   locally, then add `CREDENTIALS_PUBLIC_KEY` to web and `CREDENTIALS_PRIVATE_KEY` to worker.
   Never give the private key to web; it refuses to start with it.
+- **Stripe (test mode).** Paid plans need a Stripe account (`docs/adr/0023-billing-with-stripe.md`).
+  Only test-mode keys are accepted; the app refuses to start with a live one.
+  1. In Stripe's test mode, create a product "Pro" with a monthly price, and copy the price id
+     (`price_…`).
+  2. Point the Pro plan at it. In Railway's Postgres service, open the Data tab's query editor
+     and run `update plan set stripe_price_id = 'price_…' where code = 'pro';`.
+  3. Developers → Webhooks → Add endpoint: `https://<web domain>/api/v1/webhooks/billing`, with
+     the events `checkout.session.completed`, `customer.subscription.created`,
+     `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid` and
+     `invoice.payment_failed`. Copy its signing secret (`whsec_…`).
+  4. Settings → Billing → Customer portal: turn it on, allowing cancelling and card updates.
+  5. Add to web: `STRIPE_SECRET_KEY=sk_test_…` and `STRIPE_WEBHOOK_SECRET=whsec_…`. Add to worker:
+     `STRIPE_SECRET_KEY=sk_test_…` (it re-reads subscriptions hourly in case a webhook is missed).
+- **Plans.** Prices and limits live in the `plan` table (`docs/adr/0022-plans-and-limits.md`).
+  Change them with an `update plan …` in the same query editor; they apply at once.
 - **Your own domain.** Add it under the web service's Networking, then change `APP_URL`.
 - **Owner connection.** `DATABASE_URL` stays on the web service only because Railway runs the
   pre-deploy step with that service's variables. The running app never connects with it.

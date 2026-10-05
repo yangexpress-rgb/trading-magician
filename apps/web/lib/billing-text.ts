@@ -48,3 +48,37 @@ export function limitValue(limits: PlanLimits, key: keyof PlanLimits): string {
 
 /** Rows of the plan comparison, in the order they are shown. */
 export const COMPARED_LIMITS: (keyof PlanLimits)[] = [...COUNT_LIMITS, ...SHOWN_FEATURES];
+
+export interface SubscriptionNoteInput {
+  planName: string;
+  status: string | null;
+  cancelAtPeriodEnd: boolean;
+  /** Already formatted for the person. */
+  periodEnd: string | null;
+  defaultPlanName: string;
+}
+
+/** One sentence on where the subscription stands, or null when there is nothing to say. */
+export function subscriptionNote(s: SubscriptionNoteInput): { text: string; warn: boolean } | null {
+  if (s.status === 'past_due') {
+    return {
+      text: 'Your last payment failed. Update your card in Manage billing to keep your plan.',
+      warn: true,
+    };
+  }
+  if ((s.status === 'active' || s.status === 'trialing') && s.cancelAtPeriodEnd) {
+    return {
+      text: `Your ${s.planName} plan ends${s.periodEnd ? ` on ${s.periodEnd}` : ''}, and you move to ${s.defaultPlanName} then.`,
+      warn: false,
+    };
+  }
+  if (s.status === 'active' || s.status === 'trialing') {
+    return {
+      text: s.periodEnd
+        ? `Your ${s.planName} plan renews on ${s.periodEnd}.`
+        : `Your ${s.planName} plan is active.`,
+      warn: false,
+    };
+  }
+  return null;
+}

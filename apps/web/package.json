@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@tm/backtest": "workspace:*",
+    "@tm/billing": "workspace:*",
     "@tm/config": "workspace:*",
     "@tm/contracts": "workspace:*",
     "@tm/db": "workspace:*",

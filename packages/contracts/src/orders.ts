@@ -217,6 +217,7 @@ export const NOTIFICATION_KINDS = [
   'stale_data',
   'risk_pause',
   'reconciliation_mismatch',
+  'billing',
 ] as const;
 export type NotificationKindDto = (typeof NOTIFICATION_KINDS)[number];
 
@@ -252,6 +253,7 @@ export const ALWAYS_SHOWN_NOTIFICATION_KINDS = [
   'risk_pause',
   'reconciliation_mismatch',
   'disconnect',
+  'billing',
 ] as const satisfies readonly NotificationKindDto[];
 
 export interface NotificationPrefsDto {

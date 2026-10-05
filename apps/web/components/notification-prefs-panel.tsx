@@ -22,6 +22,7 @@ const KIND_TEXT: Record<NotificationKindDto, string> = {
   disconnect: 'A data feed or trading platform stops responding',
   risk_pause: 'A strategy is paused for safety',
   reconciliation_mismatch: 'Orders or positions disagree with the broker',
+  billing: 'Your plan or payment changes',
 };
 
 const isLocked = (kind: NotificationKindDto) =>
@@ -97,8 +98,8 @@ export function NotificationPrefsPanel() {
         </ul>
       </fieldset>
       <p id="notify-locked" className="text-xs text-ink-muted">
-        Safety pauses, broker mismatches and disconnects always show because they stop trading.
-        Notifications are in-app only for now.
+        Safety pauses, broker mismatches, disconnects and billing changes always show because they
+        can stop trading. Notifications are in-app only for now.
       </p>
       <div className="flex items-center gap-3">
         <Button type="submit" variant="primary" disabled={status === 'saving'}>

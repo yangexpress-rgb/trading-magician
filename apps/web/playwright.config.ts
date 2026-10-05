@@ -51,6 +51,8 @@ export default defineConfig({
         E2E_TEST: '1',
         // Tests make more strategies than Free keeps; the limits have their own tests (ADR 0022).
         SIGNUP_PLAN: 'dev',
+        // Stripe is replaced by an in-process stand-in with its own pages (ADR 0023).
+        BILLING_FAKE: 'true',
         CREDENTIALS_PUBLIC_KEY: credentialKeys.publicKey,
       },
     },

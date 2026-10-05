@@ -197,6 +197,20 @@
       "when": 1791212075002,
       "tag": "0027_plans_security",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1791212873534,
+      "tag": "0028_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791212897462,
+      "tag": "0029_billing_security",
+      "breakpoints": true
     }
   ]
 }

@@ -161,4 +161,5 @@ export const NOTIFICATION_LABELS: Record<NotificationKindDto, { label: string; t
   stale_data: { label: 'Stale prices', tone: 'warn' },
   risk_pause: { label: 'Paused', tone: 'warn' },
   reconciliation_mismatch: { label: 'Mismatch', tone: 'danger' },
+  billing: { label: 'Billing', tone: 'info' },
 };
