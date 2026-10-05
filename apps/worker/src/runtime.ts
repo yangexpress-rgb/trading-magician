@@ -37,6 +37,7 @@ import {
   type RuntimeWork,
   type WorkingOrder,
   type Transaction,
+  loadRouting,
 } from '@tm/db';
 import {
   activeFromFor,
@@ -68,6 +69,8 @@ import {
 import { randomUUID } from 'node:crypto';
 import Decimal from 'decimal.js';
 import type { Logger } from 'pino';
+import { demoProvider, type ProviderRegistry } from './providers';
+import { createRoutedQuotes } from './routed-quotes';
 
 /**
  * The paper runtime (Design v1.0 §6.5–6.9, §8; ADR 0012). Each pass over a
@@ -89,7 +92,12 @@ export interface RuntimeWorkerOptions {
   workerId: string;
   /** Historical bars as of `now`; the demo provider is built per pass with the clock. */
   history: (now: () => Date) => HistoricalDataProvider;
+  /** The built-in demo feed's prices; other providers come from `providers`. */
   quotes: (now: () => Date) => LiveQuoteProvider;
+  /** Market-data providers for non-demo feeds (ADR 0016). */
+  providers?: ProviderRegistry;
+  /** Opens stored provider credentials; only the worker has it (ADR 0015). */
+  privateKey?: string | undefined;
   now?: () => Date;
   logger: Pick<Logger, 'info' | 'warn' | 'error'>;
   leaseSeconds?: number;
@@ -152,10 +160,20 @@ export async function runRuntimePass(
   const now = clock();
   const at = () => now;
   const history = options.history(at);
-  const quotes = options.quotes(at);
+  const providers: ProviderRegistry = { demo: demoProvider(options.quotes), ...options.providers };
 
   return withTenant(db, { userId }, async (tx) => {
     await lockPaperBroker(tx, userId);
+    // Prices come through the tenant's routes, failing over between feeds (ADR 0016).
+    const quotes = createRoutedQuotes({
+      tx,
+      userId,
+      now,
+      routing: await loadRouting(tx),
+      providers,
+      privateKey: options.privateKey,
+      logger,
+    });
     const store = new DbPaperBrokerStore(tx, userId);
     const paper = new PaperBroker({ quotes, store, now: at });
     const broker = options.wrapBroker ? options.wrapBroker(paper) : paper;

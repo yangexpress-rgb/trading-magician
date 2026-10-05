@@ -26,7 +26,9 @@ test('sign up, verify email, and land in a provisioned paper workspace', async (
   await expect(account).toBeVisible();
   await expect(account.getByText('Paper', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Data feeds' }).click();
-  await expect(page.getByRole('cell', { name: 'Demo feed' })).toBeVisible();
+  await expect(
+    page.getByRole('list', { name: 'Data feeds' }).getByRole('listitem', { name: 'Demo feed' }),
+  ).toBeVisible();
 });
 
 test('unverified users cannot sign in', async ({ page }) => {

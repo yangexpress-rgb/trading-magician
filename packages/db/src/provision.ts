@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database } from './client';
-import { DEMO_ACCOUNT_CAPABILITIES, DEMO_ASSET_CLASSES, DEV_PLAN } from './demo';
+import { DEMO_ACCOUNT_CAPABILITIES, DEMO_ASSET_CLASSES, DEMO_VENUE, DEV_PLAN } from './demo';
 import {
   brokerConnections,
   dataFeedConnections,
@@ -57,6 +57,7 @@ export async function provisionWorkspace(db: Database, input: ProvisionInput): P
         (['quotes', 'bars'] as const).map((dataType) => ({
           userId,
           assetClass,
+          venue: DEMO_VENUE,
           dataType,
           primaryFeedId: feed.id,
         })),

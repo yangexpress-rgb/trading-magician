@@ -61,3 +61,4 @@ export {
   SealError,
   type SealedSecret,
 } from './sealed';
+export * from './feeds';

@@ -7,6 +7,7 @@ import {
 } from '@tm/contracts';
 import {
   CredentialError,
+  IntegrationError,
   OrderError,
   SealError,
   provisionWorkspace,
@@ -111,6 +112,12 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       if ('credentialId' in params && !UUID.test(params.credentialId ?? '')) {
         return errorResponse('not_found', 'Credential not found');
       }
+      if ('feedId' in params && !UUID.test(params.feedId ?? '')) {
+        return errorResponse('not_found', 'Data feed not found');
+      }
+      if ('routeId' in params && !UUID.test(params.routeId ?? '')) {
+        return errorResponse('not_found', 'Route not found');
+      }
       return await handler(
         request,
         { userId, tx: (fn) => withTenant(appDb(), { userId }, fn) },
@@ -125,6 +132,13 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       }
       if (error instanceof OrderError) return errorResponse(error.code, error.message);
       if (error instanceof CredentialError) return errorResponse(error.code, error.message);
+      if (error instanceof IntegrationError) {
+        return errorResponse(
+          error.code,
+          error.message,
+          error.details !== undefined ? { details: error.details } : {},
+        );
+      }
       if (error instanceof SealError) {
         // A misconfigured key; the message names no secret.
         return errorResponse('unavailable', 'Secure credential storage is not set up correctly');

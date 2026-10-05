@@ -61,6 +61,7 @@ export default defineConfig({
         WORKER_HEALTH_PORT: String(WORKER_PORT),
         BACKTEST_POLL_MS: '200',
         RUNTIME_POLL_MS: '200',
+        FEED_CHECK_POLL_MS: '200',
         // Paper strategies trade in a simulated session that is open while the tests run.
         PAPER_CLOCK_START: '2026-10-06T14:31:00Z',
         E2E_TEST: '1',
