@@ -17,6 +17,7 @@ const summary = (over: Partial<PerformanceSummaryDto> = {}): PerformanceSummaryD
     returnPct: '0.15',
     maxDrawdownPct: '0.15',
     sharpe: null,
+    brokerEnd: null,
   },
   sessions: 3,
   shortHistory: true,
@@ -64,6 +65,36 @@ describe('performanceTiles', () => {
     expect(labels).toContain('Return on peak capital');
     expect(labels).not.toContain('Return');
     expect(labels).not.toContain('Sharpe ratio');
+  });
+});
+
+describe('equity tile', () => {
+  const equity = (brokerEnd: string | null) =>
+    performanceTiles(
+      summary({
+        equity: {
+          start: '100000.00',
+          end: '100150.00',
+          returnPct: '0.15',
+          maxDrawdownPct: '0.15',
+          sharpe: null,
+          brokerEnd,
+        },
+      }),
+    ).find((t) => t.label === 'Equity');
+
+  it("shows the broker's figure where it differs, since it counts", () => {
+    expect(equity('100210.00')).toEqual({
+      label: 'Equity',
+      value: '$100,210.00',
+      detail: "Broker's figure; the app works out $100,150.00",
+    });
+    expect(equity('100150.50')?.detail).toBe('The broker and the app agree');
+    expect(equity(null)).toEqual({
+      label: 'Equity',
+      value: '$100,150.00',
+      detail: "From the app's ledger",
+    });
   });
 });
 

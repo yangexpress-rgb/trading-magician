@@ -41,11 +41,16 @@ show dollars and a return on the most capital they had at work; one trade is one
   `from` and `to` (session dates, inclusive), and repeatable `accountId`, `strategyId`, `versionId`,
   `instrumentId`, `assetClass`, plus `mode` (`paper` by default). Live mode returns empty results
   until live trading exists. Money is USD with two decimals.
+- **The broker counts.** Where every account in view reports equity, the summary carries the
+  brokers' total (`equity.brokerEnd`) and the tab shows it as the equity figure, with the app's own
+  beside it when they differ by more than $1.00. Returns and drawdown stay on the app's daily series,
+  which is the only one with a value for every session.
 - **Data quality** in the summary: when the account was last valued, how many open holdings carry a
   stale or missing price, and every flagged close with both sides' figures.
 
 ## Consequences
 
+- The method is also explained in the app at `/performance/methodology`, linked from the tab.
 - Figures lag fills by up to one valuation interval (5 minutes by default); the summary says when
   the account was last valued.
 - Deposits and withdrawals at a real broker are not tracked yet, so they show as equity differences
