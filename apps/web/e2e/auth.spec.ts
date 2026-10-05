@@ -22,9 +22,11 @@ test('sign up, verify email, and land in a provisioned paper workspace', async (
   await expect(page.getByText('Paper trading mode')).toBeAttached();
   await page.getByRole('link', { name: 'Settings' }).click();
   await page.getByRole('link', { name: 'Trading platforms and accounts' }).click();
-  const account = page.getByRole('row', { name: /Demo paper account/ });
-  await expect(account).toBeVisible();
-  await expect(account.getByText('Paper', { exact: true })).toBeVisible();
+  const demo = page
+    .getByRole('list', { name: 'Trading platforms' })
+    .getByRole('listitem', { name: 'Demo paper broker' });
+  await expect(demo.getByText('Paper', { exact: true })).toBeVisible();
+  await expect(demo.getByRole('row', { name: /Demo paper account/ })).toContainText('Default');
   await page.getByRole('link', { name: 'Data feeds' }).click();
   await expect(
     page.getByRole('list', { name: 'Data feeds' }).getByRole('listitem', { name: 'Demo feed' }),

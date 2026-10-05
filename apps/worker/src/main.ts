@@ -8,7 +8,8 @@ import { loadWorkerEnv, shiftedClock } from './env';
 import { createHealthServer } from './health';
 import { startFeedCheckLoop, type FeedCheckLoop } from './feed-checks';
 import { createLogger } from './logger';
-import { alpacaProvider } from './alpaca';
+import { alpacaBrokerProvider, alpacaProvider, type AlpacaProviderOptions } from './alpaca';
+import { startBrokerCheckLoop, type BrokerCheckLoop } from './broker-checks';
 import { startInstrumentLookupLoop, type LookupLoop } from './instrument-lookups';
 import { demoProvider, type ProviderRegistry } from './providers';
 import { createRoutedHistory } from './routed-history';
@@ -21,6 +22,8 @@ let loop: BacktestLoop | undefined;
 let runtimes: RuntimeLoop | undefined;
 let feedChecks: FeedCheckLoop | undefined;
 let lookups: LookupLoop | undefined;
+let brokerChecks: BrokerCheckLoop | undefined;
+let fakeTicker: ReturnType<typeof setInterval> | undefined;
 let closeDb: (() => Promise<void>) | undefined;
 const databaseUrl = env.DATABASE_WORKER_URL ?? env.DATABASE_APP_URL;
 if (databaseUrl) {
@@ -34,16 +37,22 @@ if (databaseUrl) {
   if (now) logger.warn({ start: env.PAPER_CLOCK_START }, 'paper runtimes use a shifted clock');
   const quotes = (clock: () => Date) => createDemoLiveFeed({ now: clock });
   const history = (clock: () => Date) => createDemoHistoryProvider({ now: clock });
-  let alpaca = alpacaProvider();
+  let alpacaOptions: AlpacaProviderOptions = {};
   if (env.ALPACA_FAKE) {
     const fake = new FakeAlpaca({ now: now ?? (() => new Date()) });
-    alpaca = alpacaProvider({
+    alpacaOptions = {
       fetch: fake.fetch,
       fake: { tradingUrl: FAKE_ALPACA_TRADING_URL, dataUrl: FAKE_ALPACA_DATA_URL },
-    });
+    };
+    // The fake's simulated market works resting orders as time passes.
+    fakeTicker = setInterval(() => void fake.tick().catch(() => undefined), 500);
     logger.warn('Alpaca calls go to a local fake');
   }
-  const providers: ProviderRegistry = { demo: demoProvider(quotes, history), alpaca };
+  const providers: ProviderRegistry = {
+    demo: demoProvider(quotes, history),
+    alpaca: alpacaProvider(alpacaOptions),
+  };
+  const brokers = { alpaca: alpacaBrokerProvider(alpacaOptions) };
   const db = handle.db;
   loop = startBacktestLoop({
     db,
@@ -67,6 +76,7 @@ if (databaseUrl) {
     history,
     quotes,
     providers,
+    brokers,
     privateKey: env.CREDENTIALS_PRIVATE_KEY,
     logger,
     pollMs: env.RUNTIME_POLL_MS,
@@ -76,6 +86,14 @@ if (databaseUrl) {
     ...(now ? { now } : {}),
     db: handle.db,
     providers,
+    privateKey: env.CREDENTIALS_PRIVATE_KEY,
+    logger,
+    pollMs: env.FEED_CHECK_POLL_MS,
+  });
+  brokerChecks = startBrokerCheckLoop({
+    ...(now ? { now } : {}),
+    db,
+    brokers,
     privateKey: env.CREDENTIALS_PRIVATE_KEY,
     logger,
     pollMs: env.FEED_CHECK_POLL_MS,
@@ -101,7 +119,14 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     logger.info({ signal }, 'worker shutting down');
     // Finish the current run (or give up its lease to lapse), then exit.
     void (async () => {
-      await Promise.all([loop?.stop(), runtimes?.stop(), feedChecks?.stop(), lookups?.stop()]);
+      await Promise.all([
+        loop?.stop(),
+        runtimes?.stop(),
+        feedChecks?.stop(),
+        lookups?.stop(),
+        brokerChecks?.stop(),
+      ]);
+      clearInterval(fakeTicker);
       await closeDb?.();
       server.close(() => process.exit(0));
     })();

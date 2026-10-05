@@ -163,3 +163,96 @@ export interface InstrumentLookupDto {
   instrument: InstrumentOptionDto | null;
   createdAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Trading platforms and accounts (§9.3, §14.4; ADR 0018)
+
+export const createPlatformRequest = z.object({
+  name: z.string().trim().min(1).max(100),
+  provider: z.string().min(1).max(40),
+  credentialId: z.uuid(),
+});
+export type CreatePlatformRequest = z.infer<typeof createPlatformRequest>;
+
+export const updatePlatformRequest = z.object({
+  rowVersion: z.number().int().positive(),
+  name: z.string().trim().min(1).max(100).optional(),
+  credentialId: z.uuid().optional(),
+});
+export type UpdatePlatformRequest = z.infer<typeof updatePlatformRequest>;
+
+export const setPlatformActiveRequest = z.object({
+  active: z.boolean(),
+  /** Turning off a platform running strategies trade through pauses them (§9.4). */
+  pauseStrategies: z.boolean().optional(),
+});
+export type SetPlatformActiveRequest = z.infer<typeof setPlatformActiveRequest>;
+
+export const updateAccountRequest = z.object({
+  rowVersion: z.number().int().positive(),
+  nickname: z.string().trim().min(1).max(100).optional(),
+  makeDefault: z.literal(true).optional(),
+  /** With makeDefault: also move strategies from the old default (§9.4). */
+  migrateStrategies: z.boolean().optional(),
+  active: z.boolean().optional(),
+  pauseStrategies: z.boolean().optional(),
+});
+export type UpdateAccountRequest = z.infer<typeof updateAccountRequest>;
+
+export interface AccountCapabilitiesDto {
+  assetClasses: readonly string[];
+  orderTypes: readonly string[];
+  timeInForce: readonly string[];
+  sides: readonly string[];
+  extendedHours: boolean;
+  shortSelling: boolean;
+  fractionalQuantity: boolean;
+  atomicMultiLeg: boolean;
+  coverage?: 'demo' | 'us' | undefined;
+}
+
+export interface AccountDto {
+  id: string;
+  platformId: string;
+  nickname: string;
+  maskedExternalId: string;
+  mode: 'paper';
+  currency: string;
+  capabilities: AccountCapabilitiesDto;
+  isDefault: boolean;
+  isActive: boolean;
+  lastSyncedAt: string | null;
+  usedBy: { strategyId: string; strategyName: string; status: 'running' | 'paused' }[];
+  rowVersion: number;
+}
+
+export interface PlatformDto {
+  id: string;
+  name: string;
+  provider: string;
+  environment: 'paper';
+  credential: { id: string; label: string } | null;
+  isActive: boolean;
+  health: ConnectionHealthDto;
+  lastCheckedAt: string | null;
+  lastError: string | null;
+  /** A connect or test is waiting for the worker. */
+  checking: boolean;
+  accounts: AccountDto[];
+  rowVersion: number;
+}
+
+export interface PlatformListDto {
+  platforms: PlatformDto[];
+}
+
+export interface AccountUpdateDto {
+  account: AccountDto;
+  migrated: number;
+  skipped: number;
+}
+
+/** `details` of the invalid_state error when something running strategies use is turned off. */
+export interface AccountInUseDetails {
+  dependents: { runtimeId: string; strategyId: string; strategyName: string; status: string }[];
+}

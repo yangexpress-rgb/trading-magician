@@ -39,6 +39,7 @@ import { cancelWorkingOrders, closePositions, listPositions } from './order-view
 import { createRuntime, stopRuntime } from './runtime';
 import type { Transaction } from './client';
 import {
+  brokerConnections,
   backtestRuns,
   dataFeedConnections,
   dataRoutes,
@@ -370,9 +371,20 @@ export async function loadValidationContext(
       symbol: instruments.symbol,
       assetClass: instruments.assetClass,
       lotSize: instruments.lotSize,
+      venue: instruments.venue,
     })
     .from(instruments);
-  const accountRows = await tx.select().from(tradingAccounts);
+  const accountRows = await tx
+    .select({
+      id: tradingAccounts.id,
+      nickname: tradingAccounts.nickname,
+      mode: tradingAccounts.mode,
+      isActive: tradingAccounts.isActive,
+      platformActive: brokerConnections.isActive,
+      capabilities: tradingAccounts.capabilities,
+    })
+    .from(tradingAccounts)
+    .innerJoin(brokerConnections, eq(brokerConnections.id, tradingAccounts.brokerConnectionId));
   const routeRows = await tx
     .select({ assetClass: dataRoutes.assetClass, dataType: dataRoutes.dataType })
     .from(dataRoutes)
@@ -384,7 +396,7 @@ export async function loadValidationContext(
     instruments: new Map<string, InstrumentInfo>(
       instrumentRows.map((i) => [
         i.id,
-        { symbol: i.symbol, assetClass: i.assetClass, lotSize: i.lotSize },
+        { symbol: i.symbol, assetClass: i.assetClass, lotSize: i.lotSize, venue: i.venue },
       ]),
     ),
     accounts: new Map<string, AccountInfo>(
@@ -393,7 +405,7 @@ export async function loadValidationContext(
         {
           nickname: a.nickname,
           mode: a.mode,
-          isActive: a.isActive,
+          isActive: a.isActive && a.platformActive,
           capabilities: a.capabilities as AccountCapabilities,
         },
       ]),

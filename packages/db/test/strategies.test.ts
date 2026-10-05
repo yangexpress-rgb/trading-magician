@@ -372,10 +372,20 @@ describe('lifecycle', () => {
     );
     expect(blocked.details).toMatchObject({ reason: 'validation_errors' });
 
+    // The demo account has no extended-hours session, so that is an error, not a warning.
     const def = readyDefinition();
     def.entry.orders[0]!.extendedHours = true;
     s = await asA((tx) =>
       updateStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, definition: def }),
+    );
+    const unsupported = await expectStrategyError(
+      asA((tx) => startStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, confirmed: true })),
+      'transition_blocked',
+    );
+    expect(unsupported.details).toMatchObject({ reason: 'validation_errors' });
+
+    s = await asA((tx) =>
+      updateStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, definition: readyDefinition() }),
     );
     const warned = await expectStrategyError(
       asA((tx) => startStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, confirmed: true })),
@@ -383,17 +393,17 @@ describe('lifecycle', () => {
     );
     expect(warned.details).toMatchObject({
       reason: 'unacknowledged_warnings',
-      details: ['extended_hours', 'no_backtest'],
+      details: ['no_backtest'],
     });
 
     s = await asA((tx) =>
       startStrategy(tx, userA, s.id, {
         rowVersion: s.rowVersion,
         confirmed: true,
-        acknowledgedWarnings: ['extended_hours', 'no_backtest'],
+        acknowledgedWarnings: ['no_backtest'],
       }),
     );
-    expect(s.statusHistory[0]?.acknowledgedWarnings).toEqual(['extended_hours', 'no_backtest']);
+    expect(s.statusHistory[0]?.acknowledgedWarnings).toEqual(['no_backtest']);
   });
 
   it('validates with the tenant’s own accounts and feeds', async () => {

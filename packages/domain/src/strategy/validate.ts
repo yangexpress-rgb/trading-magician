@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { assertAllowedTradingMode } from '../trading-mode';
+import { DEMO_VENUE_CODE } from '../integrations/providers';
 import { checkIndicatorParams, getIndicator, QUOTE_FIELDS } from './catalog';
 import {
   REQUIRED_RISK_LIMITS,
@@ -38,6 +39,8 @@ export interface InstrumentInfo {
   symbol: string;
   assetClass: string;
   lotSize: string;
+  /** Listing venue; demo instruments have their own (ADR 0016). */
+  venue?: string | undefined;
 }
 
 export interface AccountCapabilities {
@@ -49,6 +52,8 @@ export interface AccountCapabilities {
   shortSelling: boolean;
   fractionalQuantity: boolean;
   atomicMultiLeg: boolean;
+  /** Which instruments the account can trade: the demo ones, or real US listings (ADR 0018). */
+  coverage?: 'demo' | 'us' | undefined;
 }
 
 export interface AccountInfo {
@@ -469,6 +474,20 @@ function checkAccountForLeg(
       [...path, 'instrumentId'],
       o.id,
     );
+  }
+  if (instrument?.venue && caps.coverage) {
+    const demoInstrument = instrument.venue === DEMO_VENUE_CODE;
+    if ((caps.coverage === 'demo') !== demoInstrument) {
+      add(
+        'error',
+        'unsupported_venue',
+        caps.coverage === 'demo'
+          ? `"${account.nickname}" trades the demo instruments only`
+          : `"${account.nickname}" can't trade demo instruments`,
+        [...path, 'instrumentId'],
+        o.id,
+      );
+    }
   }
   if (!caps.orderTypes.includes(o.orderType)) {
     add(
