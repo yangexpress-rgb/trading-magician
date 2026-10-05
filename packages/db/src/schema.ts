@@ -135,6 +135,22 @@ export const rateLimits = pgTable('rate_limit', {
 });
 
 /**
+ * Invite codes for the controlled launch (§16.4, ADR 0026). The code itself is
+ * stored as a SHA-256 hash, so a leaked database row cannot be redeemed. One
+ * code admits one person.
+ */
+export const invites = pgTable('invite', {
+  id: id(),
+  codeHash: char('code_hash', { length: 64 }).notNull().unique(),
+  /** Who it was minted for, for the owner's own notes. No email is required. */
+  note: text('note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  claimedAt: timestamp('claimed_at', { withTimezone: true }),
+  claimedBy: uuid('claimed_by').references(() => users.id, { onDelete: 'set null' }),
+});
+
+/**
  * Fixed-window counters for the app's own rate limits, shared by every web
  * instance (ADR 0025). Only `rate_limit_hit` touches it.
  */

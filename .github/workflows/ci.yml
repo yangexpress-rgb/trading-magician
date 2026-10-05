@@ -73,6 +73,38 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit --prod --audit-level=high
 
+  scan:
+    # Known vulnerabilities in what ships, and secrets in the history (§16.1,
+    # ADR 0026). Advanced Security is not available on this plan, so these use
+    # open-source scanners instead of GitHub's own.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Secrets in the repository and its history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+      - name: Build the runtime image
+        run: docker build -t trading-magician:ci .
+      - name: Vulnerabilities in the image
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: trading-magician:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+      - name: Misconfiguration in the deploy files
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+
   e2e:
     runs-on: ubuntu-latest
     services:

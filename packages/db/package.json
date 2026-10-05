@@ -16,7 +16,11 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:setup-logins": "tsx scripts/setup-logins.ts",
     "credentials:keygen": "tsx scripts/credentials-keygen.ts",
-    "db:seed": "tsx scripts/seed.ts"
+    "db:seed": "tsx scripts/seed.ts",
+    "invites:mint": "tsx scripts/invites.ts mint",
+    "invites:list": "tsx scripts/invites.ts list",
+    "invites:release": "tsx scripts/invites.ts release",
+    "load:seed": "tsx scripts/load-seed.ts"
   },
   "dependencies": {
     "@tm/backtest": "workspace:*",

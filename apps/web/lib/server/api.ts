@@ -49,6 +49,28 @@ export class HttpError extends Error {
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 /** Changes per user per minute, counted across every web instance (ADR 0025). */
 const MUTATIONS_PER_MINUTE = 120;
+
+/**
+ * Tighter limits on the expensive and order-placing paths (§16.1, ADR 0026),
+ * on top of the limit above. The first match wins.
+ */
+const EXTRA_LIMITS: { name: string; path: RegExp; perMinute: number }[] = [
+  { name: 'backtest', path: /^\/api\/v1\/strategies\/[^/]+\/backtests$/, perMinute: 20 },
+  {
+    name: 'execution',
+    path: /^\/api\/v1\/(strategies\/[^/]+\/(start|stop)|execution(\/|$)|orders\/)/,
+    perMinute: 30,
+  },
+];
+
+function tooManyRequests(retryAfter: number) {
+  return errorResponse(
+    'rate_limited',
+    'Too many changes in a short time. Wait a moment and try again.',
+    {},
+    { headers: { 'retry-after': String(retryAfter) } },
+  );
+}
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface ApiContext {
@@ -93,13 +115,12 @@ export function api<P extends Record<string, string> = Record<string, never>>(
           MUTATIONS_PER_MINUTE,
           60,
         );
-        if (retryAfter > 0) {
-          return errorResponse(
-            'rate_limited',
-            'Too many changes in a short time. Wait a moment and try again.',
-            {},
-            { headers: { 'retry-after': String(retryAfter) } },
-          );
+        if (retryAfter > 0) return tooManyRequests(retryAfter);
+        const path = new URL(request.url).pathname;
+        const extra = EXTRA_LIMITS.find((limit) => limit.path.test(path));
+        if (extra) {
+          const wait = await rateLimitHit(appDb(), `${extra.name}:${userId}`, extra.perMinute, 60);
+          if (wait > 0) return tooManyRequests(wait);
         }
       }
       await provisionWorkspace(appDb(), {

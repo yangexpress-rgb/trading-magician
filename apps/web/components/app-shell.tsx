@@ -1,4 +1,5 @@
 import { ChartIcon, LabIcon, ModeBadge, OrdersIcon, ResearchIcon, SettingsIcon } from '@tm/ui';
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { NavLink } from './nav-link';
 import { NotificationsLink } from './notifications-link';
@@ -62,6 +63,15 @@ export function AppShell({ email, children }: { email: string; children: ReactNo
         <main id="main" className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
           {children}
         </main>
+        <footer className="mx-auto max-w-6xl px-4 pb-8 text-xs text-ink-muted md:px-8">
+          <p>
+            Paper trading only: simulated orders, no real money. Back tests and paper results do not
+            predict real results and are not financial advice (§16.4).
+          </p>
+          <p className="mt-1">
+            <Link href="/terms">Terms</Link> · <Link href="/privacy">Privacy</Link>
+          </p>
+        </footer>
       </div>
     </div>
   );
