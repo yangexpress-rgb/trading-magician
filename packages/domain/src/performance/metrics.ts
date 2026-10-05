@@ -95,6 +95,9 @@ export interface TradeStats {
   /** Gross profit over gross loss; null with no losing trade. */
   profitFactor: Decimal | null;
   averageNet: Decimal | null;
+  /** Average of the winning trades, and of the losing ones (negative). */
+  averageWin: Decimal | null;
+  averageLoss: Decimal | null;
   best: Decimal | null;
   worst: Decimal | null;
 }
@@ -113,6 +116,8 @@ export function tradeStats(nets: readonly Decimal[]): TradeStats {
     winRate: nets.length > 0 ? new Decimal(wins.length).div(nets.length) : null,
     profitFactor: loss.gt(0) ? profit.div(loss) : null,
     averageNet: nets.length > 0 ? total.div(nets.length) : null,
+    averageWin: wins.length > 0 ? profit.div(wins.length) : null,
+    averageLoss: losing.length > 0 ? loss.neg().div(losing.length) : null,
     best: nets.length > 0 ? Decimal.max(...nets) : null,
     worst: nets.length > 0 ? Decimal.min(...nets) : null,
   };

@@ -10,6 +10,7 @@ import {
 import { addDays, nyDate } from '@tm/domain';
 import { Alert, Badge, Button, Card, SelectField, Table, Td, TextField, Th } from '@tm/ui';
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
+import { LineChart } from '@/components/line-chart';
 import { apiClient } from '@/lib/api-client';
 import {
   describeRun,
@@ -18,7 +19,6 @@ import {
   formatPct,
   formatSignedMoney,
   isActive,
-  linePath,
   metricTiles,
   RUN_STATUS,
   thin,
@@ -374,53 +374,6 @@ export function RunHistory({ state }: { state: BacktestsState }) {
 
 // ---------------------------------------------------------------------------
 // Results
-
-function LineChart({
-  title,
-  values,
-  times,
-  summary,
-}: {
-  title: string;
-  values: number[];
-  times: string[];
-  summary: string;
-}) {
-  const id = useId();
-  const { path, min, max } = linePath(values, 600, 160);
-  return (
-    <figure aria-labelledby={id} className="rounded-md border border-line p-3">
-      <figcaption id={id} className="mb-1 text-sm font-medium">
-        {title}
-      </figcaption>
-      <div className="flex gap-2">
-        <div className="flex flex-col justify-between text-right text-xs text-ink-muted tabular-nums">
-          <span>{formatMoney(max)}</span>
-          <span>{formatMoney(min)}</span>
-        </div>
-        <svg
-          role="img"
-          aria-label={summary}
-          viewBox="0 0 600 160"
-          preserveAspectRatio="none"
-          className="h-40 w-full text-accent"
-        >
-          <path
-            d={path}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            vectorEffect="non-scaling-stroke"
-          />
-        </svg>
-      </div>
-      <div className="mt-1 flex justify-between pl-16 text-xs text-ink-muted">
-        <span>{times[0] ?? ''}</span>
-        <span>{times.at(-1) ?? ''}</span>
-      </div>
-    </figure>
-  );
-}
 
 const TRADE_STATUS: Record<BacktestTradeDto['status'], string> = {
   closed: 'Closed',

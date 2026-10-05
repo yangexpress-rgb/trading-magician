@@ -29,6 +29,12 @@ show dollars and a return on the most capital they had at work; one trade is one
   if that is larger. Return on peak capital is net over it.
 - **P&L over a range** is the cumulative figure at the range's last session less the one before its
   first: realized net plus unrealized, less fees paid on open lots.
+- **Gross and net.** Gross P&L is net plus fees. Average gain and average loss are the mean net of
+  winning and of losing closed cycles.
+- **Exposure** is the market value of everything held at the last session in range, and as a share
+  of that session's equity. **Turnover** is the value of every fill in range (quantity × price ×
+  multiplier), and as a share of average equity over the range. The shares apply to the account
+  view only.
 - **Trades** belong to the session they closed in (opened in, while open). Win rate, profit factor,
   average, best and worst count closed cycles.
 - **API.** `GET /api/v1/performance/summary`, `/timeseries` and `/trades` take the same filters:

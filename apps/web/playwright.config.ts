@@ -62,6 +62,8 @@ export default defineConfig({
         BACKTEST_POLL_MS: '200',
         RUNTIME_POLL_MS: '200',
         FEED_CHECK_POLL_MS: '200',
+        // Accounts are valued every 10 seconds rather than 5 minutes, so results show quickly.
+        VALUATION_EVERY_SEC: '10',
         // Paper strategies trade in a simulated session that is open while the tests run.
         PAPER_CLOCK_START: '2026-10-06T14:31:00Z',
         // Alpaca calls go to an in-process fake with made-up symbols; no keys or network.
