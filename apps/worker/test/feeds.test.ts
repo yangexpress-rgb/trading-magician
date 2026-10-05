@@ -57,6 +57,7 @@ const flaky: MarketDataProvider = {
       latestQuote: async (ref) => (flakyDown ? undefined : feed.latestQuote(ref)),
     };
   },
+  history: ({ now }) => createDemoHistoryProvider({ now }),
   check: async () =>
     flakyDown
       ? { ok: false, entitlement: 'unknown', error: 'Test outage' }
@@ -64,7 +65,8 @@ const flaky: MarketDataProvider = {
 };
 
 const demoQuotes = (now: () => Date) => createDemoLiveFeed({ now });
-const providers: ProviderRegistry = { demo: demoProvider(demoQuotes), flaky };
+const demoHistory = (now: () => Date) => createDemoHistoryProvider({ now });
+const providers: ProviderRegistry = { demo: demoProvider(demoQuotes, demoHistory), flaky };
 
 const options = (workerId: string): RuntimeWorkerOptions => ({
   db: t.worker.db,
@@ -323,6 +325,7 @@ describe('feed checks', () => {
     const alpaca: MarketDataProvider = {
       needsCredential: true,
       quotes: () => ({ id: 'x', latestQuote: async () => undefined }),
+      history: ({ now }) => createDemoHistoryProvider({ now }),
       check: async ({ credential }) => {
         seen = credential?.fields;
         return { ok: true, entitlement: 'entitled', realtime: true };

@@ -1,5 +1,5 @@
-import type { FeedCheckResult, OpenedCredential } from '@tm/db';
-import type { LiveQuoteProvider } from '@tm/domain';
+import type { ConfirmedInstrument, FeedCheckResult, OpenedCredential } from '@tm/db';
+import type { HistoricalDataProvider, LiveQuoteProvider } from '@tm/domain';
 
 /**
  * Market-data providers the worker can talk to (ADR 0016), keyed by the
@@ -11,8 +11,15 @@ export interface ProviderContext {
   credential?: OpenedCredential | undefined;
 }
 
+/** What a provider found for a symbol, before it is registered. */
+export type InstrumentListing = Omit<ConfirmedInstrument, 'provider'>;
+
 export interface MarketDataProvider {
   quotes(ctx: ProviderContext): LiveQuoteProvider;
+  /** Historical bars, for back tests and the indicators strategies read. */
+  history(ctx: ProviderContext): HistoricalDataProvider;
+  /** Finds a US stock or ETF by symbol; providers without real instruments omit it. */
+  lookup?(ctx: ProviderContext, symbol: string): Promise<InstrumentListing | undefined>;
   /** A light call that proves the connection and the account's entitlement. */
   check(ctx: ProviderContext): Promise<FeedCheckResult>;
   needsCredential: boolean;
@@ -20,11 +27,15 @@ export interface MarketDataProvider {
 
 export type ProviderRegistry = Partial<Record<string, MarketDataProvider>>;
 
-/** The built-in demo feed: always reachable, simulated live prices. */
-export function demoProvider(quotes: (now: () => Date) => LiveQuoteProvider): MarketDataProvider {
+/** The built-in demo feed: always reachable, simulated live prices and generated history. */
+export function demoProvider(
+  quotes: (now: () => Date) => LiveQuoteProvider,
+  history: (now: () => Date) => HistoricalDataProvider,
+): MarketDataProvider {
   return {
     needsCredential: false,
     quotes: ({ now }) => quotes(now),
+    history: ({ now }) => history(now),
     check: async () => ({ ok: true, entitlement: 'entitled', realtime: true }),
   };
 }

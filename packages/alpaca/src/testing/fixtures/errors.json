@@ -1,0 +1,7 @@
+{
+  "duplicate": { "code": 40010001, "message": "client_order_id must be unique" },
+  "notCancelable": { "code": 42210000, "message": "order is not cancelable" },
+  "notFound": { "code": 40410000, "message": "order not found" },
+  "unauthorized": { "code": 40110000, "message": "request is not authorized" },
+  "buyingPower": { "code": 40310000, "message": "insufficient buying power" }
+}

@@ -1,0 +1,148 @@
+import { AlpacaAuthError } from '@tm/alpaca';
+import {
+  claimInstrumentLookups,
+  finishLookup,
+  loadPendingLookup,
+  loadRouting,
+  openCredential,
+  registerInstrument,
+  withTenant,
+  type Database,
+} from '@tm/db';
+import { BrokerUnavailableError, providerCoversVenue, resolveRoute } from '@tm/domain';
+import type { Logger } from 'pino';
+import { withTimeout, type ProviderRegistry } from './providers';
+
+/**
+ * Answers instrument lookups (ADR 0017): finds the symbol through the
+ * tenant's US stock data feed and registers what the provider confirms.
+ * A provider that cannot be reached is retried a few times, then reported.
+ */
+
+export const LOOKUPS = { leaseSeconds: 15, batch: 5, maxAttempts: 3, timeoutMs: 10_000 } as const;
+
+export interface LookupOptions {
+  db: Database;
+  providers: ProviderRegistry;
+  privateKey: string | undefined;
+  logger: Pick<Logger, 'info' | 'warn'>;
+  now?: () => Date;
+}
+
+const NO_FEED =
+  'Add a data feed for US stocks, such as Alpaca, in Settings › Data feeds, then try again.';
+
+export async function runInstrumentLookups(options: LookupOptions): Promise<number> {
+  const claimed = await claimInstrumentLookups(options.db, {
+    leaseSeconds: LOOKUPS.leaseSeconds,
+    limit: LOOKUPS.batch,
+  });
+  for (const { lookupId, userId } of claimed) {
+    await withTenant(options.db, { userId }, async (tx) => {
+      const lookup = await loadPendingLookup(tx, lookupId);
+      if (!lookup) return;
+      const routing = await loadRouting(tx);
+      // The feed behind the any-venue US stock route, else any active feed that can look up.
+      const route = resolveRoute(routing.routes, {
+        assetClass: 'stock',
+        venue: 'US',
+        dataType: 'quotes',
+      });
+      const candidates = [route?.primaryFeedId, route?.fallbackFeedId, ...routing.feeds.keys()];
+      const feed = candidates
+        .map((id) => (id ? routing.feeds.get(id) : undefined))
+        .find((f) => {
+          const p = f && options.providers[f.provider];
+          return f?.isActive && p?.lookup && providerCoversVenue(f.provider, 'US');
+        });
+      const provider = feed && options.providers[feed.provider];
+      if (!feed || !provider?.lookup) {
+        await finishLookup(tx, lookupId, { status: 'failed', message: NO_FEED });
+        return;
+      }
+      const now = options.now ?? (() => new Date());
+      try {
+        const credential =
+          provider.needsCredential && feed.credentialRef
+            ? await openCredential(tx, {
+                userId,
+                id: feed.credentialRef,
+                privateKey: options.privateKey,
+              })
+            : undefined;
+        const listing = await withTimeout(
+          provider.lookup({ now, credential }, lookup.symbol),
+          LOOKUPS.timeoutMs,
+          'The lookup',
+        );
+        if (!listing) {
+          await finishLookup(tx, lookupId, {
+            status: 'not_found',
+            message: `No US stock or ETF trades as ${lookup.symbol}.`,
+          });
+          return;
+        }
+        const instrumentId = await registerInstrument(tx, { ...listing, provider: feed.provider });
+        await finishLookup(tx, lookupId, { status: 'found', instrumentId });
+        options.logger.info({ lookupId, symbol: listing.symbol }, 'instrument found');
+      } catch (error) {
+        const name = (error as Error).name;
+        options.logger.warn({ lookupId, err: { name } }, 'instrument lookup failed');
+        if (error instanceof AlpacaAuthError) {
+          await finishLookup(tx, lookupId, {
+            status: 'failed',
+            message: `${feed.name} refused its API key. Replace it under Stored API keys.`,
+          });
+        } else if (
+          (error instanceof BrokerUnavailableError || /timed out/.test(String(error))) &&
+          lookup.attempts < LOOKUPS.maxAttempts
+        ) {
+          await finishLookup(tx, lookupId, { status: 'retry' });
+        } else {
+          await finishLookup(tx, lookupId, {
+            status: 'failed',
+            message: `${feed.name} could not look up ${lookup.symbol}. Try again later.`,
+          });
+        }
+      }
+    });
+  }
+  return claimed.length;
+}
+
+export interface LookupLoop {
+  stop: () => Promise<void>;
+}
+
+export function startInstrumentLookupLoop(
+  options: LookupOptions & { pollMs?: number },
+): LookupLoop {
+  const pollMs = options.pollMs ?? 1000;
+  let running = true;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let wake: (() => void) | undefined;
+  const done = (async () => {
+    while (running) {
+      let handled = 0;
+      try {
+        handled = await runInstrumentLookups(options);
+      } catch (error) {
+        options.logger.warn({ err: { name: (error as Error).name } }, 'lookup queue unavailable');
+      }
+      if (handled === 0 && running) {
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+          timer = setTimeout(resolve, pollMs);
+        });
+      }
+    }
+  })();
+  return {
+    stop: async () => {
+      running = false;
+      clearTimeout(timer);
+      wake?.();
+      await done;
+    },
+  };
+}

@@ -134,6 +134,20 @@
       "when": 1791158431150,
       "tag": "0018_feeds_routes_worker",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791160562974,
+      "tag": "0019_instrument_lookups",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791160564207,
+      "tag": "0020_instrument_lookups_worker",
+      "breakpoints": true
     }
   ]
 }

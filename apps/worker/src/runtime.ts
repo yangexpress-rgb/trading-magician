@@ -70,6 +70,7 @@ import { randomUUID } from 'node:crypto';
 import Decimal from 'decimal.js';
 import type { Logger } from 'pino';
 import { demoProvider, type ProviderRegistry } from './providers';
+import { createRoutedHistory } from './routed-history';
 import { createRoutedQuotes } from './routed-quotes';
 
 /**
@@ -90,7 +91,7 @@ import { createRoutedQuotes } from './routed-quotes';
 export interface RuntimeWorkerOptions {
   db: Database;
   workerId: string;
-  /** Historical bars as of `now`; the demo provider is built per pass with the clock. */
+  /** The demo feed's history as of `now`; other feeds' bars come from `providers` by route. */
   history: (now: () => Date) => HistoricalDataProvider;
   /** The built-in demo feed's prices; other providers come from `providers`. */
   quotes: (now: () => Date) => LiveQuoteProvider;
@@ -159,11 +160,21 @@ export async function runRuntimePass(
   const clock = options.now ?? (() => new Date());
   const now = clock();
   const at = () => now;
-  const history = options.history(at);
-  const providers: ProviderRegistry = { demo: demoProvider(options.quotes), ...options.providers };
+  const providers: ProviderRegistry = {
+    demo: demoProvider(options.quotes, options.history),
+    ...options.providers,
+  };
 
   return withTenant(db, { userId }, async (tx) => {
     await lockPaperBroker(tx, userId);
+    // Bars, like prices, come through the tenant's routes (ADR 0017).
+    const history = createRoutedHistory({
+      inTenant: (fn) => fn(tx),
+      userId,
+      now: at,
+      providers,
+      privateKey: options.privateKey,
+    });
     // Prices come through the tenant's routes, failing over between feeds (ADR 0016).
     const quotes = createRoutedQuotes({
       tx,

@@ -1,4 +1,4 @@
-import { eq, getStrategy, schema, StrategyError, withTenant } from '@tm/db';
+import { eq, getStrategy, listTenantInstruments, schema, StrategyError, withTenant } from '@tm/db';
 import { formatDateTime, STATUS_LABELS } from '@tm/domain';
 import { Badge, Card, ModeBadge, PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
@@ -22,15 +22,7 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
   const prefs = { timeZone: profile.timezone, locale: profile.locale };
   const loaded = await withTenant(appDb(), tenant, async (tx) => ({
     strategy: await getStrategy(tx, id),
-    instruments: await tx
-      .select({
-        id: schema.instruments.id,
-        symbol: schema.instruments.symbol,
-        displayName: schema.instruments.displayName,
-        assetClass: schema.instruments.assetClass,
-      })
-      .from(schema.instruments)
-      .orderBy(schema.instruments.symbol),
+    instruments: await listTenantInstruments(tx),
     accounts: await tx
       .select({
         id: schema.tradingAccounts.id,

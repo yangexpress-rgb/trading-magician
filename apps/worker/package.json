@@ -12,6 +12,7 @@
     "test:integration": "vitest run test/"
   },
   "dependencies": {
+    "@tm/alpaca": "workspace:*",
     "@tm/backtest": "workspace:*",
     "@tm/broker": "workspace:*",
     "@tm/config": "workspace:*",

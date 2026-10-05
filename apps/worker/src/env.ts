@@ -30,11 +30,19 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
        * whenever a test runs. Never set in production.
        */
       PAPER_CLOCK_START: z.iso.datetime({ offset: true }).optional(),
+      /** Tests only: Alpaca calls go to an in-process fake with made-up symbols. */
+      ALPACA_FAKE: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((v) => v === 'true'),
     },
     source,
   );
   if (env.NODE_ENV === 'production' && env.PAPER_CLOCK_START && !source.E2E_TEST) {
     throw new Error('PAPER_CLOCK_START is for development and tests only');
+  }
+  if (env.NODE_ENV === 'production' && env.ALPACA_FAKE && !source.E2E_TEST) {
+    throw new Error('ALPACA_FAKE is for tests only');
   }
   return env;
 }

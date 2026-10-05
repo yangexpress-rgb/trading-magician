@@ -7,6 +7,7 @@ export interface InstrumentOption {
   symbol: string;
   displayName: string;
   assetClass: string;
+  venue: string;
 }
 
 export interface AccountOption {

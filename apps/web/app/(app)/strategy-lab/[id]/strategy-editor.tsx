@@ -20,6 +20,7 @@ import {
   type EditorContextValue,
   type InstrumentOption,
 } from '@/components/strategy/editor-context';
+import { InstrumentFinder } from '@/components/strategy/instrument-finder';
 import { BackTestPanel, useValidation, ValidationPanel } from '@/components/strategy/lifecycle';
 import { OrdersEditor } from '@/components/strategy/orders-editor';
 import { ExecutionAndRisk, TriggerSettings } from '@/components/strategy/settings-editor';
@@ -64,13 +65,14 @@ export function StrategyEditor({
   status,
   initialDefinition,
   initialRowVersion,
-  instruments,
+  instruments: initialInstruments,
   accounts,
   timeZone,
   baseCurrency,
   children,
 }: Props) {
   const router = useRouter();
+  const [instruments, setInstruments] = useState(initialInstruments);
   const [definition, setDefinition] = useState(initialDefinition);
   const [savedJson, setSavedJson] = useState(() => canonicalJson(initialDefinition));
   const [rowVersion, setRowVersion] = useState(initialRowVersion);
@@ -198,6 +200,17 @@ export function StrategyEditor({
       )}
 
       <div className="space-y-6">
+        <InstrumentFinder
+          instruments={instruments}
+          editable={editable}
+          onFound={(found) =>
+            setInstruments((list) =>
+              list.some((i) => i.id === found.id)
+                ? list
+                : [...list, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
+            )
+          }
+        />
         {(['entry', 'exit'] as const).map((phase) => {
           const title = phase === 'entry' ? 'Entry' : 'Exit';
           return (

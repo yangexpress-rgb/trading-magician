@@ -114,6 +114,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@tm/alpaca':
+        specifier: workspace:*
+        version: link:../../packages/alpaca
       '@tm/backtest':
         specifier: workspace:*
         version: link:../../packages/backtest
@@ -145,6 +148,21 @@ importers:
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
+
+  packages/alpaca:
+    dependencies:
+      '@tm/broker':
+        specifier: workspace:*
+        version: link:../broker
+      '@tm/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@tm/market-data':
+        specifier: workspace:*
+        version: link:../market-data
+      decimal.js:
+        specifier: ^10.6.0
+        version: 10.6.0
 
   packages/backtest:
     dependencies:
