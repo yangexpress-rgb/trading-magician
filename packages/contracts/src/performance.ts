@@ -71,6 +71,8 @@ export interface PerformanceSummaryDto {
     returnPct: string | null;
     maxDrawdownPct: string | null;
     sharpe: string | null;
+    /** What the brokers report for the same accounts at their latest valuation, when all do; it counts. */
+    brokerEnd: string | null;
   };
   /** Sessions in the range with a valuation; under 20 makes drawdown and Sharpe weak. */
   sessions: number;

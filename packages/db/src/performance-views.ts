@@ -347,6 +347,8 @@ export interface PerformanceSummary {
     returnPct: string | null;
     maxDrawdownPct: string | null;
     sharpe: string | null;
+    /** What the brokers report for the same accounts at their latest valuation, when all do. */
+    brokerEnd: string | null;
   };
   sessions: number;
   shortHistory: boolean;
@@ -459,6 +461,7 @@ export async function performanceSummary(
     returnPct: null,
     maxDrawdownPct: null,
     sharpe: null,
+    brokerEnd: null,
   };
   const series = equitySeries(accounts);
   const ranged = series.filter((p) => inRange(p.date, f));
@@ -476,6 +479,7 @@ export async function performanceSummary(
       returnPct: end.index ? pct(end.index.div(baseIndex).minus(1)) : null,
       maxDrawdownPct: closes.length > 0 ? pct(maxDrawdown(closes, baseIndex)) : null,
       sharpe: s ? s.toDecimalPlaces(2).toFixed(2) : null,
+      brokerEnd: null,
     };
   }
   // Exposure: what is held at the last session in range. Turnover: what was traded in it.
@@ -520,6 +524,9 @@ export async function performanceSummary(
   const latest = [...groupBy(inScope, (a) => a.accountId).values()].flatMap((g) =>
     g.rows.slice(-1),
   );
+  if (!scope.filtered && latest.length > 0 && latest.every((a) => a.brokerEquity !== null)) {
+    equity.brokerEnd = money(latest.reduce((t, a) => t.plus(a.brokerEquity ?? 0), ZERO));
+  }
   const lastValuedAt = latest.reduce<Date | null>((m, a) => (!m || a.asOf > m ? a.asOf : m), null);
   const differences = inScope
     .filter((a) => a.flagged)

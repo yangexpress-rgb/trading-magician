@@ -70,6 +70,21 @@ export function performanceTiles(s: PerformanceSummaryDto): MetricTile[] {
       detail: `Peak capital ${formatMoney(s.peakCapital)}`,
     });
   } else {
+    const app = s.equity.end;
+    const broker = s.equity.brokerEnd;
+    if (app || broker) {
+      const differs = app && broker && Math.abs(Number(broker) - Number(app)) > 1;
+      tiles.push({
+        label: 'Equity',
+        // Where the broker reports equity, its figure is the one that counts (§10.2).
+        value: formatMoney(broker ?? app ?? 0),
+        detail: !broker
+          ? "From the app's ledger"
+          : differs
+            ? `Broker's figure; the app works out ${formatMoney(app ?? 0)}`
+            : 'The broker and the app agree',
+      });
+    }
     tiles.push(
       {
         label: 'Return',

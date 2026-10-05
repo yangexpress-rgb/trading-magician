@@ -22,6 +22,7 @@ import {
   TextField,
   Th,
 } from '@tm/ui';
+import Link from 'next/link';
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { LineChart } from '@/components/line-chart';
 import { apiClient } from '@/lib/api-client';
@@ -180,6 +181,11 @@ function DataQuality({
           </li>
         )}
         <li>Amounts are in US dollars. Paper fills carry no fees.</li>
+        <li>
+          <Link href="/performance/methodology" className="underline">
+            How these figures are calculated
+          </Link>
+        </li>
       </ul>
       {q.differences.length === 0 ? (
         <p className="text-sm">The app and the broker agreed at every close in this range.</p>

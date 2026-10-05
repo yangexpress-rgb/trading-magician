@@ -145,6 +145,8 @@ test('shows a paper strategy’s cycles, figures and data quality', async ({ pag
     tiles.getByText(signed(Number(summary.pnl.net)), { exact: true }).first(),
   ).toBeVisible();
   await expect(tiles.getByText(`${final.length} closed, 0 open`)).toBeVisible();
+  // The simulator reports no equity, so the figure is the app's own.
+  await expect(tiles.getByText("From the app's ledger")).toBeVisible();
   const table = page.getByRole('table', { name: 'Trades' });
   await expect(table.getByRole('row')).toHaveCount(final.length + 1);
   await expect(table.getByText(/^Buy A: long 20 DEMO-A at/).first()).toBeVisible();
@@ -181,10 +183,21 @@ test('shows a paper strategy’s cycles, figures and data quality', async ({ pag
   await page.getByLabel('Mode', { exact: true }).selectOption({ label: 'Paper' });
   await expect(table.getByRole('row')).toHaveCount(final.length + 1);
 
+  await expectAccessible(page);
+
+  // The method behind every figure is one link away (§10.2).
+  await page.getByRole('link', { name: 'How these figures are calculated' }).click();
+  await expect(page.getByRole('heading', { name: 'How performance is calculated' })).toBeVisible();
+  await expect(page.getByText('First in, first out', { exact: false })).toBeVisible();
+  await expect(page.getByText('equity more than $1.00 apart', { exact: false })).toBeVisible();
+  await expectAccessible(page);
+});
+
+async function expectAccessible(page: Page) {
   const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(
     axe.violations
       .filter((v) => v.impact === 'serious' || v.impact === 'critical')
       .map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`),
   ).toEqual([]);
-});
+}
