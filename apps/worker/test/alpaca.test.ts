@@ -2,7 +2,6 @@ import { FAKE_ALPACA_DATA_URL, FAKE_ALPACA_TRADING_URL, FakeAlpaca } from '@tm/a
 import {
   createCredential,
   createFeed,
-  createRoute,
   eq,
   generateCredentialKeyPair,
   getInstrumentLookup,
@@ -85,16 +84,7 @@ async function connectAlpaca(userId: string, secretKey = fake.credentials.secret
       credentialId: credential.id,
       assetClasses: ['stock', 'etf'],
     });
-    for (const dataType of ['quotes', 'bars'] as const) {
-      await createRoute(tx, {
-        userId,
-        assetClass: 'stock',
-        venue: null,
-        dataType,
-        primaryFeedId: feed.id,
-        fallbackFeedId: null,
-      });
-    }
+    // Adding the feed routes US stocks and ETFs to it.
     return feed;
   });
 }

@@ -275,6 +275,63 @@ describe('routes', () => {
     await asUser((tx) => deleteFeed(tx, { userId, id: alpaca.id }));
   });
 
+  it('routes US stocks and ETFs to a new real feed, and removes those routes with it', async () => {
+    const before = await asUser((tx) => listRoutes(tx));
+    const cred = await asUser((tx) =>
+      createCredential(tx, {
+        userId,
+        provider: 'alpaca',
+        label: 'Auto routes key',
+        fields: { keyId: 'PKAUTOROUTE0000001', secretKey: 'auto-route-secret-0000001' },
+        publicKey: keys.publicKey,
+      }),
+    );
+    const alpaca = await asUser((tx) =>
+      createFeed(tx, {
+        userId,
+        name: 'Alpaca auto',
+        provider: 'alpaca',
+        credentialId: cred.id,
+        assetClasses: ['stock', 'etf'],
+      }),
+    );
+    const added = (await asUser((tx) => listRoutes(tx))).filter((r) => r.primary.id === alpaca.id);
+    expect(added.map((r) => `${r.assetClass}/${r.venue ?? 'any'}/${r.dataType}`).sort()).toEqual([
+      'etf/any/bars',
+      'etf/any/quotes',
+      'stock/any/bars',
+      'stock/any/quotes',
+    ]);
+    expect(added.every((r) => r.fallback === null)).toBe(true);
+    // The demo routes are untouched.
+    const after = await asUser((tx) => listRoutes(tx));
+    for (const r of before) expect(after.find((a) => a.id === r.id)?.primary.id).toBe(r.primary.id);
+
+    // A second real feed fills no gaps, so it gets no routes of its own.
+    const second = await asUser((tx) =>
+      createFeed(tx, {
+        userId,
+        name: 'Alpaca second',
+        provider: 'alpaca',
+        credentialId: cred.id,
+        assetClasses: ['stock'],
+      }),
+    );
+    expect(second.routes).toEqual([]);
+
+    // Removing the first feed takes its routes with it; the second fills the gaps it can.
+    await asUser((tx) => deleteFeed(tx, { userId, id: alpaca.id }));
+    const now = await asUser((tx) => getFeed(tx, second.id));
+    expect(
+      now.routes.map((r) => `${r.assetClass}/${r.venue ?? 'any'}/${r.dataType}`).sort(),
+    ).toEqual(['stock/any/bars', 'stock/any/quotes']);
+
+    // Removing the last one leaves the routing as it was.
+    await asUser((tx) => deleteFeed(tx, { userId, id: second.id }));
+    const remaining = await asUser((tx) => listRoutes(tx));
+    expect(remaining.map((r) => r.id).sort()).toEqual(before.map((r) => r.id).sort());
+  });
+
   it('refuses a feed for an asset class it does not cover, or a key for another provider', async () => {
     await expect(
       asUser((tx) =>

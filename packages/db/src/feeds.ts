@@ -311,7 +311,42 @@ export async function createFeed(
     resourceId: row.id,
     context: { provider: input.provider },
   });
+  await addMissingRoutes(tx, input.userId, row.id);
   return getFeed(tx, row.id);
+}
+
+/** What a new feed is routed for when nothing else covers it yet. */
+const AUTO_ROUTE_DATA_TYPES = ['bars', 'quotes'] as const;
+
+/**
+ * Makes a real-provider feed the primary for every asset class it covers, on
+ * any venue, for bars and live prices, wherever no route exists yet. Routes the
+ * user already set up are left alone. Demo feeds keep their seeded demo routes.
+ */
+async function addMissingRoutes(tx: Transaction, userId: string, feedId: string) {
+  const [feed] = await tx
+    .select()
+    .from(dataFeedConnections)
+    .where(eq(dataFeedConnections.id, feedId));
+  if (!feed || !feed.isActive || !providerCoversVenue(feed.provider, null)) return;
+  for (const assetClass of feed.assetClasses) {
+    for (const dataType of AUTO_ROUTE_DATA_TYPES) {
+      const [row] = await tx
+        .insert(dataRoutes)
+        .values({ userId, assetClass, venue: null, dataType, primaryFeedId: feed.id })
+        .onConflictDoNothing()
+        .returning({ id: dataRoutes.id });
+      if (!row) continue;
+      await recordAudit(tx, {
+        userId,
+        actorType: 'system',
+        action: 'data_route.created',
+        resourceType: 'data_route',
+        resourceId: row.id,
+        context: { primaryFeedId: feed.id, fallbackFeedId: null, automatic: true },
+      });
+    }
+  }
 }
 
 export async function updateFeed(
@@ -402,6 +437,7 @@ export async function setFeedActive(
         resourceType: 'data_feed_connection',
         resourceId: input.id,
       });
+      await addMissingRoutes(tx, input.userId, input.id);
     }
     return getFeed(tx, input.id);
   }
@@ -496,11 +532,22 @@ async function rerouteFeed(
   }
 }
 
-/** Removes a feed no route uses. */
+/**
+ * Removes a feed. A real-provider feed takes its any-venue routes with it when
+ * it is their only feed (as `addMissingRoutes` made them) and no strategy is
+ * running on it; any other route must be pointed at another feed first.
+ */
 export async function deleteFeed(
   tx: Transaction,
   input: { userId: string; id: string },
 ): Promise<void> {
+  const before = await getFeed(tx, input.id);
+  if (before.provider !== 'demo' && (await feedDependents(tx, input.id)).length === 0) {
+    const sole = (await listRoutes(tx)).filter(
+      (r) => r.primary.id === input.id && r.fallback === null && r.venue === null,
+    );
+    for (const route of sole) await deleteRoute(tx, { userId: input.userId, id: route.id });
+  }
   const feed = await getFeed(tx, input.id);
   if (feed.routes.length > 0) {
     throw new IntegrationError(
@@ -518,6 +565,12 @@ export async function deleteFeed(
     resourceId: input.id,
     context: { provider: feed.provider },
   });
+  // Any gaps it leaves go to the user's other feeds, oldest first.
+  const others = await tx
+    .select({ id: dataFeedConnections.id })
+    .from(dataFeedConnections)
+    .orderBy(asc(dataFeedConnections.createdAt));
+  for (const other of others) await addMissingRoutes(tx, input.userId, other.id);
 }
 
 // ---------------------------------------------------------------------------
