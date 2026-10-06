@@ -253,6 +253,13 @@
       "when": 1791215901691,
       "tag": "0035_invite_functions",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791315670941,
+      "tag": "0036_auto_routes",
+      "breakpoints": true
     }
   ]
 }

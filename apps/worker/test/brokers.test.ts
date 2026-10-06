@@ -4,7 +4,6 @@ import {
   createCredential,
   createFeed,
   createPlatform,
-  createRoute,
   createStrategy,
   eq,
   generateCredentialKeyPair,
@@ -53,8 +52,15 @@ const providers: ProviderRegistry = { alpaca: alpacaProvider(fakeUrls) };
 const brokers: BrokerRegistry = { alpaca: alpacaBrokerProvider(fakeUrls) };
 
 const as = <T>(fn: (tx: Transaction) => Promise<T>) => withTenant(t.app.db, { userId }, fn);
+// Checks are due by the database's clock, so they record real time, not the trading clock.
 const checks = () =>
-  runBrokerChecks({ db: t.worker.db, brokers, privateKey: keys.privateKey, logger: quiet, now });
+  runBrokerChecks({
+    db: t.worker.db,
+    brokers,
+    privateKey: keys.privateKey,
+    logger: quiet,
+    now: () => new Date(),
+  });
 
 const runtimeOptions = (): RuntimeWorkerOptions => ({
   db: t.worker.db,
@@ -173,25 +179,16 @@ describe('routing per account', () => {
     const account = alpaca.accounts[0]!;
 
     // Prices and bars for US stocks come from Alpaca too.
-    await as(async (tx) => {
-      const feed = await createFeed(tx, {
+    // Adding the feed routes them to it.
+    await as((tx) =>
+      createFeed(tx, {
         userId,
         name: 'Alpaca prices',
         provider: 'alpaca',
         credentialId: alpaca.credential!.id,
         assetClasses: ['stock', 'etf'],
-      });
-      for (const dataType of ['quotes', 'bars'] as const) {
-        await createRoute(tx, {
-          userId,
-          assetClass: 'stock',
-          venue: null,
-          dataType,
-          primaryFeedId: feed.id,
-          fallbackFeedId: null,
-        });
-      }
-    });
+      }),
+    );
 
     const series = {
       kind: 'market' as const,
