@@ -1,4 +1,11 @@
-import type { OrderSide, PhaseName } from '@tm/domain';
+import type {
+  ConditionNode,
+  OrderSide,
+  OrderType,
+  Phase,
+  PhaseName,
+  PlannedOrder,
+} from '@tm/domain';
 
 /** Bumped whenever simulation semantics change, so old results stay explainable (§7.2). */
 export const ENGINE_VERSION = 'engine@1';
@@ -91,6 +98,115 @@ export interface BacktestMetrics {
   averageExposurePct: string;
 }
 
+/** Three-valued truth as stored: null means unknown (missing data). */
+export type StoredTruth = boolean | null;
+
+/** One node of a condition tree on one bar. Groups carry only their truth. */
+export interface ConditionCheck {
+  id: string;
+  truth: StoredTruth;
+  /** Comparisons only: the values that were compared, null when unavailable. */
+  left?: string | null;
+  right?: string | null;
+  upper?: string | null;
+  /** Crosses only: the values one bar earlier. */
+  prevLeft?: string | null;
+  prevRight?: string | null;
+}
+
+/**
+ * Why a qualifying condition did or didn't act on a bar:
+ * - fired: the trigger fired and orders were planned;
+ * - confirming: true, but still inside the confirmation bars;
+ * - cooldown: true, but inside the cooldown after the last firing;
+ * - already_true: true on the previous bar too, and the trigger fires on the change only;
+ * - fired_before: the trigger fires once per cycle and already did;
+ * - cycle_open (Entry): fired, but a cycle was already open and re-entry is off or capped;
+ * - daily_loss / drawdown (Entry): fired, but new entries were halted.
+ */
+export type ConditionOutcome =
+  | 'fired'
+  | 'confirming'
+  | 'cooldown'
+  | 'already_true'
+  | 'fired_before'
+  | 'cycle_open'
+  | 'daily_loss'
+  | 'drawdown';
+
+export interface ConditionBar {
+  /** The close of the bar the conditions were checked on. */
+  time: string;
+  /** Exit only: the cycle whose position the Exit was watching. */
+  cycle?: number;
+  truth: StoredTruth;
+  outcome?: ConditionOutcome;
+  checks: ConditionCheck[];
+}
+
+export interface ComparisonSummary {
+  id: string;
+  trueBars: number;
+  falseBars: number;
+  unknownBars: number;
+  firstTrue: string | null;
+  lastTrue: string | null;
+}
+
+export interface PhaseConditionReport {
+  /** The rules that were tested, so the report reads without the strategy. */
+  condition: ConditionNode;
+  trigger: Phase['trigger'];
+  evaluated: number;
+  trueBars: number;
+  falseBars: number;
+  unknownBars: number;
+  fired: number;
+  comparisons: ComparisonSummary[];
+  /** Bar-by-bar checks, oldest first; see `barsTruncated`. */
+  bars: ConditionBar[];
+  /** Set when there were too many bars to keep: only bars that were true, fired or changed are kept. */
+  barsTruncated: boolean;
+}
+
+export type OrderOutcome =
+  'filled' | 'partial' | 'canceled' | 'rejected' | 'skipped' | 'working_at_end' | 'not_sent';
+
+/** One planned order (leg) of one cycle: what was tried, and what came of it. */
+export interface BacktestOrder {
+  cycle: number;
+  phase: PhaseName | 'flatten';
+  legId: string;
+  legLabel: string;
+  instrumentId: string;
+  symbol: string;
+  side: OrderSide;
+  orderType: OrderType;
+  timeInForce: PlannedOrder['timeInForce'];
+  outcome: OrderOutcome;
+  /** Why it ended this way, as a code the UI words; null for a plain full fill. */
+  reason: string | null;
+  /** Figures behind the reason, e.g. the collar limit and how far the price moved. */
+  detail: Record<string, string>;
+  /** When the leg was due and sized (a bar close), or null if it never was. */
+  decidedAt: string | null;
+  /** When it could first fill: the decision time, or the next open if the market was closed. */
+  activeFrom: string | null;
+  endedAt: string | null;
+  quantity: string | null;
+  limitPrice: string | null;
+  stopPrice: string | null;
+  /** The last close when it was sent: the collar reference. */
+  referencePrice: string | null;
+  filledQuantity: string;
+  averagePrice: string | null;
+  fills: number;
+  /** Bars it was working on before it ended. */
+  barsWorking: number;
+  /** The best price the market offered while it worked (lowest for a buy, highest for a sell). */
+  bestPrice: string | null;
+}
+
 export interface BacktestResult {
   engineVersion: string;
   dataVersions: string[];
@@ -102,4 +218,10 @@ export interface BacktestResult {
   fills: BacktestFill[];
   contributions: InstrumentContribution[];
   warnings: BacktestWarning[];
+  /** How the Entry and Exit conditions evaluated. Absent on runs from before it was recorded. */
+  conditions?: { entry: PhaseConditionReport; exit: PhaseConditionReport };
+  /** Every planned order of every cycle, in the order it was due. Absent on older runs. */
+  orders?: BacktestOrder[];
+  /** Symbols by instrument id, for wording conditions. */
+  symbols?: Record<string, string>;
 }

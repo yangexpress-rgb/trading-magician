@@ -316,9 +316,10 @@ describe('simulate: worked examples', () => {
 
 describe('simulate: properties', () => {
   it('is deterministic', () => {
+    const definition = crossover();
     const run = () =>
       simulate({
-        definition: crossover(),
+        definition,
         instruments: INSTRUMENTS,
         inputs: inputs('2024-03-04', '2024-03-08'),
         data: loaded({ [A]: closes(FROM, [99, 101, 102, 98, 99]) }),
