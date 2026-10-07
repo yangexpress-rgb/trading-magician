@@ -139,8 +139,8 @@ function GroupEditor({
       aria-label={label}
       className={cx(
         'rounded-lg border-2 p-3',
-        group.negate ? 'border-dashed border-warn' : 'border-line',
-        depth % 2 === 0 ? 'bg-surface-2' : 'bg-surface',
+        group.negate ? 'border-dashed border-warn' : 'border-line border-l-4 border-l-cond',
+        depth % 2 === 1 ? 'bg-cond-soft' : 'bg-surface',
       )}
     >
       <div className="flex flex-wrap items-end gap-3">
