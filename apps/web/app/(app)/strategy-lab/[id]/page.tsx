@@ -55,7 +55,7 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
           </>
         }
       />
-      <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="min-w-0">
           <StrategyEditor
             strategyId={strategy.id}

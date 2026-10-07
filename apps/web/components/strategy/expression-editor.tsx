@@ -110,7 +110,7 @@ export function ExpressionEditor({
       disabled={!editable}
     >
       <legend className="px-1 text-xs font-semibold">{legend}</legend>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid-fields-wide gap-2">
         <MiniSelect
           id={id('kind')}
           label="Type"
@@ -339,7 +339,7 @@ function SeriesFields({
         <summary className="cursor-pointer text-xs font-medium text-ink-muted">
           More options
         </summary>
-        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="mt-2 grid-fields-wide gap-2">
           <MiniInput
             id={id('offset')}
             label="Bars ago"

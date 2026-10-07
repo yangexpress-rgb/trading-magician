@@ -9,7 +9,7 @@ import {
   type StrategyDefinition,
   type StrategyStatus,
 } from '@tm/domain';
-import { Alert, Button, Card } from '@tm/ui';
+import { Alert, Button, Card, cx } from '@tm/ui';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ConditionTreeEditor } from '@/components/strategy/condition-editor';
@@ -214,8 +214,21 @@ export function StrategyEditor({
         {(['entry', 'exit'] as const).map((phase) => {
           const title = phase === 'entry' ? 'Entry' : 'Exit';
           return (
-            <Card key={phase}>
-              <h2 id={`${phase}-heading`} className="text-lg font-semibold">
+            <Card
+              key={phase}
+              className={
+                phase === 'entry'
+                  ? 'border-l-4 border-l-entry bg-entry-soft!'
+                  : 'border-l-4 border-l-exit bg-exit-soft!'
+              }
+            >
+              <h2
+                id={`${phase}-heading`}
+                className={cx(
+                  'text-lg font-semibold',
+                  phase === 'entry' ? 'text-entry' : 'text-exit',
+                )}
+              >
                 {title}
               </h2>
               <p className="mb-3 text-sm text-ink-muted">
@@ -223,6 +236,7 @@ export function StrategyEditor({
                   ? 'The strategy enters when these conditions qualify.'
                   : 'After Entry fills, the strategy exits when these conditions qualify.'}
               </p>
+              <h3 className="mb-2 text-base font-semibold text-cond">{title} conditions</h3>
               <ConditionTreeEditor
                 root={definition[phase].condition}
                 onChange={setPhaseCondition(phase)}

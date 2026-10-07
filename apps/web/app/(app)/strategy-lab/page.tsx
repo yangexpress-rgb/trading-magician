@@ -92,9 +92,9 @@ export default async function StrategyLabPage({
       <form
         role="search"
         aria-label="Filter strategies"
-        className="mb-4 grid grid-cols-1 items-end gap-3 sm:grid-cols-3 lg:grid-cols-7"
+        className="mb-4 grid-fields items-end gap-3"
       >
-        <div className="sm:col-span-3 lg:col-span-2">
+        <div className="sm:col-span-2">
           <TextField
             label="Search"
             name="q"
@@ -139,7 +139,7 @@ export default async function StrategyLabPage({
             <option value="include">All</option>
           </SelectField>
         </div>
-        <div className="flex gap-2 sm:col-span-3 lg:col-span-7">
+        <div className="col-span-full flex gap-2">
           <button type="submit" className={buttonClasses('secondary', 'sm')}>
             Apply filters
           </button>

@@ -139,8 +139,8 @@ function GroupEditor({
       aria-label={label}
       className={cx(
         'rounded-lg border-2 p-3',
-        group.negate ? 'border-dashed border-warn' : 'border-line',
-        depth % 2 === 0 ? 'bg-surface-2' : 'bg-surface',
+        group.negate ? 'border-dashed border-warn' : 'border-line border-l-4 border-l-cond',
+        depth % 2 === 1 ? 'bg-cond-soft' : 'bg-surface',
       )}
     >
       <div className="flex flex-wrap items-end gap-3">
@@ -348,14 +348,14 @@ function ComparisonEditor({
           </div>
         )}
       </div>
-      <div className="grid gap-2 xl:grid-cols-[1fr_auto_1fr]">
+      <div className="grid gap-2">
         <ExpressionEditor
           expr={c.left}
           legend="Left side"
           path={[...path, 'left']}
           onChange={(left) => ops.update({ ...c, left })}
         />
-        <div className="xl:w-44 xl:pt-5">
+        <div className="sm:max-w-xs">
           <MiniSelect
             id={`${c.id}-operator`}
             label="Comparison"

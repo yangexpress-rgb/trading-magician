@@ -119,7 +119,7 @@ export function OrdersEditor({
 
   return (
     <div className="mt-5 border-t border-line pt-4">
-      <h3 className="text-base font-semibold">{title} orders</h3>
+      <h3 className="text-base font-semibold text-order">{title} orders</h3>
       <p className="mb-3 text-sm text-ink-muted">
         {phase === 'entry'
           ? 'Orders placed when Entry qualifies. Each leg can trade a different instrument.'
@@ -212,7 +212,10 @@ function LegEditor({
     ({ ...newExpr('market', order.instrumentId), field: 'last' }) as Expr;
 
   return (
-    <section aria-label={name} className="rounded-md border border-line bg-surface p-3">
+    <section
+      aria-label={name}
+      className="rounded-md border border-l-4 border-line border-l-order bg-order-soft p-3"
+    >
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-semibold">
           {name}: {order.legLabel || 'Unnamed'}
@@ -241,7 +244,7 @@ function LegEditor({
 
       <fieldset disabled={!editable} className="min-w-0">
         <legend className="sr-only">{name} order details</legend>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
+        <div className="grid-fields-wide gap-2">
           <MiniInput
             id={id('label')}
             label="Leg name"
@@ -389,7 +392,7 @@ function LegEditor({
               onChange={(stopPrice) => set({ stopPrice })}
             />
           )}
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+          <div className="grid-fields-wide gap-2">
             <MiniSelect
               id={id('tif')}
               label="Time in force"
