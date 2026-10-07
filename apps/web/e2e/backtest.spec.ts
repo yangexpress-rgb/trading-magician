@@ -49,6 +49,24 @@ test('back test a pair strategy, read the results beside their assumptions, and 
   const trades = results.getByRole('table', { name: 'Trades' });
   await expect(trades.getByRole('row').nth(1)).toContainText('Buy 20 DEMO-A');
   await expect(trades.getByRole('row').nth(1)).toContainText('Sell short 20 DEMO-B');
+  // Entry and Exit say what each condition found and what came of each order.
+  const entry = results.getByRole('region', { name: 'Entry', exact: true });
+  await expect(
+    entry.getByText(/^Entry conditions were checked on \d+ bars: true on \d+/),
+  ).toBeVisible();
+  const entryChecks = entry.getByRole('table', { name: 'Entry conditions: each condition' });
+  await expect(entryChecks.getByText('crosses above')).toBeVisible();
+  await entry.getByText(/^Bar by bar/).click();
+  await entry.getByLabel('Show').selectOption('fired');
+  const entryBars = entry.getByRole('table', { name: 'Entry conditions: bar by bar' });
+  await expect(entryBars.getByText('Fired: orders planned').first()).toBeVisible();
+  const entryOrders = entry.getByRole('table', { name: 'Entry orders' });
+  await expect(entryOrders.getByText('Buy 20 DEMO-A · Market · Day').first()).toBeVisible();
+  await expect(entryOrders.getByText('Filled', { exact: true }).first()).toBeVisible();
+  const exit = results.getByRole('region', { name: 'Exit', exact: true });
+  await expect(exit.getByText(/while a position was open/)).toBeVisible();
+  await expect(exit.getByRole('table', { name: 'Exit orders' })).toBeVisible();
+
   const contributions = results.getByRole('table', { name: 'Contribution by instrument' });
   await expect(contributions.getByRole('cell', { name: 'DEMO-A', exact: true })).toBeVisible();
   await expect(contributions.getByRole('cell', { name: 'DEMO-B', exact: true })).toBeVisible();

@@ -11,6 +11,7 @@ import { addDays, nyDate } from '@tm/domain';
 import { Alert, Badge, Button, Card, SelectField, Table, Td, TextField, Th } from '@tm/ui';
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { LineChart } from '@/components/line-chart';
+import { PhaseReports } from '@/components/strategy/backtest-detail';
 import { apiClient } from '@/lib/api-client';
 import {
   describeRun,
@@ -482,6 +483,10 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
 
       {run.status === 'completed' && run.metrics && run.result && (
         <div className="mt-6 space-y-6">
+          <Section title="What happened">
+            <PhaseReports run={run} />
+          </Section>
+
           <Section title="Trades">
             {trades && trades.length > 0 ? (
               <Table label="Trades">

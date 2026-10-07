@@ -1,6 +1,5 @@
 import {
   checkPreTradeRisk,
-  evaluateCondition,
   evaluateExpr,
   nyDate,
   nextTradingDay,
@@ -21,6 +20,7 @@ import {
 import Decimal from 'decimal.js';
 import { seriesExprs, seriesKey, type InstrumentRef, type LoadedData } from './data';
 import { quoteFill, stopReached, volumeCap, type Direction } from './fills';
+import { ConditionRecorder, whyNotFired } from './explain';
 import { describeAssumptions, type BacktestInputs } from './inputs';
 import { MarketView } from './market';
 import { computeMetrics } from './metrics';
@@ -28,6 +28,7 @@ import {
   ENGINE_VERSION,
   SHARPE_METHOD,
   type BacktestFill,
+  type BacktestOrder,
   type BacktestResult,
   type BacktestTrade,
   type EquityPoint,
@@ -96,6 +97,7 @@ interface Order {
 
 interface LegState {
   leg: PlannedOrder;
+  cycle: Cycle;
   phase: PhaseName | 'flatten';
   side: OrderSide;
   status: LegStatus;
@@ -105,6 +107,18 @@ interface LegState {
   cost: Decimal;
   submittedAt?: number;
   filledAt?: number;
+  /** For the order report: why it ended, with the figures behind it. */
+  reason?: string;
+  detail: Record<string, string>;
+  decidedAt?: number;
+  endedAt?: number;
+  reference?: Decimal;
+  limit?: Decimal | undefined;
+  stop?: Decimal | undefined;
+  /** Lowest low (buy) or highest high (sell) over the bars it worked. */
+  bestPrice?: Decimal;
+  barsWorking: number;
+  fillCount: number;
 }
 
 interface CyclePosition {
@@ -154,6 +168,8 @@ class Warnings {
 }
 
 const iso = (t: number) => new Date(t).toISOString();
+const dec = (d: Decimal | undefined, places = 4) =>
+  d === undefined ? null : d.toDecimalPlaces(places).toString();
 
 function legOrderFor(def: StrategyDefinition, phase: PhaseName): PlannedOrder[] {
   const orders = def[phase].orders;
@@ -223,6 +239,9 @@ export function simulate({
   const fills: BacktestFill[] = [];
   const equity: EquityPoint[] = [];
   const entryTrigger: TriggerState = { prev: undefined, consecutive: 0, fired: 0 };
+  const allLegs: LegState[] = [];
+  const entryConditions = new ConditionRecorder(def.entry.condition, def.entry.trigger);
+  const exitConditions = new ConditionRecorder(def.exit.condition, def.exit.trigger);
   let orderSeq = 0;
   let submitted = 0;
   let commissionTotal = ZERO;
@@ -271,10 +290,22 @@ export function simulate({
   // ---------------------------------------------------------------------------
   // Orders
 
-  function endLeg(leg: LegState, status: LegStatus, now: number, code?: string, message?: string) {
+  function endLeg(
+    leg: LegState,
+    status: LegStatus,
+    now: number,
+    code?: string,
+    message?: string,
+    detail: Record<string, string> = {},
+  ) {
     if (TERMINAL.includes(leg.status)) return;
     leg.status = leg.filled.gt(0) && status !== 'filled' ? 'partial' : status;
     if (code && message) warnings.add(code, message);
+    if (code) {
+      leg.reason = code;
+      leg.detail = detail;
+    }
+    leg.endedAt = now;
     if (leg.status === 'filled') leg.filledAt = now;
   }
 
@@ -285,10 +316,11 @@ export function simulate({
     if (def[leg.phase].orders.length < 2) return;
     warnings.add('leg_failed', 'A leg of a multi-leg plan did not fill completely in time');
     if (ex.onLegFailure === 'leave_and_alert') return;
+    const because = { leg: leg.leg.legLabel };
     for (const other of phaseLegs) {
       if (other === leg) continue;
-      if (other.status === 'waiting') other.status = 'canceled';
-      if (other.status === 'working') endLeg(other, 'canceled', now);
+      if (other.status === 'waiting' || other.status === 'working')
+        endLeg(other, 'canceled', now, 'other_leg_failed', undefined, because);
     }
     if (ex.onLegFailure === 'flatten_filled') flatten(c, now);
   }
@@ -298,6 +330,11 @@ export function simulate({
       if (p.quantity.isZero()) continue;
       const side: OrderSide = p.quantity.gt(0) ? 'sell' : 'buy_to_cover';
       const leg: LegState = {
+        cycle: c,
+        detail: {},
+        barsWorking: 0,
+        fillCount: 0,
+        decidedAt: now,
         leg: {
           id: `flatten-${id}`,
           legLabel: `Close ${symbol(id)}`,
@@ -319,6 +356,7 @@ export function simulate({
         cost: ZERO,
       };
       c.flattenLegs.push(leg);
+      allLegs.push(leg);
       placeOrder(c, leg, p.quantity.abs(), p.quantity.gt(0) ? 'sell' : 'buy', true, now);
     }
     warnings.add('flattened', 'Filled legs were closed after another leg failed');
@@ -378,6 +416,9 @@ export function simulate({
       firstBarSeen: false,
       closing,
     };
+    leg.reference = order.reference;
+    leg.limit = prices.limit;
+    leg.stop = prices.stop;
     orders.push(order);
     submitted += 1;
     leg.order = order;
@@ -390,14 +431,21 @@ export function simulate({
     return true;
   }
 
-  const reject = (leg: LegState, now: number, code: string, message: string) => {
-    endLeg(leg, 'failed', now, code, message);
+  const reject = (
+    leg: LegState,
+    now: number,
+    code: string,
+    message: string,
+    detail: Record<string, string> = {},
+  ) => {
+    endLeg(leg, 'failed', now, code, message, detail);
     return false;
   };
 
   /** Sizes, risk-checks and places one leg (§6.6, §8.6). */
   function submitLeg(c: Cycle, leg: LegState, now: number): boolean {
     const o = leg.leg;
+    leg.decidedAt = now;
     const ref = mark(o.instrumentId);
     if (!ref || ref.lte(0))
       return reject(
@@ -410,6 +458,9 @@ export function simulate({
     const price = (e: PlannedOrder['limitPrice']) => (e ? evaluateExpr(e, view) : undefined);
     const limit = price(o.limitPrice);
     const stop = price(o.stopPrice);
+    leg.reference = ref;
+    leg.limit = limit;
+    leg.stop = stop;
     if ((o.limitPrice && !limit) || (o.stopPrice && !stop)) {
       return reject(
         leg,
@@ -434,6 +485,7 @@ export function simulate({
       return false;
     }
     const { quantity: qty, direction, closing } = sized;
+    leg.quantity = qty;
 
     // Pre-trade risk checks (§8.6), shared with paper execution.
     const checked = checkPreTradeRisk({
@@ -451,7 +503,11 @@ export function simulate({
       instrumentHeld: !(portfolio.get(o.instrumentId) ?? ZERO).isZero(),
     });
     if (!checked.ok && checked.code) {
-      return reject(leg, now, checked.code, RISK_MESSAGES[checked.code]);
+      const failed = checked.checks.find((x) => !x.passed);
+      const detail: Record<string, string> = {};
+      if (failed?.limit !== undefined) detail.limit = failed.limit;
+      if (failed?.value !== undefined) detail.value = failed.value;
+      return reject(leg, now, checked.code, RISK_MESSAGES[checked.code], detail);
     }
     return placeOrder(c, leg, qty, direction, closing, now, { limit, stop });
   }
@@ -481,6 +537,7 @@ export function simulate({
     const leg = order.leg;
     leg.cost = leg.cost.plus(price.times(qty));
     leg.filled = leg.filled.plus(qty);
+    leg.fillCount += 1;
     c.firstFill ??= at;
     c.lastFill = at;
     if (leg.phase === 'entry') {
@@ -514,6 +571,13 @@ export function simulate({
     const first = !order.firstBarSeen;
     order.firstBarSeen = true;
     const leg = order.leg;
+    leg.barsWorking += 1;
+    const best = order.direction === 'buy' ? bar.low : bar.high;
+    if (
+      !leg.bestPrice ||
+      (order.direction === 'buy' ? best.lt(leg.bestPrice) : best.gt(leg.bestPrice))
+    )
+      leg.bestPrice = best;
     const quote = quoteFill(order, bar, slippageBps);
     if (!quote) {
       if (stopReached(order, bar)) order.stopTriggered = true;
@@ -521,19 +585,22 @@ export function simulate({
       order.stopTriggered = quote.stopTriggered;
       const collar = risk.priceCollarPct ? new Decimal(risk.priceCollarPct) : undefined;
       const marketable = order.type === 'market' || order.type === 'stop';
-      if (
-        collar &&
-        marketable &&
-        !order.closing &&
-        order.reference.gt(0) &&
-        quote.base.minus(order.reference).abs().div(order.reference).times(100).gt(collar)
-      ) {
+      const movePct = order.reference.gt(0)
+        ? quote.base.minus(order.reference).abs().div(order.reference).times(100)
+        : ZERO;
+      if (collar && marketable && !order.closing && order.reference.gt(0) && movePct.gt(collar)) {
         endLeg(
           leg,
           'canceled',
           now,
           'collar_cancel',
           'Orders were canceled because the price moved beyond the price collar',
+          {
+            reference: order.reference.toDecimalPlaces(4).toString(),
+            price: quote.base.toDecimalPlaces(4).toString(),
+            movePct: movePct.toDecimalPlaces(2).toString(),
+            limitPct: collar.toString(),
+          },
         );
         onLegProblem(order.cycle, leg, now);
         return;
@@ -596,19 +663,28 @@ export function simulate({
     return c;
   }
 
-  const legState = (leg: PlannedOrder, phase: PhaseName): LegState => ({
-    leg,
-    phase,
-    side: leg.side,
-    status: 'waiting',
-    quantity: ZERO,
-    filled: ZERO,
-    cost: ZERO,
-  });
+  const legState = (c: Cycle, leg: PlannedOrder, phase: PhaseName): LegState => {
+    const s: LegState = {
+      leg,
+      cycle: c,
+      phase,
+      side: leg.side,
+      status: 'waiting',
+      quantity: ZERO,
+      filled: ZERO,
+      cost: ZERO,
+      detail: {},
+      barsWorking: 0,
+      fillCount: 0,
+    };
+    allLegs.push(s);
+    return s;
+  };
+  const exitLegsFor = (c: Cycle) => legOrderFor(def, 'exit').map((l) => legState(c, l, 'exit'));
 
   function addEntryBatch(c: Cycle) {
     c.entries += 1;
-    c.entryLegs.push(...legOrderFor(def, 'entry').map((l) => legState(l, 'entry')));
+    c.entryLegs.push(...legOrderFor(def, 'entry').map((l) => legState(c, l, 'entry')));
   }
 
   function timingDue(c: Cycle, s: LegState, triggeredAt: number | undefined, now: number): boolean {
@@ -699,7 +775,7 @@ export function simulate({
           'Some cycles still held positions after their Exit legs finished',
         );
         c.state = 'open';
-        c.exitLegs = legOrderFor(def, 'exit').map((l) => legState(l, 'exit'));
+        c.exitLegs = exitLegsFor(c);
         c.exitTrigger = { prev: false, consecutive: 0, fired: 0 };
       }
     }
@@ -788,6 +864,7 @@ export function simulate({
           now,
           'leg_timeout',
           'Legs were canceled after the leg timeout',
+          { timeoutSec: String(ex.legTimeoutSec) },
         );
         onLegProblem(order.cycle, order.leg, now);
       }
@@ -802,13 +879,18 @@ export function simulate({
     ) {
       staleSteps += 1;
     }
-    const entryTruth = evaluateCondition(def.entry.condition, view);
+    const entryRow = entryConditions.record(iso(now), view);
+    const entryTruth = entryRow.truth ?? undefined;
     if (entryTruth === undefined) unknownEntrySteps += 1;
+    const entryBefore = { ...entryTrigger };
     const fires = stepTrigger(entryTrigger, entryTruth, now, def.entry.trigger);
     const active = activeCycles();
-    if (fires && !dailyHalt && !drawdownHalt) {
+    if (fires && dailyHalt) entryConditions.markFired(entryRow, 'daily_loss');
+    else if (fires && drawdownHalt) entryConditions.markFired(entryRow, 'drawdown');
+    else if (fires) {
       const mode = ex.reentry.mode;
       const current = active.at(-1);
+      let acted = true;
       if (current && current.entryTriggeredAt === undefined && current.state === 'entering') {
         current.entryTriggeredAt = now;
         current.events.set('entry_trigger', now);
@@ -821,7 +903,10 @@ export function simulate({
         current.entries < (ex.reentry.cap ?? 1)
       ) {
         addEntryBatch(current);
-      }
+      } else acted = false;
+      entryConditions.markFired(entryRow, acted ? 'fired' : 'cycle_open');
+    } else if (entryTruth === true) {
+      entryRow.outcome = whyNotFired(entryBefore, entryTrigger, now, def.entry.trigger);
     }
     // Timing-only exact Entry legs open a cycle at their time without the condition (§6.8).
     if (activeCycles().length === 0 && !dailyHalt && !drawdownHalt) {
@@ -841,14 +926,18 @@ export function simulate({
     for (const c of activeCycles()) {
       scheduleLegs(c, c.entryLegs, c.entryTriggeredAt, now);
       if (c.state === 'open') {
-        const truth = evaluateCondition(def.exit.condition, view);
+        const row = exitConditions.record(iso(now), view, c.no);
+        const truth = row.truth ?? undefined;
+        const before = { ...c.exitTrigger };
         if (stepTrigger(c.exitTrigger, truth, now, def.exit.trigger)) {
+          exitConditions.markFired(row);
           c.state = 'exiting';
           c.events.set('entry_trigger', c.events.get('entry_trigger') ?? now);
           c.legEvents.set('exit:trigger', now);
+        } else if (truth === true) {
+          row.outcome = whyNotFired(before, c.exitTrigger, now, def.exit.trigger);
         }
-        if (c.exitLegs.length === 0)
-          c.exitLegs = legOrderFor(def, 'exit').map((l) => legState(l, 'exit'));
+        if (c.exitLegs.length === 0) c.exitLegs = exitLegsFor(c);
       }
       if (c.state === 'open' || c.state === 'exiting') {
         const exitTriggeredAt = c.state === 'exiting' ? c.legEvents.get('exit:trigger') : undefined;
@@ -945,6 +1034,92 @@ export function simulate({
       };
     });
 
+  /** Why a leg that was never sent stayed unsent when the test ended. */
+  function unsentReason(s: LegState): string {
+    const c = s.cycle;
+    if (c.state === 'aborted' || c.state === 'closed') return 'not_needed';
+    if (s.phase === 'exit' && c.state !== 'exiting') return 'exit_not_triggered';
+    const list = s.phase === 'entry' ? c.entryLegs : s.phase === 'exit' ? c.exitLegs : [];
+    const prev = list[list.indexOf(s) - 1];
+    if (
+      prev &&
+      ((ex.multiLegPolicy === 'after_prior_fill' && prev.status !== 'filled') ||
+        (ex.multiLegPolicy === 'sequential' && prev.status === 'waiting'))
+    )
+      return 'waiting_for_prior_leg';
+    if (s.phase === 'entry' && c.entryTriggeredAt === undefined && !s.leg.timingOnly)
+      return 'entry_not_triggered';
+    return 'timing_not_due';
+  }
+
+  function orderReport(): BacktestOrder[] {
+    const phaseRank = { entry: 0, exit: 1, flatten: 2 } as const;
+    const ordered = allLegs
+      .map((s, i) => ({ s, i }))
+      .sort(
+        (a, b) =>
+          a.s.cycle.no - b.s.cycle.no || phaseRank[a.s.phase] - phaseRank[b.s.phase] || a.i - b.i,
+      );
+    return ordered.map(({ s }) => {
+      let outcome: BacktestOrder['outcome'];
+      let reason = s.reason ?? null;
+      let detail = s.detail;
+      switch (s.status) {
+        case 'filled':
+        case 'partial':
+        case 'canceled':
+        case 'skipped':
+          outcome = s.status;
+          break;
+        case 'failed':
+          outcome = 'rejected';
+          break;
+        case 'working': {
+          outcome = 'working_at_end';
+          const o = s.order;
+          if (!o?.firstBarSeen) reason = 'no_bar_after';
+          else if (o.type === 'limit' || (o.type === 'stop_limit' && o.stopTriggered))
+            reason = 'limit_not_reached';
+          else if (o.type === 'stop' || o.type === 'stop_limit') reason = 'stop_not_reached';
+          else reason = 'volume_cap';
+          detail = {};
+          break;
+        }
+        case 'waiting':
+          outcome = 'not_sent';
+          reason = unsentReason(s);
+          detail = {};
+          break;
+      }
+      return {
+        cycle: s.cycle.no,
+        phase: s.phase,
+        legId: s.leg.id,
+        legLabel: s.leg.legLabel,
+        instrumentId: s.leg.instrumentId,
+        symbol: symbol(s.leg.instrumentId),
+        side: s.side,
+        orderType: s.leg.orderType,
+        timeInForce: s.leg.timeInForce,
+        outcome,
+        reason,
+        detail,
+        decidedAt: s.decidedAt === undefined ? null : iso(s.decidedAt),
+        activeFrom: s.submittedAt === undefined ? null : iso(s.submittedAt),
+        endedAt: s.endedAt === undefined ? null : iso(s.endedAt),
+        quantity: s.status === 'waiting' || s.quantity.isZero() ? null : s.quantity.toString(),
+        limitPrice: dec(s.limit),
+        stopPrice: dec(s.stop),
+        referencePrice: dec(s.reference),
+        filledQuantity: s.filled.toString(),
+        averagePrice: s.filled.gt(0) ? dec(s.cost.div(s.filled)) : null,
+        fills: s.fillCount,
+        barsWorking: s.barsWorking,
+        bestPrice: dec(s.bestPrice),
+      };
+    });
+  }
+
   const byInstrument = new Map<
     string,
     { gross: Decimal; net: Decimal; costs: Decimal; legs: Set<string>; fills: number }
@@ -982,6 +1157,9 @@ export function simulate({
   }));
 
   return {
+    conditions: { entry: entryConditions.report(), exit: exitConditions.report() },
+    orders: orderReport(),
+    symbols: Object.fromEntries([...usedInstruments].map((id) => [id, symbol(id)])),
     engineVersion: ENGINE_VERSION,
     dataVersions: data.dataVersions,
     assumptions: describeAssumptions(inputs),

@@ -1,0 +1,150 @@
+import {
+  evaluateComparison,
+  evaluateCondition,
+  evaluateExpr,
+  type ConditionNode,
+  type Phase,
+  type SeriesResolver,
+  type TriggerState,
+  type Truth,
+} from '@tm/domain';
+import type Decimal from 'decimal.js';
+import type {
+  ComparisonSummary,
+  ConditionBar,
+  ConditionCheck,
+  ConditionOutcome,
+  PhaseConditionReport,
+  StoredTruth,
+} from './results';
+
+/**
+ * Records how a phase's conditions evaluated on each bar, so the results can
+ * show which data was found and which conditions held (Design v1.0 §7.3). It
+ * re-evaluates with the shared evaluator rather than duplicating its logic.
+ */
+
+/** Bars kept per phase before the log keeps only the bars that matter. */
+export const MAX_CONDITION_BARS = 2500;
+
+const num = (d: Decimal | undefined): string | null =>
+  d === undefined ? null : d.toDecimalPlaces(4).toString();
+const stored = (t: Truth): StoredTruth => (t === undefined ? null : t);
+
+function checksFor(node: ConditionNode, r: SeriesResolver, out: ConditionCheck[]): Truth {
+  if (node.kind === 'group') {
+    for (const child of node.children) checksFor(child, r, out);
+    const truth = evaluateCondition(node, r);
+    out.push({ id: node.id, truth: stored(truth) });
+    return truth;
+  }
+  const truth = evaluateComparison(node, r);
+  const check: ConditionCheck = { id: node.id, truth: stored(truth) };
+  if (node.operator !== 'is_stale') check.left = num(evaluateExpr(node.left, r));
+  if (node.right) check.right = num(evaluateExpr(node.right, r));
+  if (node.upper) check.upper = num(evaluateExpr(node.upper, r));
+  if (node.operator === 'crosses_above' || node.operator === 'crosses_below') {
+    check.prevLeft = num(evaluateExpr(node.left, r, 1));
+    check.prevRight = node.right ? num(evaluateExpr(node.right, r, 1)) : null;
+  }
+  out.push(check);
+  return truth;
+}
+
+/** Why a true condition did not fire, from the trigger state before and after the step. */
+export function whyNotFired(
+  before: TriggerState,
+  after: TriggerState,
+  now: number,
+  trigger: Phase['trigger'],
+): ConditionOutcome {
+  if (after.consecutive < trigger.confirmationBars + 1) return 'confirming';
+  if (before.lastFired !== undefined && now - before.lastFired < trigger.cooldownSec * 1000)
+    return 'cooldown';
+  if (trigger.mode === 'once_per_cycle' && before.fired > 0) return 'fired_before';
+  return 'already_true';
+}
+
+export class ConditionRecorder {
+  private readonly bars: ConditionBar[] = [];
+  private readonly summaries = new Map<string, ComparisonSummary>();
+  private evaluated = 0;
+  private trueBars = 0;
+  private falseBars = 0;
+  private unknownBars = 0;
+  private fired = 0;
+
+  constructor(
+    private readonly condition: ConditionNode,
+    private readonly trigger: Phase['trigger'],
+  ) {
+    const walk = (node: ConditionNode) => {
+      if (node.kind === 'group') node.children.forEach(walk);
+      else
+        this.summaries.set(node.id, {
+          id: node.id,
+          trueBars: 0,
+          falseBars: 0,
+          unknownBars: 0,
+          firstTrue: null,
+          lastTrue: null,
+        });
+    };
+    walk(condition);
+  }
+
+  /** Records one evaluation and returns its row, so the caller can set the outcome. */
+  record(time: string, r: SeriesResolver, cycle?: number): ConditionBar {
+    const checks: ConditionCheck[] = [];
+    const truth = stored(checksFor(this.condition, r, checks));
+    this.evaluated += 1;
+    if (truth === true) this.trueBars += 1;
+    else if (truth === false) this.falseBars += 1;
+    else this.unknownBars += 1;
+    for (const c of checks) {
+      const s = this.summaries.get(c.id);
+      if (!s) continue;
+      if (c.truth === true) {
+        s.trueBars += 1;
+        s.firstTrue ??= time;
+        s.lastTrue = time;
+      } else if (c.truth === false) s.falseBars += 1;
+      else s.unknownBars += 1;
+    }
+    const row: ConditionBar = { time, truth, checks };
+    if (cycle !== undefined) row.cycle = cycle;
+    this.bars.push(row);
+    return row;
+  }
+
+  markFired(row: ConditionBar, outcome: ConditionOutcome = 'fired') {
+    row.outcome = outcome;
+    if (outcome === 'fired') this.fired += 1;
+  }
+
+  report(): PhaseConditionReport {
+    let bars = this.bars;
+    const barsTruncated = bars.length > MAX_CONDITION_BARS;
+    if (barsTruncated) {
+      // Keep what explains the result: true bars, firings and changes of truth.
+      bars = bars.filter(
+        (b, i) => b.truth === true || b.outcome !== undefined || b.truth !== bars[i - 1]?.truth,
+      );
+      if (bars.length > MAX_CONDITION_BARS) {
+        bars = bars.filter((b) => b.outcome !== undefined).slice(-MAX_CONDITION_BARS);
+      }
+    }
+    return {
+      condition: this.condition,
+      trigger: this.trigger,
+      evaluated: this.evaluated,
+      trueBars: this.trueBars,
+      falseBars: this.falseBars,
+      unknownBars: this.unknownBars,
+      fired: this.fired,
+      comparisons: [...this.summaries.values()],
+      bars,
+      barsTruncated,
+    };
+  }
+}
