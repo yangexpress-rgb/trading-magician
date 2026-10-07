@@ -297,7 +297,7 @@ export function PerformanceView({
     <div className="space-y-6">
       <form
         aria-label="Performance filters"
-        className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7"
+        className="grid-fields gap-3"
         onSubmit={(e) => e.preventDefault()}
       >
         <TextField

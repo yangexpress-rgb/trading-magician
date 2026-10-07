@@ -60,10 +60,10 @@ export function AppShell({ email, children }: { email: string; children: ReactNo
         <div className="flex justify-end px-4 pt-3 md:hidden">
           <SignOutButton />
         </div>
-        <main id="main" className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
+        <main id="main" className="px-4 py-6 md:px-8 md:py-8 2xl:px-12">
           {children}
         </main>
-        <footer className="mx-auto max-w-6xl px-4 pb-8 text-xs text-ink-muted md:px-8">
+        <footer className="px-4 pb-8 text-xs text-ink-muted md:px-8 2xl:px-12">
           <p>
             Paper trading only: simulated orders, no real money. Back tests and paper results do not
             predict real results and are not financial advice (§16.4).

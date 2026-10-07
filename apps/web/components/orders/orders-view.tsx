@@ -728,7 +728,7 @@ export function OrdersView({
       <form
         role="search"
         aria-label="Filter orders"
-        className="mb-4 grid grid-cols-2 items-end gap-3 sm:grid-cols-3 lg:grid-cols-5"
+        className="mb-4 grid-fields items-end gap-3"
         onSubmit={(e) => e.preventDefault()}
       >
         <SelectField

@@ -91,3 +91,24 @@
     outline-offset: 2px;
   }
 }
+
+/*
+ * Form grids that never squeeze a field below a readable width: as many
+ * columns as fit, each at least the given size, wrapping onto more rows on
+ * narrow screens instead of cutting off labels or the chosen option.
+ */
+@utility grid-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));
+}
+@utility grid-fields-wide {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
+}
+
+/* Larger screens get slightly larger text; every size and spacing is in rem. */
+@media (min-width: 1680px) {
+  html {
+    font-size: 17px;
+  }
+}

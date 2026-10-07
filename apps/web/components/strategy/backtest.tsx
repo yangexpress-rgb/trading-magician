@@ -212,7 +212,7 @@ export function BacktestInputsForm({
         if (!runBlocked) void run();
       }}
     >
-      <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-3" disabled={busy}>
+      <fieldset className="grid-fields-wide gap-3" disabled={busy}>
         <legend className="sr-only">Back test inputs</legend>
         {field('from', 'From', { type: 'date' })}
         {field('to', 'To', { type: 'date' })}
@@ -245,7 +245,7 @@ export function BacktestInputsForm({
       </fieldset>
       <details className="mt-3 rounded-md border border-line p-3">
         <summary className="cursor-pointer text-sm font-medium">Costs and fills</summary>
-        <fieldset className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3" disabled={busy}>
+        <fieldset className="mt-3 grid-fields-wide gap-3" disabled={busy}>
           {field('slippageBps', 'Slippage (basis points)', { inputMode: 'decimal' })}
           {field('commissionPerShare', 'Commission per share (USD)', { inputMode: 'decimal' })}
           {field('commissionMin', 'Minimum commission per fill (USD)', { inputMode: 'decimal' })}

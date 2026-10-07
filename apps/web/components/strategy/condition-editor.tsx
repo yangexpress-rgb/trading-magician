@@ -348,14 +348,14 @@ function ComparisonEditor({
           </div>
         )}
       </div>
-      <div className="grid gap-2 xl:grid-cols-[1fr_auto_1fr]">
+      <div className="grid gap-2">
         <ExpressionEditor
           expr={c.left}
           legend="Left side"
           path={[...path, 'left']}
           onChange={(left) => ops.update({ ...c, left })}
         />
-        <div className="xl:w-44 xl:pt-5">
+        <div className="sm:max-w-xs">
           <MiniSelect
             id={`${c.id}-operator`}
             label="Comparison"

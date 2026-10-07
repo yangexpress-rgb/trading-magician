@@ -67,7 +67,7 @@ export default async function VersionPage({
           </>
         }
       />
-      <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="min-w-0">
           <VersionSummary
             definition={version.definition}

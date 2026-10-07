@@ -241,7 +241,7 @@ function LegEditor({
 
       <fieldset disabled={!editable} className="min-w-0">
         <legend className="sr-only">{name} order details</legend>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
+        <div className="grid-fields-wide gap-2">
           <MiniInput
             id={id('label')}
             label="Leg name"
@@ -389,7 +389,7 @@ function LegEditor({
               onChange={(stopPrice) => set({ stopPrice })}
             />
           )}
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+          <div className="grid-fields-wide gap-2">
             <MiniSelect
               id={id('tif')}
               label="Time in force"

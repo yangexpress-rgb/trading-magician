@@ -95,7 +95,7 @@ export function TimingEditor({
       </div>
 
       {t.mode === 'exact' && (
-        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="mt-2 grid-fields-wide gap-2">
           <MiniInput
             id={id('at')}
             label="Date and time"

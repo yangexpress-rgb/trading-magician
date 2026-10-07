@@ -31,7 +31,7 @@ export function TriggerSettings({
   return (
     <details className="mt-3">
       <summary className="cursor-pointer text-sm font-medium">Trigger options</summary>
-      <fieldset disabled={!editable} className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <fieldset disabled={!editable} className="mt-2 grid-fields-wide gap-2">
         <legend className="sr-only">{phase === 'entry' ? 'Entry' : 'Exit'} trigger options</legend>
         <MiniSelect
           id={`${phase}-trigger-mode`}
@@ -105,10 +105,7 @@ export function ExecutionAndRisk({
           How legs are sent and what happens when one doesn&rsquo;t fill. Brokers rarely fill
           several instruments as one atomic order.
         </p>
-        <fieldset
-          disabled={!editable}
-          className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
-        >
+        <fieldset disabled={!editable} className="grid-fields-wide gap-3">
           <legend className="sr-only">Execution policy</legend>
           <MiniSelect
             id="exec-policy"
@@ -213,10 +210,7 @@ export function ExecutionAndRisk({
 
         <details className="mt-4">
           <summary className="cursor-pointer text-sm font-medium">Cycle and data options</summary>
-          <fieldset
-            disabled={!editable}
-            className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
-          >
+          <fieldset disabled={!editable} className="mt-2 grid-fields-wide gap-3">
             <legend className="sr-only">Cycle and data options</legend>
             <MiniSelect
               id="exec-milestone"
@@ -284,10 +278,7 @@ export function ExecutionAndRisk({
           Checked before every order. Limits marked required must be set before the strategy can
           start. Amounts are in {baseCurrency}.
         </p>
-        <fieldset
-          disabled={!editable}
-          className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
-        >
+        <fieldset disabled={!editable} className="grid-fields-wide gap-3">
           <legend className="sr-only">Risk limits</legend>
           {RISK_FIELDS.map(({ key, label, unit }) => {
             const value = risk[key];
