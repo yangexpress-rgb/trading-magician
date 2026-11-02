@@ -204,6 +204,31 @@ test.describe('strategy library', () => {
       .getByRole('button', { name: 'Delete strategy' })
       .click();
     await expect(page.getByRole('heading', { name: 'No strategies match' })).toBeVisible();
+
+    // New strategy, copied from an existing one: a fresh draft with the same rules.
+    await page.goto('/strategy-lab');
+    await page.getByRole('button', { name: 'New strategy' }).click();
+    const copyDialog = page.getByRole('dialog', { name: 'New strategy' });
+    await copyDialog.getByLabel('A copy of an existing strategy').check();
+    await copyDialog.getByLabel('Strategy to copy').selectOption({ label: 'Momentum A' });
+    await expect(copyDialog.getByLabel('Name', { exact: true })).toHaveValue('Copy of Momentum A');
+    await copyDialog.getByLabel('Name', { exact: true }).fill('Momentum B');
+    await expectAccessible(page);
+    await copyDialog.getByRole('button', { name: 'Create copy' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Momentum B' })).toBeVisible();
+    const copyId = page.url().split('/').pop()!;
+    const copied = await (await a.get(`/strategies/${copyId}`)).json();
+    expect(copied).toMatchObject({ status: 'created', versions: [] });
+    expect(copied.definition).toEqual(
+      (await (await a.get(`/strategies/${withAsset.id}`)).json()).definition,
+    );
+
+    // "Make a copy" on a strategy's page opens the same dialog with it picked.
+    await page.goto(`/strategy-lab/${withAsset.id}`);
+    await page.getByRole('link', { name: 'Make a copy' }).click();
+    await expect(copyDialog.getByLabel('Strategy to copy')).toHaveValue(withAsset.id);
+    await copyDialog.getByRole('button', { name: 'Create copy' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Copy of Momentum A' })).toBeVisible();
   });
 });
 

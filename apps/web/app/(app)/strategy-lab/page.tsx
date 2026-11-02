@@ -26,7 +26,7 @@ import { formatPct } from '@/lib/backtest-text';
 import { appDb } from '@/lib/server/db';
 import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
-import { NewStrategyButton } from './new-strategy';
+import { type CopySource, NewStrategyButton } from './new-strategy';
 import { RowActions } from './row-actions';
 
 export const metadata: Metadata = { title: 'Strategy Lab' };
@@ -64,21 +64,39 @@ export default async function StrategyLabPage({
   const updated = one('updated') as keyof typeof UPDATED_PRESETS | undefined;
   const days = updated ? UPDATED_PRESETS[updated] : undefined;
 
-  const { items, total, instrumentOptions } = await withTenant(appDb(), tenant, async (tx) => ({
-    ...(await listStrategies(tx, {
-      search: q.q,
-      statuses: q.status,
-      instrumentId: q.instrumentId,
-      archived: q.archived,
-      sort: q.sort,
-      direction: q.direction,
-      updatedFrom: days ? new Date(Date.now() - days * 86_400_000) : undefined,
-    })),
-    instrumentOptions: await tx
-      .select({ id: schema.instruments.id, symbol: schema.instruments.symbol })
-      .from(schema.instruments)
-      .orderBy(schema.instruments.symbol),
-  }));
+  const { items, total, instrumentOptions, copySources } = await withTenant(
+    appDb(),
+    tenant,
+    async (tx) => ({
+      ...(await listStrategies(tx, {
+        search: q.q,
+        statuses: q.status,
+        instrumentId: q.instrumentId,
+        archived: q.archived,
+        sort: q.sort,
+        direction: q.direction,
+        updatedFrom: days ? new Date(Date.now() - days * 86_400_000) : undefined,
+      })),
+      instrumentOptions: await tx
+        .select({ id: schema.instruments.id, symbol: schema.instruments.symbol })
+        .from(schema.instruments)
+        .orderBy(schema.instruments.symbol),
+      // Every strategy, archived included, is something a new one can be copied from.
+      copySources: (
+        await listStrategies(tx, {
+          archived: 'include',
+          sort: 'name',
+          direction: 'asc',
+          limit: 200,
+        })
+      ).items.map((s): CopySource => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        archived: s.archivedAt !== null,
+      })),
+    }),
+  );
   const filtered = Boolean(q.q || q.status || q.instrumentId || days || q.archived !== 'exclude');
 
   return (
@@ -86,7 +104,7 @@ export default async function StrategyLabPage({
       <PageHeader
         title="Strategy Lab"
         description="Define entry and exit rules across any mix of assets, test them, then run them on paper."
-        actions={<NewStrategyButton />}
+        actions={<NewStrategyButton sources={copySources} initialCopyFrom={one('copy')} />}
       />
 
       <form

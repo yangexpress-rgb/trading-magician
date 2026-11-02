@@ -810,13 +810,13 @@ export async function duplicateStrategy(
   tx: Transaction,
   userId: string,
   id: string,
-  input: { name?: string | undefined } = {},
+  input: { name?: string | undefined; description?: string | undefined } = {},
 ): Promise<StrategyDetail> {
   const source = await loadStrategyRow(tx, id);
   const name = input.name ?? `Copy of ${source.name}`.slice(0, 120);
   const copy = await createStrategy(tx, userId, {
     name,
-    description: source.description,
+    description: input.description ?? source.description,
     tags: source.tags,
     definition: source.draftDefinition,
   });

@@ -117,7 +117,7 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
         call<StrategyDetailDto>('PATCH', `/strategies/${enc(id)}`, body),
       remove: (id: string, rowVersion: number) =>
         call<undefined>('DELETE', `/strategies/${enc(id)}`, { rowVersion }),
-      duplicate: (id: string, body: { name?: string } = {}) =>
+      duplicate: (id: string, body: { name?: string; description?: string } = {}) =>
         call<StrategyDetailDto>('POST', `/strategies/${enc(id)}/duplicate`, body),
       publishVersion: (id: string, rowVersion: number) =>
         call<PublishVersionDto>('POST', `/strategies/${enc(id)}/versions`, { rowVersion }),
