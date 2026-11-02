@@ -1,6 +1,6 @@
 import { eq, getStrategy, listTenantInstruments, schema, StrategyError, withTenant } from '@tm/db';
 import { formatDateTime, STATUS_LABELS } from '@tm/domain';
-import { Badge, Card, ModeBadge, PageHeader } from '@tm/ui';
+import { Badge, buttonClasses, Card, ModeBadge, PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -52,6 +52,12 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
             {strategy.currentVersion && <Badge>Version {strategy.currentVersion.versionNo}</Badge>}
             <StrategyStatusBadge status={strategy.status} />
             <ModeBadge mode="paper" />
+            <Link
+              href={`/strategy-lab?copy=${strategy.id}`}
+              className={buttonClasses('secondary', 'sm')}
+            >
+              Make a copy
+            </Link>
           </>
         }
       />

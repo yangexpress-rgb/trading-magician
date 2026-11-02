@@ -482,6 +482,16 @@ describe('library', () => {
       statusHistory: [],
     });
     expect(copy.definition).toEqual(s.definition);
+
+    const named = await asA((tx) =>
+      duplicateStrategy(tx, userA, s.id, { name: 'Original B', description: 'Tighter exits' }),
+    );
+    expect(named).toMatchObject({
+      name: 'Original B',
+      description: 'Tighter exits',
+      status: 'created',
+    });
+    expect(named.definition).toEqual(s.definition);
   });
 });
 

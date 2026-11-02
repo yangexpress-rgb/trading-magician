@@ -68,7 +68,9 @@ export const updateStrategyRequest = z
 export type UpdateStrategyRequest = z.input<typeof updateStrategyRequest>;
 
 export const rowVersionRequest = z.object({ rowVersion }).strict();
-export const duplicateStrategyRequest = z.object({ name: name.optional() }).strict();
+export const duplicateStrategyRequest = z
+  .object({ name: name.optional(), description: description.optional() })
+  .strict();
 
 export const startStrategyRequest = z
   .object({
