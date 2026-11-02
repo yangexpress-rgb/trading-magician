@@ -14,7 +14,7 @@
   "dependencies": {
     "@tm/domain": "workspace:*",
     "decimal.js": "^10.6.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tm/market-data": "workspace:*",
