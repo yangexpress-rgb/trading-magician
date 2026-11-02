@@ -10,6 +10,7 @@ import {
   order,
   OTHER_ACCOUNT,
   PAPER_ACCOUNT,
+  position,
   STOCK_A,
   STOCK_B,
   UNKNOWN_INSTRUMENT,
@@ -398,5 +399,58 @@ describe('issue locations', () => {
       path: ['exit', 'orders', 0, 'instrumentId'],
     });
     expect(STOCK_A).not.toBe(STOCK_B);
+  });
+});
+
+describe('position values', () => {
+  it('accepts a 5% take-profit in Exit on the instrument Entry buys', () => {
+    expect(
+      check((d) => {
+        d.exit.condition.children = [comparison('tp', position('p1'), 'gte', constant('5'))];
+      }),
+    ).toMatchObject({ errors: [], warnings: [] });
+  });
+
+  it('accepts a limit Exit priced from the entry price', () => {
+    const { errors } = check((d) => {
+      d.exit.orders = [
+        order('sell-a', {
+          side: 'sell',
+          orderType: 'limit',
+          limitPrice: {
+            kind: 'calc',
+            id: 'lp',
+            op: 'mul',
+            args: [position('p1', { field: 'entry_price' }), constant('1.05')],
+          },
+        }),
+      ];
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('rejects position values in Entry rules', () => {
+    const { errors } = check((d) => {
+      d.entry.condition.children = [comparison('e', position('p1'), 'gte', constant('5'))];
+    });
+    expect(errors).toContain('position_in_entry');
+  });
+
+  it('rejects a position in an instrument no Entry leg trades', () => {
+    const { errors } = check((d) => {
+      d.exit.condition.children = [
+        comparison('tp', position('p1', { instrumentId: STOCK_B }), 'gte', constant('5')),
+      ];
+    });
+    expect(errors).toContain('position_not_traded');
+  });
+
+  it('rejects a crossing on a position value', () => {
+    const { errors } = check((d) => {
+      d.exit.condition.children = [
+        comparison('tp', position('p1'), 'crosses_above', constant('5')),
+      ];
+    });
+    expect(errors).toContain('cross_on_position');
   });
 });

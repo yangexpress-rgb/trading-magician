@@ -54,6 +54,13 @@ export const FIELD_LABELS = {
   vwap: 'VWAP',
 } as const;
 
+export const POSITION_FIELD_LABELS = {
+  entry_price: 'Entry price',
+  gain_pct: 'Gain %',
+  pnl: 'Profit or loss',
+  quantity: 'Quantity held',
+} as const;
+
 export const INTERVAL_LABELS = {
   '1m': '1 minute',
   '5m': '5 minutes',
@@ -104,6 +111,8 @@ export function describeExpr(expr: Expr, symbol: SymbolLookup): string {
       const ago = expr.offset ? ` ${expr.offset} bars ago` : '';
       return `${expr.name}(${params}) of ${symbol(expr.instrumentId) ?? '?'}${field}${ago}`;
     }
+    case 'position':
+      return `${symbol(expr.instrumentId) ?? '?'} position ${POSITION_FIELD_LABELS[expr.field].toLowerCase()}`;
     case 'calc': {
       const args = expr.args.map((a) => describeExpr(a, symbol));
       if (expr.op === 'neg') return `−(${args[0] ?? ''})`;

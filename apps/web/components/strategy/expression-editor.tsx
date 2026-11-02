@@ -6,6 +6,7 @@ import {
   getIndicator,
   INDICATORS,
   MARKET_FIELDS,
+  POSITION_FIELDS,
   PRICE_ADJUSTMENTS,
   randomId,
   resolveIndicatorParams,
@@ -14,9 +15,16 @@ import {
   type Expr,
   type IndicatorExpr,
   type MarketExpr,
+  type PositionExpr,
 } from '@tm/domain';
 import { cx } from '@tm/ui';
-import { ADJUSTMENT_LABELS, CALC_LABELS, FIELD_LABELS, INTERVAL_LABELS } from '@/lib/strategy-text';
+import {
+  ADJUSTMENT_LABELS,
+  CALC_LABELS,
+  FIELD_LABELS,
+  INTERVAL_LABELS,
+  POSITION_FIELD_LABELS,
+} from '@/lib/strategy-text';
 import { useEditor } from './editor-context';
 import { MiniInput, MiniSelect, RowButton } from './fields';
 
@@ -27,6 +35,7 @@ const KIND_LABELS: Record<Kind, string> = {
   constant: 'Fixed value',
   market: 'Market data',
   indicator: 'Indicator',
+  position: 'Position (after Entry fills)',
   calc: 'Calculation',
 };
 
@@ -43,7 +52,7 @@ function seriesDefaults(instrumentId: string) {
 /** A fresh expression of `kind`, keeping the instrument the user already picked. */
 export function newExpr(kind: Kind, instrumentId: string, from?: Expr): Expr {
   const instrument =
-    from && (from.kind === 'market' || from.kind === 'indicator')
+    from && (from.kind === 'market' || from.kind === 'indicator' || from.kind === 'position')
       ? from.instrumentId
       : instrumentId;
   switch (kind) {
@@ -63,6 +72,16 @@ export function newExpr(kind: Kind, instrumentId: string, from?: Expr): Expr {
         ...seriesDefaults(instrument),
       };
     }
+    case 'position':
+      return {
+        kind,
+        id: randomId(),
+        field: 'gain_pct',
+        instrumentId: instrument,
+        interval: '1d',
+        adjustment: 'split_and_dividend',
+        session: 'regular',
+      };
     case 'calc':
       return {
         kind,
@@ -100,6 +119,10 @@ export function ExpressionEditor({
   const fallbackInstrument = instruments[0]?.id ?? '';
   const id = (field: string) => `${expr.id}-${field}`;
   const err = (...rest: (string | number)[]) => issueAt([...path, ...rest]);
+  // Position values exist only once Entry has filled, so only Exit offers them.
+  const kinds = (Object.keys(KIND_LABELS) as Kind[]).filter(
+    (k) => k !== 'position' || path[0] === 'exit' || expr.kind === 'position',
+  );
 
   return (
     <fieldset
@@ -121,7 +144,7 @@ export function ExpressionEditor({
             onChange(newExpr(kind, fallbackInstrument, expr));
           }}
         >
-          {(Object.keys(KIND_LABELS) as Kind[]).map((k) => (
+          {kinds.map((k) => (
             <option key={k} value={k} disabled={k === 'calc' && depth >= MAX_NESTING}>
               {KIND_LABELS[k]}
             </option>
@@ -141,6 +164,10 @@ export function ExpressionEditor({
 
         {(expr.kind === 'market' || expr.kind === 'indicator') && (
           <SeriesFields expr={expr} onChange={onChange} id={id} err={err} />
+        )}
+
+        {expr.kind === 'position' && (
+          <PositionFields expr={expr} onChange={onChange} id={id} err={err} />
         )}
 
         {expr.kind === 'calc' && (
@@ -383,6 +410,79 @@ function SeriesFields({
           </MiniSelect>
         </div>
       </details>
+    </>
+  );
+}
+
+/**
+ * A value from the cycle's own position: its average Entry fill price, gain,
+ * profit or quantity. Gain and profit are marked at the close of each
+ * completed bar of the chosen interval, which is also how often they update.
+ */
+function PositionFields({
+  expr,
+  onChange,
+  id,
+  err,
+}: {
+  expr: PositionExpr;
+  onChange: (expr: Expr) => void;
+  id: (field: string) => string;
+  err: (...rest: (string | number)[]) => string | undefined;
+}) {
+  const { instruments } = useEditor();
+  const known = instruments.some((i) => i.id === expr.instrumentId);
+  return (
+    <>
+      <MiniSelect
+        id={id('instrument')}
+        label="Instrument"
+        value={expr.instrumentId}
+        error={err('instrumentId')}
+        onChange={(e) => onChange({ ...expr, instrumentId: e.target.value })}
+      >
+        {!known && <option value={expr.instrumentId}>Choose an instrument</option>}
+        {instruments.map((i) => (
+          <option key={i.id} value={i.id}>
+            {i.symbol} · {i.displayName}
+          </option>
+        ))}
+      </MiniSelect>
+      <MiniSelect
+        id={id('field')}
+        label="Value"
+        value={expr.field}
+        onChange={(e) => onChange({ ...expr, field: e.target.value as PositionExpr['field'] })}
+      >
+        {POSITION_FIELDS.map((f) => (
+          <option key={f} value={f}>
+            {POSITION_FIELD_LABELS[f]}
+          </option>
+        ))}
+      </MiniSelect>
+      <MiniSelect
+        id={id('interval')}
+        label="Check every"
+        value={expr.interval}
+        onChange={(e) =>
+          onChange({ ...expr, interval: e.target.value as PositionExpr['interval'] })
+        }
+      >
+        {BAR_INTERVALS.map((b) => (
+          <option key={b} value={b}>
+            {INTERVAL_LABELS[b]}
+          </option>
+        ))}
+      </MiniSelect>
+      <p className="col-span-full text-xs text-ink-muted">
+        {expr.field === 'gain_pct'
+          ? 'Percent above your average Entry fill price (below it for a short), at each bar close.'
+          : expr.field === 'entry_price'
+            ? 'Your average Entry fill price in this cycle.'
+            : expr.field === 'pnl'
+              ? 'Unrealized profit or loss in dollars, at each bar close.'
+              : 'Shares held in this cycle; negative when short.'}
+      </p>
     </>
   );
 }

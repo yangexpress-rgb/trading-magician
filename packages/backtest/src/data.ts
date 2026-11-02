@@ -2,6 +2,7 @@ import {
   addDays,
   getIndicator,
   resolveIndicatorParams,
+  seriesOf,
   walkExpr,
   walkExpressions,
   type Expr,
@@ -52,7 +53,11 @@ export function seriesExprs(def: StrategyDefinition): SeriesExpr[] {
       if (o.stopPrice) all.push(...walkExpr(o.stopPrice));
     }
   }
-  return all.filter((e): e is SeriesExpr => e.kind === 'market' || e.kind === 'indicator');
+  // A position value reads its interval's close, so that series is loaded too.
+  return all.flatMap((e) => {
+    const series = seriesOf(e);
+    return series ? [series] : [];
+  });
 }
 
 /** Bars of history an expression needs before its first value. */

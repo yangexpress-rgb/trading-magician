@@ -65,7 +65,9 @@ import {
   type PlannedLeg,
   type PlannedOrder,
   type Quote,
+  type SeriesResolver,
   type Truth,
+  withPositions,
 } from '@tm/domain';
 import { randomUUID } from 'node:crypto';
 import Decimal from 'decimal.js';
@@ -145,10 +147,13 @@ function evaluationInputs(now: Date): BacktestInputs {
 }
 
 /** Latest values of the series a condition reads, for the trigger event (§8.2). */
-function leafValues(condition: ConditionGroup, view: MarketView): Record<string, string | null> {
+function leafValues(
+  condition: ConditionGroup,
+  view: SeriesResolver,
+): Record<string, string | null> {
   const out: Record<string, string | null> = {};
   for (const e of walkExpressions(condition)) {
-    if (e.kind !== 'market' && e.kind !== 'indicator') continue;
+    if (e.kind !== 'market' && e.kind !== 'indicator' && e.kind !== 'position') continue;
     out[e.id] = evaluateExpr(e, view)?.toString() ?? null;
   }
   return out;
@@ -543,7 +548,15 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   }
   const newData = dataTime > 0 && dataTime > (state.lastDataTime ?? 0);
   if (newData) state.lastDataTime = dataTime;
-  const evaluate = (phase: PhaseName): Truth => evaluateCondition(def[phase].condition, view);
+  const evaluate = (phase: PhaseName, r: SeriesResolver = view): Truth =>
+    evaluateCondition(def[phase].condition, r);
+  /** The view plus a cycle's positions, for Exit rules and Exit order prices. */
+  const cycleView = (c: ActiveCycle): SeriesResolver =>
+    withPositions(view, (id) => {
+      const e = c.entries.get(id);
+      if (!e || e.quantity.isZero()) return undefined;
+      return { quantity: c.positions.get(id) ?? ZERO, averagePrice: e.cost.div(e.quantity) };
+    });
 
   // Entry: a new cycle, another batch, or nothing (§6.9).
   const entryTruth = newData ? { truth: evaluate('entry') } : undefined;
@@ -579,6 +592,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       legs: [],
       positions: new Map(),
       cash: ZERO,
+      entries: new Map(),
       entryTriggerEventId: triggered ? (entryEventId ?? null) : null,
       exitTriggerEventId: null,
     });
@@ -627,7 +641,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   let placedThisPass = 0;
   for (const c of cycles) {
     const exitTruth =
-      newData && c.cycle.status === 'open' ? { truth: evaluate('exit') } : undefined;
+      newData && c.cycle.status === 'open' ? { truth: evaluate('exit', cycleView(c)) } : undefined;
     const plan = planCycle({
       definition: def,
       cycle: c.cycle,
@@ -647,7 +661,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         evaluatedAt: now,
         result: exitTruth.truth,
         qualified: plan.notes.includes('exit_triggered'),
-        values: leafValues(def.exit.condition, view),
+        values: leafValues(def.exit.condition, cycleView(c)),
       });
     }
 
@@ -695,7 +709,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         plan,
         leg,
         quoteFor,
-        view,
+        view: cycleView(c),
         equity,
         gross,
         dailyLossHit,
@@ -787,7 +801,7 @@ interface PlaceInput {
   plan: CyclePlan;
   leg: PlannedLeg;
   quoteFor: (instrumentId: string) => Promise<Quote | undefined>;
-  view: MarketView;
+  view: SeriesResolver;
   equity: Decimal;
   gross: Decimal;
   dailyLossHit: boolean;

@@ -176,7 +176,7 @@ export function collectInstrumentUses(def: StrategyDefinition): InstrumentUse[] 
   const uses: InstrumentUse[] = [];
   for (const phase of ['entry', 'exit'] as const) {
     for (const expr of walkExpressions(def[phase].condition)) {
-      if (expr.kind === 'market' || expr.kind === 'indicator') {
+      if (expr.kind === 'market' || expr.kind === 'indicator' || expr.kind === 'position') {
         uses.push({ instrumentId: expr.instrumentId, phase, role: 'condition' });
       }
     }
@@ -185,7 +185,7 @@ export function collectInstrumentUses(def: StrategyDefinition): InstrumentUse[] 
       for (const price of [order.limitPrice, order.stopPrice]) {
         if (!price) continue;
         for (const e of walkExpr(price)) {
-          if (e.kind === 'market' || e.kind === 'indicator') {
+          if (e.kind === 'market' || e.kind === 'indicator' || e.kind === 'position') {
             uses.push({ instrumentId: e.instrumentId, phase, role: 'condition' });
           }
         }

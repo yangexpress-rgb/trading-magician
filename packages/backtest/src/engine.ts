@@ -15,7 +15,9 @@ import {
   type PhaseEvent,
   type PhaseName,
   type PlannedOrder,
+  type SeriesResolver,
   type StrategyDefinition,
+  withPositions,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { seriesExprs, seriesKey, type InstrumentRef, type LoadedData } from './data';
@@ -129,6 +131,9 @@ interface CyclePosition {
   commission: Decimal;
   slippage: Decimal;
   borrow: Decimal;
+  /** Entry fills only, for the average entry price that position values use. */
+  entryQuantity: Decimal;
+  entryCost: Decimal;
 }
 
 interface Cycle {
@@ -281,11 +286,21 @@ export function simulate({
         commission: ZERO,
         slippage: ZERO,
         borrow: ZERO,
+        entryQuantity: ZERO,
+        entryCost: ZERO,
       };
       c.positions.set(id, p);
     }
     return p;
   };
+
+  /** The market view plus this cycle's positions, for Exit rules and Exit order prices. */
+  const cycleView = (c: Cycle): SeriesResolver =>
+    withPositions(view, (id) => {
+      const p = c.positions.get(id);
+      if (!p || p.entryQuantity.isZero()) return undefined;
+      return { quantity: p.quantity, averagePrice: p.entryCost.div(p.entryQuantity) };
+    });
 
   // ---------------------------------------------------------------------------
   // Orders
@@ -455,7 +470,8 @@ export function simulate({
         'Some orders were skipped because there was no price yet',
       );
     const pos = position(c, o.instrumentId).quantity;
-    const price = (e: PlannedOrder['limitPrice']) => (e ? evaluateExpr(e, view) : undefined);
+    const prices = cycleView(c);
+    const price = (e: PlannedOrder['limitPrice']) => (e ? evaluateExpr(e, prices) : undefined);
     const limit = price(o.limitPrice);
     const stop = price(o.stopPrice);
     leg.reference = ref;
@@ -541,6 +557,8 @@ export function simulate({
     c.firstFill ??= at;
     c.lastFill = at;
     if (leg.phase === 'entry') {
+      p.entryQuantity = p.entryQuantity.plus(qty);
+      p.entryCost = p.entryCost.plus(price.times(qty));
       c.entryValue = c.entryValue.plus(price.times(qty));
       if (!c.events.has('entry_partial_fill')) c.events.set('entry_partial_fill', at);
     }
@@ -926,7 +944,7 @@ export function simulate({
     for (const c of activeCycles()) {
       scheduleLegs(c, c.entryLegs, c.entryTriggeredAt, now);
       if (c.state === 'open') {
-        const row = exitConditions.record(iso(now), view, c.no);
+        const row = exitConditions.record(iso(now), cycleView(c), c.no);
         const truth = row.truth ?? undefined;
         const before = { ...c.exitTrigger };
         if (stepTrigger(c.exitTrigger, truth, now, def.exit.trigger)) {

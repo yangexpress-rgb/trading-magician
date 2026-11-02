@@ -8,9 +8,10 @@ import {
   type SeriesExpr,
   type SeriesResolver,
   type Truth,
+  withPositions,
 } from './evaluate';
 import type { ConditionGroup, ConditionNode, Expr } from './schema';
-import { comparison, constant, indicator, market } from './test-fixtures';
+import { comparison, constant, indicator, market, position, STOCK_A } from './test-fixtures';
 
 /** Resolver backed by a table of series id → values, newest last. */
 function resolver(
@@ -197,5 +198,49 @@ describe('condition groups', () => {
       }),
       { numRuns: 200 },
     );
+  });
+});
+
+describe('position values', () => {
+  // The mark series is the position's interval close; its id is the position's id.
+  const held = (quantity: number, averagePrice: number, closes: number[]) =>
+    withPositions(resolver({ pos: closes }), (id) =>
+      id === STOCK_A
+        ? { quantity: new Decimal(quantity), averagePrice: new Decimal(averagePrice) }
+        : undefined,
+    );
+
+  it('measures gain from the average entry price at the latest close', () => {
+    const r = held(10, 100, [101, 105]);
+    expect(evaluateExpr(position('pos'), r)?.toString()).toBe('5');
+    expect(evaluateExpr(position('pos', { field: 'entry_price' }), r)?.toString()).toBe('100');
+    expect(evaluateExpr(position('pos', { field: 'pnl' }), r)?.toString()).toBe('50');
+    expect(evaluateExpr(position('pos', { field: 'quantity' }), r)?.toString()).toBe('10');
+  });
+
+  it('counts a fall in price as a gain on a short', () => {
+    const r = held(-10, 100, [95]);
+    expect(evaluateExpr(position('pos'), r)?.toString()).toBe('5');
+    expect(evaluateExpr(position('pos', { field: 'pnl' }), r)?.toString()).toBe('50');
+  });
+
+  it('is unknown without a position, so a take-profit cannot fire', () => {
+    const flat = resolver({ pos: [200] });
+    expect(evaluateExpr(position('pos'), flat)).toBeUndefined();
+    expect(evaluateExpr(position('pos', { field: 'quantity' }), flat)?.toString()).toBe('0');
+    expect(
+      evaluateComparison(comparison('tp', position('pos'), 'gte', constant('5')), flat),
+    ).toBeUndefined();
+  });
+
+  it('fires a 5% take-profit only once the close reaches it', () => {
+    const tp = comparison('tp', position('pos'), 'gte', constant('5'));
+    expect(evaluateComparison(tp, held(10, 100, [104.99]))).toBe(false);
+    expect(evaluateComparison(tp, held(10, 100, [105]))).toBe(true);
+  });
+
+  it('reports the mark series as stale', () => {
+    const r = withPositions(resolver({ pos: [100] }, ['pos']), () => undefined);
+    expect(evaluateComparison(comparison('s', position('pos'), 'is_stale'), r)).toBe(true);
   });
 });

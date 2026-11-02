@@ -1,4 +1,5 @@
 import {
+  and,
   claimRuntimes,
   createStrategy,
   eq,
@@ -349,6 +350,83 @@ describe('paper runtime: Entry first, Exit second (§6.9)', () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ phase: 'entry', result: 'true', qualified: false });
     expect(Object.keys(events[0]!.values as object)).toEqual(['in-px']);
+    await stopAll();
+  });
+});
+
+describe('paper runtime: position values in Exit rules', () => {
+  it('measures the gain from the Entry fill and exits on it', async () => {
+    clock = T0 + 2 * 86_400_000; // Thursday
+    const def = createDefinition();
+    def.entry.condition = always('pin');
+    def.entry.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+    def.entry.orders = [leg('buy', { legLabel: 'Buy A' })];
+    const pos = (id: string, field: 'entry_price' | 'gain_pct') => ({
+      kind: 'position' as const,
+      id,
+      instrumentId: demoA,
+      field,
+      interval: '1h' as const,
+      adjustment: 'split_and_dividend' as const,
+      session: 'regular' as const,
+    });
+    // A take-profit whose target is always met, so the test does not depend on prices.
+    def.exit.condition = {
+      kind: 'group',
+      id: 'tp-g',
+      op: 'and',
+      negate: false,
+      children: [
+        {
+          kind: 'comparison',
+          id: 'tp',
+          operator: 'gte',
+          left: pos('tp-gain', 'gain_pct'),
+          right: { kind: 'constant', id: 'tp-k', value: '-100' },
+        },
+        {
+          kind: 'comparison',
+          id: 'tp-held',
+          operator: 'gt',
+          left: pos('tp-entry', 'entry_price'),
+          right: { kind: 'constant', id: 'tp-zero', value: '0' },
+        },
+      ],
+    };
+    def.exit.orders = [leg('sell', { legLabel: 'Sell A', side: 'close' })];
+    const { runtimeId } = await startPaper('Take profit', def);
+
+    await pass();
+    clock += 5_000;
+    await pass();
+    expect((await cycles(runtimeId))[0]!.status).toBe('open');
+
+    // At the next bar the Exit rules read the cycle's fill and fire.
+    clock += 3_600_000;
+    await pass();
+    const o = await orders(runtimeId);
+    expect(o.map((x) => [x.phase, x.direction, x.quantity])).toEqual([
+      ['entry', 'buy', '10'],
+      ['exit', 'sell', '10'],
+    ]);
+    const [fill] = await t.ownerSql<{ price: string }[]>`
+      select f.price from fill f join order_intent i on i.id = f.intent_id
+       where i.runtime_id = ${runtimeId} and i.phase = 'entry'`;
+    const [exitEvent] = await asUser((tx) =>
+      tx
+        .select()
+        .from(schema.triggerEvents)
+        .where(
+          and(
+            eq(schema.triggerEvents.runtimeId, runtimeId),
+            eq(schema.triggerEvents.phase, 'exit'),
+          ),
+        ),
+    );
+    expect(exitEvent).toMatchObject({ result: 'true', qualified: true });
+    const values = exitEvent!.values as Record<string, string | null>;
+    expect(Number(values['tp-entry'])).toBeCloseTo(Number(fill!.price), 6);
+    expect(values['tp-gain']).not.toBeNull();
     await stopAll();
   });
 });

@@ -1,4 +1,4 @@
-import type { Expr } from '@tm/domain';
+import type { Expr, PositionExpr } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 import { simulate } from './engine';
@@ -329,5 +329,87 @@ describe('simulate: properties', () => {
 
   it('values with Decimal arithmetic, not floats', () => {
     expect(new Decimal('0.1').plus('0.2').toString()).toBe('0.3');
+  });
+});
+
+describe('simulate: position values', () => {
+  const gain = (field: PositionExpr['field'] = 'gain_pct'): PositionExpr => ({
+    kind: 'position',
+    id: `pos-${field}`,
+    instrumentId: A,
+    field,
+    interval: '1d',
+    adjustment: 'split_and_dividend',
+    session: 'regular',
+  });
+
+  it('sells once the close is 5% above the entry fill (take-profit)', () => {
+    const bars = dailyBars(FROM, [
+      [99, 99, 99, 99],
+      [101, 101, 101, 101], // Entry turns true at this close
+      [100, 103, 99, 102], // buy fills at the open: 100; gain at close 2%
+      [102, 105, 101, 104.9], // gain 4.9%: not yet
+      [105, 106, 104, 105], // gain 5%: Exit triggers at this close
+      [107, 108, 106, 107], // sell fills at the open: 107
+    ]);
+    const r = simulate({
+      definition: strategy(
+        compare(close(), 'gt', constant('100')),
+        [leg('buy-a')],
+        compare(gain(), 'gte', constant('5')),
+        [leg('sell-a', { side: 'sell' })],
+      ),
+      instruments: INSTRUMENTS,
+      inputs: inputs('2024-03-04', '2024-03-11', { slippageBps: '0' }),
+      data: loaded({ [A]: bars }),
+    });
+    expect(r.fills.map((f) => [f.time, f.side, f.price])).toEqual([
+      [bars[2]?.start, 'buy', '100'],
+      [bars[5]?.start, 'sell', '107'],
+    ]);
+    expect(r.trades[0]).toMatchObject({ status: 'closed', grossPnl: '70' });
+    const exitBars = r.conditions!.exit.bars.map((b) => [b.time, b.truth]);
+    expect(exitBars).toEqual([
+      [bars[2]?.end, false],
+      [bars[3]?.end, false],
+      [bars[4]?.end, true],
+    ]);
+  });
+
+  it('prices a limit Exit from the entry fill', () => {
+    const bars = dailyBars(FROM, [
+      [99, 99, 99, 99],
+      [101, 101, 101, 101],
+      [100, 103, 99, 102], // buy fills at 100; limit sell placed at 105
+      [103, 104, 102, 103], // high 104: no fill
+      [104, 106, 103, 105], // trades through 105: fills at the limit
+    ]);
+    const r = simulate({
+      definition: strategy(
+        compare(close(), 'gt', constant('100')),
+        [leg('buy-a')],
+        compare(gain('quantity'), 'gt', constant('0')),
+        [
+          leg('sell-a', {
+            side: 'sell',
+            orderType: 'limit',
+            timeInForce: 'gtc',
+            limitPrice: {
+              kind: 'calc',
+              id: 'lp',
+              op: 'mul',
+              args: [gain('entry_price'), constant('1.05')],
+            },
+          }),
+        ],
+      ),
+      instruments: INSTRUMENTS,
+      inputs: inputs('2024-03-04', '2024-03-08', { slippageBps: '0' }),
+      data: loaded({ [A]: bars }),
+    });
+    expect(r.fills.map((f) => [f.time, f.side, f.price])).toEqual([
+      [bars[2]?.start, 'buy', '100'],
+      [bars[4]?.start, 'sell', '105'],
+    ]);
   });
 });

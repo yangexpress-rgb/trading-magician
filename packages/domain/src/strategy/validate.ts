@@ -109,6 +109,7 @@ export function validateStrategy(
     checkOrders(def, phase, ctx, add);
   }
   checkExitExposure(def, add);
+  checkPositionValues(def, add);
   checkExecution(def, add);
   checkRisk(def, ctx, add);
 
@@ -227,7 +228,7 @@ function checkCondition(
 }
 
 function isSeries(e: Expr): boolean {
-  return e.kind === 'market' || e.kind === 'indicator';
+  return e.kind === 'market' || e.kind === 'indicator' || e.kind === 'position';
 }
 
 function containsSeries(e: Expr): boolean {
@@ -254,6 +255,18 @@ function checkComparison(
       'state_needs_market_data',
       'Availability checks need market data or an indicator on the left',
       [...path, 'left'],
+      c.id,
+    );
+  }
+  if (
+    (c.operator === 'crosses_above' || c.operator === 'crosses_below') &&
+    sides.some(([e]) => e && [...walkExpr(e)].some((x) => x.kind === 'position'))
+  ) {
+    add(
+      'error',
+      'cross_on_position',
+      'Position values have no history to cross; use "is at least" or "is at most" instead',
+      path,
       c.id,
     );
   }
@@ -626,6 +639,52 @@ function checkPrices(o: PlannedOrder, path: (string | number)[], ctx: Validation
     );
   if (o.limitPrice) checkExpr(o.limitPrice, [...path, 'limitPrice'], ctx, add);
   if (o.stopPrice) checkExpr(o.stopPrice, [...path, 'stopPrice'], ctx, add);
+}
+
+/**
+ * Position values (entry price, gain, P&L) exist only after Entry fills, and
+ * only for instruments an Entry leg trades.
+ */
+function checkPositionValues(def: StrategyDefinition, add: Add) {
+  const traded = new Set(def.entry.orders.map((o) => o.instrumentId));
+  const sources: { phase: PhaseName; path: (string | number)[]; exprs: Expr[] }[] = [];
+  for (const phase of ['entry', 'exit'] as const) {
+    for (const c of walkComparisons(def[phase].condition)) {
+      sources.push({
+        phase,
+        path: [phase, 'condition'],
+        exprs: [c.left, c.right, c.upper].flatMap((e) => (e ? [...walkExpr(e)] : [])),
+      });
+    }
+    def[phase].orders.forEach((o, i) => {
+      for (const key of ['limitPrice', 'stopPrice'] as const) {
+        const e = o[key];
+        if (e) sources.push({ phase, path: [phase, 'orders', i, key], exprs: [...walkExpr(e)] });
+      }
+    });
+  }
+  for (const { phase, path, exprs } of sources) {
+    for (const e of exprs) {
+      if (e.kind !== 'position') continue;
+      if (phase === 'entry') {
+        add(
+          'error',
+          'position_in_entry',
+          'Position values only exist after Entry fills; use them in Exit rules',
+          path,
+          e.id,
+        );
+      } else if (!traded.has(e.instrumentId)) {
+        add(
+          'error',
+          'position_not_traded',
+          'No Entry leg trades this instrument, so there is no position to measure',
+          path,
+          e.id,
+        );
+      }
+    }
+  }
 }
 
 /**

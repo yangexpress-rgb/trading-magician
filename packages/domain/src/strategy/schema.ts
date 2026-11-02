@@ -63,6 +63,23 @@ export interface IndicatorExpr {
   session: (typeof SESSIONS)[number];
   offset: number;
 }
+/**
+ * What a strategy holds in the current cycle (Design v1.0 §6.4 extension).
+ * Values exist only once Entry legs have filled, so they belong in Exit rules
+ * and Exit order prices. The mark is the close of the latest completed bar at
+ * the expression's interval, which also sets how often the rule is checked.
+ */
+export const POSITION_FIELDS = ['entry_price', 'gain_pct', 'pnl', 'quantity'] as const;
+export type PositionField = (typeof POSITION_FIELDS)[number];
+export interface PositionExpr {
+  kind: 'position';
+  id: NodeId;
+  instrumentId: string;
+  field: PositionField;
+  interval: (typeof BAR_INTERVALS)[number];
+  adjustment: (typeof PRICE_ADJUSTMENTS)[number];
+  session: (typeof SESSIONS)[number];
+}
 export const CALC_OPS = ['add', 'sub', 'mul', 'div', 'neg', 'abs', 'min', 'max'] as const;
 export interface CalcExpr {
   kind: 'calc';
@@ -70,7 +87,7 @@ export interface CalcExpr {
   op: (typeof CALC_OPS)[number];
   args: Expr[];
 }
-export type Expr = ConstantExpr | MarketExpr | IndicatorExpr | CalcExpr;
+export type Expr = ConstantExpr | MarketExpr | IndicatorExpr | PositionExpr | CalcExpr;
 
 const offset = z.number().int().min(0).max(500).default(0);
 
@@ -93,6 +110,13 @@ export const indicatorExprSchema = z.object({
   params: z.record(z.string(), z.union([z.number(), z.string().max(32)])),
   field: z.enum(MARKET_FIELDS),
   offset,
+  ...seriesSource,
+});
+
+export const positionExprSchema = z.object({
+  kind: z.literal('position'),
+  id,
+  field: z.enum(POSITION_FIELDS),
   ...seriesSource,
 });
 
@@ -127,6 +151,7 @@ export const exprSchema: z.ZodType<Expr> = z.discriminatedUnion('kind', [
   constantExprSchema,
   marketExprSchema,
   indicatorExprSchema,
+  positionExprSchema,
   calcExprSchema,
 ]);
 

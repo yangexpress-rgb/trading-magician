@@ -237,6 +237,8 @@ export interface ActiveCycle {
   positions: Map<string, Decimal>;
   /** Cash flow from this cycle's fills: sales in, purchases and fees out. */
   cash: Decimal;
+  /** Entry fills per instrument (quantity and cost before fees), for the average entry price. */
+  entries: Map<string, { quantity: Decimal; cost: Decimal }>;
   entryTriggerEventId: string | null;
   exitTriggerEventId: string | null;
 }
@@ -367,6 +369,7 @@ export async function loadRuntimeWork(
   const firstFill = new Map<string, number>();
   const cycleCash = new Map<string, Decimal>();
   const cyclePositions = new Map<string, Map<string, Decimal>>();
+  const cycleEntries = new Map<string, Map<string, { quantity: Decimal; cost: Decimal }>>();
   for (const f of fillRows) {
     const o = intentById.get(f.intentId);
     if (!o) continue;
@@ -381,6 +384,12 @@ export async function loadRuntimeWork(
     const cp = cyclePositions.get(cid) ?? new Map<string, Decimal>();
     cp.set(id, (cp.get(id) ?? ZERO).plus(q.times(sign)));
     cyclePositions.set(cid, cp);
+    if (o.intent.phase === 'entry') {
+      const ce = cycleEntries.get(cid) ?? new Map<string, { quantity: Decimal; cost: Decimal }>();
+      const prev = ce.get(id) ?? { quantity: ZERO, cost: ZERO };
+      ce.set(id, { quantity: prev.quantity.plus(q), cost: prev.cost.plus(q.times(f.price)) });
+      cycleEntries.set(cid, ce);
+    }
     const t = f.filledAt.getTime();
     firstFill.set(f.intentId, Math.min(firstFill.get(f.intentId) ?? t, t));
   }
@@ -425,6 +434,7 @@ export async function loadRuntimeWork(
         legs,
         positions: cyclePositions.get(c.id) ?? new Map(),
         cash: cycleCash.get(c.id) ?? ZERO,
+        entries: cycleEntries.get(c.id) ?? new Map(),
         entryTriggerEventId: c.entryTriggerEventId,
         exitTriggerEventId: c.exitTriggerEventId,
       };

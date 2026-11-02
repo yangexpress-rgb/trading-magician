@@ -9,6 +9,7 @@ import type {
   Expr,
   IndicatorExpr,
   MarketExpr,
+  PositionExpr,
   PlannedOrder,
   StrategyDefinition,
 } from './schema';
@@ -80,6 +81,19 @@ export function indicator(id: string, partial: Partial<IndicatorExpr> = {}): Ind
     adjustment: 'split_and_dividend',
     session: 'regular',
     offset: 0,
+    ...partial,
+  };
+}
+
+export function position(id: string, partial: Partial<PositionExpr> = {}): PositionExpr {
+  return {
+    kind: 'position',
+    id,
+    instrumentId: STOCK_A,
+    field: 'gain_pct',
+    interval: '1d',
+    adjustment: 'split_and_dividend',
+    session: 'regular',
     ...partial,
   };
 }
