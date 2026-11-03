@@ -260,6 +260,20 @@
       "when": 1791315670941,
       "tag": "0036_auto_routes",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1793719405401,
+      "tag": "0037_price_charts",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1793719406359,
+      "tag": "0038_price_charts_worker",
+      "breakpoints": true
     }
   ]
 }

@@ -21,6 +21,8 @@ export function createRoutedHistory(options: {
   now: () => Date;
   providers: ProviderRegistry;
   privateKey: string | undefined;
+  /** Told which feed answers each instrument, e.g. to name the source on a chart. */
+  onFeed?: (instrumentId: string, feed: { id: string; name: string; provider: string }) => void;
 }): HistoricalDataProvider {
   const sources = new Map<string, HistoricalDataProvider | undefined>();
   let routing: Routing | undefined;
@@ -39,8 +41,10 @@ export function createRoutedHistory(options: {
           `No data feed gives bars for ${symbol}. Add a route in Settings › Data feeds.`,
         );
       }
-      if (sources.has(feedId)) return sources.get(feedId);
       const feed = routing.feeds.get(feedId);
+      if (feed)
+        options.onFeed?.(instrumentId, { id: feedId, name: feed.name, provider: feed.provider });
+      if (sources.has(feedId)) return sources.get(feedId);
       const provider = feed ? options.providers[feed.provider] : undefined;
       let source: HistoricalDataProvider | undefined;
       if (feed && provider) {

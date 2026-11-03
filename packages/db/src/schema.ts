@@ -403,6 +403,53 @@ export const instrumentLookups = pgTable(
   ],
 );
 
+export const priceChartStatus = pgEnum('price_chart_status', ['pending', 'ready', 'failed']);
+
+/**
+ * A person's request for a price chart in Quantitative Research (ADR 0029).
+ * Bars come through the tenant's bars route, which only the worker can open,
+ * so the web app queues the request and the worker stores the bars on the row.
+ * Rows are short-lived: the worker deletes those older than a day.
+ */
+export const priceCharts = pgTable(
+  'price_chart',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => instruments.id),
+    interval: text('interval').notNull(),
+    range: text('range').notNull(),
+    /** Inclusive New York dates the bars cover. */
+    fromDate: date('from_date').notNull(),
+    toDate: date('to_date').notNull(),
+    status: priceChartStatus('status').notNull().default('pending'),
+    /** `[startMs, open, high, low, close, volume][]`, oldest first. */
+    bars: jsonb('bars'),
+    warnings: jsonb('warnings').notNull().default([]),
+    /** The data feed that answered, by its name in Settings › Data feeds. */
+    source: text('source'),
+    /** Short and secret-free; shown to the person. */
+    message: text('message'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    attempts: integer('attempts').notNull().default(0),
+    ...timestamps(),
+  },
+  (t) => [
+    index('price_chart_pending_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'pending'`),
+    index('price_chart_reuse_idx').on(t.userId, t.instrumentId, t.interval, t.range, t.createdAt),
+    check('price_chart_interval', sql`${t.interval} IN ('1h', '1d')`),
+    check('price_chart_range', sql`${t.range} IN ('1w', '1m', '3m', '6m', '1y', '5y')`),
+    check('price_chart_dates', sql`${t.fromDate} <= ${t.toDate}`),
+    check('price_chart_ready_has_bars', sql`(${t.status} = 'ready') = (${t.bars} IS NOT NULL)`),
+  ],
+);
+
 export const credentials = pgTable(
   'credential',
   {

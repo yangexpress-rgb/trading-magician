@@ -43,6 +43,7 @@ import type {
   UpdatePlatformRequest,
   AccountDto,
 } from './integrations';
+import type { CreatePriceChartRequest, PriceChartDto } from './research';
 import type {
   ClosePositionsRequest,
   ExecutionStatusDto,
@@ -236,6 +237,12 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
       lookup: (body: CreateInstrumentLookupRequest) =>
         call<InstrumentLookupDto>('POST', '/instrument-lookups', body),
       getLookup: (id: string) => call<InstrumentLookupDto>('GET', `/instrument-lookups/${enc(id)}`),
+    },
+    research: {
+      /** Asks the worker for an instrument's bars; poll `getChart` until it settles. */
+      chart: (body: CreatePriceChartRequest) =>
+        call<PriceChartDto>('POST', '/research/price-charts', body),
+      getChart: (id: string) => call<PriceChartDto>('GET', `/research/price-charts/${enc(id)}`),
     },
   };
 }
