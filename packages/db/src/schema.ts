@@ -382,9 +382,14 @@ export const instrumentLookups = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    symbol: text('symbol').notNull(),
+    /** The ticker to try first; null when what was typed cannot be one. */
+    symbol: text('symbol'),
+    /** What the person typed: a ticker or a company name (ADR 0029). */
+    query: text('query'),
     status: instrumentLookupStatus('status').notNull().default('pending'),
     instrumentId: uuid('instrument_id').references(() => instruments.id),
+    /** When nothing trades as the symbol: the closest listings by symbol or name, unregistered. */
+    candidates: jsonb('candidates').notNull().default([]),
     /** Short and secret-free; shown to the person. */
     message: text('message'),
     leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
@@ -396,6 +401,8 @@ export const instrumentLookups = pgTable(
       .on(t.createdAt)
       .where(sql`${t.status} = 'pending'`),
     check('instrument_lookup_symbol', sql`${t.symbol} ~ '^[A-Z][A-Z0-9.]{0,9}$'`),
+    check('instrument_lookup_has_text', sql`${t.symbol} IS NOT NULL OR ${t.query} IS NOT NULL`),
+    check('instrument_lookup_query', sql`length(${t.query}) BETWEEN 1 AND 60`),
     check(
       'instrument_lookup_found_has_instrument',
       sql`(${t.status} = 'found') = (${t.instrumentId} IS NOT NULL)`,

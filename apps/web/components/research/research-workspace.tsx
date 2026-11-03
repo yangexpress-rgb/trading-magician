@@ -8,10 +8,8 @@ import {
   type ChartRange,
 } from '@tm/domain';
 import { Alert, Badge, Card, cx } from '@tm/ui';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { InstrumentFinder } from '@/components/strategy/instrument-finder';
 import { apiClient } from '@/lib/api-client';
 import { ASSET_CLASS_LABELS } from '@/lib/integration-text';
 import {
@@ -45,9 +43,11 @@ export interface ResearchSelection {
 export function ResearchWorkspace({
   instruments: initialInstruments,
   initial,
+  canSearchMarket,
 }: {
   instruments: InstrumentOptionDto[];
   initial: ResearchSelection;
+  canSearchMarket: boolean;
 }) {
   const router = useRouter();
   const [instruments, setInstruments] = useState(initialInstruments);
@@ -132,20 +132,8 @@ export function ResearchWorkspace({
           instruments={instruments}
           selectedId={sel.instrumentId}
           onSelect={(instrumentId) => update({ instrumentId })}
-        />
-        <InstrumentFinder
-          instruments={instruments}
-          editable
-          showList={false}
-          heading="Find a US stock or ETF"
-          intro={
-            <>
-              Look up any symbol your data feed covers. Feeds are set up in{' '}
-              <Link href="/settings/data-feeds">Settings › Data feeds</Link>.
-            </>
-          }
-          foundText="Its chart is shown."
-          onFound={(found) => {
+          canSearchMarket={canSearchMarket}
+          onAdded={(found) => {
             setInstruments((cur) =>
               cur.some((i) => i.id === found.id)
                 ? cur

@@ -1,4 +1,4 @@
-import { listTenantInstruments, withTenant } from '@tm/db';
+import { listTenantInstruments, loadRouting, withTenant } from '@tm/db';
 import {
   CHART_INTERVALS,
   CHART_RANGES,
@@ -24,7 +24,13 @@ export default async function ResearchPage({
 }) {
   const params = await searchParams;
   const tenant = await requireTenant();
-  const instruments = await withTenant(appDb(), tenant, (tx) => listTenantInstruments(tx));
+  const { instruments, canSearchMarket } = await withTenant(appDb(), tenant, async (tx) => ({
+    instruments: await listTenantInstruments(tx),
+    // A real-provider feed, such as Alpaca, can search every US stock (ADR 0029).
+    canSearchMarket: [...(await loadRouting(tx)).feeds.values()].some(
+      (f) => f.isActive && f.provider !== 'demo',
+    ),
+  }));
   const wanted = one(params.instrument);
   const rawRange = one(params.range) as ChartRange;
   const rawInterval = one(params.interval) as ChartInterval;
@@ -48,6 +54,7 @@ export default async function ResearchPage({
       />
       <ResearchWorkspace
         instruments={instruments}
+        canSearchMarket={canSearchMarket}
         initial={{
           instrumentId,
           range,

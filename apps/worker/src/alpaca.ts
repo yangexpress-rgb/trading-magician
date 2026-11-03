@@ -6,7 +6,10 @@ import {
   discoverAlpacaAccount,
   createAlpacaHistory,
   createAlpacaQuotes,
+  listAlpacaAssets,
   lookupAlpacaAsset,
+  searchInstruments,
+  type DiscoveredInstrument,
   type Fetch,
 } from '@tm/alpaca';
 import type { AccountCapabilities } from '@tm/domain';
@@ -39,8 +42,22 @@ function clientFactory(options: AlpacaProviderOptions) {
   };
 }
 
+/** Alpaca's list of assets changes a few times a day at most. */
+export const ASSET_LIST_TTL_MS = 6 * 60 * 60 * 1000;
+
+const toListing = (found: DiscoveredInstrument) => ({
+  assetClass: found.assetClass,
+  symbol: found.symbol,
+  venue: found.venue,
+  displayName: found.displayName,
+  providerId: found.providerId,
+});
+
 export function alpacaProvider(options: AlpacaProviderOptions = {}): MarketDataProvider {
   const clientFor = clientFactory(options);
+  // The asset list is public reference data, the same for every account, so one
+  // copy serves every tenant; each search still needs the tenant's own working key.
+  let assets: { at: number; list: Promise<DiscoveredInstrument[]> } | undefined;
   return {
     needsCredential: true,
     quotes: (ctx) => createAlpacaQuotes(clientFor(ctx), { now: ctx.now }),
@@ -48,14 +65,20 @@ export function alpacaProvider(options: AlpacaProviderOptions = {}): MarketDataP
     check: (ctx) => checkAlpacaData(clientFor(ctx)),
     lookup: async (ctx, symbol) => {
       const found = await lookupAlpacaAsset(clientFor(ctx), symbol);
-      if (!found) return undefined;
-      return {
-        assetClass: found.assetClass,
-        symbol: found.symbol,
-        venue: found.venue,
-        displayName: found.displayName,
-        providerId: found.providerId,
-      };
+      return found ? toListing(found) : undefined;
+    },
+    search: async (ctx, query) => {
+      const client = clientFor(ctx);
+      const nowMs = ctx.now().getTime();
+      if (!assets || nowMs - assets.at > ASSET_LIST_TTL_MS) {
+        const list = listAlpacaAssets(client);
+        assets = { at: nowMs, list };
+        // A failed download is not kept, so the next search tries again.
+        list.catch(() => {
+          if (assets?.list === list) assets = undefined;
+        });
+      }
+      return searchInstruments(await assets.list, query).map(toListing);
     },
   };
 }

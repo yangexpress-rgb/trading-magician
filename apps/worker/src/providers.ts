@@ -20,6 +20,8 @@ export interface MarketDataProvider {
   history(ctx: ProviderContext): HistoricalDataProvider;
   /** Finds a US stock or ETF by symbol; providers without real instruments omit it. */
   lookup?(ctx: ProviderContext, symbol: string): Promise<InstrumentListing | undefined>;
+  /** The best few listings for a symbol or company name, as a person typed it. */
+  search?(ctx: ProviderContext, query: string): Promise<InstrumentListing[]>;
   /** A light call that proves the connection and the account's entitlement. */
   check(ctx: ProviderContext): Promise<FeedCheckResult>;
   needsCredential: boolean;

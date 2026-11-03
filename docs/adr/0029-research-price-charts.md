@@ -18,6 +18,14 @@ so the web app cannot fetch them itself.
   symbol or name as the person types. A new symbol is found with the same lookup as the strategy
   editor, and is charted as soon as the worker registers it. Requests for any other instrument are
   refused, so one tenant cannot learn about another's lookups.
+- **Search by ticker or company name.** One search box filters the stocks the person has and,
+  through their data feed, searches every US stock and ETF. A lookup tries what was typed as a
+  ticker first; when nothing trades under it, or it cannot be a ticker (it has spaces), the worker
+  searches the provider's listings by symbol and name and stores the closest few on the lookup as
+  candidates, unregistered. Picking one looks it up by its ticker as before. For Alpaca the list of
+  active US equities (about 12,000) is downloaded once and kept in memory for 6 hours; it is
+  public reference data, so one copy serves every tenant, and each search still needs the
+  tenant's own working key. Without a real-provider feed the box says how to add one.
 - **A queued chart, like a lookup.** The web app inserts a `price_chart` row (instrument, range,
   interval, and the New York dates they cover) and polls it. The worker claims pending charts with
   `claim_price_charts`, asks for bars through the tenant's bars route (`createRoutedHistory`, the
