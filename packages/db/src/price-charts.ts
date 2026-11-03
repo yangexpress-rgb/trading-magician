@@ -48,7 +48,7 @@ export async function requestPriceChart(
   if (!chartIntervalAllowed(input.range, input.interval)) {
     throw new IntegrationError(
       'bad_request',
-      'Hourly prices are available for ranges up to 3 months. Pick daily or a shorter range.',
+      '5-minute bars go back up to a week and hourly bars up to 3 months; a day has 5-minute or hourly bars.',
     );
   }
   // Only instruments the tenant can pick: demo ones, its lookups, its strategies'.
@@ -155,6 +155,7 @@ export async function loadPendingChart(tx: Transaction, id: string) {
       symbol: instruments.symbol,
       assetClass: instruments.assetClass,
       interval: priceCharts.interval,
+      range: priceCharts.range,
       from: priceCharts.fromDate,
       to: priceCharts.toDate,
       attempts: priceCharts.attempts,
@@ -162,7 +163,7 @@ export async function loadPendingChart(tx: Transaction, id: string) {
     .from(priceCharts)
     .innerJoin(instruments, eq(instruments.id, priceCharts.instrumentId))
     .where(and(eq(priceCharts.id, id), eq(priceCharts.status, 'pending')));
-  return row && { ...row, interval: row.interval as ChartInterval };
+  return row && { ...row, interval: row.interval as ChartInterval, range: row.range as ChartRange };
 }
 
 export async function finishPriceChart(

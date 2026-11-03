@@ -128,7 +128,12 @@ export async function checkAlpacaData(client: AlpacaClient): Promise<AlpacaCheck
   }
 }
 
-const TIMEFRAMES: Partial<Record<BarInterval, string>> = { '1h': '1Hour', '1d': '1Day' };
+const TIMEFRAMES: Partial<Record<BarInterval, string>> = {
+  '5m': '5Min',
+  '1h': '1Hour',
+  '1d': '1Day',
+};
+const STEP_MS: Partial<Record<BarInterval, number>> = { '5m': 5 * 60_000, '1h': 3_600_000 };
 const ADJUSTMENTS: Record<PriceAdjustment, string> = {
   none: 'raw',
   split_only: 'split',
@@ -144,12 +149,12 @@ export function createAlpacaHistory(
   const now = options.now ?? (() => new Date());
   return {
     id: 'alpaca-iex',
-    intervals: ['1h', '1d'],
+    intervals: ['5m', '1h', '1d'],
     async getBars(req: BarRequest): Promise<BarSeries> {
       const timeframe = TIMEFRAMES[req.interval];
       if (!timeframe) {
         throw new UnsupportedBarRequestError(
-          `Alpaca bars here are daily or hourly, not ${req.interval}`,
+          `Alpaca bars here are daily, hourly or 5-minute, not ${req.interval}`,
         );
       }
       if (req.from > req.to)
@@ -206,7 +211,7 @@ export function createAlpacaHistory(
           to = close;
         } else {
           from = Math.max(start, open);
-          to = Math.min(start + HOUR, close);
+          to = Math.min(start + (STEP_MS[req.interval] ?? HOUR), close);
           if (from >= to) continue;
         }
         if (to > cutoff) continue;

@@ -450,8 +450,8 @@ export const priceCharts = pgTable(
       .on(t.createdAt)
       .where(sql`${t.status} = 'pending'`),
     index('price_chart_reuse_idx').on(t.userId, t.instrumentId, t.interval, t.range, t.createdAt),
-    check('price_chart_interval', sql`${t.interval} IN ('1h', '1d')`),
-    check('price_chart_range', sql`${t.range} IN ('1w', '1m', '3m', '6m', '1y', '5y')`),
+    check('price_chart_interval', sql`${t.interval} IN ('5m', '1h', '1d')`),
+    check('price_chart_range', sql`${t.range} IN ('1d', '1w', '1m', '3m', '6m', '1y', '5y')`),
     check('price_chart_dates', sql`${t.fromDate} <= ${t.toDate}`),
     check('price_chart_ready_has_bars', sql`(${t.status} = 'ready') = (${t.bars} IS NOT NULL)`),
   ],

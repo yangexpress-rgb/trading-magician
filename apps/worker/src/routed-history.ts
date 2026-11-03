@@ -67,7 +67,7 @@ export function createRoutedHistory(options: {
 
   return {
     id: 'routed',
-    intervals: ['1h', '1d'],
+    intervals: ['5m', '1h', '1d'],
     async getBars(request) {
       const source = await sourceFor(request.instrumentId, request.symbol);
       if (!source) {

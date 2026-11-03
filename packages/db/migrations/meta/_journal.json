@@ -288,6 +288,13 @@
       "when": 1793724504652,
       "tag": "0040_instrument_search_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1793730199790,
+      "tag": "0041_chart_one_day",
+      "breakpoints": true
     }
   ]
 }

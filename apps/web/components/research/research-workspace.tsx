@@ -2,8 +2,10 @@
 
 import { ApiError, type InstrumentOptionDto, type PriceChartDto } from '@tm/contracts';
 import {
+  CHART_INTERVALS,
   CHART_RANGES,
   chartIntervalAllowed,
+  defaultChartInterval,
   type ChartInterval,
   type ChartRange,
 } from '@tm/domain';
@@ -17,6 +19,7 @@ import {
   formatChange,
   formatPrice,
   INTERVAL_LABELS,
+  INTERVAL_LIMITS,
   RANGE_LABELS,
   RANGE_NAMES,
   summarize,
@@ -65,7 +68,15 @@ export function ResearchWorkspace({
       setSel((cur) => {
         const next = { ...cur, ...patch };
         // Hourly bars only go back 3 months; a longer range falls back to daily.
-        if (!chartIntervalAllowed(next.range, next.interval)) next.interval = '1d';
+        // Each range opens on bars it offers: a day on 5-minute bars, longer ranges on daily.
+        if (patch.range && patch.range !== cur.range) {
+          next.interval =
+            patch.range === '1d' ||
+            cur.range === '1d' ||
+            !chartIntervalAllowed(next.range, next.interval)
+              ? defaultChartInterval(next.range)
+              : next.interval;
+        }
         const q = new URLSearchParams();
         if (next.instrumentId) q.set('instrument', next.instrumentId);
         q.set('range', next.range);
@@ -199,14 +210,11 @@ export function ResearchWorkspace({
                 <Segmented
                   label="Bars"
                   value={sel.interval}
-                  options={(['1d', '1h'] as const).map((i) => ({
+                  options={CHART_INTERVALS.map((i) => ({
                     value: i,
                     label: INTERVAL_LABELS[i],
                     disabled: !chartIntervalAllowed(sel.range, i),
-                    title:
-                      i === '1h' && !chartIntervalAllowed(sel.range, i)
-                        ? 'Hourly bars are available for ranges up to 3 months'
-                        : undefined,
+                    title: chartIntervalAllowed(sel.range, i) ? undefined : INTERVAL_LIMITS[i],
                   }))}
                   onChange={(interval) => update({ interval })}
                 />

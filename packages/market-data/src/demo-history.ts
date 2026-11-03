@@ -327,7 +327,59 @@ function toBar(
   };
 }
 
-const SUPPORTED: readonly BarInterval[] = ['1h', '1d'];
+const SUPPORTED: readonly BarInterval[] = ['5m', '1h', '1d'];
+
+const FIVE_MIN = 5 * 60_000;
+
+/**
+ * Five-minute bars inside an hourly segment (ADR 0029), seeded from the symbol
+ * and the segment's start so they never change. A Brownian bridge runs from
+ * the segment's open to its close; the segment's high and low are each
+ * reached by one bar, and its volume is shared out among the bars. So the
+ * five-minute bars always add up to the hourly bar they came from.
+ */
+export function fiveMinuteSegments(symbol: string, s: Segment | DemoSegment): DemoSegment[] {
+  const t0 = Date.parse(s.start);
+  const n = Math.max(1, Math.round((Date.parse(s.end) - t0) / FIVE_MIN));
+  const uniform = mulberry32(seedOf(`5m|${symbol}|${s.start}`));
+  const z = normal(uniform);
+  const walk = [0];
+  for (let k = 1; k <= n; k++) walk.push((walk[k - 1] ?? 0) + z());
+  const last = walk[n] ?? 0;
+  const scale = (s.high - s.low) / (2 * Math.sqrt(n) || 1);
+  const points = walk.map((w, k) => {
+    const bridge = w - (k / n) * last;
+    const p = s.open + ((s.close - s.open) * k) / n + bridge * scale;
+    return k === 0 ? s.open : k === n ? s.close : cents(Math.min(s.high, Math.max(s.low, p)));
+  });
+  const weights = Array.from({ length: n }, () => 0.5 + uniform());
+  const sum = weights.reduce((a, w) => a + w, 0);
+  let left = s.volume;
+  const bars = Array.from({ length: n }, (_, j) => {
+    const open = points[j] ?? s.open;
+    const close = points[j + 1] ?? s.close;
+    const wick = (s.high - s.low) * 0.15;
+    const volume = j === n - 1 ? left : Math.round((s.volume * (weights[j] ?? 1)) / sum);
+    left -= volume;
+    return {
+      start: new Date(t0 + j * FIVE_MIN).toISOString(),
+      end: new Date(Math.min(t0 + (j + 1) * FIVE_MIN, Date.parse(s.end))).toISOString(),
+      open,
+      high: Math.min(s.high, cents(Math.max(open, close) + uniform() * wick)),
+      low: Math.max(s.low, cents(Math.min(open, close) - uniform() * wick)),
+      close,
+      volume: Math.max(0, volume),
+    };
+  });
+  // The segment's extremes happen somewhere inside it.
+  const top = bars.reduce((b, x, i) => (x.high > (bars[b]?.high ?? -Infinity) ? i : b), 0);
+  const bottom = bars.reduce((b, x, i) => (x.low < (bars[b]?.low ?? Infinity) ? i : b), 0);
+  const topBar = bars[top];
+  const bottomBar = bars[bottom];
+  if (topBar) topBar.high = s.high;
+  if (bottomBar) bottomBar.low = s.low;
+  return bars;
+}
 
 export interface DemoHistoryOptions {
   /** Bars ending after this instant are never returned. Defaults to the current time. */
@@ -345,7 +397,7 @@ export function createDemoHistoryProvider(
     async getBars(req: BarRequest): Promise<BarSeries> {
       if (!SUPPORTED.includes(req.interval)) {
         throw new UnsupportedBarRequestError(
-          `Demo history has daily and hourly bars, not ${req.interval}`,
+          `Demo history has daily, hourly and 5-minute bars, not ${req.interval}`,
         );
       }
       if (req.from > req.to)
@@ -391,6 +443,11 @@ export function createDemoHistoryProvider(
               places,
             ),
           );
+        } else if (req.interval === '5m') {
+          for (const s of day.segments) {
+            if (s.missing) continue;
+            for (const b of fiveMinuteSegments(req.symbol, s)) bars.push(toBar(b, f, places));
+          }
         } else {
           for (const s of day.segments) if (!s.missing) bars.push(toBar(s, f, places));
         }
