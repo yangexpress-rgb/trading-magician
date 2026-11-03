@@ -62,8 +62,8 @@ async function createUser(email: string) {
 async function chart(
   userId: string,
   instrumentId: string,
-  range: '1w' | '1m' | '3m' | '6m' | '1y' | '5y' = '1m',
-  interval: '1d' | '1h' = '1d',
+  range: '1d' | '1w' | '1m' | '3m' | '6m' | '1y' | '5y' = '1m',
+  interval: '5m' | '1d' | '1h' = '1d',
 ) {
   const started = await as(userId, (tx) =>
     requestPriceChart(tx, { userId, instrumentId, range, interval, now: NOW }),
@@ -127,7 +127,27 @@ describe('price charts', () => {
           now: NOW,
         }),
       ),
-    ).rejects.toThrow(/Hourly prices/);
+    ).rejects.toThrow(/hourly bars up to 3 months/);
+  });
+
+  it('shows one day as 5-minute bars of the latest session', async () => {
+    // 11:00 on Tuesday 6 October: today's session so far, 9:30 to 11:00.
+    const today = await chart(userA, demoIdx, '1d', '5m');
+    expect(today.status).toBe('ready');
+    expect(today.bars).toHaveLength(18);
+    expect(today.bars![0]![0]).toBe(Date.parse('2026-10-06T13:30:00Z'));
+    expect(today.bars!.at(-1)![0]).toBe(Date.parse('2026-10-06T14:55:00Z'));
+    await expect(
+      as(userA, (tx) =>
+        requestPriceChart(tx, {
+          userId: userA,
+          instrumentId: demoIdx,
+          range: '1m',
+          interval: '5m',
+          now: NOW,
+        }),
+      ),
+    ).rejects.toThrow(/5-minute bars go back up to a week/);
   });
 
   it('reuses a recent chart instead of asking the feed again', async () => {
@@ -179,6 +199,9 @@ describe('price charts', () => {
     expect(c).toMatchObject({ status: 'ready', source: 'Alpaca prices' });
     expect(c.bars!.length).toBeGreaterThan(10);
     expect(c.warnings.join(' ')).toMatch(/IEX/);
+    const day = await chart(userA, real, '1d', '5m');
+    expect(day).toMatchObject({ status: 'ready', source: 'Alpaca prices' });
+    expect(day.bars).toHaveLength(18);
 
     await expect(
       as(userB, (tx) =>

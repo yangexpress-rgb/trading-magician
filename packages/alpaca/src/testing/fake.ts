@@ -516,7 +516,7 @@ export class FakeAlpaca {
     const symbol = q.get('symbols') ?? '';
     const asset = FAKE_ALPACA_ASSETS[symbol];
     const timeframe = q.get('timeframe');
-    if (timeframe !== '1Day' && timeframe !== '1Hour') {
+    if (timeframe !== '1Day' && timeframe !== '1Hour' && timeframe !== '5Min') {
       return json(422, { code: 42210000, message: 'invalid timeframe' });
     }
     if (!asset) return json(200, { bars: {}, next_page_token: null });
@@ -528,7 +528,7 @@ export class FakeAlpaca {
       instrumentId: symbol,
       symbol: asset.demo,
       assetClass: 'stock',
-      interval: timeframe === '1Day' ? '1d' : '1h',
+      interval: timeframe === '1Day' ? '1d' : timeframe === '5Min' ? '5m' : '1h',
       from: start,
       to: end,
       adjustment:

@@ -8,7 +8,7 @@ import {
   type Database,
   type Transaction,
 } from '@tm/db';
-import { BrokerUnavailableError, UnsupportedBarRequestError } from '@tm/domain';
+import { BrokerUnavailableError, nyDate, UnsupportedBarRequestError } from '@tm/domain';
 import type { Logger } from 'pino';
 import { withTimeout, type ProviderRegistry } from './providers';
 import { createRoutedHistory } from './routed-history';
@@ -68,17 +68,22 @@ export async function runPriceCharts(options: PriceChartOptions): Promise<number
         'The price request',
       );
       const nowMs = now().getTime();
-      const bars: ChartBarTuple[] = series.bars
-        // Only finished bars, as everywhere else (ADR 0007).
-        .filter((b) => Date.parse(b.end) <= nowMs)
-        .map((b) => [
-          Date.parse(b.start),
-          b.open.toNumber(),
-          b.high.toNumber(),
-          b.low.toNumber(),
-          b.close.toNumber(),
-          b.volume.toNumber(),
-        ]);
+      // Only finished bars, as everywhere else (ADR 0007).
+      let finished = series.bars.filter((b) => Date.parse(b.end) <= nowMs);
+      if (chart.range === '1d') {
+        // One day is the latest session with bars: today's once it opens.
+        const latest = finished.at(-1);
+        const lastDay = latest ? nyDate(latest.start) : undefined;
+        finished = finished.filter((b) => nyDate(b.start) === lastDay);
+      }
+      const bars: ChartBarTuple[] = finished.map((b) => [
+        Date.parse(b.start),
+        b.open.toNumber(),
+        b.high.toNumber(),
+        b.low.toNumber(),
+        b.close.toNumber(),
+        b.volume.toNumber(),
+      ]);
       await inTenant((tx) =>
         finishPriceChart(tx, chartId, {
           status: 'ready',

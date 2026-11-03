@@ -4,6 +4,7 @@ import type { ChartInterval, ChartRange } from '@tm/domain';
 /** Quantitative Research wording and chart arithmetic (ADR 0029). */
 
 export const RANGE_LABELS: Record<ChartRange, string> = {
+  '1d': '1D',
   '1w': '1W',
   '1m': '1M',
   '3m': '3M',
@@ -13,6 +14,7 @@ export const RANGE_LABELS: Record<ChartRange, string> = {
 };
 
 export const RANGE_NAMES: Record<ChartRange, string> = {
+  '1d': '1 day',
   '1w': '1 week',
   '1m': '1 month',
   '3m': '3 months',
@@ -21,7 +23,24 @@ export const RANGE_NAMES: Record<ChartRange, string> = {
   '5y': '5 years',
 };
 
-export const INTERVAL_LABELS: Record<ChartInterval, string> = { '1d': 'Daily', '1h': 'Hourly' };
+export const INTERVAL_LABELS: Record<ChartInterval, string> = {
+  '5m': '5 min',
+  '1h': 'Hourly',
+  '1d': 'Daily',
+};
+
+const INTERVAL_NAMES: Record<ChartInterval, string> = {
+  '5m': '5-minute',
+  '1h': 'hourly',
+  '1d': 'daily',
+};
+
+/** Why a kind of bar is greyed out for some ranges. */
+export const INTERVAL_LIMITS: Record<ChartInterval, string> = {
+  '5m': '5-minute bars are available for 1 day and 1 week',
+  '1h': 'Hourly bars are available for ranges up to 3 months',
+  '1d': 'Daily bars start at 1 week; a day uses 5-minute or hourly bars',
+};
 
 export interface Bar {
   t: number;
@@ -107,6 +126,11 @@ const shortDayFmt = new Intl.DateTimeFormat('en-US', {
   month: 'short',
   day: 'numeric',
 });
+const timeFmt = new Intl.DateTimeFormat('en-US', {
+  timeZone: NY,
+  hour: 'numeric',
+  minute: '2-digit',
+});
 const hourFmt = new Intl.DateTimeFormat('en-US', {
   timeZone: NY,
   month: 'short',
@@ -122,6 +146,7 @@ export function formatBarTime(t: number, interval: ChartInterval): string {
 
 /** A short axis label, coarser for longer ranges. */
 export function formatAxisTime(t: number, range: ChartRange): string {
+  if (range === '1d') return timeFmt.format(t);
   return range === '1y' || range === '5y' ? monthFmt.format(t) : shortDayFmt.format(t);
 }
 
@@ -169,7 +194,7 @@ export function describeChart(
   if (!s) return `${symbol}: no prices in this range.`;
   const dir = s.change > 0 ? 'up' : s.change < 0 ? 'down' : 'unchanged';
   return (
-    `${symbol}, ${INTERVAL_LABELS[interval].toLowerCase()} prices over ${RANGE_NAMES[range]}: ` +
+    `${symbol}, ${INTERVAL_NAMES[interval]} prices over ${RANGE_NAMES[range]}: ` +
     `${dir} ${formatChange(s.change, s.changePct).replace(/^[+−]/, '')}, last ${formatPrice(s.last)}, ` +
     `high ${formatPrice(s.high)}, low ${formatPrice(s.low)}, ${bars.length} bars.`
   );

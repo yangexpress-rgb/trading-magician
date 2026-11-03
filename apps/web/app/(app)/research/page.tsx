@@ -3,6 +3,7 @@ import {
   CHART_INTERVALS,
   CHART_RANGES,
   chartIntervalAllowed,
+  defaultChartInterval,
   type ChartInterval,
   type ChartRange,
 } from '@tm/domain';
@@ -38,7 +39,7 @@ export default async function ResearchPage({
   const interval =
     CHART_INTERVALS.includes(rawInterval) && chartIntervalAllowed(range, rawInterval)
       ? rawInterval
-      : '1d';
+      : defaultChartInterval(range);
   const instrumentId =
     instruments.find((i) => i.id === wanted)?.id ??
     // Start on the broad-market demo ETF, so the page never opens empty.

@@ -47,6 +47,17 @@ test('picks a stock and reads its price chart', async ({ page }) => {
   ).toBeDisabled();
   await expect(chart).toHaveAttribute('aria-label', /DEMO-C, daily prices over 1 year/);
 
+  // One day: the latest session in 5-minute bars, with times on the axis.
+  await page.getByRole('group', { name: 'Range' }).getByRole('button', { name: '1D' }).click();
+  await expect(chart).toHaveAttribute('aria-label', /DEMO-C, 5-minute prices over 1 day/);
+  await expect(page).toHaveURL(/range=1d&interval=5m/);
+  await expect(
+    page.getByRole('group', { name: 'Bars' }).getByRole('button', { name: 'Daily' }),
+  ).toBeDisabled();
+  await expect(page.getByTestId('chart-readout')).toContainText(/ET/);
+  await page.getByRole('group', { name: 'Range' }).getByRole('button', { name: '1Y' }).click();
+  await expect(chart).toHaveAttribute('aria-label', /DEMO-C, daily prices over 1 year/);
+
   // The keyboard reads bars: Home goes to the first one.
   const readout = page.getByTestId('chart-readout');
   await expect(readout).toContainText('latest');
