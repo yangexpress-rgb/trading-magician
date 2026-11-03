@@ -174,6 +174,18 @@ export class FakeAlpaca {
         next_close: now.toISOString(),
       });
     }
+    if (method === 'GET' && path === '/v2/assets') {
+      // Every listed asset, filtered as Alpaca filters by status and class.
+      const all = Object.keys(FAKE_ALPACA_ASSETS).flatMap((s) => this.asset(s) ?? []);
+      return json(
+        200,
+        all.filter(
+          (a) =>
+            (!q.get('status') || a.status === q.get('status')) &&
+            (!q.get('asset_class') || a.class === q.get('asset_class')),
+        ),
+      );
+    }
     const asset = /^\/v2\/assets\/([^/]+)$/.exec(path);
     if (method === 'GET' && asset) {
       const found = this.asset(decodeURIComponent(asset[1]!));

@@ -52,7 +52,7 @@ test('connects an Alpaca feed and finds a US stock for a strategy', async ({ pag
 
   await page.getByLabel('Symbol').fill('NOSUCH');
   await page.getByRole('button', { name: 'Find' }).click();
-  await expect(page.getByText('No US stock or ETF trades as NOSUCH.')).toBeVisible();
+  await expect(page.getByText('No US stock or ETF matches “NOSUCH”.')).toBeVisible();
 
   // It stays available to this person's strategies.
   await page.reload();

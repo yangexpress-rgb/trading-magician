@@ -274,6 +274,20 @@
       "when": 1793719406359,
       "tag": "0038_price_charts_worker",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1793724503596,
+      "tag": "0039_instrument_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1793724504652,
+      "tag": "0040_instrument_search_grants",
+      "breakpoints": true
     }
   ]
 }

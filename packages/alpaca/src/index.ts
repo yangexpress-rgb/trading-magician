@@ -25,7 +25,9 @@ export {
 export {
   alpacaCapabilities,
   discoverAlpacaAccount,
+  listAlpacaAssets,
   lookupAlpacaAsset,
+  searchInstruments,
   maskAccountNumber,
   type DiscoveredAccount,
   type DiscoveredInstrument,

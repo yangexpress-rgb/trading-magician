@@ -19,7 +19,14 @@ import { withTimeout, type ProviderRegistry } from './providers';
  * A provider that cannot be reached is retried a few times, then reported.
  */
 
-export const LOOKUPS = { leaseSeconds: 15, batch: 5, maxAttempts: 3, timeoutMs: 10_000 } as const;
+export const LOOKUPS = {
+  leaseSeconds: 45,
+  batch: 5,
+  maxAttempts: 3,
+  timeoutMs: 10_000,
+  /** The first search downloads the provider's asset list. */
+  searchTimeoutMs: 30_000,
+} as const;
 
 export interface LookupOptions {
   db: Database;
@@ -70,15 +77,30 @@ export async function runInstrumentLookups(options: LookupOptions): Promise<numb
                 privateKey: options.privateKey,
               })
             : undefined;
-        const listing = await withTimeout(
-          provider.lookup({ now, credential }, lookup.symbol),
-          LOOKUPS.timeoutMs,
-          'The lookup',
-        );
+        const listing = lookup.symbol
+          ? await withTimeout(
+              provider.lookup({ now, credential }, lookup.symbol),
+              LOOKUPS.timeoutMs,
+              'The lookup',
+            )
+          : undefined;
         if (!listing) {
+          // Not a ticker: search names and symbols, and let the person pick.
+          const text = lookup.query ?? lookup.symbol ?? '';
+          const candidates = provider.search
+            ? await withTimeout(
+                provider.search({ now, credential }, text),
+                LOOKUPS.searchTimeoutMs,
+                'The search',
+              )
+            : [];
           await finishLookup(tx, lookupId, {
             status: 'not_found',
-            message: `No US stock or ETF trades as ${lookup.symbol}.`,
+            message:
+              candidates.length > 0
+                ? `Nothing trades as “${text}”. Did you mean one of these?`
+                : `No US stock or ETF matches “${text}”.`,
+            candidates,
           });
           return;
         }
@@ -101,7 +123,7 @@ export async function runInstrumentLookups(options: LookupOptions): Promise<numb
         } else {
           await finishLookup(tx, lookupId, {
             status: 'failed',
-            message: `${feed.name} could not look up ${lookup.symbol}. Try again later.`,
+            message: `${feed.name} could not look up ${lookup.query ?? lookup.symbol}. Try again later.`,
           });
         }
       }

@@ -23,6 +23,9 @@ test('picks a stock and reads its price chart', async ({ page }) => {
   await expect(page.getByTestId('chart-summary')).toContainText('1 year');
   await expect(page.getByText(/Prices from /)).toBeVisible();
 
+  // Without a real data feed, the page says how to search every US stock.
+  await expect(page.getByTestId('needs-feed')).toContainText('add an Alpaca data feed');
+
   // Search and pick another stock; the address keeps the choice.
   await page.getByLabel('Search').fill('software c');
   await page.getByRole('button', { name: /DEMO-C/ }).click();
@@ -62,7 +65,7 @@ test('picks a stock and reads its price chart', async ({ page }) => {
   await expect(page.getByTestId('price-chart')).toHaveAttribute('aria-label', /^DEMO-C/);
 });
 
-test('finds a US stock by symbol and charts it from the Alpaca feed', async ({ page }) => {
+test('finds a US stock by name or ticker and charts it from the Alpaca feed', async ({ page }) => {
   await signUpAndVerify(page, uniqueEmail('research-alpaca'));
   await page.goto('/settings/data-feeds');
   await page.getByRole('button', { name: 'Add a feed' }).click();
@@ -75,14 +78,32 @@ test('finds a US stock by symbol and charts it from the Alpaca feed', async ({ p
   await expect(add).toBeHidden();
 
   await page.goto('/research');
-  await page.getByLabel('Symbol').fill('ztsta');
-  await page.getByRole('button', { name: 'Find' }).click();
-  await expect(page.getByRole('heading', { level: 2, name: /ZTSTA/ })).toBeVisible({
+  await expect(page.getByTestId('needs-feed')).toBeHidden();
+
+  // A company name finds the listing to pick, then its chart.
+  await page.getByLabel('Search by ticker or company name').fill('beta');
+  await page.getByRole('button', { name: 'Search all US stocks for “beta”' }).click();
+  await expect(page.getByText('Did you mean one of these?')).toBeVisible({ timeout: 15_000 });
+  await page
+    .getByRole('list', { name: 'Matching US stocks and ETFs' })
+    .getByRole('button', { name: /ZTSTB/ })
+    .click();
+  await expect(page.getByRole('heading', { level: 2, name: /ZTSTB/ })).toBeVisible({
     timeout: 15_000,
   });
-  await expect(page.getByTestId('price-chart')).toHaveAttribute('aria-label', /^ZTSTA, daily/, {
+  await expect(page.getByTestId('price-chart')).toHaveAttribute('aria-label', /^ZTSTB, daily/, {
     timeout: 15_000,
   });
   await expect(page.getByText('Prices from Alpaca prices')).toBeVisible();
-  await expect(page.getByRole('list', { name: 'Your US stocks and ETFs' })).toContainText('ZTSTA');
+
+  // An exact ticker, submitted with Enter, is charted straight away.
+  const search = page.getByLabel('Search by ticker or company name');
+  await search.fill('ztsta');
+  await search.press('Enter');
+  await expect(page.getByRole('heading', { level: 2, name: /ZTSTA/ })).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(
+    page.getByRole('list', { name: 'Your US stocks and ETFs' }).getByRole('button'),
+  ).toHaveText([/ZTSTA/, /ZTSTB/]);
 });
