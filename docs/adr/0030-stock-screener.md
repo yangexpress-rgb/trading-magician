@@ -26,6 +26,14 @@ worker can open (ADR 0015).
   when throttled: multi-symbol snapshots (latest trade, today's and yesterday's daily bars) for
   every screen, and a month and a half of split-adjusted daily bars, kept in the worker per key
   for the day (at most 2 hours). About 110 requests for the first screen of the day, 55 after.
+- **S&P 500 by default.** With a real feed the screen opens on the S&P 500 members, with a
+  switch to every US stock and ETF; the demo feed opens on its own instruments. Alpaca does not
+  say which index a stock is in, so the member list (with each member's GICS sector) ships with
+  the app in `@tm/domain`, generated from the public-domain dataset at
+  github.com/datasets/s-and-p-500-companies by `pnpm --filter @tm/domain sp500:update`. The
+  screen shows the list's date. Membership is applied in the browser, so the worker still
+  screens the whole market and switching costs nothing. A Sector column and filter cover the
+  members.
 - **Demo.** Finished daily bars, and today's session so far from its finished 5-minute bars.
 - **Values.** Worked out once, in the domain (`screenRow`), for every feed. "Today" is the
   latest session any symbol has prices for (today's once the market opens, the last one on a
@@ -46,5 +54,7 @@ worker can open (ADR 0015).
 - The first screen of the day takes tens of seconds for the whole market; later ones a few.
 - IEX volumes are a few percent of the market's, so volume filters and the "liquid" threshold
   in ready-made screens are lower on Alpaca's free feed; the warning says so under the table.
-- Fundamentals (market cap, P/E, sector) are not in the feed and are not offered yet; neither
+- The S&P 500 list changes a few times a quarter; it is as current as the last
+  `sp500:update` run, and the screen says when that was.
+- Fundamentals (market cap, P/E) are not in the feed and are not offered yet; neither
   are custom formulas (§11), which can build on the same rows.

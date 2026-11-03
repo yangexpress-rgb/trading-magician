@@ -1,4 +1,4 @@
-import type { ScreenRow } from '@tm/domain';
+import { SP500_SECTORS, type ScreenRow } from '@tm/domain';
 import { describe, expect, it } from 'vitest';
 import {
   COLUMN_BY_KEY,
@@ -9,6 +9,7 @@ import {
   formatCell,
   parseAmount,
   screenPresets,
+  sectorOf,
   sortRows,
   toCsv,
 } from './screener';
@@ -87,6 +88,30 @@ describe('screener filters', () => {
   });
 });
 
+describe('the S&P 500 universe', () => {
+  const market = [row('AAPL'), row('JPM'), row('ZZZQ'), row('SPY', { assetClass: 'etf' })];
+
+  it('keeps members only, and knows their sectors', () => {
+    const members = filterRows(market, EMPTY_FILTERS, 'sp500').map((r) => r.symbol);
+    expect(members).toEqual(['AAPL', 'JPM']);
+    expect(filterRows(market, EMPTY_FILTERS, 'all')).toHaveLength(4);
+    expect(sectorOf({ symbol: 'JPM' })).toBe('Financials');
+    expect(sectorOf({ symbol: 'ZZZQ' })).toBeNull();
+    const banks = filterRows(market, { ...EMPTY_FILTERS, sector: 'Financials' }, 'all');
+    expect(banks.map((r) => r.symbol)).toEqual(['JPM']);
+  });
+
+  it('sorts by sector with non-members last', () => {
+    const sorted = sortRows(market, { key: 'sector', dir: 'asc' }).map((r) => r.symbol);
+    expect(sorted).toEqual(['JPM', 'AAPL', 'SPY', 'ZZZQ']);
+  });
+
+  it('ships a full member list', () => {
+    expect(SP500_SECTORS.size).toBeGreaterThan(490);
+    expect(SP500_SECTORS.has('BRK.B')).toBe(true);
+  });
+});
+
 describe('screener sorting', () => {
   it('sorts either way, with missing values last', () => {
     const down = sortRows(rows, { key: 'changePct', dir: 'desc' }).map((r) => r.symbol);
@@ -123,7 +148,9 @@ describe('screener formatting and export', () => {
 
   it('exports CSV with quoted names', () => {
     const csv = toCsv([row('AAA', { name: 'Alpha, Inc.' })], [COLUMN_BY_KEY.get('last')!]);
-    expect(csv).toBe('Symbol,Name,Type,Exchange,Last price\nAAA,"Alpha, Inc.",stock,NASDAQ,10');
+    expect(csv).toBe(
+      'Symbol,Name,Type,Exchange,Sector,Last price\nAAA,"Alpha, Inc.",stock,NASDAQ,,10',
+    );
   });
 
   it('keeps filters and sorting in the address', () => {
@@ -132,22 +159,33 @@ describe('screener formatting and export', () => {
         text: 'bank',
         type: 'etf',
         exchange: 'ARCA',
+        sector: 'Financials',
         ranges: { changePct: { min: 2 }, volume: { max: 1e6 } },
       },
       { key: 'changePct', dir: 'asc' },
       ['last', 'changePct'],
+      'all',
+      'sp500',
     );
-    const back = decodeScreenState(new URLSearchParams(q.toString()));
+    expect(q.get('universe')).toBe('all');
+    const back = decodeScreenState(new URLSearchParams(q.toString()), 'sp500');
+    expect(back.universe).toBe('all');
     expect(back.sort).toEqual({ key: 'changePct', dir: 'asc' });
     expect(back.filters).toEqual({
       text: 'bank',
       type: 'etf',
       exchange: 'ARCA',
+      sector: 'Financials',
       ranges: { changePct: { min: 2, max: undefined }, volume: { min: undefined, max: 1e6 } },
     });
     expect(back.columns).toEqual(['last', 'changePct']);
     // Anything unknown falls back to the defaults.
-    const junk = decodeScreenState(new URLSearchParams('sort=nope.up&f=evil:1:2&type=bond'));
+    const junk = decodeScreenState(
+      new URLSearchParams('sort=nope.up&f=evil:1:2&type=bond&sector=Nope'),
+      'sp500',
+    );
+    expect(junk.universe).toBe('sp500');
+    expect(junk.filters.sector).toBe('');
     expect(junk.sort.key).toBe('dollarVolume');
     expect(junk.filters.ranges).toEqual({});
     expect(junk.filters.type).toBe('all');
