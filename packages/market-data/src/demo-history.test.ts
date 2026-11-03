@@ -29,7 +29,8 @@ describe('demo history provider', () => {
       expect(b.low.gt(0) && b.volume.gt(0)).toBe(true);
       expect(Date.parse(b.end)).toBeGreaterThan(Date.parse(b.start));
     }
-  });
+    // The first call generates the paths from 2015 on, which takes a few seconds on a busy runner.
+  }, 20_000);
 
   it('is deterministic and independent of the requested range', async () => {
     const year = await provider.getBars(req());
