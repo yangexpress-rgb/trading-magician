@@ -43,7 +43,13 @@ import type {
   UpdatePlatformRequest,
   AccountDto,
 } from './integrations';
-import type { CreatePriceChartRequest, PriceChartDto } from './research';
+import type {
+  CreatePriceChartRequest,
+  CreateStockScreenRequest,
+  PriceChartDto,
+  StockScreenDataDto,
+  StockScreenDto,
+} from './research';
 import type {
   ClosePositionsRequest,
   ExecutionStatusDto,
@@ -243,6 +249,12 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
       chart: (body: CreatePriceChartRequest) =>
         call<PriceChartDto>('POST', '/research/price-charts', body),
       getChart: (id: string) => call<PriceChartDto>('GET', `/research/price-charts/${enc(id)}`),
+      /** Asks the worker to screen every stock the data feed covers; poll `getScreen`, then `getScreenRows`. */
+      screen: (body: CreateStockScreenRequest = {}) =>
+        call<StockScreenDto>('POST', '/research/stock-screens', body),
+      getScreen: (id: string) => call<StockScreenDto>('GET', `/research/stock-screens/${enc(id)}`),
+      getScreenRows: (id: string) =>
+        call<StockScreenDataDto>('GET', `/research/stock-screens/${enc(id)}/rows`),
     },
   };
 }

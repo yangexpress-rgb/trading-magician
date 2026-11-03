@@ -9,6 +9,7 @@ import {
 } from '@tm/domain';
 import { PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
+import { ResearchNav } from '@/components/research/research-nav';
 import { ResearchWorkspace } from '@/components/research/research-workspace';
 import { appDb } from '@/lib/server/db';
 import { requireTenant } from '@/lib/server/session';
@@ -53,6 +54,7 @@ export default async function ResearchPage({
         title="Quantitative Research"
         description="Pick a stock or ETF and study its price history."
       />
+      <ResearchNav />
       <ResearchWorkspace
         instruments={instruments}
         canSearchMarket={canSearchMarket}

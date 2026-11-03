@@ -5,6 +5,10 @@ import {
   checkAlpacaData,
   discoverAlpacaAccount,
   createAlpacaHistory,
+  fetchDailyHistory,
+  fetchSnapshots,
+  screenSource,
+  screenUniverse,
   createAlpacaQuotes,
   listAlpacaAssets,
   lookupAlpacaAsset,
@@ -12,9 +16,15 @@ import {
   type DiscoveredInstrument,
   type Fetch,
 } from '@tm/alpaca';
-import type { AccountCapabilities } from '@tm/domain';
+import {
+  addDays,
+  nyDate,
+  SCREEN_HISTORY_DAYS,
+  type AccountCapabilities,
+  type ScreenDay,
+} from '@tm/domain';
 import type { BrokerProvider } from './brokers';
-import type { MarketDataProvider, ProviderContext } from './providers';
+import type { MarketDataProvider, ProviderContext, ScreenResult } from './providers';
 
 /**
  * Alpaca as a market-data provider (ADR 0017): the free IEX feed for prices
@@ -24,6 +34,8 @@ export interface AlpacaProviderOptions {
   fetch?: Fetch | undefined;
   /** Tests and E2E only: a local fake in place of Alpaca's hosts. */
   fake?: { tradingUrl: string; dataUrl: string } | undefined;
+  /** Tests only: waits between throttled screen requests. */
+  sleep?: ((ms: number) => Promise<void>) | undefined;
 }
 
 function clientFactory(options: AlpacaProviderOptions) {
@@ -44,6 +56,8 @@ function clientFactory(options: AlpacaProviderOptions) {
 
 /** Alpaca's list of assets changes a few times a day at most. */
 export const ASSET_LIST_TTL_MS = 6 * 60 * 60 * 1000;
+/** The screener's month of daily bars is asked for again at most this often within a day. */
+export const SCREEN_HISTORY_TTL_MS = 2 * 60 * 60 * 1000;
 
 const toListing = (found: DiscoveredInstrument) => ({
   assetClass: found.assetClass,
@@ -58,6 +72,40 @@ export function alpacaProvider(options: AlpacaProviderOptions = {}): MarketDataP
   // The asset list is public reference data, the same for every account, so one
   // copy serves every tenant; each search still needs the tenant's own working key.
   let assets: { at: number; list: Promise<DiscoveredInstrument[]> } | undefined;
+  const assetList = (client: AlpacaClient, nowMs: number) => {
+    if (!assets || nowMs - assets.at > ASSET_LIST_TTL_MS) {
+      const list = listAlpacaAssets(client);
+      assets = { at: nowMs, list };
+      // A failed download is not kept, so the next search tries again.
+      list.catch(() => {
+        if (assets?.list === list) assets = undefined;
+      });
+    }
+    return assets.list;
+  };
+  // A month of daily bars for the screener changes once a day; the latest two
+  // sessions come fresh with every screen's snapshots. Kept per key.
+  const histories = new Map<
+    string,
+    { date: string; at: number; bars: Promise<Map<string, ScreenDay[]>> }
+  >();
+  const historyFor = (client: AlpacaClient, keyId: string, symbols: string[], now: Date) => {
+    const today = nyDate(now);
+    const nowMs = now.getTime();
+    const cached = histories.get(keyId);
+    if (cached && cached.date === today && nowMs - cached.at < SCREEN_HISTORY_TTL_MS) {
+      return cached.bars;
+    }
+    const bars = fetchDailyHistory(client, symbols, addDays(today, -SCREEN_HISTORY_DAYS), {
+      sleep: options.sleep,
+    });
+    const entry = { date: today, at: nowMs, bars };
+    histories.set(keyId, entry);
+    bars.catch(() => {
+      if (histories.get(keyId) === entry) histories.delete(keyId);
+    });
+    return bars;
+  };
   return {
     needsCredential: true,
     quotes: (ctx) => createAlpacaQuotes(clientFor(ctx), { now: ctx.now }),
@@ -68,17 +116,26 @@ export function alpacaProvider(options: AlpacaProviderOptions = {}): MarketDataP
       return found ? toListing(found) : undefined;
     },
     search: async (ctx, query) => {
+      const list = await assetList(clientFor(ctx), ctx.now().getTime());
+      return searchInstruments(list, query).map(toListing);
+    },
+    screen: async (ctx): Promise<ScreenResult> => {
       const client = clientFor(ctx);
-      const nowMs = ctx.now().getTime();
-      if (!assets || nowMs - assets.at > ASSET_LIST_TTL_MS) {
-        const list = listAlpacaAssets(client);
-        assets = { at: nowMs, list };
-        // A failed download is not kept, so the next search tries again.
-        list.catch(() => {
-          if (assets?.list === list) assets = undefined;
-        });
-      }
-      return searchInstruments(await assets.list, query).map(toListing);
+      const now = ctx.now();
+      const universe = screenUniverse(await assetList(client, now.getTime()));
+      const symbols = universe.map((a) => a.symbol);
+      const [history, snaps] = await Promise.all([
+        historyFor(client, ctx.credential?.fields.keyId ?? '', symbols, now),
+        fetchSnapshots(client, symbols, { sleep: options.sleep }),
+      ]);
+      return {
+        sources: universe.map((a) =>
+          screenSource(a, history.get(a.symbol) ?? [], snaps.get(a.symbol)),
+        ),
+        warnings: [
+          'Alpaca’s free feed has IEX exchange trades only, so volumes are lower than the whole market’s',
+        ],
+      };
     },
   };
 }

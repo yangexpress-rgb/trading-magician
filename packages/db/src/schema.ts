@@ -457,6 +457,44 @@ export const priceCharts = pgTable(
   ],
 );
 
+export const stockScreenStatus = pgEnum('stock_screen_status', ['pending', 'ready', 'failed']);
+
+/**
+ * Stock screens for Quantitative Research (ADR 0030): the web app asks, the
+ * worker fills in one row of key values per US stock or ETF the tenant's data
+ * feed covers. A cache of provider data, cleared after a day.
+ */
+export const stockScreens = pgTable(
+  'stock_screen',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: stockScreenStatus('status').notNull().default('pending'),
+    /** New York date of the session the screen calls today. */
+    sessionDate: date('session_date'),
+    /** Row tuples in the order of `SCREEN_TEXT_COLUMNS`, `SCREEN_NUMBER_COLUMNS`, lastAt, instrumentId. */
+    rows: jsonb('rows'),
+    rowCount: integer('row_count'),
+    warnings: jsonb('warnings').notNull().default([]),
+    /** The data feed that answered, by its name in Settings › Data feeds. */
+    source: text('source'),
+    /** Short and secret-free; shown to the person. */
+    message: text('message'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    attempts: integer('attempts').notNull().default(0),
+    ...timestamps(),
+  },
+  (t) => [
+    index('stock_screen_pending_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'pending'`),
+    index('stock_screen_reuse_idx').on(t.userId, t.createdAt),
+    check('stock_screen_ready_has_rows', sql`(${t.status} = 'ready') = (${t.rows} IS NOT NULL)`),
+  ],
+);
+
 export const credentials = pgTable(
   'credential',
   {
