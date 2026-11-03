@@ -163,6 +163,13 @@ With M1.5, every §18 Phase 0 and Phase 1 item above is Done. The two rows that 
 | Plan limits are enforced server-side                                    | Done (M6.1): every limit is checked in the database layer under a per-user lock; db `entitlements.test.ts`                                                    |
 | Subscription changes do not create unsafe, silent execution behavior    | Done (M6.3): 7-day grace with notices; over-limit strategies pause with an audited reason and a notice; nothing auto-resumes; db `billing.test.ts` (ADR 0024) |
 
+## Quantitative Research (§11)
+
+| Item                                            | Design ref | Status                                                                                                                                                                                                                                                                                                       |
+| ----------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Pick a stock or ETF and chart its price history | §11        | Done (2026-11-03): stock picker (demo instruments plus the person's looked-up and used US stocks and ETFs, searchable), symbol lookup, line or candle chart with volume over 1W to 5Y, daily or hourly bars, prices through the bars route (ADR 0029); worker `price-charts.test.ts`, e2e `research.spec.ts` |
+| Screens, formulas and ranking                   | §11        | Not started                                                                                                                                                                                                                                                                                                  |
+
 ## Product decisions confirmed (2026-10-04)
 
 | §20 item                    | Decision                                                                                                                |

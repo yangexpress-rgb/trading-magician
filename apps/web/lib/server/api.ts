@@ -56,6 +56,7 @@ const MUTATIONS_PER_MINUTE = 120;
  */
 const EXTRA_LIMITS: { name: string; path: RegExp; perMinute: number }[] = [
   { name: 'backtest', path: /^\/api\/v1\/strategies\/[^/]+\/backtests$/, perMinute: 20 },
+  { name: 'price-chart', path: /^\/api\/v1\/research\/price-charts$/, perMinute: 30 },
   {
     name: 'execution',
     path: /^\/api\/v1\/(strategies\/[^/]+\/(start|stop)|execution(\/|$)|orders\/)/,
@@ -156,6 +157,9 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       }
       if ('lookupId' in params && !UUID.test(params.lookupId ?? '')) {
         return errorResponse('not_found', 'Lookup not found');
+      }
+      if ('chartId' in params && !UUID.test(params.chartId ?? '')) {
+        return errorResponse('not_found', 'Chart not found');
       }
       if ('brokerId' in params && !UUID.test(params.brokerId ?? '')) {
         return errorResponse('not_found', 'Trading platform not found');

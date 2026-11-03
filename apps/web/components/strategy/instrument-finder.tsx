@@ -19,10 +19,21 @@ export function InstrumentFinder({
   instruments,
   onFound,
   editable,
+  heading = 'US stocks and ETFs',
+  intro,
+  foundText = 'Pick it in any condition or order.',
+  showList = true,
 }: {
   instruments: readonly InstrumentOptionDto[];
   onFound: (instrument: InstrumentOptionDto) => void;
   editable: boolean;
+  heading?: string;
+  /** Replaces the strategy-editor wording above the form. */
+  intro?: React.ReactNode;
+  /** Follows "Added SYMBOL, Name." once a lookup succeeds. */
+  foundText?: string;
+  /** Lists the tenant's real instruments above the form. */
+  showList?: boolean;
 }) {
   const [symbol, setSymbol] = useState('');
   const [lookup, setLookup] = useState<InstrumentLookupDto | null>(null);
@@ -73,19 +84,24 @@ export function InstrumentFinder({
     lookup?.status === 'pending'
       ? `Looking up ${lookup.symbol}…`
       : lookup?.status === 'found' && lookup.instrument
-        ? `Added ${lookup.instrument.symbol}, ${lookup.instrument.displayName}. Pick it in any condition or order.`
+        ? `Added ${lookup.instrument.symbol}, ${lookup.instrument.displayName}. ${foundText}`
         : '';
 
   return (
     <Card>
       <h2 id="instruments-heading" className="text-lg font-semibold">
-        US stocks and ETFs
+        {heading}
       </h2>
       <p className="mb-3 text-sm text-ink-muted">
-        Besides the demo instruments, a strategy can use any US stock or ETF your data feed can
-        find. Feeds are set up in <Link href="/settings/data-feeds">Settings › Data feeds</Link>.
+        {intro ?? (
+          <>
+            Besides the demo instruments, a strategy can use any US stock or ETF your data feed can
+            find. Feeds are set up in <Link href="/settings/data-feeds">Settings › Data feeds</Link>
+            .
+          </>
+        )}
       </p>
-      {real.length > 0 && (
+      {showList && real.length > 0 && (
         <ul aria-label="Your US stocks and ETFs" className="mb-3 flex flex-wrap gap-2 text-sm">
           {real.map((i) => (
             <li key={i.id} className="rounded border border-line px-2 py-1">
