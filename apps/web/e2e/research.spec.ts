@@ -19,18 +19,26 @@ test('picks a stock and reads its price chart', async ({ page }) => {
   await expect(chartHeading).toBeVisible();
   const chart = page.getByTestId('price-chart');
   await expect(chart).toBeVisible();
-  await expect(chart).toHaveAttribute('aria-label', /DEMO-IDX, daily prices over 1 year/);
-  await expect(page.getByTestId('chart-summary')).toContainText('1 year');
+  // Opens on the latest session: 5-minute bars, as a line.
+  await expect(chart).toHaveAttribute('aria-label', /DEMO-IDX, 5-minute prices over 1 day/);
+  await expect(page.getByTestId('chart-summary')).toContainText('1 day');
+  await expect(
+    page.getByRole('group', { name: 'Chart' }).getByRole('button', { name: 'Line' }),
+  ).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText(/Prices from /)).toBeVisible();
 
   // Without a real data feed, the page says how to search every US stock.
   await expect(page.getByTestId('needs-feed')).toContainText('add an Alpaca data feed');
 
-  // Search and pick another stock; the address keeps the choice.
+  // Picking another stock opens it on 1D, 5-minute bars, line, whatever was shown before.
+  await page.getByRole('group', { name: 'Range' }).getByRole('button', { name: '1Y' }).click();
+  await page.getByRole('group', { name: 'Chart' }).getByRole('button', { name: 'Candles' }).click();
+  await expect(chart).toHaveAttribute('aria-label', /DEMO-IDX, daily prices over 1 year/);
   await page.getByLabel('Search').fill('software c');
   await page.getByRole('button', { name: /DEMO-C/ }).click();
   await expect(page.getByRole('heading', { level: 2, name: /DEMO-C/ })).toBeVisible();
-  await expect(chart).toHaveAttribute('aria-label', /^DEMO-C, daily/);
+  await expect(chart).toHaveAttribute('aria-label', /^DEMO-C, 5-minute prices over 1 day/);
+  await expect(page).not.toHaveURL(/style=candles/);
   await expect(page).toHaveURL(/instrument=[0-9a-f-]{36}/);
 
   // Hourly bars over a month, as candles.
@@ -102,6 +110,11 @@ test('finds a US stock by name or ticker and charts it from the Alpaca feed', as
   await expect(page.getByRole('heading', { level: 2, name: /ZTSTB/ })).toBeVisible({
     timeout: 15_000,
   });
+  // It opens on 1D. The test worker's fake Alpaca runs on a shifted paper clock, so it has
+  // no bars for this week; a year of daily bars shows the feed's chart.
+  const range = page.getByRole('group', { name: 'Range' });
+  await expect(range.getByRole('button', { name: '1D' })).toHaveAttribute('aria-pressed', 'true');
+  await range.getByRole('button', { name: '1Y' }).click();
   await expect(page.getByTestId('price-chart')).toHaveAttribute('aria-label', /^ZTSTB, daily/, {
     timeout: 15_000,
   });

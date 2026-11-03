@@ -50,6 +50,8 @@ so the web app cannot fetch them itself.
   follows the pointer, or the arrow keys when the chart has focus, and the readout above it shows
   that bar's values; the same values are in a table. The selection lives in the address, so a chart
   can be bookmarked and survives a reload. The data feed that answered is named under the chart.
+- **Opening view.** The page, and every stock or ETF picked or found, opens on its latest session:
+  1D, 5-minute bars, as a line. A bookmarked address keeps the range, bars and style it names.
 
 ## Consequences
 

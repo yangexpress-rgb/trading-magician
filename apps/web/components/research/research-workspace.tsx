@@ -31,6 +31,9 @@ import { StockPicker } from './stock-picker';
 const POLL_MS = 700;
 const GIVE_UP_MS = 45_000;
 
+/** Every stock or ETF opens on its latest session: 5-minute bars, as a line. */
+const OPENING_VIEW = { range: '1d', interval: '5m', style: 'line' } as const;
+
 export interface ResearchSelection {
   instrumentId: string | null;
   range: ChartRange;
@@ -69,7 +72,7 @@ export function ResearchWorkspace({
         const next = { ...cur, ...patch };
         // Hourly bars only go back 3 months; a longer range falls back to daily.
         // Each range opens on bars it offers: a day on 5-minute bars, longer ranges on daily.
-        if (patch.range && patch.range !== cur.range) {
+        if (patch.range && patch.range !== cur.range && !patch.interval) {
           next.interval =
             patch.range === '1d' ||
             cur.range === '1d' ||
@@ -142,7 +145,7 @@ export function ResearchWorkspace({
         <StockPicker
           instruments={instruments}
           selectedId={sel.instrumentId}
-          onSelect={(instrumentId) => update({ instrumentId })}
+          onSelect={(instrumentId) => update({ instrumentId, ...OPENING_VIEW })}
           canSearchMarket={canSearchMarket}
           onAdded={(found) => {
             setInstruments((cur) =>
@@ -150,7 +153,7 @@ export function ResearchWorkspace({
                 ? cur
                 : [...cur, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
             );
-            update({ instrumentId: found.id });
+            update({ instrumentId: found.id, ...OPENING_VIEW });
           }}
         />
       </aside>

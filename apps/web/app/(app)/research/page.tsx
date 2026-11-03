@@ -35,7 +35,7 @@ export default async function ResearchPage({
   const wanted = one(params.instrument);
   const rawRange = one(params.range) as ChartRange;
   const rawInterval = one(params.interval) as ChartInterval;
-  const range = CHART_RANGES.includes(rawRange) ? rawRange : '1y';
+  const range = CHART_RANGES.includes(rawRange) ? rawRange : '1d';
   const interval =
     CHART_INTERVALS.includes(rawInterval) && chartIntervalAllowed(range, rawInterval)
       ? rawInterval
