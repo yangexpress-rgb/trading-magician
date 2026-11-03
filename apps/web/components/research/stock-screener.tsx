@@ -1,7 +1,13 @@
 'use client';
 
 import { ApiError, type StockScreenDto } from '@tm/contracts';
-import { fromScreenTuple, type ScreenNumberColumn, type ScreenRow } from '@tm/domain';
+import {
+  fromScreenTuple,
+  SP500_AS_OF,
+  SP500_SECTORS,
+  type ScreenNumberColumn,
+  type ScreenRow,
+} from '@tm/domain';
 import { Alert, Badge, Button, Card, cx } from '@tm/ui';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -19,11 +25,14 @@ import {
   NUMBER_COLUMNS,
   parseAmount,
   screenPresets,
+  sectorOf,
+  SECTORS,
   sortRows,
   toCsv,
   type ScreenFilters,
   type SortKey,
   type SortState,
+  type Universe,
 } from '@/lib/screener';
 import { useInstrumentLookup } from '../strategy/use-instrument-lookup';
 
@@ -72,7 +81,13 @@ export function StockScreener({
   initialQuery: string;
 }) {
   const router = useRouter();
-  const start = useMemo(() => decodeScreenState(new URLSearchParams(initialQuery)), [initialQuery]);
+  // With a real feed the screen opens on the S&P 500; the demo feed has only its own instruments.
+  const defaultUniverse: Universe = canScreenMarket ? 'sp500' : 'all';
+  const start = useMemo(
+    () => decodeScreenState(new URLSearchParams(initialQuery), defaultUniverse),
+    [initialQuery, defaultUniverse],
+  );
+  const [universe, setUniverse] = useState<Universe>(start.universe);
   const [screen, setScreen] = useState<StockScreenDto | null>(null);
   const [rows, setRows] = useState<ScreenRow[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -140,14 +155,28 @@ export function StockScreener({
   useEffect(() => {
     const defaults = NUMBER_COLUMNS.filter((c) => c.shown).map((c) => c.key);
     const same = columns.length === defaults.length && columns.every((c, i) => c === defaults[i]);
-    const q = encodeScreenState(filters, sort, same ? null : columns).toString();
+    const q = encodeScreenState(
+      filters,
+      sort,
+      same ? null : columns,
+      universe,
+      defaultUniverse,
+    ).toString();
     window.history.replaceState(null, '', q ? `?${q}` : window.location.pathname);
-  }, [filters, sort, columns]);
+  }, [filters, sort, columns, universe, defaultUniverse]);
 
   const matched = useMemo(
-    () => (rows ? sortRows(filterRows(rows, filters), sort) : []),
-    [rows, filters, sort],
+    () => (rows ? sortRows(filterRows(rows, filters, universe), sort) : []),
+    [rows, filters, sort, universe],
   );
+  const counts = useMemo(
+    () => ({
+      all: rows?.length ?? 0,
+      sp500: rows?.filter((r) => SP500_SECTORS.has(r.symbol)).length ?? 0,
+    }),
+    [rows],
+  );
+  const inUniverse = counts[universe];
   const exchanges = useMemo(() => [...new Set((rows ?? []).map((r) => r.exchange))].sort(), [rows]);
   const pages = Math.max(1, Math.ceil(matched.length / PAGE_SIZE));
   const shownPage = Math.min(page, pages - 1);
@@ -197,7 +226,7 @@ export function StockScreener({
     setSort((s) =>
       s.key === key
         ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' }
-        : { key, dir: key === 'symbol' || key === 'name' ? 'asc' : 'desc' },
+        : { key, dir: key === 'symbol' || key === 'name' || key === 'sector' ? 'asc' : 'desc' },
     );
     setPage(0);
   };
@@ -242,13 +271,51 @@ export function StockScreener({
 
       <Card>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div role="group" aria-label="Stocks to screen" className="flex items-center gap-2">
+            <span className="text-xs font-medium text-ink-muted">Screen</span>
+            <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
+              {(
+                [
+                  ['sp500', 'S&P 500'],
+                  ['all', canScreenMarket ? 'All US stocks and ETFs' : 'All demo instruments'],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={universe === value}
+                  disabled={value === 'sp500' && !canScreenMarket}
+                  title={
+                    value === 'sp500' && !canScreenMarket
+                      ? 'Add an Alpaca data feed to screen real stocks'
+                      : undefined
+                  }
+                  onClick={() => {
+                    setUniverse(value);
+                    setPage(0);
+                  }}
+                  className={cx(
+                    'h-7 rounded px-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-40',
+                    universe === value
+                      ? 'bg-surface font-semibold text-ink shadow-sm'
+                      : 'text-ink-muted',
+                  )}
+                >
+                  {label}
+                  {rows && (value === 'all' || canScreenMarket)
+                    ? ` (${counts[value].toLocaleString('en-US')})`
+                    : ''}
+                </button>
+              ))}
+            </div>
+          </div>
           <p role="status" aria-live="polite" className="text-sm text-ink-muted">
             {loading
               ? canScreenMarket
                 ? 'Getting prices for every US stock and ETF… the first screen of the day takes up to a minute.'
                 : 'Getting prices…'
               : rows && screen
-                ? `${matched.length.toLocaleString('en-US')} of ${rows.length.toLocaleString('en-US')} ${rows.length === 1 ? 'stock' : 'stocks and ETFs'} match`
+                ? `${matched.length.toLocaleString('en-US')} of ${inUniverse.toLocaleString('en-US')} ${universe === 'sp500' ? 'S&P 500 stocks' : inUniverse === 1 ? 'stock' : 'stocks and ETFs'} match`
                 : ''}
           </p>
           <div className="ml-auto flex items-center gap-2">
@@ -274,7 +341,7 @@ export function StockScreener({
           </div>
         )}
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1.5fr_auto]">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-[1.6fr_1fr_1fr_1.3fr_1.5fr_auto]">
           <label className="text-sm font-medium">
             Symbol or name
             <input
@@ -306,6 +373,21 @@ export function StockScreener({
             >
               <option value="">All exchanges</option>
               {exchanges.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm font-medium">
+            Sector
+            <select
+              value={filters.sector}
+              onChange={(e) => changeFilters({ sector: e.target.value })}
+              className="mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm"
+            >
+              <option value="">All sectors</option>
+              {SECTORS.map((x) => (
                 <option key={x} value={x}>
                   {x}
                 </option>
@@ -353,6 +435,13 @@ export function StockScreener({
             <tr>
               <HeaderCell label="Symbol" sortKey="symbol" sort={sort} onSort={toggleSort} sticky />
               <HeaderCell label="Name" sortKey="name" sort={sort} onSort={toggleSort} />
+              <HeaderCell
+                label="Sector"
+                title="GICS sector, for S&P 500 members"
+                sortKey="sector"
+                sort={sort}
+                onSort={toggleSort}
+              />
               {shownColumns.map((c) => (
                 <HeaderCell
                   key={c.key}
@@ -372,6 +461,7 @@ export function StockScreener({
               >
                 <span className="sr-only">Filters</span>
               </th>
+              <th scope="col" className="border-b border-line bg-surface-2 px-2 py-1" />
               <th scope="col" className="border-b border-line bg-surface-2 px-2 py-1" />
               {shownColumns.map((c) => (
                 <th
@@ -435,6 +525,9 @@ export function StockScreener({
                 >
                   {r.name}
                 </td>
+                <td className="border-b border-line px-3 py-1.5 whitespace-nowrap text-ink-muted">
+                  {sectorOf(r) ?? '—'}
+                </td>
                 {shownColumns.map((c) => {
                   const v = r[c.key];
                   const signed = isSigned(c.key) && v !== null && v !== 0;
@@ -456,7 +549,7 @@ export function StockScreener({
             {rows && visible.length === 0 && (
               <tr>
                 <td
-                  colSpan={shownColumns.length + 2}
+                  colSpan={shownColumns.length + 3}
                   className="px-3 py-10 text-center text-ink-muted"
                 >
                   Nothing matches these filters.
@@ -495,7 +588,8 @@ export function StockScreener({
           {screen.source && <Badge>{`Prices from ${screen.source}`}</Badge>}
           <span>
             Daily prices are split-adjusted. Today’s values grow through the session; a dash means
-            the stock has not traded today or lacks the history.
+            the stock has not traded today or lacks the history. S&P 500 members and sectors as of{' '}
+            {SP500_AS_OF}.
           </span>
           {screen.warnings.map((w) => (
             <span key={w} className="basis-full">

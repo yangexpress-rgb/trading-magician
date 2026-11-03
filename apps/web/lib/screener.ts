@@ -1,4 +1,4 @@
-import type { ScreenNumberColumn, ScreenRow } from '@tm/domain';
+import { SP500_SECTORS, type ScreenNumberColumn, type ScreenRow } from '@tm/domain';
 
 /**
  * The stock screener's columns, filters, sorting and presets (ADR 0030).
@@ -144,7 +144,16 @@ export const NUMBER_COLUMNS: readonly NumberColumnSpec[] = [
 
 export const COLUMN_BY_KEY = new Map(NUMBER_COLUMNS.map((c) => [c.key, c]));
 
-export type SortKey = ScreenNumberColumn | 'symbol' | 'name';
+export type SortKey = ScreenNumberColumn | 'symbol' | 'name' | 'sector';
+
+/** Which stocks a screen starts from: the S&P 500, or everything the feed covers. */
+export type Universe = 'sp500' | 'all';
+
+/** A stock's GICS sector, known for S&P 500 members only. */
+export const sectorOf = (row: Pick<ScreenRow, 'symbol'>): string | null =>
+  SP500_SECTORS.get(row.symbol) ?? null;
+
+export const SECTORS: readonly string[] = [...new Set(SP500_SECTORS.values())].sort();
 export interface SortState {
   key: SortKey;
   dir: 'asc' | 'desc';
@@ -160,10 +169,18 @@ export interface ScreenFilters {
   text: string;
   type: 'all' | 'stock' | 'etf';
   exchange: string;
+  /** A GICS sector; only S&P 500 members have one. */
+  sector: string;
   ranges: Partial<Record<ScreenNumberColumn, RangeFilter>>;
 }
 
-export const EMPTY_FILTERS: ScreenFilters = { text: '', type: 'all', exchange: '', ranges: {} };
+export const EMPTY_FILTERS: ScreenFilters = {
+  text: '',
+  type: 'all',
+  exchange: '',
+  sector: '',
+  ranges: {},
+};
 export const DEFAULT_SORT: SortState = { key: 'dollarVolume', dir: 'desc' };
 
 /** Reads "1.5M", "250k", "2b", "1,000" or "-3.5" as a number; undefined when blank or not a number. */
@@ -180,10 +197,20 @@ export function activeFilterCount(f: ScreenFilters): number {
   const ranges = Object.values(f.ranges).filter(
     (r) => r && (r.min !== undefined || r.max !== undefined),
   ).length;
-  return ranges + (f.text.trim() ? 1 : 0) + (f.type !== 'all' ? 1 : 0) + (f.exchange ? 1 : 0);
+  return (
+    ranges +
+    (f.text.trim() ? 1 : 0) +
+    (f.type !== 'all' ? 1 : 0) +
+    (f.exchange ? 1 : 0) +
+    (f.sector ? 1 : 0)
+  );
 }
 
-export function filterRows(rows: readonly ScreenRow[], f: ScreenFilters): ScreenRow[] {
+export function filterRows(
+  rows: readonly ScreenRow[],
+  f: ScreenFilters,
+  universe: Universe = 'all',
+): ScreenRow[] {
   const text = f.text.trim().toLowerCase();
   const upper = text.toUpperCase();
   const ranges = Object.entries(f.ranges).filter(
@@ -191,6 +218,8 @@ export function filterRows(rows: readonly ScreenRow[], f: ScreenFilters): Screen
       !!e[1] && (e[1].min !== undefined || e[1].max !== undefined),
   );
   return rows.filter((r) => {
+    if (universe === 'sp500' && !SP500_SECTORS.has(r.symbol)) return false;
+    if (f.sector && sectorOf(r) !== f.sector) return false;
     if (f.type !== 'all' && r.assetClass !== f.type) return false;
     if (f.exchange && r.exchange !== f.exchange) return false;
     if (text && !r.symbol.startsWith(upper) && !` ${r.name.toLowerCase()}`.includes(` ${text}`)) {
@@ -215,6 +244,14 @@ export function sortRows(rows: readonly ScreenRow[], sort: SortState): ScreenRow
     if (key === 'symbol' || key === 'name') {
       return sign * a[key].localeCompare(b[key]) || a.symbol.localeCompare(b.symbol);
     }
+    if (key === 'sector') {
+      const x = sectorOf(a);
+      const y = sectorOf(b);
+      if (x === y) return a.symbol.localeCompare(b.symbol);
+      if (x === null) return 1;
+      if (y === null) return -1;
+      return sign * x.localeCompare(y);
+    }
     const x = a[key];
     const y = b[key];
     if (x === null && y === null) return a.symbol.localeCompare(b.symbol);
@@ -227,7 +264,7 @@ export function sortRows(rows: readonly ScreenRow[], sort: SortState): ScreenRow
 export interface ScreenPreset {
   id: string;
   label: string;
-  filters: Omit<ScreenFilters, 'text' | 'exchange'>;
+  filters: Omit<ScreenFilters, 'text' | 'exchange' | 'sector'>;
   sort: SortState;
 }
 
@@ -328,9 +365,9 @@ const csvCell = (v: string | number | null) => {
 };
 
 export function toCsv(rows: readonly ScreenRow[], columns: readonly NumberColumnSpec[]): string {
-  const header = ['Symbol', 'Name', 'Type', 'Exchange', ...columns.map((c) => c.label)];
+  const header = ['Symbol', 'Name', 'Type', 'Exchange', 'Sector', ...columns.map((c) => c.label)];
   const lines = rows.map((r) =>
-    [r.symbol, r.name, r.assetClass, r.exchange, ...columns.map((c) => r[c.key])]
+    [r.symbol, r.name, r.assetClass, r.exchange, sectorOf(r), ...columns.map((c) => r[c.key])]
       .map(csvCell)
       .join(','),
   );
@@ -347,8 +384,11 @@ export function encodeScreenState(
   filters: ScreenFilters,
   sort: SortState,
   columns: readonly ScreenNumberColumn[] | null,
+  universe: Universe = 'all',
+  defaultUniverse: Universe = 'all',
 ): URLSearchParams {
   const q = new URLSearchParams();
+  if (universe !== defaultUniverse) q.set('universe', universe);
   if (sort.key !== DEFAULT_SORT.key || sort.dir !== DEFAULT_SORT.dir) {
     q.set('sort', `${sort.key}.${sort.dir}`);
   }
@@ -359,18 +399,23 @@ export function encodeScreenState(
   if (filters.text.trim()) q.set('q', filters.text.trim());
   if (filters.type !== 'all') q.set('type', filters.type);
   if (filters.exchange) q.set('exchange', filters.exchange);
+  if (filters.sector) q.set('sector', filters.sector);
   if (columns) q.set('cols', columns.join(','));
   return q;
 }
 
-export function decodeScreenState(q: URLSearchParams): {
+export function decodeScreenState(
+  q: URLSearchParams,
+  defaultUniverse: Universe = 'all',
+): {
   filters: ScreenFilters;
   sort: SortState;
   columns: ScreenNumberColumn[] | null;
+  universe: Universe;
 } {
   const [sortKey, sortDir] = (q.get('sort') ?? '').split('.');
   const validKey = (k: string | undefined): k is SortKey =>
-    k === 'symbol' || k === 'name' || COLUMN_BY_KEY.has(k as ScreenNumberColumn);
+    k === 'symbol' || k === 'name' || k === 'sector' || COLUMN_BY_KEY.has(k as ScreenNumberColumn);
   const sort: SortState =
     validKey(sortKey) && (sortDir === 'asc' || sortDir === 'desc')
       ? { key: sortKey, dir: sortDir }
@@ -388,12 +433,16 @@ export function decodeScreenState(q: URLSearchParams): {
   const cols = (q.get('cols') ?? '')
     .split(',')
     .filter((c): c is ScreenNumberColumn => COLUMN_BY_KEY.has(c as ScreenNumberColumn));
+  const universe = q.get('universe');
+  const sector = q.get('sector') ?? '';
   return {
     sort,
+    universe: universe === 'sp500' || universe === 'all' ? universe : defaultUniverse,
     filters: {
       text: (q.get('q') ?? '').slice(0, 60),
       type: type === 'stock' || type === 'etf' ? type : 'all',
       exchange: (q.get('exchange') ?? '').slice(0, 20),
+      sector: SECTORS.includes(sector) ? sector : '',
       ranges,
     },
     columns: cols.length ? cols : null,

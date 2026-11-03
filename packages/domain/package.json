@@ -9,7 +9,8 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "sp500:update": "node scripts/update-sp500.mjs && prettier --write src/market/sp500-members.ts"
   },
   "dependencies": {
     "decimal.js": "^10.6.0",

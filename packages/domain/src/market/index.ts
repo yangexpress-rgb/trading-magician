@@ -4,3 +4,4 @@ export * from './indicators';
 export * from './quotes';
 export * from './chart';
 export * from './screen';
+export * from './sp500';
