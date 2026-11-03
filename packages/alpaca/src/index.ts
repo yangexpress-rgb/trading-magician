@@ -33,3 +33,12 @@ export {
   type DiscoveredInstrument,
 } from './account';
 export { ALPACA_BROKER_ID, AlpacaBroker, type AlpacaBrokerOptions } from './broker';
+export {
+  fetchDailyHistory,
+  fetchSnapshots,
+  screenSource,
+  screenUniverse,
+  SCREEN_BATCH,
+  SCREEN_EXCHANGES,
+  type ScreenFetchOptions,
+} from './screen';

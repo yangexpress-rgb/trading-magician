@@ -295,6 +295,20 @@
       "when": 1793730199790,
       "tag": "0041_chart_one_day",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1793734507811,
+      "tag": "0042_stock_screens",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1793734521270,
+      "tag": "0043_stock_screens_worker",
+      "breakpoints": true
     }
   ]
 }

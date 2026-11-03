@@ -15,6 +15,7 @@ import { alpacaBrokerProvider, alpacaProvider, type AlpacaProviderOptions } from
 import { startBrokerCheckLoop, type BrokerCheckLoop } from './broker-checks';
 import { startInstrumentLookupLoop, type LookupLoop } from './instrument-lookups';
 import { startPriceChartLoop, type PriceChartLoop } from './price-charts';
+import { startStockScreenLoop, type StockScreenLoop } from './stock-screens';
 import { demoProvider, type ProviderRegistry } from './providers';
 import { createRoutedHistory } from './routed-history';
 import { startRuntimeLoop, type RuntimeLoop } from './runtime';
@@ -44,6 +45,7 @@ let runtimes: RuntimeLoop | undefined;
 let feedChecks: FeedCheckLoop | undefined;
 let lookups: LookupLoop | undefined;
 let charts: PriceChartLoop | undefined;
+let screens: StockScreenLoop | undefined;
 let brokerChecks: BrokerCheckLoop | undefined;
 let valuations: ValuationLoop | undefined;
 let billing: BillingLoop | undefined;
@@ -157,6 +159,13 @@ if (databaseUrl) {
     logger,
     pollMs: env.BACKTEST_POLL_MS,
   });
+  screens = startStockScreenLoop({
+    db,
+    providers,
+    privateKey: env.CREDENTIALS_PRIVATE_KEY,
+    logger,
+    pollMs: env.BACKTEST_POLL_MS,
+  });
 } else {
   logger.warn('No database URL is set; the worker runs no jobs');
 }
@@ -177,6 +186,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         feedChecks?.stop(),
         lookups?.stop(),
         charts?.stop(),
+        screens?.stop(),
         brokerChecks?.stop(),
         valuations?.stop(),
         billing?.stop(),
