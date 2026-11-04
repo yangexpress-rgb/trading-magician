@@ -309,6 +309,13 @@
       "when": 1793734521270,
       "tag": "0043_stock_screens_worker",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1793752579513,
+      "tag": "0044_stock_screen_universe",
+      "breakpoints": true
     }
   ]
 }

@@ -134,6 +134,22 @@ describe('stock screens', () => {
     expect(a.instrumentId).toBeNull();
   });
 
+  it('screens only the S&P 500 members when asked', async () => {
+    const started = await as(userB, (tx) =>
+      requestStockScreen(tx, { userId: userB, universe: 'sp500', fresh: true }),
+    );
+    expect(started.universe).toBe('sp500');
+    await runStockScreens({ db: t.worker.db, ...opts });
+    const done = await as(userB, (tx) => getStockScreenData(tx, started.id));
+    expect(done.status).toBe('ready');
+    // The fake's made-up symbols are not in the index.
+    expect(done.rows).toEqual([]);
+    // A screen of the whole market is a different request.
+    const all = await as(userB, (tx) => requestStockScreen(tx, { userId: userB }));
+    expect(all.universe).toBe('all');
+    expect(all.id).not.toBe(started.id);
+  });
+
   it('reports a refused key', async () => {
     fake.failNext(401, 1);
     const done = await screen(userB, true);

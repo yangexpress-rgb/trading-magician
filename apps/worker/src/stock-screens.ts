@@ -17,6 +17,7 @@ import {
   resolveRoute,
   screenRow,
   screenSession,
+  SP500_SECTORS,
   toScreenTuple,
 } from '@tm/domain';
 import type { Logger } from 'pino';
@@ -29,6 +30,8 @@ import { withTimeout, type MarketDataProvider, type ProviderRegistry } from './p
  * screened from the demo feed. A feed that cannot be reached is retried a
  * few times, then reported.
  */
+
+const SP500_MEMBERS: ReadonlySet<string> = new Set(SP500_SECTORS.keys());
 
 export const SCREENS = { leaseSeconds: 240, batch: 2, maxAttempts: 3, timeoutMs: 180_000 } as const;
 
@@ -92,7 +95,10 @@ export async function runStockScreens(options: StockScreenOptions): Promise<numb
     try {
       if (!provider?.screen) throw new Error('No feed can screen');
       const result = await withTimeout(
-        provider.screen({ now, credential }),
+        provider.screen(
+          { now, credential },
+          pending.universe === 'sp500' ? { symbols: SP500_MEMBERS } : {},
+        ),
         SCREENS.timeoutMs,
         'The screen',
       );
@@ -114,7 +120,11 @@ export async function runStockScreens(options: StockScreenOptions): Promise<numb
       options.logger.info({ screenId, rows: rows.length }, 'stock screen ready');
     } catch (error) {
       const name = (error as Error).name;
-      options.logger.warn({ screenId, err: { name } }, 'stock screen failed');
+      // Provider errors here carry no secrets; the message says what failed.
+      options.logger.warn(
+        { screenId, err: { name, message: (error as Error).message?.slice(0, 200) } },
+        'stock screen failed',
+      );
       let outcome: Parameters<typeof finishStockScreen>[2];
       if (error instanceof AlpacaAuthError) {
         outcome = {

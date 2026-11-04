@@ -43,12 +43,12 @@ describe('screening with Alpaca', () => {
   it('asks for many symbols at once', async () => {
     const { fake, client } = setup();
     const snaps = await fetchSnapshots(client, ['ZTSTA', 'ZTSTB', 'NOPE']);
-    expect([...snaps.keys()].sort()).toEqual(['ZTSTA', 'ZTSTB']);
+    expect([...snaps.found.keys()].sort()).toEqual(['ZTSTA', 'ZTSTB']);
     const history = await fetchDailyHistory(client, ['ZTSTA', 'ZTSTB'], '2026-09-01');
-    expect(history.get('ZTSTA')!.length).toBeGreaterThan(20);
-    expect(history.get('ZTSTA')!.every((d, i, all) => i === 0 || all[i - 1]!.date < d.date)).toBe(
-      true,
-    );
+    expect(history.found.get('ZTSTA')!.length).toBeGreaterThan(20);
+    expect(
+      history.found.get('ZTSTA')!.every((d, i, all) => i === 0 || all[i - 1]!.date < d.date),
+    ).toBe(true);
     expect(fake.requests.filter((r) => r.url.includes('/v2/stocks/'))).toHaveLength(2);
   });
 
@@ -56,7 +56,7 @@ describe('screening with Alpaca', () => {
     const { client } = setup();
     const snaps = await fetchSnapshots(client, ['ZTSTA']);
     const history = await fetchDailyHistory(client, ['ZTSTA'], '2026-09-01');
-    const src = screenSource(asset('ZTSTA'), history.get('ZTSTA')!, snaps.get('ZTSTA'));
+    const src = screenSource(asset('ZTSTA'), history.found.get('ZTSTA')!, snaps.found.get('ZTSTA'));
     expect(src.days.at(-1)!.date).toBe('2026-10-06');
     expect(src.days.at(-2)!.date).toBe('2026-10-05');
     expect(src.last).toBeGreaterThan(0);
@@ -72,12 +72,39 @@ describe('screening with Alpaca', () => {
         waits.push(ms);
       },
     });
-    expect(snaps.has('ZTSTA')).toBe(true);
+    expect(snaps.found.has('ZTSTA')).toBe(true);
+    expect(snaps.missed).toBe(0);
     expect(waits).toEqual([1000, 2000]);
     fake.failNext(503, 10);
     await expect(fetchSnapshots(client, ['ZTSTA'], { sleep: async () => {} })).rejects.toThrow(
       AlpacaUnavailableError,
     );
+  });
+
+  it('keeps the batches that answered when one keeps failing', async () => {
+    const { fake } = setup();
+    // 201 symbols make two batches; the first request fails every retry.
+    const symbols = ['ZTSTA', ...Array.from({ length: 199 }, (_, i) => `ZZ${i}`), 'ZTSTB'];
+    let calls = 0;
+    const flaky = new AlpacaClient({
+      credentials: fake.credentials,
+      fetch: (url, init) => {
+        const first = new URL(url).searchParams.get('symbols')?.startsWith('ZTSTA,');
+        calls++;
+        return first ? Promise.reject(new Error('socket hang up')) : fake.fetch(url, init);
+      },
+      tradingUrl: FAKE_ALPACA_TRADING_URL,
+      dataUrl: FAKE_ALPACA_DATA_URL,
+      allowLocal: true,
+    });
+    const snaps = await fetchSnapshots(flaky, symbols, { sleep: async () => {} });
+    expect(snaps.missed).toBe(200);
+    expect([...snaps.found.keys()]).toEqual(['ZTSTB']);
+    expect(calls).toBe(5);
+    // When nothing answers, the fetch fails.
+    await expect(
+      fetchSnapshots(flaky, ['ZTSTA', 'ZTSTB'], { sleep: async () => {} }),
+    ).rejects.toThrow(AlpacaUnavailableError);
   });
 
   it('splits symbols into batches', () => {

@@ -38,8 +38,8 @@ import { useInstrumentLookup } from '../strategy/use-instrument-lookup';
 
 const POLL_MS = 1000;
 /** The first screen of the whole market downloads a month of prices; give it time. */
-const GIVE_UP_MS = 5 * 60_000;
-const PAGE_SIZE = 50;
+const GIVE_UP_MS = 10 * 60_000;
+const PAGE_SIZES = [50, 100, 250, 1000] as const;
 
 type RawRanges = Partial<Record<ScreenNumberColumn, { min: string; max: string }>>;
 
@@ -99,10 +99,13 @@ export function StockScreener({
     start.columns ?? NUMBER_COLUMNS.filter((c) => c.shown).map((c) => c.key),
   );
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(100);
+  /** Which stocks the rows on screen cover: the S&P 500 only, or the whole market. */
+  const loaded = useRef<Universe | null>(null);
   const request = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  const load = useCallback(async (fresh: boolean) => {
+  const load = useCallback(async (want: Universe, fresh: boolean) => {
     clearTimeout(timer.current);
     const mine = ++request.current;
     setLoading(true);
@@ -113,7 +116,7 @@ export function StockScreener({
       setLoading(false);
     };
     try {
-      const started = await apiClient.research.screen({ fresh });
+      const started = await apiClient.research.screen({ universe: want, fresh });
       const deadline = Date.now() + GIVE_UP_MS;
       const settle = async (current: StockScreenDto) => {
         if (mine !== request.current) return;
@@ -126,6 +129,7 @@ export function StockScreener({
           const data = await apiClient.research.getScreenRows(current.id);
           if (mine !== request.current) return;
           setRows((data.rows ?? []).map(fromScreenTuple));
+          loaded.current = want;
           setScreen(data);
           setLoading(false);
           return;
@@ -146,10 +150,14 @@ export function StockScreener({
     }
   }, []);
 
+  // The S&P 500 loads on its own, in seconds; the whole market only when asked for.
+  // Rows of the whole market already cover the S&P 500, so going back needs no load.
+  const want: Universe = canScreenMarket ? universe : 'all';
   useEffect(() => {
-    void load(false);
-    return () => clearTimeout(timer.current);
-  }, [load]);
+    if (loaded.current === 'all' || loaded.current === want) return;
+    void load(want, false);
+  }, [want, load]);
+  useEffect(() => () => clearTimeout(timer.current), []);
 
   // Keep the screen in the address without a navigation.
   useEffect(() => {
@@ -173,14 +181,16 @@ export function StockScreener({
     () => ({
       all: rows?.length ?? 0,
       sp500: rows?.filter((r) => SP500_SECTORS.has(r.symbol)).length ?? 0,
+      // Not known until the whole market has been screened.
+      allKnown: loaded.current === 'all',
     }),
     [rows],
   );
   const inUniverse = counts[universe];
   const exchanges = useMemo(() => [...new Set((rows ?? []).map((r) => r.exchange))].sort(), [rows]);
-  const pages = Math.max(1, Math.ceil(matched.length / PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(matched.length / pageSize));
   const shownPage = Math.min(page, pages - 1);
-  const visible = matched.slice(shownPage * PAGE_SIZE, (shownPage + 1) * PAGE_SIZE);
+  const visible = matched.slice(shownPage * pageSize, (shownPage + 1) * pageSize);
   const shownColumns = NUMBER_COLUMNS.filter((c) => columns.includes(c.key));
   const iex = (screen?.warnings ?? []).some((w) => /IEX/.test(w));
   const presets = useMemo(() => screenPresets(iex), [iex]);
@@ -302,7 +312,7 @@ export function StockScreener({
                   )}
                 >
                   {label}
-                  {rows && (value === 'all' || canScreenMarket)
+                  {rows && (value === 'all' ? counts.allKnown : canScreenMarket)
                     ? ` (${counts[value].toLocaleString('en-US')})`
                     : ''}
                 </button>
@@ -311,15 +321,17 @@ export function StockScreener({
           </div>
           <p role="status" aria-live="polite" className="text-sm text-ink-muted">
             {loading
-              ? canScreenMarket
-                ? 'Getting prices for every US stock and ETF… the first screen of the day takes up to a minute.'
-                : 'Getting prices…'
+              ? want === 'sp500'
+                ? 'Getting prices for the S&P 500…'
+                : canScreenMarket
+                  ? 'Getting prices for every US stock and ETF… the first screen of the day takes a minute or two.'
+                  : 'Getting prices…'
               : rows && screen
                 ? `${matched.length.toLocaleString('en-US')} of ${inUniverse.toLocaleString('en-US')} ${universe === 'sp500' ? 'S&P 500 stocks' : inUniverse === 1 ? 'stock' : 'stocks and ETFs'} match`
                 : ''}
           </p>
           <div className="ml-auto flex items-center gap-2">
-            <Button size="sm" onClick={() => void load(true)} disabled={loading}>
+            <Button size="sm" onClick={() => void load(want, true)} disabled={loading}>
               Refresh prices
             </Button>
             <Button size="sm" onClick={exportCsv} disabled={!rows || matched.length === 0}>
@@ -560,11 +572,31 @@ export function StockScreener({
         </table>
       </div>
 
-      {rows && matched.length > PAGE_SIZE && (
-        <nav aria-label="Result pages" className="flex items-center justify-end gap-2 text-sm">
+      {rows && matched.length > PAGE_SIZES[0] && (
+        <nav
+          aria-label="Result pages"
+          className="flex flex-wrap items-center justify-end gap-2 text-sm"
+        >
+          <label className="mr-auto flex items-center gap-2 text-ink-muted">
+            Rows per page
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(0);
+              }}
+              className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
+            >
+              {PAGE_SIZES.map((n) => (
+                <option key={n} value={n}>
+                  {n.toLocaleString('en-US')}
+                </option>
+              ))}
+            </select>
+          </label>
           <span className="text-ink-muted">
-            {(shownPage * PAGE_SIZE + 1).toLocaleString('en-US')}–
-            {Math.min((shownPage + 1) * PAGE_SIZE, matched.length).toLocaleString('en-US')} of{' '}
+            {(shownPage * pageSize + 1).toLocaleString('en-US')}–
+            {Math.min((shownPage + 1) * pageSize, matched.length).toLocaleString('en-US')} of{' '}
             {matched.length.toLocaleString('en-US')}
           </span>
           <Button size="sm" onClick={() => setPage(0)} disabled={shownPage === 0}>

@@ -36,10 +36,15 @@ export interface MarketDataProvider {
    * Every US stock and ETF the feed covers, with a month of daily prices and
    * the latest trade, for the stock screener (ADR 0030).
    */
-  screen?(ctx: ProviderContext): Promise<ScreenResult>;
+  screen?(ctx: ProviderContext, request?: ScreenRequest): Promise<ScreenResult>;
   /** A light call that proves the connection and the account's entitlement. */
   check(ctx: ProviderContext): Promise<FeedCheckResult>;
   needsCredential: boolean;
+}
+
+export interface ScreenRequest {
+  /** Only these symbols, such as the S&P 500 members; every listing when absent. */
+  symbols?: ReadonlySet<string> | undefined;
 }
 
 export interface ScreenResult {

@@ -40,5 +40,6 @@ export {
   screenUniverse,
   SCREEN_BATCH,
   SCREEN_EXCHANGES,
+  type Fetched,
   type ScreenFetchOptions,
 } from './screen';

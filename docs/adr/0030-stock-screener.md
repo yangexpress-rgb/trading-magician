@@ -31,9 +31,15 @@ worker can open (ADR 0015).
   say which index a stock is in, so the member list (with each member's GICS sector) ships with
   the app in `@tm/domain`, generated from the public-domain dataset at
   github.com/datasets/s-and-p-500-companies by `pnpm --filter @tm/domain sp500:update`. The
-  screen shows the list's date. Membership is applied in the browser, so the worker still
-  screens the whole market and switching costs nothing. A Sector column and filter cover the
-  members.
+  screen shows the list's date. A screen is asked for one universe (`sp500` or `all`): the S&P
+  500 alone is about 6 requests and loads in seconds, so the page shows it at once, and the
+  whole market (about 13,000 listings, 130 requests) is screened only when the person switches
+  to it. Rows of the whole market already cover the S&P 500, so switching back needs no load.
+  A Sector column and filter cover the members.
+- **Partial answers.** A batch Alpaca still cannot answer after four tries is left blank, with a
+  warning saying how many stocks are missing, instead of failing the screen; only when every
+  batch fails, or the key is refused, does the screen fail. Daily history is cached per symbol,
+  so a later screen fetches only what is missing.
 - **Demo.** Finished daily bars, and today's session so far from its finished 5-minute bars.
 - **Values.** Worked out once, in the domain (`screenRow`), for every feed. "Today" is the
   latest session any symbol has prices for (today's once the market opens, the last one on a

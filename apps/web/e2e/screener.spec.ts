@@ -91,7 +91,7 @@ test('screens every listed US stock through an Alpaca feed', async ({ page }) =>
     'true',
   );
   await expect(page.getByText('0 of 0 S&P 500 stocks match')).toBeVisible({ timeout: 30_000 });
-  await universe.getByRole('button', { name: /All US stocks and ETFs \(3\)/ }).click();
+  await universe.getByRole('button', { name: /All US stocks and ETFs/ }).click();
   await expect(page).toHaveURL(/universe=all/);
   await expect(results.locator('tbody tr')).toHaveCount(3);
   await expect(page.getByText('Prices from Alpaca prices')).toBeVisible();
