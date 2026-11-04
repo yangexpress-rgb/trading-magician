@@ -181,12 +181,10 @@ export function StockScreener({
     () => ({
       all: rows?.length ?? 0,
       sp500: rows?.filter((r) => SP500_SECTORS.has(r.symbol)).length ?? 0,
-      // Not known until the whole market has been screened.
-      allKnown: loaded.current === 'all',
     }),
     [rows],
   );
-  const inUniverse = counts[universe];
+  const inUniverse = counts[want];
   const exchanges = useMemo(() => [...new Set((rows ?? []).map((r) => r.exchange))].sort(), [rows]);
   const pages = Math.max(1, Math.ceil(matched.length / pageSize));
   const shownPage = Math.min(page, pages - 1);
@@ -281,44 +279,6 @@ export function StockScreener({
 
       <Card>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <div role="group" aria-label="Stocks to screen" className="flex items-center gap-2">
-            <span className="text-xs font-medium text-ink-muted">Screen</span>
-            <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
-              {(
-                [
-                  ['sp500', 'S&P 500'],
-                  ['all', canScreenMarket ? 'All US stocks and ETFs' : 'All demo instruments'],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={universe === value}
-                  disabled={value === 'sp500' && !canScreenMarket}
-                  title={
-                    value === 'sp500' && !canScreenMarket
-                      ? 'Add an Alpaca data feed to screen real stocks'
-                      : undefined
-                  }
-                  onClick={() => {
-                    setUniverse(value);
-                    setPage(0);
-                  }}
-                  className={cx(
-                    'h-7 rounded px-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-40',
-                    universe === value
-                      ? 'bg-surface font-semibold text-ink shadow-sm'
-                      : 'text-ink-muted',
-                  )}
-                >
-                  {label}
-                  {rows && (value === 'all' ? counts.allKnown : canScreenMarket)
-                    ? ` (${counts[value].toLocaleString('en-US')})`
-                    : ''}
-                </button>
-              ))}
-            </div>
-          </div>
           <p role="status" aria-live="polite" className="text-sm text-ink-muted">
             {loading
               ? want === 'sp500'
@@ -353,7 +313,29 @@ export function StockScreener({
           </div>
         )}
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-[1.6fr_1fr_1fr_1.3fr_1.5fr_auto]">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-[1fr_1.5fr_1fr_1fr_1.3fr_1.5fr_auto]">
+          <label className="text-sm font-medium">
+            Stock group
+            <select
+              value={want}
+              disabled={!canScreenMarket}
+              title={canScreenMarket ? undefined : 'Add an Alpaca data feed to screen real stocks'}
+              onChange={(e) => {
+                setUniverse(e.target.value as Universe);
+                setPage(0);
+              }}
+              className="mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm disabled:opacity-60"
+            >
+              {canScreenMarket ? (
+                <>
+                  <option value="sp500">S&amp;P 500</option>
+                  <option value="all">All US stocks</option>
+                </>
+              ) : (
+                <option value="all">Demo instruments</option>
+              )}
+            </select>
+          </label>
           <label className="text-sm font-medium">
             Symbol or name
             <input
