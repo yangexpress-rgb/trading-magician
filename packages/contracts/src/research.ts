@@ -43,6 +43,8 @@ export interface PriceChartDto {
 // Quantitative Research: the stock screener (Design v1.0 §11; ADR 0030)
 
 export const createStockScreenRequest = z.object({
+  /** The S&P 500 members (quick), or every listing the feed covers. */
+  universe: z.enum(['sp500', 'all']).optional(),
   /** Skip the screen from the last minute and ask the feed again. */
   fresh: z.boolean().optional(),
 });
@@ -51,6 +53,7 @@ export type CreateStockScreenRequest = z.infer<typeof createStockScreenRequest>;
 export interface StockScreenDto {
   id: string;
   status: 'pending' | 'ready' | 'failed';
+  universe: 'sp500' | 'all';
   /** New York date of the session the screen calls today. */
   sessionDate: string | null;
   rowCount: number | null;

@@ -7,7 +7,10 @@ export const dynamic = 'force-dynamic';
 /** Asks the worker to screen every stock and ETF the tenant's data feed covers (ADR 0030). */
 export const POST = api(async (request, { userId, tx }) => {
   const body = await readJson(request, createStockScreenRequest);
-  return Response.json(await tx((t) => requestStockScreen(t, { userId, fresh: body.fresh })), {
-    status: 202,
-  });
+  return Response.json(
+    await tx((t) => requestStockScreen(t, { userId, universe: body.universe, fresh: body.fresh })),
+    {
+      status: 202,
+    },
+  );
 });

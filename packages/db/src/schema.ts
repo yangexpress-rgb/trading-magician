@@ -472,6 +472,8 @@ export const stockScreens = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     status: stockScreenStatus('status').notNull().default('pending'),
+    /** Which stocks: the S&P 500 members, or every listing the feed covers. */
+    universe: text('universe').notNull().default('all'),
     /** New York date of the session the screen calls today. */
     sessionDate: date('session_date'),
     /** Row tuples in the order of `SCREEN_TEXT_COLUMNS`, `SCREEN_NUMBER_COLUMNS`, lastAt, instrumentId. */
@@ -491,6 +493,7 @@ export const stockScreens = pgTable(
       .on(t.createdAt)
       .where(sql`${t.status} = 'pending'`),
     index('stock_screen_reuse_idx').on(t.userId, t.createdAt),
+    check('stock_screen_universe', sql`${t.universe} IN ('sp500', 'all')`),
     check('stock_screen_ready_has_rows', sql`(${t.status} = 'ready') = (${t.rows} IS NOT NULL)`),
   ],
 );

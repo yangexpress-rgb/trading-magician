@@ -1,5 +1,5 @@
 import { nyDate, type ScreenDay, type ScreenSource } from '@tm/domain';
-import { AlpacaUnavailableError, type AlpacaClient } from './client';
+import { AlpacaAuthError, AlpacaUnavailableError, type AlpacaClient } from './client';
 import { ALPACA_DATA_FEED } from './endpoints';
 import type { DiscoveredInstrument } from './account';
 import type { AlpacaBar, AlpacaBarsPage, AlpacaSnapshot } from './types';
@@ -16,9 +16,16 @@ export const SCREEN_EXCHANGES = new Set(['NYSE', 'NASDAQ', 'ARCA', 'AMEX', 'BATS
 export const SCREEN_BATCH = 200;
 /** Requests in flight at once, so a screen stays well under Alpaca's 200 a minute. */
 export const SCREEN_CONCURRENCY = 3;
-const RETRIES = 3;
+/** Tries per request; waits 1, 2 and 4 seconds between them. */
+const RETRIES = 4;
 const HOUR = 3_600_000;
 const MAX_PAGES = 20;
+
+/** What a fetch found, and how many symbols it could not get after retrying. */
+export interface Fetched<T> {
+  found: Map<string, T>;
+  missed: number;
+}
 
 export interface ScreenFetchOptions {
   /** Waits between retries; tests pass a no-op. */
@@ -51,13 +58,41 @@ async function pool<T, R>(items: readonly T[], limit: number, fn: (item: T) => P
   return out;
 }
 
+/**
+ * Runs `fn` over the symbols a batch at a time. A batch Alpaca still cannot
+ * answer after retrying is counted as missed rather than failing the rest,
+ * unless every batch fails or the key is refused.
+ */
+async function batched(
+  symbols: readonly string[],
+  fn: (batch: string[]) => Promise<void>,
+): Promise<number> {
+  const batches = chunk(symbols, SCREEN_BATCH);
+  let missed = 0;
+  let failed = 0;
+  let lastError: unknown;
+  await pool(batches, SCREEN_CONCURRENCY, async (batch) => {
+    try {
+      await fn(batch);
+    } catch (e) {
+      if (!(e instanceof AlpacaUnavailableError) || e instanceof AlpacaAuthError) throw e;
+      missed += batch.length;
+      failed++;
+      lastError = e;
+    }
+  });
+  if (batches.length > 0 && failed === batches.length) throw lastError;
+  return missed;
+}
+
 /** Throttled or briefly unreachable: waits and asks again a few times. */
 async function retrying<T>(fn: () => Promise<T>, sleep: (ms: number) => Promise<void>) {
   for (let attempt = 0; ; attempt++) {
     try {
       return await fn();
     } catch (e) {
-      if (!(e instanceof AlpacaUnavailableError) || attempt >= RETRIES) throw e;
+      const retryable = e instanceof AlpacaUnavailableError && !(e instanceof AlpacaAuthError);
+      if (!retryable || attempt >= RETRIES - 1) throw e;
       await sleep(1000 * 2 ** attempt);
     }
   }
@@ -79,10 +114,11 @@ export async function fetchDailyHistory(
   symbols: readonly string[],
   from: string,
   options: ScreenFetchOptions = {},
-): Promise<Map<string, ScreenDay[]>> {
+): Promise<Fetched<ScreenDay[]>> {
   const sleep = options.sleep ?? defaultSleep;
   const out = new Map<string, ScreenDay[]>();
-  await pool(chunk(symbols, SCREEN_BATCH), SCREEN_CONCURRENCY, async (batch) => {
+  const missed = await batched(symbols, async (batch) => {
+    const mine = new Map<string, ScreenDay[]>();
     let pageToken: string | undefined;
     for (let page = 0; page < MAX_PAGES; page++) {
       const result = await retrying(
@@ -100,15 +136,17 @@ export async function fetchDailyHistory(
         sleep,
       );
       for (const [symbol, bars] of Object.entries(result.bars ?? {})) {
-        const list = out.get(symbol) ?? [];
+        const list = mine.get(symbol) ?? [];
         for (const b of bars ?? []) list.push(dayOf(b));
-        out.set(symbol, list);
+        mine.set(symbol, list);
       }
       if (!result.next_page_token) break;
       pageToken = result.next_page_token;
     }
+    // Only a whole batch is kept, so a symbol never has half its history.
+    for (const [symbol, list] of mine) out.set(symbol, list);
   });
-  return out;
+  return { found: out, missed };
 }
 
 /** The latest snapshot of every symbol Alpaca has one for. */
@@ -116,10 +154,10 @@ export async function fetchSnapshots(
   client: AlpacaClient,
   symbols: readonly string[],
   options: ScreenFetchOptions = {},
-): Promise<Map<string, AlpacaSnapshot>> {
+): Promise<Fetched<AlpacaSnapshot>> {
   const sleep = options.sleep ?? defaultSleep;
   const out = new Map<string, AlpacaSnapshot>();
-  await pool(chunk(symbols, SCREEN_BATCH), SCREEN_CONCURRENCY, async (batch) => {
+  const missed = await batched(symbols, async (batch) => {
     const result = await retrying(
       () =>
         client.data<Record<string, AlpacaSnapshot | null>>('/v2/stocks/snapshots', {
@@ -132,7 +170,7 @@ export async function fetchSnapshots(
       if (snap) out.set(symbol, snap);
     }
   });
-  return out;
+  return { found: out, missed };
 }
 
 /**
