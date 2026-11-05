@@ -344,6 +344,13 @@
       "when": 1793887806226,
       "tag": "0048_account_purge",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1793892613244,
+      "tag": "0049_operator_audit",
+      "breakpoints": true
     }
   ]
 }

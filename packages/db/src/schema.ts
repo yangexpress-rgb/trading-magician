@@ -302,7 +302,8 @@ export const auditEvents = pgTable(
   'audit_event',
   {
     id: id(),
-    userId: uuid('user_id').notNull(),
+    /** Null only for operator actions that belong to no workspace (invite codes, ADR 0034). */
+    userId: uuid('user_id'),
     actorType: auditActorType('actor_type').notNull(),
     action: text('action').notNull(),
     resourceType: text('resource_type').notNull(),
@@ -312,7 +313,13 @@ export const auditEvents = pgTable(
     context: jsonb('context').notNull().default({}),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('audit_event_user_time_idx').on(t.userId, t.occurredAt)],
+  (t) => [
+    index('audit_event_user_time_idx').on(t.userId, t.occurredAt),
+    check(
+      'audit_event_operator_is_system',
+      sql`${t.userId} IS NOT NULL OR ${t.actorType} = 'system'`,
+    ),
+  ],
 );
 
 // ---------------------------------------------------------------------------
