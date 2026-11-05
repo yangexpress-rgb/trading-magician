@@ -121,12 +121,20 @@ test('account deletion requires confirmation and removes access', async ({ page 
   await form.getByRole('button', { name: 'Permanently delete my account' }).click();
   await expect(formAlert(page)).toHaveText('Type DELETE to confirm.');
 
+  await form.getByLabel('Password').fill('not my password at all');
+  await form.getByLabel('Type DELETE to confirm').fill('DELETE');
+  await form.getByRole('button', { name: 'Permanently delete my account' }).click();
+  await expect(formAlert(page)).toHaveText('That password is not correct.');
+
+  // A form action clears the fields after each try.
+  await form.getByLabel('Password').fill(PASSWORD);
   await form.getByLabel('Type DELETE to confirm').fill('DELETE');
   await form.getByRole('button', { name: 'Permanently delete my account' }).click();
   await expect(page).toHaveURL(/\/sign-in\?deleted=1$/);
 
+  // Kept for 30 days before the purge (§20 #14), but signing in is refused.
   await signIn(page, email, PASSWORD);
-  await expect(formAlert(page)).toContainText('incorrect');
+  await expect(formAlert(page)).toContainText('This account has been deleted.');
 });
 
 test('repeated failed sign-ins are rate limited', async ({ page, baseURL }) => {

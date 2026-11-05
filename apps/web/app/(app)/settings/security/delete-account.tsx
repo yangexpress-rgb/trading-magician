@@ -2,32 +2,22 @@
 
 import { Alert, Button, TextField } from '@tm/ui';
 import { useRouter } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
-import { authClient } from '@/lib/auth-client';
+import { useActionState, useEffect, useState } from 'react';
+import { deleteAccount, type DeleteAccountState } from './actions';
 
 export function DeleteAccount() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string>();
-  const [pending, setPending] = useState(false);
+  const [state, action, pending] = useActionState<DeleteAccountState, FormData>(deleteAccount, {
+    status: 'idle',
+  });
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    if (form.get('confirm') !== 'DELETE') {
-      setError('Type DELETE to confirm.');
-      return;
+  useEffect(() => {
+    if (state.status === 'deleted') {
+      router.push('/sign-in?deleted=1');
+      router.refresh();
     }
-    setPending(true);
-    const { error } = await authClient.deleteUser({ password: String(form.get('password')) });
-    setPending(false);
-    if (error) {
-      setError(error.message ?? 'Could not delete the account.');
-      return;
-    }
-    router.push('/sign-in?deleted=1');
-    router.refresh();
-  }
+  }, [state.status, router]);
 
   if (!open) {
     return (
@@ -38,9 +28,12 @@ export function DeleteAccount() {
   }
 
   return (
-    <form className="max-w-md space-y-4" onSubmit={onSubmit} aria-label="Delete account">
+    <form className="max-w-md space-y-4" action={action} aria-label="Delete account">
       <p className="text-sm">
-        This permanently deletes your strategies, settings and connections. It cannot be undone.
+        Deleting your account stops your running strategies and cancels their working orders, and
+        signs you out everywhere. You can't sign in again. After 30 days your strategies, settings,
+        keys and back tests are erased; order and audit records are kept without your personal
+        details. It cannot be undone.
       </p>
       <TextField
         label="Password"
@@ -50,7 +43,7 @@ export function DeleteAccount() {
         required
       />
       <TextField label="Type DELETE to confirm" name="confirm" autoComplete="off" required />
-      {error && <Alert>{error}</Alert>}
+      {state.status === 'error' && <Alert>{state.message}</Alert>}
       <div className="flex gap-2">
         <Button type="submit" variant="danger" disabled={pending}>
           Permanently delete my account

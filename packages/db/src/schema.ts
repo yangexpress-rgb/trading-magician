@@ -72,6 +72,13 @@ export const users = pgTable('user', {
   email: text('email').notNull().unique(),
   emailVerified: boolean('email_verified').notNull().default(false),
   image: text('image'),
+  /**
+   * When the person deleted their account (§20 #14, design v1.1 C6). Sign-in
+   * is refused from then on; the worker purges the account 30 days later.
+   */
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  /** When the purge ran: personal details gone, order and audit records kept. */
+  purgedAt: timestamp('purged_at', { withTimezone: true }),
   ...timestamps(),
 });
 

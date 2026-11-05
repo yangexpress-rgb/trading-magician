@@ -1,10 +1,11 @@
 import 'server-only';
-import { recordAudit, schema, withTenant } from '@tm/db';
+import { eq, schema } from '@tm/db';
 import { betterAuth } from 'better-auth';
+import { APIError } from 'better-auth/api';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { nextCookies } from 'better-auth/next-js';
 import { ipAddressOptions } from '../client-ip';
-import { appDb, authDb } from './db';
+import { authDb } from './db';
 import { serverEnv } from './env';
 import { getMailer } from './mailer';
 
@@ -60,19 +61,22 @@ function createAuth() {
       updateAge: 60 * 60 * 24,
       freshAge: 60 * 15,
     },
-    user: {
-      deleteUser: {
-        enabled: true,
-        beforeDelete: async (user) => {
-          await withTenant(appDb(), { userId: user.id }, (tx) =>
-            recordAudit(tx, {
-              userId: user.id,
-              actorType: 'user',
-              action: 'account.deleted',
-              resourceType: 'user',
-              resourceId: user.id,
-            }),
-          );
+    // Deleting an account is the app's own action (lib/server/account-deletion.ts):
+    // it marks the account and keeps order and audit records for the retention
+    // period (§20 #14), which the library's immediate delete would not.
+    user: { deleteUser: { enabled: false } },
+    databaseHooks: {
+      session: {
+        create: {
+          before: async (session) => {
+            const [user] = await authDb()
+              .select({ deletedAt: schema.users.deletedAt })
+              .from(schema.users)
+              .where(eq(schema.users.id, session.userId));
+            if (user?.deletedAt) {
+              throw new APIError('FORBIDDEN', { message: 'This account has been deleted.' });
+            }
+          },
         },
       },
     },
