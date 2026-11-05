@@ -1,6 +1,6 @@
 # ADR 0035: Credential key in AWS KMS
 
-- **Status:** proposed (code ready; waiting on Yong to approve AWS KMS and create the key)
+- **Status:** accepted (Yong approved AWS KMS 2026-11-05; the keys are created per environment as in docs/deploy.md)
 - **Date:** 2026-11-05
 - **Design refs:** §9.2, §16.1, Phase 4 decision 2, ADR 0015, design v1.1 deviation D9
 

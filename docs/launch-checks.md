@@ -16,10 +16,10 @@ a deployment yet, because no Railway environment exists.
 
 ## Section 2. Credential key out of the environment
 
-| Date       | Environment | What was done                                                                                             | Result                                                                |
-| ---------- | ----------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| 2026-11-05 | Unit tests  | Value sealed by today's web code opened through a KMS stand-in (same format) and still by the PEM key     | Passed                                                                |
-| _pending_  | staging     | Add an Alpaca paper key in Settings, restart the worker, feed check still passes; no private-key variable | Needs Yong's approval of AWS KMS, an AWS account, and Railway staging |
+| Date       | Environment | What was done                                                                                             | Result                                                                                   |
+| ---------- | ----------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 2026-11-05 | Unit tests  | Value sealed by today's web code opened through a KMS stand-in (same format) and still by the PEM key     | Passed                                                                                   |
+| _pending_  | staging     | Add an Alpaca paper key in Settings, restart the worker, feed check still passes; no private-key variable | Needs an AWS account with the KMS key, and Railway staging (AWS KMS approved 2026-11-05) |
 
 ## Section 3. Recovery objectives and restore drill
 
