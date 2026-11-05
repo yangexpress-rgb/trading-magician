@@ -7,6 +7,7 @@ import {
   withTenant,
   type Database,
   type DiscoveredAccountInput,
+  type CredentialKey,
 } from '@tm/db';
 import type { Logger } from 'pino';
 import type { BrokerRegistry } from './brokers';
@@ -28,7 +29,7 @@ export const BROKER_CHECKS = {
 export interface BrokerCheckOptions {
   db: Database;
   brokers: BrokerRegistry;
-  privateKey: string | undefined;
+  privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'info' | 'warn'>;
   now?: () => Date;
 }

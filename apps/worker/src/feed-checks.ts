@@ -6,6 +6,7 @@ import {
   withTenant,
   type Database,
   type FeedCheckResult,
+  type CredentialKey,
 } from '@tm/db';
 import type { Logger } from 'pino';
 import { withTimeout, type FundamentalsRegistry, type ProviderRegistry } from './providers';
@@ -29,7 +30,7 @@ export interface FeedCheckOptions {
   providers: ProviderRegistry;
   /** Company data feeds are checked the same way (ADR 0031). */
   fundamentals?: FundamentalsRegistry | undefined;
-  privateKey: string | undefined;
+  privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'info' | 'warn'>;
   now?: () => Date;
 }

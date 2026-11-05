@@ -4,6 +4,7 @@ import {
   type AccountRouting,
   type OpenedCredential,
   type Transaction,
+  type CredentialKey,
 } from '@tm/db';
 import {
   BrokerUnavailableError,
@@ -71,7 +72,7 @@ export function accountResolver(options: {
   accounts: ReadonlyMap<string, AccountRouting>;
   paper: BrokerAdapter;
   brokers: BrokerRegistry | undefined;
-  privateKey: string | undefined;
+  privateKey: CredentialKey | undefined;
   now: () => Date;
 }): (accountId: string) => Promise<BrokerAdapter> {
   const { tx, userId, accounts, paper } = options;

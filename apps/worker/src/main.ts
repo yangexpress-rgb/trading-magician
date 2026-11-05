@@ -9,6 +9,7 @@ import { startBacktestLoop, type BacktestLoop } from './backtests';
 import { startBillingLoop, type BillingLoop } from './billing-sync';
 import { loadWorkerEnv, shiftedClock } from './env';
 import { createHealthServer } from './health';
+import { loadCredentialKey } from './credential-key';
 import { startFeedCheckLoop, type FeedCheckLoop } from './feed-checks';
 import { startHeartbeatLoop, type HeartbeatLoop } from './heartbeat';
 import { createErrorReporter, createLogger } from './logger';
@@ -61,6 +62,17 @@ if (databaseUrl) {
   if (!env.DATABASE_WORKER_URL) {
     logger.warn('DATABASE_WORKER_URL is not set; stored provider credentials cannot be opened');
   }
+  // Fails start-up if the KMS key cannot be read, rather than failing every provider call later.
+  const credentialKey = await loadCredentialKey(env);
+  if (credentialKey) {
+    logger.info(
+      {
+        keyId: credentialKey.keyId,
+        source: env.CREDENTIALS_KMS_KEY_ID ? 'aws-kms' : 'environment (development only)',
+      },
+      'credential key loaded',
+    );
+  }
   const handle = createDb(databaseUrl, { max: 4 });
   closeDb = handle.close;
   const workerId = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
@@ -103,7 +115,7 @@ if (databaseUrl) {
         userId,
         now: () => new Date(),
         providers,
-        privateKey: env.CREDENTIALS_PRIVATE_KEY,
+        privateKey: credentialKey,
       }),
     workerId,
     logger,
@@ -118,7 +130,7 @@ if (databaseUrl) {
     quotes,
     providers,
     brokers,
-    privateKey: env.CREDENTIALS_PRIVATE_KEY,
+    privateKey: credentialKey,
     logger,
     pollMs: env.RUNTIME_POLL_MS,
   });
@@ -128,7 +140,7 @@ if (databaseUrl) {
     db: handle.db,
     providers,
     fundamentals,
-    privateKey: env.CREDENTIALS_PRIVATE_KEY,
+    privateKey: credentialKey,
     logger,
     pollMs: env.FEED_CHECK_POLL_MS,
   });
@@ -136,7 +148,7 @@ if (databaseUrl) {
     ...(now ? { now } : {}),
     db,
     brokers,
-    privateKey: env.CREDENTIALS_PRIVATE_KEY,
+    privateKey: credentialKey,
     logger,
     pollMs: env.FEED_CHECK_POLL_MS,
   });
@@ -145,7 +157,7 @@ if (databaseUrl) {
     db,
     providers,
     brokers,
-    privateKey: env.CREDENTIALS_PRIVATE_KEY,
+    privateKey: credentialKey,
     logger,
     pollMs: env.FEED_CHECK_POLL_MS,
     everySeconds: env.VALUATION_EVERY_SEC,
@@ -163,14 +175,14 @@ if (databaseUrl) {
   lookups = startInstrumentLookupLoop({
     db,
     providers,
-    privateKey: env.CREDENTIALS_PRIVATE_KEY,
+    privateKey: credentialKey,
     logger,
     pollMs: env.FEED_CHECK_POLL_MS,
   });
   charts = startPriceChartLoop({
     db,
     providers,
-    privateKey: env.CREDENTIALS_PRIVATE_KEY,
+    privateKey: credentialKey,
     logger,
     pollMs: env.BACKTEST_POLL_MS,
   });
@@ -178,14 +190,14 @@ if (databaseUrl) {
     db,
     providers,
     fundamentals,
-    privateKey: env.CREDENTIALS_PRIVATE_KEY,
+    privateKey: credentialKey,
     logger,
     pollMs: env.BACKTEST_POLL_MS,
   });
   companies = startCompanyReportLoop({
     db,
     fundamentals,
-    privateKey: env.CREDENTIALS_PRIVATE_KEY,
+    privateKey: credentialKey,
     logger,
     pollMs: env.BACKTEST_POLL_MS,
   });

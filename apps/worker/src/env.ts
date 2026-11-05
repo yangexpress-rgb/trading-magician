@@ -17,8 +17,22 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
       DATABASE_WORKER_URL: pgUrl.optional(),
       /** The tm_app login. Without either URL the worker serves health checks only. */
       DATABASE_APP_URL: pgUrl.optional(),
-      /** Opens sealed provider credentials. Only the worker ever holds it. */
+      /**
+       * DEVELOPMENT ONLY: opens sealed provider credentials with a private key
+       * held in the environment. Refused on Railway; staging and production use
+       * CREDENTIALS_KMS_KEY_ID instead (ADR 0035).
+       */
       CREDENTIALS_PRIVATE_KEY: pemKey('PRIVATE KEY').optional(),
+      /**
+       * The AWS KMS key (ARN) whose private half unwraps sealed credentials
+       * (ADR 0035). The key never leaves KMS; the worker's AWS credentials need
+       * only kms:Decrypt and kms:GetPublicKey on this one key.
+       */
+      CREDENTIALS_KMS_KEY_ID: z
+        .string()
+        .regex(/^arn:aws:kms:[a-z0-9-]+:\d{12}:key\/[0-9a-f-]{36}$/, 'must be a KMS key ARN')
+        .optional(),
+      AWS_REGION: z.string().max(40).optional(),
       BACKTEST_POLL_MS: z.coerce.number().int().min(100).max(60_000).default(1000),
       /** How often running paper strategies are claimed and stepped. */
       RUNTIME_POLL_MS: z.coerce.number().int().min(100).max(60_000).default(1000),
@@ -66,6 +80,14 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
     },
     source,
   );
+  if (env.CREDENTIALS_PRIVATE_KEY && env.CREDENTIALS_KMS_KEY_ID) {
+    throw new Error('Set CREDENTIALS_KMS_KEY_ID or CREDENTIALS_PRIVATE_KEY, not both');
+  }
+  if (env.CREDENTIALS_PRIVATE_KEY && env.RAILWAY_ENVIRONMENT_NAME) {
+    throw new Error(
+      'CREDENTIALS_PRIVATE_KEY is for local development only; deployments use CREDENTIALS_KMS_KEY_ID (ADR 0035)',
+    );
+  }
   if (env.NODE_ENV === 'production' && env.PAPER_CLOCK_START && !source.E2E_TEST) {
     throw new Error('PAPER_CLOCK_START is for development and tests only');
   }

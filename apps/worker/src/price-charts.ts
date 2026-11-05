@@ -7,6 +7,7 @@ import {
   type ChartBarTuple,
   type Database,
   type Transaction,
+  type CredentialKey,
 } from '@tm/db';
 import { BrokerUnavailableError, nyDate, UnsupportedBarRequestError } from '@tm/domain';
 import type { Logger } from 'pino';
@@ -25,7 +26,7 @@ export const CHARTS = { leaseSeconds: 30, batch: 5, maxAttempts: 3, timeoutMs: 2
 export interface PriceChartOptions {
   db: Database;
   providers: ProviderRegistry;
-  privateKey: string | undefined;
+  privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'info' | 'warn'>;
   now?: () => Date;
 }

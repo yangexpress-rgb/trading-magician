@@ -70,27 +70,88 @@ export function sealSecret(publicKeyPem: string, plaintext: string, aad: string)
   return { keyId: keyIdOf(publicKeyPem), wrappedKey, iv, ciphertext, authTag };
 }
 
-export function openSecret(privateKeyPem: string, sealed: SealedSecret, aad: string): string {
-  let key: KeyObject;
+/**
+ * Whatever unwraps a sealed value's data key: the private key held in memory
+ * (development) or a managed key service that never lets the key out (staging
+ * and production, ADR 0035). `keyId` is the fingerprint of the matching public
+ * key, so a value sealed under another key is refused before any call is made.
+ */
+export interface KeyUnwrapper {
+  readonly keyId: string;
+  /** Returns the 32-byte data key; throws if it cannot be unwrapped. */
+  unwrap(wrappedKey: Buffer): Promise<Buffer>;
+}
+
+/** A PEM private key (development only) or a key service unwrapper. */
+export type CredentialKey = string | KeyUnwrapper;
+
+function privateKeyOf(privateKeyPem: string): KeyObject {
   try {
-    key = createPrivateKey(privateKeyPem);
+    return createPrivateKey(privateKeyPem);
   } catch {
     throw new SealError('The credential private key is not a valid PEM key');
   }
-  if (keyIdOf(privateKeyPem) !== sealed.keyId) {
-    throw new SealError('This credential was sealed with a different key');
-  }
+}
+
+/** Unwraps with a private key in memory. Development and tests only. */
+export function pemUnwrapper(privateKeyPem: string): KeyUnwrapper {
+  const key = privateKeyOf(privateKeyPem);
+  return {
+    keyId: keyIdOf(privateKeyPem),
+    unwrap: (wrappedKey) => Promise.resolve(privateDecrypt({ key, ...OAEP }, wrappedKey)),
+  };
+}
+
+function decryptWith(dataKey: Buffer, sealed: SealedSecret, aad: string): string {
   try {
-    const dataKey = privateDecrypt({ key, ...OAEP }, sealed.wrappedKey);
     const decipher = createDecipheriv('aes-256-gcm', dataKey, sealed.iv);
     decipher.setAAD(Buffer.from(aad, 'utf8'));
     decipher.setAuthTag(sealed.authTag);
     const plain = Buffer.concat([decipher.update(sealed.ciphertext), decipher.final()]);
-    dataKey.fill(0);
     return plain.toString('utf8');
   } catch {
     throw new SealError('This credential could not be opened');
+  } finally {
+    dataKey.fill(0);
   }
+}
+
+export function openSecret(privateKeyPem: string, sealed: SealedSecret, aad: string): string {
+  const key = privateKeyOf(privateKeyPem);
+  if (keyIdOf(privateKeyPem) !== sealed.keyId) {
+    throw new SealError('This credential was sealed with a different key');
+  }
+  let dataKey: Buffer;
+  try {
+    dataKey = privateDecrypt({ key, ...OAEP }, sealed.wrappedKey);
+  } catch {
+    throw new SealError('This credential could not be opened');
+  }
+  return decryptWith(dataKey, sealed, aad);
+}
+
+/**
+ * Opens a sealed value with either kind of key. The stored format is the same
+ * for both: the data key is RSA-OAEP (SHA-256) wrapped, which is what a key
+ * service's RSAES_OAEP_SHA_256 decrypt takes.
+ */
+export async function openSecretWith(
+  key: CredentialKey,
+  sealed: SealedSecret,
+  aad: string,
+): Promise<string> {
+  if (typeof key === 'string') return openSecret(key, sealed, aad);
+  if (key.keyId !== sealed.keyId) {
+    throw new SealError('This credential was sealed with a different key');
+  }
+  let dataKey: Buffer;
+  try {
+    // The unwrapper may cache; work on a copy so wiping it here is safe.
+    dataKey = Buffer.from(await key.unwrap(sealed.wrappedKey));
+  } catch {
+    throw new SealError('This credential could not be opened');
+  }
+  return decryptWith(dataKey, sealed, aad);
 }
 
 /** A new key pair for local development and tests. */

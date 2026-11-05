@@ -8,6 +8,7 @@ import {
   registerInstrument,
   withTenant,
   type Database,
+  type CredentialKey,
 } from '@tm/db';
 import { BrokerUnavailableError, providerCoversVenue, resolveRoute } from '@tm/domain';
 import type { Logger } from 'pino';
@@ -31,7 +32,7 @@ export const LOOKUPS = {
 export interface LookupOptions {
   db: Database;
   providers: ProviderRegistry;
-  privateKey: string | undefined;
+  privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'info' | 'warn'>;
   now?: () => Date;
 }

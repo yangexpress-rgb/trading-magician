@@ -7,6 +7,7 @@ import {
   withTenant,
   type Database,
   type Transaction,
+  type CredentialKey,
 } from '@tm/db';
 import { BrokerUnavailableError } from '@tm/domain';
 import type { Logger } from 'pino';
@@ -23,7 +24,7 @@ export const COMPANIES = { leaseSeconds: 60, batch: 3, maxAttempts: 3, timeoutMs
 export interface CompanyReportOptions {
   db: Database;
   fundamentals: FundamentalsRegistry;
-  privateKey: string | undefined;
+  privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'info' | 'warn'>;
   now?: () => Date;
 }

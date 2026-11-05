@@ -4,6 +4,7 @@ import {
   openCredential,
   type Routing,
   type Transaction,
+  type CredentialKey,
 } from '@tm/db';
 import { resolveRoute, UnsupportedBarRequestError, type HistoricalDataProvider } from '@tm/domain';
 import type { ProviderRegistry } from './providers';
@@ -20,7 +21,7 @@ export function createRoutedHistory(options: {
   userId: string;
   now: () => Date;
   providers: ProviderRegistry;
-  privateKey: string | undefined;
+  privateKey: CredentialKey | undefined;
   /** Told which feed answers each instrument, e.g. to name the source on a chart. */
   onFeed?: (instrumentId: string, feed: { id: string; name: string; provider: string }) => void;
 }): HistoricalDataProvider {

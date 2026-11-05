@@ -9,9 +9,12 @@
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run src",
-    "test:integration": "vitest run test/"
+    "test:integration": "vitest run test/",
+    "credentials:kms-public-key": "tsx scripts/kms-public-key.ts",
+    "sentry:test": "tsx scripts/sentry-test.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "3.1150.0",
     "@tm/alpaca": "workspace:*",
     "@tm/backtest": "workspace:*",
     "@tm/billing": "workspace:*",
