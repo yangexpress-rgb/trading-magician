@@ -44,6 +44,8 @@ import type {
   AccountDto,
 } from './integrations';
 import type {
+  CompanyReportDto,
+  CreateCompanyReportRequest,
   CreatePriceChartRequest,
   CreateStockScreenRequest,
   PriceChartDto,
@@ -255,6 +257,11 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
       getScreen: (id: string) => call<StockScreenDto>('GET', `/research/stock-screens/${enc(id)}`),
       getScreenRows: (id: string) =>
         call<StockScreenDataDto>('GET', `/research/stock-screens/${enc(id)}/rows`),
+      /** Asks the worker for a company's profile, financials and filings; poll `getCompany`. */
+      company: (body: CreateCompanyReportRequest) =>
+        call<CompanyReportDto>('POST', '/research/company-reports', body),
+      getCompany: (id: string) =>
+        call<CompanyReportDto>('GET', `/research/company-reports/${enc(id)}`),
     },
   };
 }

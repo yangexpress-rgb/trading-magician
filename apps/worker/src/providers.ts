@@ -5,9 +5,11 @@ import {
   nyDate,
   SCREEN_HISTORY_DAYS,
   type Bar,
+  type CompanyReport,
   type HistoricalDataProvider,
   type LiveQuoteProvider,
   type ScreenDay,
+  type ScreenFacts,
   type ScreenSource,
 } from '@tm/domain';
 
@@ -53,6 +55,22 @@ export interface ScreenResult {
 }
 
 export type ProviderRegistry = Partial<Record<string, MarketDataProvider>>;
+
+/**
+ * Company data providers (ADR 0031): profiles, reported financials and
+ * filings per company, and a year's figures for the screener. They have no
+ * prices and no routes; the tenant's oldest active company data feed is used.
+ */
+export interface FundamentalsProvider {
+  needsCredential: boolean;
+  check(ctx: ProviderContext): Promise<FeedCheckResult>;
+  /** Undefined when the provider has no such company, e.g. an ETF. */
+  report(ctx: ProviderContext, symbol: string): Promise<CompanyReport | undefined>;
+  /** Figures for the screener, by symbol. */
+  screenFacts(ctx: ProviderContext): Promise<{ year: number; facts: Map<string, ScreenFacts> }>;
+}
+
+export type FundamentalsRegistry = Partial<Record<string, FundamentalsProvider>>;
 
 /** The built-in demo feed: always reachable, simulated live prices and generated history. */
 export function demoProvider(

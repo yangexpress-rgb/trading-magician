@@ -13,11 +13,15 @@ export interface CredentialField {
 export interface ProviderInfo {
   id: string;
   name: string;
-  /** What a connection to this provider can be used for. */
-  offers: readonly ('market_data' | 'broker')[];
+  /**
+   * What a connection to this provider can be used for: prices (market
+   * data), trading (broker), or company financials and profiles
+   * (fundamentals, ADR 0031), which have no routes.
+   */
+  offers: readonly ('market_data' | 'broker' | 'fundamentals')[];
   /** Asset classes it can price or trade (US stocks and ETFs for now). */
   assetClasses: readonly string[];
-  /** 'demo' covers only the invented DEMO instruments; 'us' covers real US venues. */
+  /** 'demo' covers only the invented DEMO instruments; 'us' covers real US companies and venues. */
   coverage: 'demo' | 'us';
   /** Empty for providers that need no sign-in, like the built-in demo. */
   credentialFields: readonly CredentialField[];
@@ -51,6 +55,20 @@ export const PROVIDERS = {
       },
     ],
   },
+  sec: {
+    id: 'sec',
+    name: 'SEC EDGAR',
+    offers: ['fundamentals'],
+    assetClasses: ['stock'],
+    coverage: 'us',
+    credentialFields: [
+      {
+        name: 'contactEmail',
+        label: 'Contact email',
+        help: 'EDGAR is free and needs no key, but the SEC asks every app to name a contact. It is sent only to the SEC.',
+      },
+    ],
+  },
 } as const satisfies Record<string, ProviderInfo>;
 
 export type ProviderId = keyof typeof PROVIDERS;
@@ -65,12 +83,25 @@ export const CREDENTIAL_PROVIDER_IDS = PROVIDER_IDS.filter(
   (id) => PROVIDERS[id].credentialFields.length > 0,
 );
 
+/** Whether a provider gives company financials and profiles rather than prices (ADR 0031). */
+export function isFundamentalsProvider(id: string): id is ProviderId {
+  return isProviderId(id) && (PROVIDERS[id].offers as readonly string[]).includes('fundamentals');
+}
+
+/** Whether a provider gives prices, so its feeds can be routed. */
+export function isMarketDataProvider(id: string): id is ProviderId {
+  return isProviderId(id) && (PROVIDERS[id].offers as readonly string[]).includes('market_data');
+}
+
+export const FUNDAMENTALS_PROVIDER_IDS = PROVIDER_IDS.filter(isFundamentalsProvider);
+export const MARKET_DATA_PROVIDER_IDS = PROVIDER_IDS.filter(isMarketDataProvider);
+
 /** The venue code of the invented demo instruments. */
 export const DEMO_VENUE_CODE = 'DEMO';
 
 /** Whether a provider can serve instruments on this venue (null means any venue). */
 export function providerCoversVenue(provider: string, venue: string | null): boolean {
-  if (!isProviderId(provider)) return false;
+  if (!isMarketDataProvider(provider)) return false;
   return PROVIDERS[provider].coverage === 'demo'
     ? venue === DEMO_VENUE_CODE
     : venue !== DEMO_VENUE_CODE;

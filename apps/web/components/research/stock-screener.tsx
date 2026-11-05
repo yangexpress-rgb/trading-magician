@@ -22,6 +22,7 @@ import {
   filterRows,
   formatCell,
   isSigned,
+  hasCompanyFigures,
   NUMBER_COLUMNS,
   parseAmount,
   screenPresets,
@@ -189,7 +190,11 @@ export function StockScreener({
   const pages = Math.max(1, Math.ceil(matched.length / pageSize));
   const shownPage = Math.min(page, pages - 1);
   const visible = matched.slice(shownPage * pageSize, (shownPage + 1) * pageSize);
-  const shownColumns = NUMBER_COLUMNS.filter((c) => columns.includes(c.key));
+  // Company columns stay out of the way until a company data feed fills them (ADR 0031).
+  const companyFigures = hasCompanyFigures(rows);
+  const shownColumns = NUMBER_COLUMNS.filter(
+    (c) => columns.includes(c.key) && (!c.company || companyFigures),
+  );
   const iex = (screen?.warnings ?? []).some((w) => /IEX/.test(w));
   const presets = useMemo(() => screenPresets(iex), [iex]);
   const active = activeFilterCount(filters);
@@ -600,6 +605,15 @@ export function StockScreener({
       {screen?.status === 'ready' && (
         <footer className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
           {screen.source && <Badge>{`Prices from ${screen.source}`}</Badge>}
+          {!companyFigures && (
+            <span className="basis-full">
+              For market cap, P/E, revenue and earnings columns, add a company data feed under{' '}
+              <Link className="underline" href="/settings/data-feeds">
+                Settings › Data feeds
+              </Link>
+              .
+            </span>
+          )}
           <span>
             Daily prices are split-adjusted. Today’s values grow through the session; a dash means
             the stock has not traded today or lacks the history. S&P 500 members and sectors as of{' '}

@@ -21,6 +21,7 @@
     "@tm/domain": "workspace:*",
     "@tm/market-data": "workspace:*",
     "@tm/observability": "workspace:*",
+    "@tm/sec": "workspace:*",
     "decimal.js": "^10.6.0",
     "pino": "^10.4.0",
     "zod": "^4.6.7"

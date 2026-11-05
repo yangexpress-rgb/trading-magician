@@ -3,6 +3,7 @@ import {
   CHART_RANGES,
   type ChartInterval,
   type ChartRange,
+  type CompanyReport,
   type ScreenRowTuple,
 } from '@tm/domain';
 import { z } from 'zod';
@@ -68,6 +69,34 @@ export interface StockScreenDto {
 }
 
 export interface StockScreenDataDto extends StockScreenDto {
-  /** One tuple per symbol, columns in the order of `SCREEN_TEXT_COLUMNS`, `SCREEN_NUMBER_COLUMNS`, lastAt, instrumentId. */
+  /** One tuple per symbol, columns in the order of `SCREEN_TEXT_COLUMNS`, `SCREEN_PRICE_COLUMNS`, lastAt, instrumentId, `SCREEN_FUNDAMENTAL_COLUMNS`. */
   rows: ScreenRowTuple[] | null;
+}
+
+// ---------------------------------------------------------------------------
+// Quantitative Research: company pages (Design v1.0 §11; ADR 0031)
+
+export const createCompanyReportRequest = z.object({
+  /** A US ticker, e.g. AAPL or BRK.B. */
+  symbol: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z][A-Z0-9.-]{0,9}$/, 'Enter a US ticker'),
+  /** Skip the report from the last 12 hours and ask the feed again. */
+  fresh: z.boolean().optional(),
+});
+export type CreateCompanyReportRequest = z.infer<typeof createCompanyReportRequest>;
+
+export interface CompanyReportDto {
+  id: string;
+  symbol: string;
+  status: 'pending' | 'ready' | 'failed';
+  /** Why the report could not be made, in words for the person. */
+  message: string | null;
+  /** The company data feed that answered, by its name in Settings › Data feeds. */
+  source: string | null;
+  report: CompanyReport | null;
+  createdAt: string;
+  updatedAt: string;
 }

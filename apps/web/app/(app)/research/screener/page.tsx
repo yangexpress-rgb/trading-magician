@@ -1,4 +1,5 @@
 import { loadRouting, withTenant } from '@tm/db';
+import { providerCoversVenue } from '@tm/domain';
 import { PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
 import { ResearchNav } from '@/components/research/research-nav';
@@ -17,7 +18,9 @@ export default async function ScreenerPage({
   const params = await searchParams;
   const tenant = await requireTenant();
   const canScreenMarket = await withTenant(appDb(), tenant, async (tx) =>
-    [...(await loadRouting(tx)).feeds.values()].some((f) => f.isActive && f.provider !== 'demo'),
+    [...(await loadRouting(tx)).feeds.values()].some(
+      (f) => f.isActive && providerCoversVenue(f.provider, 'US'),
+    ),
   );
   const initial = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -28,7 +31,7 @@ export default async function ScreenerPage({
     <>
       <PageHeader
         title="Quantitative Research"
-        description="Screen every stock and ETF your data feed covers by price, change and volume."
+        description="Screen every stock and ETF your data feed covers by price, change, volume and company figures."
       />
       <ResearchNav />
       <StockScreener canScreenMarket={canScreenMarket} initialQuery={initial.toString()} />

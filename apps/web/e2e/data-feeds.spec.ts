@@ -56,7 +56,7 @@ test('tests feeds, sets a fallback and turns a feed off safely', async ({ page, 
   expect(started.status()).toBe(200);
 
   await page.goto('/settings/data-feeds');
-  const feeds = page.getByRole('list', { name: 'Data feeds' });
+  const feeds = page.getByRole('list', { name: 'Price feeds' });
   const demo = feeds.getByRole('listitem', { name: 'Demo feed', exact: true });
   await expect(demo).toContainText('Primary for Stocks live prices (demo instruments)');
 

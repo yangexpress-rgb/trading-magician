@@ -15,6 +15,8 @@ export interface NumberColumnSpec {
   hint: string;
   format: ColumnFormat;
   shown: boolean;
+  /** From the company data feed (ADR 0031) rather than prices; hidden while no row has it. */
+  company?: true;
 }
 
 export const NUMBER_COLUMNS: readonly NumberColumnSpec[] = [
@@ -140,7 +142,67 @@ export const NUMBER_COLUMNS: readonly NumberColumnSpec[] = [
     format: 'pct',
     shown: false,
   },
+  {
+    key: 'marketCap',
+    label: 'Market cap',
+    hint: 'Last price times the diluted shares of the latest calendar year’s filings',
+    format: 'money',
+    shown: true,
+    company: true,
+  },
+  {
+    key: 'pe',
+    label: 'P/E',
+    hint: 'Last price over diluted earnings per share for the latest calendar year (blank when earnings are not positive)',
+    format: 'ratio',
+    shown: true,
+    company: true,
+  },
+  {
+    key: 'revenue',
+    label: 'Revenue',
+    hint: 'Revenue for the latest calendar year, as filed',
+    format: 'money',
+    shown: false,
+    company: true,
+  },
+  {
+    key: 'revenueGrowthPct',
+    label: 'Revenue growth %',
+    hint: 'Revenue against the year before',
+    format: 'pct',
+    shown: false,
+    company: true,
+  },
+  {
+    key: 'netIncome',
+    label: 'Net income',
+    hint: 'Net income for the latest calendar year, as filed',
+    format: 'money',
+    shown: false,
+    company: true,
+  },
+  {
+    key: 'netMarginPct',
+    label: 'Net margin %',
+    hint: 'Net income over revenue',
+    format: 'pct',
+    shown: false,
+    company: true,
+  },
+  {
+    key: 'eps',
+    label: 'EPS (diluted)',
+    hint: 'Diluted earnings per share for the latest calendar year, as filed',
+    format: 'price',
+    shown: false,
+    company: true,
+  },
 ];
+
+/** Whether a screen carries any company figures, so the company columns are worth showing. */
+export const hasCompanyFigures = (rows: readonly ScreenRow[] | null | undefined) =>
+  !!rows?.some((r) => r.marketCap !== null || r.revenue !== null || r.eps !== null);
 
 export const COLUMN_BY_KEY = new Map(NUMBER_COLUMNS.map((c) => [c.key, c]));
 
@@ -338,7 +400,7 @@ export function formatCell(value: number | null, format: ColumnFormat): string {
     case 'volume':
       return compact.format(value);
     case 'money':
-      return `$${compact.format(value)}`;
+      return value < 0 ? `−$${compact.format(-value)}` : `$${compact.format(value)}`;
     case 'ratio':
       return `${value.toFixed(2)}×`;
   }
@@ -352,7 +414,8 @@ export function isSigned(key: ScreenNumberColumn): boolean {
     key === 'prevChangePct' ||
     key === 'gapPct' ||
     key === 'change5dPct' ||
-    key === 'change1mPct'
+    key === 'change1mPct' ||
+    key === 'revenueGrowthPct'
   );
 }
 

@@ -102,6 +102,8 @@ export default defineConfig({
         PAPER_CLOCK_START: '2026-10-06T14:31:00Z',
         // Alpaca calls go to an in-process fake with made-up symbols; no keys or network.
         ALPACA_FAKE: 'true',
+        // SEC EDGAR calls go to an in-process fake with two made-up companies (ADR 0031).
+        SEC_FAKE: 'true',
         BILLING_FAKE: 'true',
         E2E_TEST: '1',
         LOG_LEVEL: 'warn',

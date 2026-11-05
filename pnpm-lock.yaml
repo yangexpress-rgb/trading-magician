@@ -153,6 +153,9 @@ importers:
       '@tm/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@tm/sec':
+        specifier: workspace:*
+        version: link:../../packages/sec
       decimal.js:
         specifier: ^10.6.0
         version: 10.6.0
@@ -299,6 +302,12 @@ importers:
       pino:
         specifier: ^10.4.0
         version: 10.4.0
+
+  packages/sec:
+    dependencies:
+      '@tm/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/ui:
     dependencies:

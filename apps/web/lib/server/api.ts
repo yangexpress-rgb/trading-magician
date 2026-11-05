@@ -58,6 +58,7 @@ const EXTRA_LIMITS: { name: string; path: RegExp; perMinute: number }[] = [
   { name: 'backtest', path: /^\/api\/v1\/strategies\/[^/]+\/backtests$/, perMinute: 20 },
   { name: 'price-chart', path: /^\/api\/v1\/research\/price-charts$/, perMinute: 30 },
   { name: 'stock-screen', path: /^\/api\/v1\/research\/stock-screens$/, perMinute: 10 },
+  { name: 'company-report', path: /^\/api\/v1\/research\/company-reports$/, perMinute: 30 },
   {
     name: 'execution',
     path: /^\/api\/v1\/(strategies\/[^/]+\/(start|stop)|execution(\/|$)|orders\/)/,
@@ -164,6 +165,9 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       }
       if ('screenId' in params && !UUID.test(params.screenId ?? '')) {
         return errorResponse('not_found', 'Screen not found');
+      }
+      if ('reportId' in params && !UUID.test(params.reportId ?? '')) {
+        return errorResponse('not_found', 'Company page not found');
       }
       if ('brokerId' in params && !UUID.test(params.brokerId ?? '')) {
         return errorResponse('not_found', 'Trading platform not found');
