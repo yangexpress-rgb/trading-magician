@@ -120,7 +120,7 @@ test('settings sections, profile formats and notification preferences', async ({
   await page.goto('/settings/data-feeds');
   await expect(
     page
-      .getByRole('list', { name: 'Data feeds' })
+      .getByRole('list', { name: 'Price feeds' })
       .getByRole('listitem', { name: 'Demo feed', exact: true }),
   ).toBeVisible();
   await expectAccessible(page);

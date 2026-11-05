@@ -31,6 +31,7 @@ describe('worker env', () => {
       VALUATION_EVERY_SEC: 300,
       HEARTBEAT_MS: 30_000,
       BILLING_FAKE: false,
+      SEC_FAKE: false,
       ALPACA_FAKE: false,
     });
   });

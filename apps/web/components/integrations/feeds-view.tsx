@@ -8,7 +8,14 @@ import {
   type FeedListDto,
   type RouteDto,
 } from '@tm/contracts';
-import { formatDateTime, PROVIDER_IDS, PROVIDERS, type DisplayPreferences } from '@tm/domain';
+import {
+  formatDateTime,
+  FUNDAMENTALS_PROVIDER_IDS,
+  isFundamentalsProvider,
+  MARKET_DATA_PROVIDER_IDS,
+  PROVIDERS,
+  type DisplayPreferences,
+} from '@tm/domain';
 import { Alert, Badge, Button, Dialog, SelectField, Table, Td, TextField, Th } from '@tm/ui';
 import { useCallback, useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
@@ -23,22 +30,29 @@ import {
 import { subscribeLive } from '@/lib/live-events';
 import { CredentialFields } from './credential-fields';
 
-const DATA_PROVIDERS = PROVIDER_IDS.filter((id) =>
-  (PROVIDERS[id].offers as readonly string[]).includes('market_data'),
-);
+/** Price feeds are routed; company data feeds (ADR 0031) are not. */
+type FeedKind = 'prices' | 'company';
+const PROVIDERS_FOR: Record<FeedKind, readonly string[]> = {
+  prices: MARKET_DATA_PROVIDER_IDS,
+  company: FUNDAMENTALS_PROVIDER_IDS,
+};
+const kindOf = (provider: string): FeedKind =>
+  isFundamentalsProvider(provider) ? 'company' : 'prices';
 
 const message = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
 
 /**
- * Settings › Data feeds (§9.2, §15.4): every feed with its health, last
+ * Settings › Data feeds (§9.2, §15.4): every price feed with its health, last
  * update, entitlement and routes; add, test, edit, turn on or off, remove.
- * Below, the routes that pick a primary and fallback feed for each kind of
- * data. Updates arrive live, so a test result appears on its own.
+ * Then the company data feeds (ADR 0031), which give company profiles and
+ * financials rather than prices, and below them the routes that pick a
+ * primary and fallback price feed for each kind of data. Updates arrive
+ * live, so a test result appears on its own.
  */
 export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
   const [data, setData] = useState<FeedListDto | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<FeedKind | null>(null);
   const [editing, setEditing] = useState<FeedDto | null>(null);
   const [turningOff, setTurningOff] = useState<{ feed: FeedDto; details: FeedInUseDetails } | null>(
     null,
@@ -92,14 +106,111 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
     }
   }
 
+  const priceFeeds = data?.feeds.filter((f) => kindOf(f.provider) === 'prices') ?? [];
+  const companyFeeds = data?.feeds.filter((f) => kindOf(f.provider) === 'company') ?? [];
+  // Company pages and the screener use the oldest company data feed that is on.
+  const companyInUse = companyFeeds.find((f) => f.isActive)?.id;
+
+  const renderFeed = (f: FeedDto) => {
+    const health = HEALTH_LABELS[f.health];
+    const company = kindOf(f.provider) === 'company';
+    return (
+      <li key={f.id} aria-label={f.name} className="rounded-lg border border-line bg-surface p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 text-sm">
+            <p className="text-base font-semibold">{f.name}</p>
+            <p className="mt-1 flex flex-wrap items-center gap-2">
+              <Badge tone="neutral">{providerName(f.provider)}</Badge>
+              {company && <Badge tone="info">Company data</Badge>}
+              <Badge tone={f.isActive ? 'ok' : 'neutral'}>{f.isActive ? 'On' : 'Off'}</Badge>
+              <Badge tone={f.checking ? 'info' : health.tone}>
+                {f.checking ? 'Testing…' : health.label}
+              </Badge>
+              {company ? (
+                <span>Updated as companies file</span>
+              ) : (
+                <>
+                  <span>{f.isRealtime ? 'Real-time' : 'Delayed'}</span>
+                  <span>· {ENTITLEMENT_LABELS[f.entitlement]}</span>
+                </>
+              )}
+            </p>
+            <p className="mt-1 text-ink-muted">
+              {company
+                ? 'Company profiles, five years of annual financials and recent filings for US-listed companies'
+                : f.assetClasses.map((a) => ASSET_CLASS_LABELS[a] ?? a).join(', ')}
+              {f.credential ? ` · ${company ? 'Uses' : 'Signs in with'} ${f.credential.label}` : ''}
+            </p>
+            <p className="mt-1 text-ink-muted">
+              Last update {when(f.lastSuccessAt)} · last checked {when(f.lastCheckedAt)}
+            </p>
+            {f.lastError && !f.checking && (
+              <p className="mt-1 text-danger">Last check: {f.lastError}</p>
+            )}
+            <p className="mt-1">
+              {company
+                ? f.id === companyInUse
+                  ? 'In use for company pages in Quantitative Research and the screener’s company columns'
+                  : f.isActive
+                    ? 'Standing by: another company data feed is in use'
+                    : 'Not in use while off'
+                : f.routes.length === 0
+                  ? 'Not used by any route'
+                  : f.routes
+                      .map(
+                        (r) =>
+                          `${r.role === 'primary' ? 'Primary' : 'Fallback'} for ${ASSET_CLASS_LABELS[r.assetClass] ?? r.assetClass} ${DATA_TYPE_LABELS[r.dataType].toLowerCase()} (${venueLabel(r.venue).toLowerCase()})${r.serving ? ', in use now' : ''}`,
+                      )
+                      .join('; ')}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={f.checking}
+              onClick={() =>
+                void act(() => apiClient.feeds.test(f.id), 'Could not start the test.')
+              }
+            >
+              Test {f.name}
+            </Button>
+            <Button size="sm" onClick={() => setEditing(f)}>
+              Edit
+            </Button>
+            {f.isActive ? (
+              <Button size="sm" onClick={() => void turnOff(f)}>
+                Turn off
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={() =>
+                  void act(
+                    () => apiClient.feeds.setActive(f.id, { active: true }),
+                    'Could not turn the feed on.',
+                  )
+                }
+              >
+                Turn on
+              </Button>
+            )}
+            <Button size="sm" variant="danger" onClick={() => setRemoving(f)}>
+              Remove
+            </Button>
+          </div>
+        </div>
+      </li>
+    );
+  };
+
   return (
     <div className="space-y-8">
       <section aria-labelledby="feeds-heading" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 id="feeds-heading" className="text-lg font-semibold">
-            Data feeds
+            Price feeds
           </h2>
-          <Button variant="primary" onClick={() => setAdding(true)}>
+          <Button variant="primary" onClick={() => setAdding('prices')}>
             Add a feed
           </Button>
         </div>
@@ -110,88 +221,36 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
         {error && <Alert>{error}</Alert>}
         {!data && !error && <p className="text-sm">Loading feeds…</p>}
         {data && (
-          <ul aria-label="Data feeds" className="space-y-3">
-            {data.feeds.map((f) => {
-              const health = HEALTH_LABELS[f.health];
-              return (
-                <li
-                  key={f.id}
-                  aria-label={f.name}
-                  className="rounded-lg border border-line bg-surface p-4"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 text-sm">
-                      <p className="text-base font-semibold">{f.name}</p>
-                      <p className="mt-1 flex flex-wrap items-center gap-2">
-                        <Badge tone="neutral">{providerName(f.provider)}</Badge>
-                        <Badge tone={f.isActive ? 'ok' : 'neutral'}>
-                          {f.isActive ? 'On' : 'Off'}
-                        </Badge>
-                        <Badge tone={f.checking ? 'info' : health.tone}>
-                          {f.checking ? 'Testing…' : health.label}
-                        </Badge>
-                        <span>{f.isRealtime ? 'Real-time' : 'Delayed'}</span>
-                        <span>· {ENTITLEMENT_LABELS[f.entitlement]}</span>
-                      </p>
-                      <p className="mt-1 text-ink-muted">
-                        {f.assetClasses.map((a) => ASSET_CLASS_LABELS[a] ?? a).join(', ')}
-                        {f.credential ? ` · Signs in with ${f.credential.label}` : ''}
-                      </p>
-                      <p className="mt-1 text-ink-muted">
-                        Last update {when(f.lastSuccessAt)} · last checked {when(f.lastCheckedAt)}
-                      </p>
-                      {f.lastError && !f.checking && (
-                        <p className="mt-1 text-danger">Last check: {f.lastError}</p>
-                      )}
-                      <p className="mt-1">
-                        {f.routes.length === 0
-                          ? 'Not used by any route'
-                          : f.routes
-                              .map(
-                                (r) =>
-                                  `${r.role === 'primary' ? 'Primary' : 'Fallback'} for ${ASSET_CLASS_LABELS[r.assetClass] ?? r.assetClass} ${DATA_TYPE_LABELS[r.dataType].toLowerCase()} (${venueLabel(r.venue).toLowerCase()})${r.serving ? ', in use now' : ''}`,
-                              )
-                              .join('; ')}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        disabled={f.checking}
-                        onClick={() =>
-                          void act(() => apiClient.feeds.test(f.id), 'Could not start the test.')
-                        }
-                      >
-                        Test {f.name}
-                      </Button>
-                      <Button size="sm" onClick={() => setEditing(f)}>
-                        Edit
-                      </Button>
-                      {f.isActive ? (
-                        <Button size="sm" onClick={() => void turnOff(f)}>
-                          Turn off
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          onClick={() =>
-                            void act(
-                              () => apiClient.feeds.setActive(f.id, { active: true }),
-                              'Could not turn the feed on.',
-                            )
-                          }
-                        >
-                          Turn on
-                        </Button>
-                      )}
-                      <Button size="sm" variant="danger" onClick={() => setRemoving(f)}>
-                        Remove
-                      </Button>
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
+          <ul aria-label="Price feeds" className="space-y-3">
+            {priceFeeds.map((f) => renderFeed(f))}
+          </ul>
+        )}
+      </section>
+
+      <section aria-labelledby="company-feeds-heading" className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 id="company-feeds-heading" className="text-lg font-semibold">
+            Company data feeds
+          </h2>
+          <Button onClick={() => setAdding('company')}>Add a company data feed</Button>
+        </div>
+        <p className="text-sm text-ink-muted">
+          Where company financials come from: revenue, earnings, cash flow, balance sheet, profile
+          and filings. They fill the company section in Quantitative Research and the screener’s
+          market cap, P/E, revenue and earnings columns. They give no prices.
+        </p>
+        {data && companyFeeds.length === 0 && (
+          <div className="rounded-lg border border-dashed border-line p-4 text-sm">
+            <p className="font-medium">No company data feed yet</p>
+            <p className="mt-1 text-ink-muted">
+              Add SEC EDGAR: it is free and needs no sign-up, only a contact email the SEC asks apps
+              to send with each request.
+            </p>
+          </div>
+        )}
+        {companyFeeds.length > 0 && (
+          <ul aria-label="Company data feeds" className="space-y-3">
+            {companyFeeds.map((f) => renderFeed(f))}
           </ul>
         )}
       </section>
@@ -199,7 +258,7 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
       {data && (
         <RoutesSection
           routes={data.routes}
-          feeds={data.feeds}
+          feeds={priceFeeds}
           when={when}
           onChanged={() => void load()}
           onAdd={() => setAddingRoute(true)}
@@ -207,16 +266,18 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
       )}
 
       <FeedDialog
-        open={adding}
+        open={adding !== null}
+        kind={adding ?? 'prices'}
         feed={null}
-        onClose={() => setAdding(false)}
+        onClose={() => setAdding(null)}
         onSaved={() => {
-          setAdding(false);
+          setAdding(null);
           void load();
         }}
       />
       <FeedDialog
         open={editing !== null}
+        kind={editing ? kindOf(editing.provider) : 'prices'}
         feed={editing}
         onClose={() => setEditing(null)}
         onSaved={() => {
@@ -227,7 +288,7 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
       {data && (
         <TurnOffDialog
           state={turningOff}
-          feeds={data.feeds}
+          feeds={priceFeeds}
           onClose={() => setTurningOff(null)}
           onDone={() => {
             setTurningOff(null);
@@ -265,7 +326,7 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
       {data && (
         <RouteDialog
           open={addingRoute}
-          feeds={data.feeds}
+          feeds={priceFeeds}
           onClose={() => setAddingRoute(false)}
           onSaved={() => {
             setAddingRoute(false);
@@ -403,11 +464,13 @@ function RoutesSection({
 
 function FeedDialog({
   open,
+  kind,
   feed,
   onClose,
   onSaved,
 }: {
   open: boolean;
+  kind: FeedKind;
   /** Null to add a new feed. */
   feed: FeedDto | null;
   onClose: () => void;
@@ -425,9 +488,11 @@ function FeedDialog({
 
   useEffect(() => {
     if (!open) return;
-    const p = feed?.provider ?? DATA_PROVIDERS.find((id) => id !== 'demo') ?? 'demo';
+    const choices = PROVIDERS_FOR[kind];
+    const p = feed?.provider ?? choices.find((id) => id !== 'demo') ?? choices[0] ?? 'demo';
     setProvider(p);
-    setName(feed?.name ?? '');
+    // A company data feed is usually the only one of its kind, so it starts named after its provider.
+    setName(feed?.name ?? (kind === 'company' ? PROVIDERS[p as keyof typeof PROVIDERS].name : ''));
     setAssetClasses(feed?.assetClasses ?? [...PROVIDERS[p as keyof typeof PROVIDERS].assetClasses]);
     setCredentialId(feed?.credential?.id ?? '');
     setNewKey({});
@@ -437,12 +502,14 @@ function FeedDialog({
       (r) => setKeys(r.credentials),
       () => setKeys([]),
     );
-  }, [open, feed]);
+  }, [open, feed, kind]);
 
   const info = PROVIDERS[provider as keyof typeof PROVIDERS];
   const needsKey = info.credentialFields.length > 0;
   const keysForProvider = keys.filter((k) => k.provider === provider);
   const addingKey = needsKey && (credentialId === 'new' || keysForProvider.length === 0);
+  const company = kind === 'company';
+  const defaultKeyLabel = company ? `${info.name} contact` : `${info.name} paper key`;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -452,7 +519,7 @@ function FeedDialog({
       if (addingKey) {
         const created = await apiClient.credentials.create({
           provider,
-          label: newKeyLabel || `${info.name} paper key`,
+          label: newKeyLabel || defaultKeyLabel,
           fields: newKey,
         });
         setNewKey({});
@@ -484,8 +551,14 @@ function FeedDialog({
         setNewKey({});
         onClose();
       }}
-      title={feed ? `Edit ${feed.name}` : 'Add a data feed'}
-      description={feed ? undefined : 'It is tested as soon as you save it.'}
+      title={feed ? `Edit ${feed.name}` : company ? 'Add a company data feed' : 'Add a data feed'}
+      description={
+        feed
+          ? undefined
+          : company
+            ? 'Company profiles and reported financials from public filings. It is tested as soon as you save it.'
+            : 'It is tested as soon as you save it.'
+      }
     >
       <form onSubmit={(e) => void save(e)} className="space-y-3" autoComplete="off">
         {error && <Alert>{error}</Alert>}
@@ -501,9 +574,12 @@ function FeedDialog({
               setCredentialId('');
             }}
           >
-            {DATA_PROVIDERS.map((id) => (
+            {PROVIDERS_FOR[kind].map((id) => (
               <option key={id} value={id}>
-                {PROVIDERS[id].name}
+                {PROVIDERS[id as keyof typeof PROVIDERS].name}
+                {isFundamentalsProvider(id) && PROVIDERS[id].id === 'sec'
+                  ? ' (free, US filings)'
+                  : ''}
               </option>
             ))}
           </SelectField>
@@ -516,50 +592,52 @@ function FeedDialog({
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <fieldset>
-          <legend className="text-sm font-medium">Asset classes</legend>
-          <div className="mt-1 flex gap-4">
-            {info.assetClasses.map((a) => (
-              <label key={a} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={assetClasses.includes(a)}
-                  onChange={(e) =>
-                    setAssetClasses((cur) =>
-                      e.target.checked ? [...cur, a] : cur.filter((x) => x !== a),
-                    )
-                  }
-                />
-                {ASSET_CLASS_LABELS[a] ?? a}
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        {!company && (
+          <fieldset>
+            <legend className="text-sm font-medium">Asset classes</legend>
+            <div className="mt-1 flex gap-4">
+              {info.assetClasses.map((a) => (
+                <label key={a} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={assetClasses.includes(a)}
+                    onChange={(e) =>
+                      setAssetClasses((cur) =>
+                        e.target.checked ? [...cur, a] : cur.filter((x) => x !== a),
+                      )
+                    }
+                  />
+                  {ASSET_CLASS_LABELS[a] ?? a}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
         {needsKey && keysForProvider.length > 0 && (
           <SelectField
             name="feed-key"
-            label="API key"
+            label={company ? 'Contact' : 'API key'}
             value={credentialId}
             required
             onChange={(e) => setCredentialId(e.target.value)}
           >
-            <option value="">Choose a stored key</option>
+            <option value="">{company ? 'Choose a stored contact' : 'Choose a stored key'}</option>
             {keysForProvider.map((k) => (
               <option key={k.id} value={k.id}>
                 {k.label}
               </option>
             ))}
-            <option value="new">Add a new key…</option>
+            <option value="new">{company ? 'Add a new contact…' : 'Add a new key…'}</option>
           </SelectField>
         )}
         {addingKey && (
           <>
             <TextField
               name="feed-key-label"
-              label="Key name"
+              label={company ? 'Saved as' : 'Key name'}
               maxLength={100}
               value={newKeyLabel}
-              placeholder={`${info.name} paper key`}
+              placeholder={defaultKeyLabel}
               onChange={(e) => setNewKeyLabel(e.target.value)}
             />
             <CredentialFields

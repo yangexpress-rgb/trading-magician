@@ -25,6 +25,7 @@ import {
   summarize,
   toBars,
 } from '@/lib/research-text';
+import { CompanyPanel } from './company-panel';
 import { PriceChart, type ChartStyle } from './price-chart';
 import { StockPicker } from './stock-picker';
 
@@ -50,10 +51,13 @@ export function ResearchWorkspace({
   instruments: initialInstruments,
   initial,
   canSearchMarket,
+  companyFeed = null,
 }: {
   instruments: InstrumentOptionDto[];
   initial: ResearchSelection;
   canSearchMarket: boolean;
+  /** The company data feed in use, by name (ADR 0031); null when there is none. */
+  companyFeed?: string | null;
 }) {
   const router = useRouter();
   const [instruments, setInstruments] = useState(initialInstruments);
@@ -158,122 +162,134 @@ export function ResearchWorkspace({
         />
       </aside>
 
-      <section aria-labelledby="chart-heading" className="min-w-0">
-        <Card>
-          {!selected ? (
-            <div className="py-16 text-center">
-              <h2 id="chart-heading" className="text-lg font-semibold">
-                Pick a stock to see its prices
-              </h2>
-              <p className="mt-1 text-sm text-ink-muted">
-                Choose one from the list, or find another US stock or ETF by its symbol.
-              </p>
-            </div>
-          ) : (
-            <>
-              <header className="mb-4 flex flex-wrap items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <h2 id="chart-heading" className="flex flex-wrap items-baseline gap-x-2 text-lg">
-                    <span className="font-semibold">{selected.symbol}</span>
-                    <span className="truncate text-ink-muted">{selected.displayName}</span>
-                  </h2>
-                  <p className="text-xs text-ink-muted">
-                    {ASSET_CLASS_LABELS[selected.assetClass] ?? selected.assetClass} ·{' '}
-                    {selected.venue === 'DEMO'
-                      ? 'Demo instrument, simulated prices'
-                      : selected.venue}
-                  </p>
-                </div>
-                {summary && showing?.instrument.id === selected.id && (
-                  <div className="text-right tabular-nums" data-testid="chart-summary">
-                    <p className="text-2xl font-semibold">{formatPrice(summary.last)}</p>
-                    <p className="text-sm">
-                      <span className="sr-only">Change over {RANGE_NAMES[showing.range]}: </span>
-                      <span className={summary.change < 0 ? 'text-danger' : 'text-ok'}>
-                        {summary.change < 0 ? '▼' : '▲'}{' '}
-                        {formatChange(summary.change, summary.changePct)}
-                      </span>{' '}
-                      <span className="text-ink-muted">{RANGE_NAMES[showing.range]}</span>
-                    </p>
-                  </div>
-                )}
-              </header>
-
-              <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-                <Segmented
-                  label="Range"
-                  value={sel.range}
-                  options={CHART_RANGES.map((r) => ({
-                    value: r,
-                    label: RANGE_LABELS[r],
-                    title: RANGE_NAMES[r],
-                  }))}
-                  onChange={(range) => update({ range })}
-                />
-                <Segmented
-                  label="Bars"
-                  value={sel.interval}
-                  options={CHART_INTERVALS.map((i) => ({
-                    value: i,
-                    label: INTERVAL_LABELS[i],
-                    disabled: !chartIntervalAllowed(sel.range, i),
-                    title: chartIntervalAllowed(sel.range, i) ? undefined : INTERVAL_LIMITS[i],
-                  }))}
-                  onChange={(interval) => update({ interval })}
-                />
-                <Segmented
-                  label="Chart"
-                  value={sel.style}
-                  options={[
-                    { value: 'line', label: 'Line' },
-                    { value: 'candles', label: 'Candles' },
-                  ]}
-                  onChange={(style) => update({ style })}
-                />
-                <p role="status" aria-live="polite" className="text-sm text-ink-muted">
-                  {loading ? `Loading ${selected.symbol} prices…` : ''}
+      <div className="min-w-0 space-y-6">
+        <section aria-labelledby="chart-heading" className="min-w-0">
+          <Card>
+            {!selected ? (
+              <div className="py-16 text-center">
+                <h2 id="chart-heading" className="text-lg font-semibold">
+                  Pick a stock to see its prices
+                </h2>
+                <p className="mt-1 text-sm text-ink-muted">
+                  Choose one from the list, or find another US stock or ETF by its symbol.
                 </p>
               </div>
+            ) : (
+              <>
+                <header className="mb-4 flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <h2
+                      id="chart-heading"
+                      className="flex flex-wrap items-baseline gap-x-2 text-lg"
+                    >
+                      <span className="font-semibold">{selected.symbol}</span>
+                      <span className="truncate text-ink-muted">{selected.displayName}</span>
+                    </h2>
+                    <p className="text-xs text-ink-muted">
+                      {ASSET_CLASS_LABELS[selected.assetClass] ?? selected.assetClass} ·{' '}
+                      {selected.venue === 'DEMO'
+                        ? 'Demo instrument, simulated prices'
+                        : selected.venue}
+                    </p>
+                  </div>
+                  {summary && showing?.instrument.id === selected.id && (
+                    <div className="text-right tabular-nums" data-testid="chart-summary">
+                      <p className="text-2xl font-semibold">{formatPrice(summary.last)}</p>
+                      <p className="text-sm">
+                        <span className="sr-only">Change over {RANGE_NAMES[showing.range]}: </span>
+                        <span className={summary.change < 0 ? 'text-danger' : 'text-ok'}>
+                          {summary.change < 0 ? '▼' : '▲'}{' '}
+                          {formatChange(summary.change, summary.changePct)}
+                        </span>{' '}
+                        <span className="text-ink-muted">{RANGE_NAMES[showing.range]}</span>
+                      </p>
+                    </div>
+                  )}
+                </header>
 
-              {error && <Alert>{error}</Alert>}
-
-              {showing && bars.length > 0 ? (
-                <PriceChart
-                  symbol={showing.instrument.symbol}
-                  bars={bars}
-                  interval={showing.interval}
-                  range={showing.range}
-                  style={sel.style}
-                  dimmed={loading || showing.instrument.id !== selected.id}
-                />
-              ) : (
-                showing &&
-                !loading &&
-                !error && (
-                  <p className="py-12 text-center text-sm text-ink-muted">
-                    No prices for {showing.instrument.symbol} in this range yet.
+                <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <Segmented
+                    label="Range"
+                    value={sel.range}
+                    options={CHART_RANGES.map((r) => ({
+                      value: r,
+                      label: RANGE_LABELS[r],
+                      title: RANGE_NAMES[r],
+                    }))}
+                    onChange={(range) => update({ range })}
+                  />
+                  <Segmented
+                    label="Bars"
+                    value={sel.interval}
+                    options={CHART_INTERVALS.map((i) => ({
+                      value: i,
+                      label: INTERVAL_LABELS[i],
+                      disabled: !chartIntervalAllowed(sel.range, i),
+                      title: chartIntervalAllowed(sel.range, i) ? undefined : INTERVAL_LIMITS[i],
+                    }))}
+                    onChange={(interval) => update({ interval })}
+                  />
+                  <Segmented
+                    label="Chart"
+                    value={sel.style}
+                    options={[
+                      { value: 'line', label: 'Line' },
+                      { value: 'candles', label: 'Candles' },
+                    ]}
+                    onChange={(style) => update({ style })}
+                  />
+                  <p role="status" aria-live="polite" className="text-sm text-ink-muted">
+                    {loading ? `Loading ${selected.symbol} prices…` : ''}
                   </p>
-                )
-              )}
+                </div>
 
-              {showing && showing.instrument.id === selected.id && (
-                <footer className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-                  {showing.source && <Badge>{`Prices from ${showing.source}`}</Badge>}
-                  <span>
-                    {INTERVAL_LABELS[showing.interval]} bars, regular session, split-adjusted.
-                    {summary && ` Last bar ${formatBarTime(summary.lastAt, showing.interval)}.`}
-                  </span>
-                  {showing.warnings.map((w) => (
-                    <span key={w} className="basis-full">
-                      {w}
+                {error && <Alert>{error}</Alert>}
+
+                {showing && bars.length > 0 ? (
+                  <PriceChart
+                    symbol={showing.instrument.symbol}
+                    bars={bars}
+                    interval={showing.interval}
+                    range={showing.range}
+                    style={sel.style}
+                    dimmed={loading || showing.instrument.id !== selected.id}
+                  />
+                ) : (
+                  showing &&
+                  !loading &&
+                  !error && (
+                    <p className="py-12 text-center text-sm text-ink-muted">
+                      No prices for {showing.instrument.symbol} in this range yet.
+                    </p>
+                  )
+                )}
+
+                {showing && showing.instrument.id === selected.id && (
+                  <footer className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+                    {showing.source && <Badge>{`Prices from ${showing.source}`}</Badge>}
+                    <span>
+                      {INTERVAL_LABELS[showing.interval]} bars, regular session, split-adjusted.
+                      {summary && ` Last bar ${formatBarTime(summary.lastAt, showing.interval)}.`}
                     </span>
-                  ))}
-                </footer>
-              )}
-            </>
-          )}
-        </Card>
-      </section>
+                    {showing.warnings.map((w) => (
+                      <span key={w} className="basis-full">
+                        {w}
+                      </span>
+                    ))}
+                  </footer>
+                )}
+              </>
+            )}
+          </Card>
+        </section>
+        {selected && (
+          <CompanyPanel
+            instrument={selected}
+            price={summary && showing?.instrument.id === selected.id ? summary.last : null}
+            companyFeed={companyFeed}
+          />
+        )}
+      </div>
     </div>
   );
 }

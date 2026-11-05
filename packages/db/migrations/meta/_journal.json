@@ -316,6 +316,20 @@
       "when": 1793752579513,
       "tag": "0044_stock_screen_universe",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1793843582023,
+      "tag": "0045_company_reports",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1793843597957,
+      "tag": "0046_company_reports_worker",
+      "breakpoints": true
     }
   ]
 }

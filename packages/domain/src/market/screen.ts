@@ -1,3 +1,5 @@
+import { SCREEN_FUNDAMENTAL_COLUMNS, type ScreenFundamentalColumn } from './fundamentals';
+
 /**
  * The stock screener in Quantitative Research (ADR 0030): one row of key
  * values per US stock or ETF the data feed covers, worked out the same way
@@ -33,7 +35,7 @@ export interface ScreenSource {
 
 /** Text columns of a screen row, then numeric ones, in wire order. */
 export const SCREEN_TEXT_COLUMNS = ['symbol', 'name', 'assetClass', 'exchange'] as const;
-export const SCREEN_NUMBER_COLUMNS = [
+export const SCREEN_PRICE_COLUMNS = [
   'last',
   'change',
   'changePct',
@@ -55,8 +57,14 @@ export const SCREEN_NUMBER_COLUMNS = [
   'avgVolume20',
   'relVolume',
 ] as const;
+/** Every numeric column: the price ones, then the company ones (ADR 0031). */
+export const SCREEN_NUMBER_COLUMNS = [
+  ...SCREEN_PRICE_COLUMNS,
+  ...SCREEN_FUNDAMENTAL_COLUMNS,
+] as const;
 export type ScreenTextColumn = (typeof SCREEN_TEXT_COLUMNS)[number];
-export type ScreenNumberColumn = (typeof SCREEN_NUMBER_COLUMNS)[number];
+export type ScreenPriceColumn = (typeof SCREEN_PRICE_COLUMNS)[number];
+export type ScreenNumberColumn = ScreenPriceColumn | ScreenFundamentalColumn;
 export type ScreenColumn = ScreenTextColumn | ScreenNumberColumn;
 
 export type ScreenRow = Record<ScreenTextColumn, string> &
@@ -66,9 +74,10 @@ export type ScreenRow = Record<ScreenTextColumn, string> &
   };
 
 /**
- * A row on the wire: the text columns, the numeric columns, then `lastAt`
- * and `instrumentId`, in the orders above. About 12,000 rows stay near a
- * megabyte this way.
+ * A row on the wire: the text columns, the price columns, `lastAt` and
+ * `instrumentId`, then the company columns, in the orders above. About
+ * 12,000 rows stay near a megabyte this way. Rows from before the company
+ * columns simply end early, and read as having none.
  */
 export type ScreenRowTuple = (string | number | null)[];
 
@@ -137,8 +146,13 @@ export function screenRow(source: ScreenSource, session: string): ScreenRow {
       volume != null && avgVolume != null && avgVolume > 0 ? round(volume / avgVolume, 2) : null,
     lastAt: today ? source.lastAt : null,
     instrumentId: source.instrumentId ?? null,
+    ...NO_FUNDAMENTALS,
   };
 }
+
+const NO_FUNDAMENTALS = Object.fromEntries(
+  SCREEN_FUNDAMENTAL_COLUMNS.map((c) => [c, null]),
+) as Record<ScreenFundamentalColumn, null>;
 
 /** The screen's "today": the latest session any symbol has prices for. */
 export function screenSession(sources: readonly ScreenSource[]): string | null {
@@ -153,9 +167,10 @@ export function screenSession(sources: readonly ScreenSource[]): string | null {
 export function toScreenTuple(row: ScreenRow): ScreenRowTuple {
   return [
     ...SCREEN_TEXT_COLUMNS.map((c) => row[c]),
-    ...SCREEN_NUMBER_COLUMNS.map((c) => row[c]),
+    ...SCREEN_PRICE_COLUMNS.map((c) => row[c]),
     row.lastAt,
     row.instrumentId,
+    ...SCREEN_FUNDAMENTAL_COLUMNS.map((c) => row[c]),
   ];
 }
 
@@ -163,13 +178,12 @@ export function fromScreenTuple(tuple: ScreenRowTuple): ScreenRow {
   const row = {} as ScreenRow;
   let i = 0;
   for (const c of SCREEN_TEXT_COLUMNS) row[c] = String(tuple[i++] ?? '');
-  for (const c of SCREEN_NUMBER_COLUMNS) {
-    const v = tuple[i++];
-    row[c] = typeof v === 'number' && Number.isFinite(v) ? v : null;
-  }
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  for (const c of SCREEN_PRICE_COLUMNS) row[c] = num(tuple[i++]);
   const lastAt = tuple[i++];
   const instrumentId = tuple[i++];
   row.lastAt = typeof lastAt === 'string' ? lastAt : null;
   row.instrumentId = typeof instrumentId === 'string' ? instrumentId : null;
+  for (const c of SCREEN_FUNDAMENTAL_COLUMNS) row[c] = num(tuple[i++]);
   return row;
 }

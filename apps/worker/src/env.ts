@@ -53,6 +53,11 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
         .enum(['true', 'false'])
         .default('false')
         .transform((v) => v === 'true'),
+      /** Tests only: SEC EDGAR calls go to an in-process fake with made-up companies. */
+      SEC_FAKE: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((v) => v === 'true'),
       /** Tests only: Alpaca calls go to an in-process fake with made-up symbols. */
       ALPACA_FAKE: z
         .enum(['true', 'false'])
@@ -69,6 +74,9 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
   }
   if (env.NODE_ENV === 'production' && env.ALPACA_FAKE && !source.E2E_TEST) {
     throw new Error('ALPACA_FAKE is for tests only');
+  }
+  if (env.NODE_ENV === 'production' && env.SEC_FAKE && !source.E2E_TEST) {
+    throw new Error('SEC_FAKE is for tests only');
   }
   return env;
 }

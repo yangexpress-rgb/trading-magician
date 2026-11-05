@@ -24,7 +24,7 @@ test('connects an Alpaca feed and finds a US stock for a strategy', async ({ pag
   await add.getByRole('button', { name: 'Add feed' }).click();
   await expect(add).toBeHidden();
   const feed = page
-    .getByRole('list', { name: 'Data feeds' })
+    .getByRole('list', { name: 'Price feeds' })
     .getByRole('listitem', { name: 'Alpaca prices' });
   await expect(feed.getByText('Healthy')).toBeVisible();
   await expect(feed).toContainText('Entitled');

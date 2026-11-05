@@ -62,5 +62,5 @@ worker can open (ADR 0015).
   in ready-made screens are lower on Alpaca's free feed; the warning says so under the table.
 - The S&P 500 list changes a few times a quarter; it is as current as the last
   `sp500:update` run, and the screen says when that was.
-- Fundamentals (market cap, P/E) are not in the feed and are not offered yet; neither
-  are custom formulas (§11), which can build on the same rows.
+- Fundamentals (market cap, P/E) came later from company data feeds (ADR 0031). Custom
+  formulas (§11) are not offered yet; they can build on the same rows.

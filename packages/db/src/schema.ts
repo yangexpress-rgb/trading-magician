@@ -476,7 +476,7 @@ export const stockScreens = pgTable(
     universe: text('universe').notNull().default('all'),
     /** New York date of the session the screen calls today. */
     sessionDate: date('session_date'),
-    /** Row tuples in the order of `SCREEN_TEXT_COLUMNS`, `SCREEN_NUMBER_COLUMNS`, lastAt, instrumentId. */
+    /** Row tuples in the order of `SCREEN_TEXT_COLUMNS`, `SCREEN_PRICE_COLUMNS`, lastAt, instrumentId, `SCREEN_FUNDAMENTAL_COLUMNS`. */
     rows: jsonb('rows'),
     rowCount: integer('row_count'),
     warnings: jsonb('warnings').notNull().default([]),
@@ -495,6 +495,45 @@ export const stockScreens = pgTable(
     index('stock_screen_reuse_idx').on(t.userId, t.createdAt),
     check('stock_screen_universe', sql`${t.universe} IN ('sp500', 'all')`),
     check('stock_screen_ready_has_rows', sql`(${t.status} = 'ready') = (${t.rows} IS NOT NULL)`),
+  ],
+);
+
+export const companyReportStatus = pgEnum('company_report_status', ['pending', 'ready', 'failed']);
+
+/**
+ * Company pages for Quantitative Research (ADR 0031): the web app asks for a
+ * symbol, the worker fills in the profile, financials and filings from the
+ * tenant's company data feed. A cache of provider data, cleared after a day.
+ */
+export const companyReports = pgTable(
+  'company_report',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    symbol: text('symbol').notNull(),
+    status: companyReportStatus('status').notNull().default('pending'),
+    /** A `CompanyReport` from `@tm/domain`, once ready. */
+    report: jsonb('report'),
+    /** The company data feed that answered, by its name in Settings › Data feeds. */
+    source: text('source'),
+    /** Short and secret-free; shown to the person. */
+    message: text('message'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    attempts: integer('attempts').notNull().default(0),
+    ...timestamps(),
+  },
+  (t) => [
+    index('company_report_pending_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'pending'`),
+    index('company_report_reuse_idx').on(t.userId, t.symbol, t.createdAt),
+    check('company_report_symbol', sql`${t.symbol} ~ '^[A-Z][A-Z0-9.]{0,9}$'`),
+    check(
+      'company_report_ready_has_report',
+      sql`(${t.status} = 'ready') = (${t.report} IS NOT NULL)`,
+    ),
   ],
 );
 

@@ -1,5 +1,6 @@
 import { AlpacaAuthError } from '@tm/alpaca';
 import {
+  activeFundamentalsFeed,
   claimStockScreens,
   finishStockScreen,
   listTenantInstruments,
@@ -15,13 +16,21 @@ import {
   BrokerUnavailableError,
   providerCoversVenue,
   resolveRoute,
+  screenFundamentals,
   screenRow,
   screenSession,
   SP500_SECTORS,
   toScreenTuple,
 } from '@tm/domain';
 import type { Logger } from 'pino';
-import { withTimeout, type MarketDataProvider, type ProviderRegistry } from './providers';
+import {
+  withTimeout,
+  type FundamentalsProvider,
+  type FundamentalsRegistry,
+  type MarketDataProvider,
+  type ProviderContext,
+  type ProviderRegistry,
+} from './providers';
 
 /**
  * Fills in stock screens for Quantitative Research (ADR 0030): every US
@@ -38,6 +47,8 @@ export const SCREENS = { leaseSeconds: 240, batch: 2, maxAttempts: 3, timeoutMs:
 export interface StockScreenOptions {
   db: Database;
   providers: ProviderRegistry;
+  /** Company data feeds, for market cap, P/E and other company columns (ADR 0031). */
+  fundamentals?: FundamentalsRegistry | undefined;
   privateKey: string | undefined;
   logger: Pick<Logger, 'info' | 'warn'>;
   now?: () => Date;
@@ -74,7 +85,7 @@ export async function runStockScreens(options: StockScreenOptions): Promise<numb
       withTenant(options.db, { userId }, fn);
     const pending = await inTenant((tx) => loadPendingScreen(tx, screenId));
     if (!pending) continue;
-    const { feed, provider, credential, known } = await inTenant(async (tx) => {
+    const { feed, provider, credential, known, company } = await inTenant(async (tx) => {
       const picked = pickScreenFeed(await loadRouting(tx), options.providers);
       const opened =
         picked.provider?.needsCredential && picked.feed?.credentialRef
@@ -89,7 +100,30 @@ export async function runStockScreens(options: StockScreenOptions): Promise<numb
       for (const i of await listTenantInstruments(tx)) {
         if (!known.has(i.symbol)) known.set(i.symbol, i.id);
       }
-      return { ...picked, credential: opened, known };
+      // The company columns come from the company data feed, when one is on.
+      let company: CompanySource | undefined;
+      const facts = await activeFundamentalsFeed(tx);
+      const factsProvider = facts ? options.fundamentals?.[facts.provider] : undefined;
+      if (facts && factsProvider) {
+        try {
+          const factsCredential =
+            factsProvider.needsCredential && facts.credentialRef
+              ? await openCredential(tx, {
+                  userId,
+                  id: facts.credentialRef,
+                  privateKey: options.privateKey,
+                })
+              : undefined;
+          company = {
+            name: facts.name,
+            provider: factsProvider,
+            ctx: { now, credential: factsCredential },
+          };
+        } catch {
+          company = undefined;
+        }
+      }
+      return { ...picked, credential: opened, known, company };
     });
     const source = feed?.name ?? 'Demo data';
     try {
@@ -103,17 +137,21 @@ export async function runStockScreens(options: StockScreenOptions): Promise<numb
         'The screen',
       );
       const session = screenSession(result.sources);
+      const warnings = [...result.warnings];
+      const facts = company ? await companyFacts(company, options, warnings) : undefined;
       const rows = session
-        ? result.sources.map((s) =>
-            toScreenTuple(screenRow({ ...s, instrumentId: known.get(s.symbol) ?? null }, session)),
-          )
+        ? result.sources.map((s) => {
+            const row = screenRow({ ...s, instrumentId: known.get(s.symbol) ?? null }, session);
+            const f = facts?.get(s.symbol);
+            return toScreenTuple(f ? { ...row, ...screenFundamentals(f, row.last) } : row);
+          })
         : [];
       await inTenant((tx) =>
         finishStockScreen(tx, screenId, {
           status: 'ready',
           rows,
           sessionDate: session,
-          warnings: result.warnings,
+          warnings,
           source,
         }),
       );
@@ -148,6 +186,42 @@ export async function runStockScreens(options: StockScreenOptions): Promise<numb
     }
   }
   return claimed.length;
+}
+
+interface CompanySource {
+  name: string;
+  provider: FundamentalsProvider;
+  ctx: ProviderContext;
+}
+
+/**
+ * The company data feed's figures for the screen. A company feed that fails
+ * leaves the company columns blank, with a warning, rather than failing the
+ * price screen.
+ */
+async function companyFacts(
+  company: CompanySource,
+  options: StockScreenOptions,
+  warnings: string[],
+) {
+  try {
+    const { year, facts } = await withTimeout(
+      company.provider.screenFacts(company.ctx),
+      SCREENS.timeoutMs,
+      'The company figures',
+    );
+    warnings.push(
+      `Market cap, P/E, revenue and earnings are for calendar ${year}, from ${company.name}; market cap is the last price times the year's diluted shares.`,
+    );
+    return facts;
+  } catch (error) {
+    options.logger.warn(
+      { err: { name: (error as Error).name } },
+      'company figures for the screen failed',
+    );
+    warnings.push(`${company.name} could not give company figures, so those columns are blank.`);
+    return undefined;
+  }
 }
 
 export interface StockScreenLoop {

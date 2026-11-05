@@ -64,6 +64,7 @@ export * from './feeds';
 export * from './instruments';
 export * from './price-charts';
 export * from './stock-screens';
+export * from './company-reports';
 export * from './brokers';
 export * from './performance';
 export * from './valuations';

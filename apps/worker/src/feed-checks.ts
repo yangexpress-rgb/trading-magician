@@ -8,7 +8,7 @@ import {
   type FeedCheckResult,
 } from '@tm/db';
 import type { Logger } from 'pino';
-import { withTimeout, type ProviderRegistry } from './providers';
+import { withTimeout, type FundamentalsRegistry, type ProviderRegistry } from './providers';
 
 /**
  * Checks data feeds (§9.2; ADR 0016): every feed someone pressed "Test" on,
@@ -27,6 +27,8 @@ export const FEED_CHECKS = {
 export interface FeedCheckOptions {
   db: Database;
   providers: ProviderRegistry;
+  /** Company data feeds are checked the same way (ADR 0031). */
+  fundamentals?: FundamentalsRegistry | undefined;
   privateKey: string | undefined;
   logger: Pick<Logger, 'info' | 'warn'>;
   now?: () => Date;
@@ -44,7 +46,7 @@ export async function runFeedChecks(options: FeedCheckOptions): Promise<number> 
       const feed = await loadFeedToCheck(tx, feedId);
       if (!feed) return;
       const now = (options.now ?? (() => new Date()))();
-      const provider = options.providers[feed.provider];
+      const provider = options.providers[feed.provider] ?? options.fundamentals?.[feed.provider];
       let result: FeedCheckResult;
       if (!provider) {
         result = { ok: false, entitlement: 'unknown', error: 'This provider is not available yet' };
@@ -80,9 +82,11 @@ export async function runFeedChecks(options: FeedCheckOptions): Promise<number> 
             error:
               name === 'CredentialError' || name === 'SealError'
                 ? 'The stored API key could not be used'
-                : /timed out/.test((error as Error).message)
-                  ? 'The provider did not answer in time'
-                  : 'The provider could not be reached',
+                : name === 'SecRefusedError' || name === 'SecContactError'
+                  ? 'The SEC refused the request. Check the contact email under Stored API keys.'
+                  : /timed out/.test((error as Error).message)
+                    ? 'The provider did not answer in time'
+                    : 'The provider could not be reached',
           };
         }
       }

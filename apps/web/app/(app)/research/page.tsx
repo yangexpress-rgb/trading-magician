@@ -1,9 +1,10 @@
-import { listTenantInstruments, loadRouting, withTenant } from '@tm/db';
+import { activeFundamentalsFeed, listTenantInstruments, loadRouting, withTenant } from '@tm/db';
 import {
   CHART_INTERVALS,
   CHART_RANGES,
   chartIntervalAllowed,
   defaultChartInterval,
+  providerCoversVenue,
   type ChartInterval,
   type ChartRange,
 } from '@tm/domain';
@@ -26,13 +27,19 @@ export default async function ResearchPage({
 }) {
   const params = await searchParams;
   const tenant = await requireTenant();
-  const { instruments, canSearchMarket } = await withTenant(appDb(), tenant, async (tx) => ({
-    instruments: await listTenantInstruments(tx),
-    // A real-provider feed, such as Alpaca, can search every US stock (ADR 0029).
-    canSearchMarket: [...(await loadRouting(tx)).feeds.values()].some(
-      (f) => f.isActive && f.provider !== 'demo',
-    ),
-  }));
+  const { instruments, canSearchMarket, companyFeed } = await withTenant(
+    appDb(),
+    tenant,
+    async (tx) => ({
+      instruments: await listTenantInstruments(tx),
+      // A real price feed, such as Alpaca, can search every US stock (ADR 0029).
+      canSearchMarket: [...(await loadRouting(tx)).feeds.values()].some(
+        (f) => f.isActive && providerCoversVenue(f.provider, 'US'),
+      ),
+      // Company financials come from a company data feed, such as SEC EDGAR (ADR 0031).
+      companyFeed: (await activeFundamentalsFeed(tx))?.name ?? null,
+    }),
+  );
   const wanted = one(params.instrument);
   const rawRange = one(params.range) as ChartRange;
   const rawInterval = one(params.interval) as ChartInterval;
@@ -52,12 +59,13 @@ export default async function ResearchPage({
     <>
       <PageHeader
         title="Quantitative Research"
-        description="Pick a stock or ETF and study its price history."
+        description="Pick a stock or ETF and study its price history and company financials."
       />
       <ResearchNav />
       <ResearchWorkspace
         instruments={instruments}
         canSearchMarket={canSearchMarket}
+        companyFeed={companyFeed}
         initial={{
           instrumentId,
           range,

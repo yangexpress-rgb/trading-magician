@@ -1,0 +1,29 @@
+{
+  "taxonomy": "us-gaap",
+  "tag": "NetIncomeLoss",
+  "ccp": "CY2025",
+  "uom": "USD",
+  "label": "Net Income (Loss) Attributable to Parent",
+  "description": "The portion of profit or loss for the period, net of income taxes, which is attributable to the parent.",
+  "pts": 2,
+  "data": [
+    {
+      "accn": "0000320193-25-000079",
+      "cik": 320193,
+      "entityName": "Apple Inc.",
+      "loc": "US-CA",
+      "start": "2024-09-29",
+      "end": "2025-09-27",
+      "val": 112010000000
+    },
+    {
+      "accn": "0001652044-26-000018",
+      "cik": 1652044,
+      "entityName": "Alphabet Inc.",
+      "loc": "US-CA",
+      "start": "2025-01-01",
+      "end": "2025-12-31",
+      "val": 132170000000
+    }
+  ]
+}
