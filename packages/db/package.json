@@ -1,0 +1,39 @@
+{
+  "name": "@tm/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./test/harness.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run src",
+    "test:integration": "vitest run test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:setup-logins": "tsx scripts/setup-logins.ts",
+    "credentials:keygen": "tsx scripts/credentials-keygen.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "invites:mint": "tsx scripts/invites.ts mint",
+    "invites:list": "tsx scripts/invites.ts list",
+    "invites:release": "tsx scripts/invites.ts release",
+    "load:seed": "tsx scripts/load-seed.ts"
+  },
+  "dependencies": {
+    "@tm/backtest": "workspace:*",
+    "@tm/broker": "workspace:*",
+    "@tm/config": "workspace:*",
+    "@tm/domain": "workspace:*",
+    "decimal.js": "^10.6.0",
+    "drizzle-orm": "^0.45.3",
+    "postgres": "^3.4.9",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15"
+  }
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "subscription" ADD COLUMN "grace_ends_at" timestamp with time zone;

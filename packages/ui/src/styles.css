@@ -1,0 +1,139 @@
+/*
+ * Design tokens for Trading Magician. Colours are defined once as CSS variables
+ * and redefined for dark mode; components use the Tailwind names below.
+ * Status is never conveyed by colour alone: every tone is paired with text and
+ * an icon (Design v1.0 §5.1).
+ */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --color-canvas: var(--tm-canvas);
+  --color-surface: var(--tm-surface);
+  --color-surface-2: var(--tm-surface-2);
+  --color-ink: var(--tm-ink);
+  --color-ink-muted: var(--tm-ink-muted);
+  --color-line: var(--tm-line);
+  --color-accent: var(--tm-accent);
+  --color-accent-ink: var(--tm-accent-ink);
+  --color-focus: var(--tm-focus);
+  --color-ok: var(--tm-ok);
+  --color-ok-soft: var(--tm-ok-soft);
+  --color-warn: var(--tm-warn);
+  --color-warn-soft: var(--tm-warn-soft);
+  --color-danger: var(--tm-danger);
+  --color-danger-soft: var(--tm-danger-soft);
+  --color-info: var(--tm-info);
+  --color-info-soft: var(--tm-info-soft);
+  --color-paper: var(--tm-paper);
+  --color-paper-soft: var(--tm-paper-soft);
+  --color-entry: var(--tm-entry);
+  --color-entry-soft: var(--tm-entry-soft);
+  --color-exit: var(--tm-exit);
+  --color-exit-soft: var(--tm-exit-soft);
+  --color-cond: var(--tm-cond);
+  --color-cond-soft: var(--tm-cond-soft);
+  --color-order: var(--tm-order);
+  --color-order-soft: var(--tm-order-soft);
+}
+
+:root {
+  color-scheme: light;
+  --tm-canvas: #f6f7f9;
+  --tm-surface: #ffffff;
+  --tm-surface-2: #f0f2f5;
+  --tm-ink: #111827;
+  --tm-ink-muted: #4b5563;
+  --tm-line: #d6dae1;
+  --tm-accent: #1d4ed8;
+  --tm-accent-ink: #ffffff;
+  --tm-focus: #2563eb;
+  --tm-ok: #047857;
+  --tm-ok-soft: #e6f6ef;
+  --tm-warn: #92400e;
+  --tm-warn-soft: #fdf3e2;
+  --tm-danger: #b91c1c;
+  --tm-danger-soft: #fdecec;
+  --tm-info: #1e40af;
+  --tm-info-soft: #e8efff;
+  --tm-paper: #5b21b6;
+  --tm-paper-soft: #f1ebfe;
+  /* Strategy editor areas: Entry, Exit, conditions and orders (always with a text label too). */
+  --tm-entry: #047857;
+  --tm-entry-soft: #f0faf5;
+  --tm-exit: #b4233c;
+  --tm-exit-soft: #fdf3f4;
+  --tm-cond: #0369a1;
+  --tm-cond-soft: #eef6fc;
+  --tm-order: #b45309;
+  --tm-order-soft: #fdf7ec;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --tm-canvas: #0b0e14;
+    --tm-surface: #121722;
+    --tm-surface-2: #1a2130;
+    --tm-ink: #e6e9ef;
+    --tm-ink-muted: #a3acbb;
+    --tm-line: #2c3445;
+    --tm-accent: #8fb4ff;
+    --tm-accent-ink: #0b0e14;
+    --tm-focus: #8fb4ff;
+    --tm-ok: #6ee7b7;
+    --tm-ok-soft: #10261e;
+    --tm-warn: #fcd34d;
+    --tm-warn-soft: #2a2110;
+    --tm-danger: #fca5a5;
+    --tm-danger-soft: #2c1414;
+    --tm-info: #a5c3ff;
+    --tm-info-soft: #131d33;
+    --tm-paper: #c4b5fd;
+    --tm-paper-soft: #1f1834;
+    --tm-entry: #6ee7b7;
+    --tm-entry-soft: #0f1f1a;
+    --tm-exit: #fda4af;
+    --tm-exit-soft: #22141a;
+    --tm-cond: #7dd3fc;
+    --tm-cond-soft: #10202e;
+    --tm-order: #fcd34d;
+    --tm-order-soft: #231d10;
+  }
+}
+
+@layer base {
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+  }
+  a:not([class]) {
+    color: var(--tm-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  :focus-visible {
+    outline: 2px solid var(--tm-focus);
+    outline-offset: 2px;
+  }
+}
+
+/*
+ * Form grids that never squeeze a field below a readable width: as many
+ * columns as fit, each at least the given size, wrapping onto more rows on
+ * narrow screens instead of cutting off labels or the chosen option.
+ */
+@utility grid-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));
+}
+@utility grid-fields-wide {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
+}
+
+/* Larger screens get slightly larger text; every size and spacing is in rem. */
+@media (min-width: 1680px) {
+  html {
+    font-size: 17px;
+  }
+}

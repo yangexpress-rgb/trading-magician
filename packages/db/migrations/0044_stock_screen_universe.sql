@@ -1,0 +1,2 @@
+ALTER TABLE "stock_screen" ADD COLUMN "universe" text DEFAULT 'all' NOT NULL;--> statement-breakpoint
+ALTER TABLE "stock_screen" ADD CONSTRAINT "stock_screen_universe" CHECK ("stock_screen"."universe" IN ('sp500', 'all'));

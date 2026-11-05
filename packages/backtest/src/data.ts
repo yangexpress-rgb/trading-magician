@@ -1,0 +1,161 @@
+import {
+  addDays,
+  getIndicator,
+  resolveIndicatorParams,
+  seriesOf,
+  walkExpr,
+  walkExpressions,
+  type Expr,
+  type Bar,
+  type BarInterval,
+  type HistoricalDataProvider,
+  type IndicatorExpr,
+  type MarketExpr,
+  type PriceAdjustment,
+  type Session,
+  type StrategyDefinition,
+} from '@tm/domain';
+import type { BacktestInputs } from './inputs';
+
+/** One bar series the run needs: an instrument at an interval, adjustment and session. */
+export interface SeriesSpec {
+  instrumentId: string;
+  interval: BarInterval;
+  adjustment: PriceAdjustment;
+  session: Session;
+}
+
+export const seriesKey = (s: SeriesSpec) =>
+  `${s.instrumentId}|${s.interval}|${s.adjustment}|${s.session}`;
+
+export interface InstrumentRef {
+  symbol: string;
+  assetClass: string;
+  lotSize: string;
+}
+
+/** Bars the engine runs on, keyed by `seriesKey`, plus where they came from. */
+export interface LoadedData {
+  series: Map<string, Bar[]>;
+  dataVersions: string[];
+  warnings: string[];
+}
+
+type SeriesExpr = MarketExpr | IndicatorExpr;
+
+/** Every market and indicator expression in conditions and order prices. */
+export function seriesExprs(def: StrategyDefinition): SeriesExpr[] {
+  const all: Expr[] = [];
+  for (const phase of [def.entry, def.exit]) {
+    all.push(...walkExpressions(phase.condition));
+    for (const o of phase.orders) {
+      if (o.limitPrice) all.push(...walkExpr(o.limitPrice));
+      if (o.stopPrice) all.push(...walkExpr(o.stopPrice));
+    }
+  }
+  // A position value reads its interval's close, so that series is loaded too.
+  return all.flatMap((e) => {
+    const series = seriesOf(e);
+    return series ? [series] : [];
+  });
+}
+
+/** Bars of history an expression needs before its first value. */
+function lookbackBars(e: SeriesExpr): number {
+  // One extra bar so "crosses" can compare with the previous value.
+  const base = e.offset + 2;
+  if (e.kind === 'market') return base;
+  const spec = getIndicator(e.name);
+  return spec ? base + spec.lookback(resolveIndicatorParams(spec, e.params)) : base;
+}
+
+/** Calendar days that hold at least `bars` bars of an interval, with a margin for holidays. */
+function warmupDays(interval: BarInterval, bars: number): number {
+  const tradingDays: Record<BarInterval, number> = {
+    '1m': bars / 390,
+    '5m': bars / 78,
+    '15m': bars / 26,
+    '30m': bars / 13,
+    '1h': bars / 6.5,
+    '4h': bars / 2,
+    '1d': bars,
+    '1w': bars * 5,
+  };
+  return Math.ceil((tradingDays[interval] ?? bars) * 1.5) + 7;
+}
+
+export interface SeriesPlan {
+  spec: SeriesSpec;
+  from: string;
+  to: string;
+}
+
+/**
+ * The bar series a run needs: one per distinct series in the rules, plus the
+ * execution series (run interval and adjustment) for every instrument used,
+ * each starting early enough to warm up its indicators.
+ */
+export function planSeries(def: StrategyDefinition, inputs: BacktestInputs): SeriesPlan[] {
+  const plans = new Map<string, { spec: SeriesSpec; bars: number }>();
+  const need = (spec: SeriesSpec, bars: number) => {
+    const key = seriesKey(spec);
+    const existing = plans.get(key);
+    if (!existing || existing.bars < bars) plans.set(key, { spec, bars });
+  };
+  const instruments = new Set<string>();
+  for (const e of seriesExprs(def)) {
+    instruments.add(e.instrumentId);
+    need(
+      {
+        instrumentId: e.instrumentId,
+        interval: e.interval,
+        adjustment: e.adjustment,
+        session: e.session,
+      },
+      lookbackBars(e),
+    );
+  }
+  for (const o of [...def.entry.orders, ...def.exit.orders]) instruments.add(o.instrumentId);
+  for (const instrumentId of instruments) {
+    need(
+      {
+        instrumentId,
+        interval: inputs.interval,
+        adjustment: inputs.adjustment,
+        session: 'regular',
+      },
+      2,
+    );
+  }
+  return [...plans.values()].map(({ spec, bars }) => ({
+    spec,
+    from: addDays(inputs.from, -warmupDays(spec.interval, bars)),
+    to: inputs.to,
+  }));
+}
+
+/** Fetches every planned series from the provider. */
+export async function loadData(
+  provider: HistoricalDataProvider,
+  plans: readonly SeriesPlan[],
+  instruments: ReadonlyMap<string, InstrumentRef>,
+): Promise<LoadedData> {
+  const series = new Map<string, Bar[]>();
+  const versions = new Set<string>();
+  const warnings = new Set<string>();
+  for (const plan of plans) {
+    const instrument = instruments.get(plan.spec.instrumentId);
+    if (!instrument) throw new Error('The strategy uses an instrument that no longer exists');
+    const result = await provider.getBars({
+      ...plan.spec,
+      symbol: instrument.symbol,
+      assetClass: instrument.assetClass,
+      from: plan.from,
+      to: plan.to,
+    });
+    series.set(seriesKey(plan.spec), result.bars);
+    versions.add(result.dataVersion);
+    for (const w of result.warnings) warnings.add(`${instrument.symbol}: ${w}`);
+  }
+  return { series, dataVersions: [...versions].sort(), warnings: [...warnings] };
+}

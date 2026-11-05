@@ -1,0 +1,19 @@
+{
+  "name": "@tm/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tm/backtest": "workspace:*",
+    "@tm/domain": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}

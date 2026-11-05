@@ -1,0 +1,12 @@
+import { createDb } from '../src/client';
+import { loadOwnerDbEnv } from '../src/env';
+import { seedReferenceData } from '../src/seed';
+
+const { DATABASE_URL } = loadOwnerDbEnv();
+const { db, close } = createDb(DATABASE_URL, { max: 1 });
+try {
+  await seedReferenceData(db);
+  process.stdout.write('Demo reference data seeded.\n');
+} finally {
+  await close();
+}

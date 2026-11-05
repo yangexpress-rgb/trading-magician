@@ -1,0 +1,87 @@
+import type { BacktestMetrics } from '@tm/backtest';
+import { describe, expect, it } from 'vitest';
+import {
+  describeRun,
+  formatMarketTime,
+  formatPct,
+  formatSignedMoney,
+  linePath,
+  metricTiles,
+  thin,
+} from './backtest-text';
+
+const metrics: BacktestMetrics = {
+  initialCapital: '100000',
+  finalEquity: '104250.5',
+  netReturnPct: '4.25',
+  grossReturnPct: '4.4',
+  maxDrawdownPct: '3.1',
+  winRatePct: '55.56',
+  profitFactor: '1.8',
+  sharpe: null,
+  cycles: 9,
+  closedCycles: 9,
+  orders: 18,
+  fills: 18,
+  commission: '0',
+  slippage: '140.2',
+  borrow: '9.8',
+  averageExposurePct: '12.5',
+};
+
+describe('back-test text', () => {
+  it('signs returns and amounts in words, not only colour', () => {
+    expect(formatPct('4.25', true)).toBe('+4.25%');
+    expect(formatPct('-1.5', true)).toBe('−1.5%');
+    expect(formatPct(null)).toBe('—');
+    expect(formatSignedMoney('-22')).toBe('−$22.00');
+    expect(formatSignedMoney('97.9')).toBe('+$97.90');
+  });
+
+  it('builds the §7.3 tiles', () => {
+    const tiles = Object.fromEntries(metricTiles(metrics).map((t) => [t.label, t]));
+    expect(tiles['Net return']).toEqual({
+      label: 'Net return',
+      value: '+4.25%',
+      detail: '$100,000.00 → $104,250.50',
+    });
+    expect(tiles['Sharpe ratio']?.detail).toBe('Needs 20 trading days');
+    expect(tiles['Costs']?.value).toBe('$150.00');
+    expect(tiles['Cycles']?.detail).toBe('18 orders, 18 fills');
+  });
+
+  it('names the run and shows market times in New York', () => {
+    expect(
+      describeRun({
+        versionNo: 2,
+        inputs: { from: '2023-01-03', to: '2023-12-29', interval: '1d' } as never,
+      }),
+    ).toBe('Version 2 · Jan 3, 2023 to Dec 29, 2023 · Daily bars');
+    expect(formatMarketTime('2023-01-03T14:30:00.000Z', '1d')).toBe('Jan 3, 2023');
+    expect(formatMarketTime('2023-01-03T14:30:00.000Z', '1h')).toBe('Jan 3, 2023, 9:30 AM');
+  });
+
+  it('scales a line into the chart box', () => {
+    const { path, min, max } = linePath([10, 20, 15], 100, 50);
+    expect(min).toBe(10);
+    expect(max).toBe(20);
+    const ys = path
+      .split(/[ML]/)
+      .filter(Boolean)
+      .map((p) => Number(p.trim().split(' ')[1]));
+    expect(ys[0]).toBeGreaterThan(ys[1]!); // lower value sits lower on screen
+    expect(path.startsWith('M0.0')).toBe(true);
+    expect(path).toContain('L100.0');
+    expect(linePath([5, 5], 10, 10).path).not.toContain('NaN');
+  });
+
+  it('thins long series but keeps both ends', () => {
+    const t = thin(
+      Array.from({ length: 2000 }, (_, i) => i),
+      100,
+    );
+    expect(t).toHaveLength(100);
+    expect(t[0]).toBe(0);
+    expect(t.at(-1)).toBe(1999);
+  });
+});

@@ -1,0 +1,14 @@
+{
+  "id": "20261006150001654::8efc7b9a-8b2b-4000-b3dc-a3c1c49e1ba9",
+  "activity_type": "FILL",
+  "transaction_time": "2026-10-06T15:00:01.654321Z",
+  "type": "fill",
+  "price": "48.12",
+  "qty": "10",
+  "side": "buy",
+  "symbol": "ZTSTA",
+  "leaves_qty": "0",
+  "order_id": "61e69015-8549-4bfd-b9c3-01e75843f47d",
+  "cum_qty": "10",
+  "order_status": "filled"
+}

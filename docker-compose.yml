@@ -1,0 +1,19 @@
+# Local development services only. Credentials here are throwaway local values.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: tm_owner
+      POSTGRES_PASSWORD: tm_owner_local
+      POSTGRES_DB: trading_magician
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - '1025:1025'
+      - '8025:8025'
+volumes:
+  pgdata:

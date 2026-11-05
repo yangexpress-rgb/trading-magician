@@ -1,0 +1,32 @@
+{
+  "name": "@tm/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run src",
+    "test:integration": "vitest run test/"
+  },
+  "dependencies": {
+    "@tm/alpaca": "workspace:*",
+    "@tm/backtest": "workspace:*",
+    "@tm/billing": "workspace:*",
+    "@tm/broker": "workspace:*",
+    "@tm/config": "workspace:*",
+    "@tm/db": "workspace:*",
+    "@tm/domain": "workspace:*",
+    "@tm/market-data": "workspace:*",
+    "@tm/observability": "workspace:*",
+    "@tm/sec": "workspace:*",
+    "decimal.js": "^10.6.0",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
+  }
+}

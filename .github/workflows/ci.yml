@@ -1,0 +1,164 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tm_owner
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tm_owner"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://tm_owner:ci_only_password@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:integration
+
+  audit:
+    # Dependency review needs GitHub Advanced Security, which private repos on
+    # this plan don't have, so known-vulnerability checks use the npm advisory DB.
+    # The gate covers code that ships; dev tooling advisories without a patched
+    # release (e.g. lint-only transitive deps) are handled through Dependabot.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level=high
+
+  scan:
+    # Known vulnerabilities in what ships, and secrets in the history (§16.1,
+    # ADR 0026). Advanced Security is not available on this plan, and the
+    # scanners run from their own images rather than third-party actions, so
+    # this job needs no allow-listed action.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Secrets in the repository and its history
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 \
+            detect --source=/repo --redact --no-banner --exit-code 1
+      - name: Build the runtime image
+        run: docker build -t trading-magician:ci .
+      - name: Vulnerabilities in the image
+        # Each finding becomes an annotation on the run, so it can be read
+        # without opening the log. esbuild's Go binaries are skipped: they only
+        # bundle the app's own code at build and migration time, never handle
+        # outside input, and their Go runtime findings are not reachable
+        # (.trivyignore, docs/security-review.md).
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/out" \
+            aquasec/trivy:latest image --ignorefile /out/.trivyignore --scanners vuln --severity HIGH,CRITICAL \
+            --ignore-unfixed --skip-files '**/@esbuild/*/bin/esbuild' \
+            --format json --output /out/trivy-image.json \
+            --no-progress trading-magician:ci
+          jq -r '[.Results[]? | .Target as $t | .Vulnerabilities[]?
+                  | "\(.PkgName) \(.InstalledVersion) in \($t): \(.VulnerabilityID) \(.Severity), fixed in \(.FixedVersion)"]
+                 | unique | .[] | "::error title=Image vulnerability::" + .' trivy-image.json
+          test "$(jq '[.Results[]?.Vulnerabilities[]?] | length' trivy-image.json)" -eq 0
+      - name: Misconfiguration in the deploy files
+        run: |
+          if ! docker run --rm -v "$PWD:/repo" aquasec/trivy:latest config /repo \
+            --ignorefile /repo/.trivyignore --severity HIGH,CRITICAL \
+            --format json --output /repo/trivy-config.json 2> trivy-config.err; then
+            echo "::error title=Trivy config scan did not run::$(tail -c 1500 trivy-config.err | tr '\n' ' ')"
+            exit 1
+          fi
+          jq -r '[.Results[]? | .Target as $t | .Misconfigurations[]?
+                  | "\($t): \(.ID) \(.Severity) \(.Title)"]
+                 | unique | .[] | "::error title=Misconfiguration::" + .' trivy-config.json
+          test "$(jq '[.Results[]?.Misconfigurations[]?] | length' trivy-config.json)" -eq 0
+
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tm_owner
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: trading_magician
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tm_owner"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://tm_owner:ci_only_password@localhost:5432/trading_magician
+      DB_APP_LOGIN_PASSWORD: ci_only_app_password
+      DB_AUTH_LOGIN_PASSWORD: ci_only_auth_password
+      DB_WORKER_LOGIN_PASSWORD: ci_only_worker_password
+      DATABASE_APP_URL: postgres://tm_app_login:ci_only_app_password@localhost:5432/trading_magician
+      DATABASE_AUTH_URL: postgres://tm_auth_login:ci_only_auth_password@localhost:5432/trading_magician
+      DATABASE_WORKER_URL: postgres://tm_worker_login:ci_only_worker_password@localhost:5432/trading_magician
+      BETTER_AUTH_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @tm/db db:migrate
+      - run: pnpm --filter @tm/db db:seed
+      - run: pnpm --filter @tm/db db:setup-logins
+      - run: pnpm --filter @tm/web build
+      - run: pnpm --filter @tm/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @tm/web test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
