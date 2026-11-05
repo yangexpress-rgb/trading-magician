@@ -4,8 +4,11 @@ The record for the invite-only, paper-only launch (pre-launch punch list, design
 deviations D9 and D10). Each row says what was done, where, when, and the result. A row is only
 "passed" when its acceptance check was seen to pass, not when code for it was merged.
 
-Status on 2026-11-05: code for every item is merged or in review; nothing below has run against
-a deployment yet, because no Railway environment exists.
+Status on 2026-11-05: code for every item is merged. **Web deployment is on hold** (Yong,
+2026-11-05 16:03Z: keep the app local for now), so nothing below has run against a deployment.
+Railway, the AWS KMS key, Sentry, the uptime monitor, R2, staging Alpaca keys and the k6 run
+resume when Yong says so. The real-provider checks in Section 7 were run on Yong's Mac instead;
+they count as evidence about the providers, and are repeated in staging when deployment resumes.
 
 ## Section 1. Invite administration audited (D6)
 
@@ -59,14 +62,19 @@ and API p95 under 1 s, checks 100%, paper orders submitted within 5 s of their t
 
 ## Section 7. Real-provider checks (paper credentials only)
 
-| Date      | Environment | Provider      | What was done                                                                                                                       | Result |
-| --------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| _pending_ | staging     | Alpaca data   | Feed connected in Settings › Data feeds; live price and bars for a stock and an ETF                                                 |        |
-| _pending_ | staging     | Alpaca orders | Small paper order placed in the app, seen at Alpaca and in Orders; cancelled in the app, cancellation seen on both sides (ADR 0018) |        |
-| _pending_ | staging     | SEC EDGAR     | SEC feed added in Settings; a company opened in Research shows filings and data                                                     |        |
+| Date                               | Environment                                                       | Provider      | What was done                                                                                                                                                                 | Result                                                                                                                                                                                                       |
+| ---------------------------------- | ----------------------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-11-05 16:11 UTC (market open) | Yong's Mac, main 469f2ee, his own workspace, Alpaca **paper** key | Alpaca data   | Through the app's own worker code paths (instrument lookup, routed quotes, price charts): live quote and daily and 5-minute bars for AAPL (stock, NASDAQ) and SPY (ETF, ARCA) | Passed. AAPL bid 347.35 / ask 348.24, 23 daily bars for 1M, 20 five-minute bars for 1D. SPY bid 742.95 / ask 742.99, 23 daily, 20 five-minute. Source `alpaca-iex`, charts show the IEX-only volume warning. |
+| 2026-11-05 16:11 UTC               | Yong's Mac, as above                                              | SEC EDGAR     | His existing, healthy SEC EDGAR feed; company report for AAPL                                                                                                                 | Passed. CIK 320193 Apple Inc., 5 fiscal years of financials, 12 filings (newest 10-K filed 2026-11-03) with sec.gov links, SIC 3571, shares outstanding as of 2026-10-23.                                    |
+| _pending_                          | Yong's Mac                                                        | Alpaca orders | Small paper order placed through a temporary strategy, seen at Alpaca and in Orders; cancelled in the app, cancellation seen on both sides (ADR 0018)                         | Waiting on Yong's go-ahead. The app has no manual order entry, so the order has to come from a strategy.                                                                                                     |
+| _later_                            | staging                                                           | all three     | Repeat when web deployment resumes                                                                                                                                            |                                                                                                                                                                                                              |
 
-Any difference between a real provider and its fake becomes a fixture change plus a test that
-fails on the old behaviour; list them here with the PR.
+**Real versus fake.** Differences seen: real symbols and venues (NASDAQ, ARCA) where the fakes
+use made-up ones, live uneven spreads (AAPL $0.89 wide on IEX), real CIKs and sec.gov links,
+`website` empty and `formerNames` present in SEC data. None is a behaviour the fakes model
+wrongly, so no fixture changed. One candidate was checked and ruled out: during the session the
+real daily series ends at yesterday with no partial bar for today, and FakeAlpaca does the same
+(checked 2026-11-05 with its clock at 2026-10-07 16:11Z: last daily bar 2026-10-06).
 
 ## Section 8. Launch gate
 
@@ -78,7 +86,7 @@ Send no invite until every line is ticked.
 - [ ] Sentry receives errors, uptime monitor green, scheduled backups exist (Section 4)
 - [ ] Production on Railway with the paper-only guard confirmed (Section 5)
 - [ ] k6 report against staging on record, misses explained (Section 6)
-- [ ] Alpaca data, Alpaca place-and-cancel and SEC EDGAR checks recorded (Section 7)
+- [ ] Alpaca data, Alpaca place-and-cancel and SEC EDGAR checks recorded (Section 7): data and SEC passed on the Mac; place-and-cancel pending; staging repeat pending
 - [ ] Full test suite passes on the production build
 - [ ] Invites capped at 20 (`invites:list` shows at most 20 minted)
 - [ ] Stripe in test mode (the apps refuse a live key; check Variables)
