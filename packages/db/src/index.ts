@@ -1,4 +1,9 @@
-export { recordAudit, type AuditInput } from './audit';
+export {
+  recordAudit,
+  recordOperatorAudit,
+  type AuditInput,
+  type OperatorAuditInput,
+} from './audit';
 export * from './backtests';
 export { createDb, type Database, type DbHandle, type Transaction } from './client';
 export {

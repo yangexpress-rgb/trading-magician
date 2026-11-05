@@ -3,14 +3,16 @@
  *
  *   pnpm --filter @tm/db invites:mint 5 "first testers"
  *   pnpm --filter @tm/db invites:list
- *   pnpm --filter @tm/db invites:release ABCD-EFGH-JKLM-NPQR
+ *   pnpm --filter @tm/db invites:release ABCD-EFGH-JKLM-NPQR "sign-up email bounced"
  *
  * Codes are printed once and only their hashes are stored, so a lost code
- * cannot be recovered; mint another. Needs the owner connection (DATABASE_URL).
+ * cannot be recovered; mint another. Minting and releasing each write an
+ * operator audit event with the count and note, never a code (deviation D6).
+ * Needs the owner connection (DATABASE_URL).
  */
 import { createDb } from '../src/client';
 import { loadOwnerDbEnv } from '../src/env';
-import { listInvites, mintInvites, releaseInvite } from '../src/invites';
+import { listInvites, mintInvites, releaseInviteAsOperator } from '../src/invites';
 
 async function main(): Promise<void> {
   const env = loadOwnerDbEnv();
@@ -45,12 +47,17 @@ async function main(): Promise<void> {
     if (command === 'release') {
       const code = rest[0];
       if (!code) throw new Error('release takes the code to free');
-      await releaseInvite(db, code);
-      process.stdout.write('If that code was claimed and unused, it can be used again.\n');
+      const note = rest[1];
+      const { released } = await releaseInviteAsOperator(db, code, note ? { note } : {});
+      process.stdout.write(
+        released
+          ? 'Released: that code can be used again.\n'
+          : 'Nothing released: that code is unknown, unclaimed, or already used by an account.\n',
+      );
       return;
     }
     throw new Error(
-      'usage: invites.ts mint <count> [note] | invites.ts list | invites.ts release <code>',
+      'usage: invites.ts mint <count> [note] | invites.ts list | invites.ts release <code> [note]',
     );
   } finally {
     await close();

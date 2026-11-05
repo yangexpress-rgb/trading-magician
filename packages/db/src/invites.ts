@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { sql, desc, isNotNull } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { recordOperatorAudit } from './audit';
 import type { Database, Transaction } from './client';
 import { invites } from './schema';
 
@@ -30,20 +31,35 @@ export function inviteCodeMatches(code: string, hash: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-/** Mints `count` codes and returns them; only the hashes are stored. */
+/**
+ * Mints `count` codes and returns them; only the hashes are stored. Each batch
+ * writes one `invite.minted` operator audit event with the count, the note and
+ * the expiry, never a code (deviation D6). Needs the owner connection.
+ */
 export async function mintInvites(
   db: Db,
   count: number,
   options: { note?: string; expiresAt?: Date } = {},
 ): Promise<string[]> {
   const codes = Array.from({ length: count }, generateInviteCode);
-  await db.insert(invites).values(
-    codes.map((code) => ({
-      codeHash: hashInviteCode(code),
-      ...(options.note ? { note: options.note } : {}),
-      ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}),
-    })),
-  );
+  await db.transaction(async (tx) => {
+    await tx.insert(invites).values(
+      codes.map((code) => ({
+        codeHash: hashInviteCode(code),
+        ...(options.note ? { note: options.note } : {}),
+        ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}),
+      })),
+    );
+    await recordOperatorAudit(tx, {
+      action: 'invite.minted',
+      resourceType: 'invite',
+      context: {
+        count,
+        note: options.note ?? null,
+        expiresAt: options.expiresAt?.toISOString() ?? null,
+      },
+    });
+  });
   return codes;
 }
 
@@ -63,9 +79,48 @@ export async function attachInvite(db: Db, code: string, userId: string): Promis
   await db.execute(sql`select attach_invite(${hashInviteCode(code)}::char(64), ${userId}::uuid)`);
 }
 
-/** Gives a claimed code back when the sign-up it was claimed for did not finish. */
+/**
+ * Gives a claimed code back when the sign-up it was claimed for did not finish.
+ * This is the sign-up gate rolling back its own claim; an operator freeing a
+ * code uses `releaseInviteAsOperator`, which is audited.
+ */
 export async function releaseInvite(db: Db, code: string): Promise<void> {
   await db.execute(sql`select release_invite(${hashInviteCode(code)}::char(64))`);
+}
+
+/**
+ * The `invites:release` command: frees a claimed code nobody finished signing
+ * up with, and writes an `invite.released` operator audit event either way,
+ * with how many codes were freed (0 or 1) and the operator's note. The event
+ * names the invite by its id, never by its code. Needs the owner connection.
+ */
+export async function releaseInviteAsOperator(
+  db: Db,
+  code: string,
+  options: { note?: string } = {},
+): Promise<{ released: boolean }> {
+  const codeHash = hashInviteCode(code);
+  return db.transaction(async (tx) => {
+    const freed = await tx
+      .update(invites)
+      .set({ claimedAt: null })
+      .where(
+        and(
+          eq(invites.codeHash, codeHash),
+          isNotNull(invites.claimedAt),
+          isNull(invites.claimedBy),
+        ),
+      )
+      .returning({ id: invites.id });
+    const id = freed[0]?.id;
+    await recordOperatorAudit(tx, {
+      action: 'invite.released',
+      resourceType: 'invite',
+      ...(id ? { resourceId: id } : {}),
+      context: { count: freed.length, note: options.note ?? null },
+    });
+    return { released: freed.length > 0 };
+  });
 }
 
 export interface InviteSummary {

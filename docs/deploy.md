@@ -75,8 +75,11 @@ Paper trading only, as everywhere else (`docs/adr/0002-paper-only-guard.md`).
    pnpm --filter @tm/db invites:mint 1 "me"
    ```
 
-   Codes are printed once. `invites:list` shows how many are left, and `invites:release <code>`
-   frees one that was claimed but never used. To let anyone sign up without a code, set
+   Codes are printed once. `invites:list` shows how many are left, and
+   `invites:release <code> [note]` frees one that was claimed but never used. Each mint and
+   release writes an `invite.minted` or `invite.released` audit event with the count and note,
+   never the code (ADR 0034). To see them:
+   `select occurred_at, action, context from audit_event where user_id is null order by 1;` To let anyone sign up without a code, set
    `SIGNUP_MODE=open` on web; keep it unset in production.
 
 6. **Deploy and sign up.** Deploy both services, open the web domain, and sign up with your
