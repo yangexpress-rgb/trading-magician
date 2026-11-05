@@ -303,6 +303,45 @@ describe('orders and accounts', () => {
     });
     expect(warnings).toEqual(['extended_hours', 'non_atomic_multi_leg']);
   });
+
+  it('warns when "extended hours if supported" cannot send a leg early', () => {
+    const market = check((d) => {
+      d.execution.marketHoursPolicy = 'extended_if_supported';
+    });
+    // Both the Entry and the Exit leg are market orders.
+    expect(market.warnings).toEqual(['extended_hours_policy_waits', 'extended_hours_policy_waits']);
+    expect(market.raw.warnings[0]!.message).toMatch(/only day limit orders/);
+
+    const dayLimit = check((d) => {
+      d.execution.marketHoursPolicy = 'extended_if_supported';
+      d.entry.orders[0]!.orderType = 'limit';
+      d.entry.orders[0]!.limitPrice = constant('50');
+      d.exit.orders[0]!.orderType = 'limit';
+      d.exit.orders[0]!.limitPrice = constant('60');
+    });
+    expect(dayLimit.warnings).toEqual([]);
+
+    const noExtended = context({
+      accounts: new Map([
+        [
+          PAPER_ACCOUNT,
+          {
+            nickname: 'Paper',
+            mode: 'paper',
+            isActive: true,
+            capabilities: { ...CAPS, extendedHours: false },
+          },
+        ],
+      ]),
+    });
+    const demo = check((d) => {
+      d.execution.marketHoursPolicy = 'extended_if_supported';
+      d.entry.orders[0]!.orderType = 'limit';
+      d.entry.orders[0]!.limitPrice = constant('50');
+    }, noExtended);
+    expect(demo.warnings).toContain('extended_hours_policy_waits');
+    expect(demo.raw.warnings[0]!.message).toMatch(/doesn't trade extended hours/);
+  });
 });
 
 describe('exit exposure', () => {

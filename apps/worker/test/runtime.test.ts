@@ -485,6 +485,53 @@ describe('paper runtime: timing (§6.8)', () => {
   });
 });
 
+describe('paper runtime: price collar on orders decided while closed (§7.2, §8.6)', () => {
+  it('holds an opening market order for the open and sends it only within the collar', async () => {
+    // Tuesday 2026-10-20, 8:00 New York: decided before the open.
+    clock = Date.parse('2026-10-20T12:00:00Z');
+    const withCollar = (pct: string) => {
+      const def = pairDefinition();
+      def.entry.orders = [def.entry.orders[0]!];
+      def.exit.condition = never();
+      def.exit.orders = [def.exit.orders[0]!];
+      def.risk.priceCollarPct = pct;
+      return def;
+    };
+    const wide = await startPaper('Wide collar', withCollar('50'));
+    const tight = await startPaper('Tight collar', withCollar('0.0001'));
+    await pass();
+
+    // Recorded, risk-checked and held: nothing has reached the broker yet.
+    for (const { runtimeId } of [wide, tight]) {
+      const held = await orders(runtimeId);
+      expect(held.map((o) => o.state)).toEqual(['ready']);
+    }
+    const sent = async (runtimeId: string) =>
+      (
+        await t.ownerSql`select count(*)::int as n from paper_order where request->>'clientOrderId' in (select idempotency_key from order_intent where runtime_id = ${runtimeId})`
+      )[0]!.n;
+    expect(await sent(wide.runtimeId)).toBe(0);
+
+    // At the open: within 50% it goes out; past 0.0001% it is canceled with the reason.
+    clock = Date.parse('2026-10-20T13:31:00Z');
+    await pass();
+    expect(await sent(wide.runtimeId)).toBe(1);
+    expect(await sent(tight.runtimeId)).toBe(0);
+    const [canceled] = await orders(tight.runtimeId);
+    expect(canceled!.state).toBe('canceled');
+    const [order] = await asUser((tx) =>
+      tx
+        .select({ reason: schema.brokerOrders.reason })
+        .from(schema.brokerOrders)
+        .where(eq(schema.brokerOrders.intentId, canceled!.id)),
+    );
+    expect(order!.reason).toMatch(
+      /The price opened at \$[\d.]+, [\d.]+% from \$[\d.]+ when the order was decided\. The price collar allows 0\.0001%\./,
+    );
+    await stopAll();
+  });
+});
+
 describe('paper runtime: restarts, stop and kill switch (§8.1, §8.5)', () => {
   it('never submits twice when a pass is repeated', async () => {
     clock = T0 + 7 * 86_400_000; // the next Tuesday

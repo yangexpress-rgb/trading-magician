@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
-import { checkPreTradeRisk, type RiskCheckInput } from './risk';
+import { checkPreTradeRisk, collarBreach, holdsForOpenCollar, type RiskCheckInput } from './risk';
 
 const d = (v: string | number) => new Decimal(v);
 /** The paper limits approved on 2026-10-04. */
@@ -80,5 +80,28 @@ describe('checkPreTradeRisk', () => {
       limit: '10000',
       value: '15000.00',
     });
+  });
+});
+
+describe('price collar on orders that fill at the open (§7.2)', () => {
+  const risk = { priceCollarPct: '5' };
+
+  it('holds opening market orders without extended hours', () => {
+    const buy = { side: 'buy', orderType: 'market', extendedHours: false };
+    expect(holdsForOpenCollar(buy, risk)).toBe(true);
+    expect(holdsForOpenCollar({ ...buy, side: 'sell_short' }, risk)).toBe(true);
+    expect(holdsForOpenCollar({ ...buy, side: 'close' }, risk)).toBe(false);
+    expect(holdsForOpenCollar({ ...buy, side: 'sell' }, risk)).toBe(false);
+    expect(holdsForOpenCollar({ ...buy, orderType: 'limit' }, risk)).toBe(false);
+    expect(holdsForOpenCollar({ ...buy, extendedHours: true }, risk)).toBe(false);
+    expect(holdsForOpenCollar(buy, {})).toBe(false);
+  });
+
+  it('measures the move from the reference price', () => {
+    const r = collarBreach(new Decimal('70'), new Decimal('74.2'), '5');
+    expect(r.movePct.toFixed(1)).toBe('6.0');
+    expect(r.breached).toBe(true);
+    expect(collarBreach(new Decimal('70'), new Decimal('66.6'), '5').breached).toBe(false);
+    expect(collarBreach(new Decimal('0'), new Decimal('10'), '5').breached).toBe(false);
   });
 });

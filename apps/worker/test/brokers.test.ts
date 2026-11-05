@@ -394,3 +394,99 @@ describe('valuation', () => {
     });
   });
 });
+
+describe('market-hours policy', () => {
+  it('sends a day limit order before the open under "extended hours if supported" (§6.8)', async () => {
+    const off = (await as(listPlatforms)).find((p) => p.name === 'Alpaca')!.accounts[0]!;
+    await as((tx) =>
+      updateAccount(tx, { userId, id: off.id, rowVersion: off.rowVersion, active: true }),
+    );
+    // Wednesday 2026-10-07, 8:00 New York: Alpaca's pre-market session.
+    clock = Date.parse('2026-10-07T12:00:00Z');
+
+    const close = {
+      kind: 'market' as const,
+      id: 'px',
+      instrumentId: ztsta,
+      field: 'close' as const,
+      interval: '1h' as const,
+      adjustment: 'split_and_dividend' as const,
+      session: 'regular' as const,
+      offset: 0,
+    };
+    const leg = (id: string, side: PlannedOrder['side']): PlannedOrder => ({
+      id,
+      legLabel: id,
+      instrumentId: ztsta,
+      accountId: off.id,
+      side,
+      quantity: { type: 'units', value: '2', rounding: 'down' },
+      orderType: 'limit',
+      limitPrice: {
+        kind: 'calc',
+        id: `${id}-lim`,
+        op: 'mul',
+        args: [
+          { ...close, id: `${id}-c` },
+          { kind: 'constant', id: `${id}-k`, value: '1.01' },
+        ],
+      },
+      timeInForce: 'day',
+      extendedHours: false,
+      timing: { mode: 'immediate' },
+      timingOnly: false,
+    });
+    const group = (id: string, operator: 'gt' | 'lt') => ({
+      kind: 'group' as const,
+      id: `${id}-g`,
+      op: 'and' as const,
+      negate: false,
+      children: [
+        {
+          kind: 'comparison' as const,
+          id,
+          operator,
+          left: { ...close, id: `${id}-px` },
+          right: { kind: 'constant' as const, id: `${id}-k`, value: '1' },
+        },
+      ],
+    });
+    const def = createDefinition();
+    def.execution.marketHoursPolicy = 'extended_if_supported';
+    def.entry.condition = group('in', 'gt');
+    def.entry.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+    def.entry.orders = [leg('Buy early', 'buy')];
+    def.exit.condition = group('out', 'lt');
+    def.exit.orders = [leg('Sell early', 'sell')];
+
+    const strategy = await as(async (tx) => {
+      let s = await createStrategy(tx, userId, { name: 'Early bird', definition: def });
+      s = await updateStrategy(tx, userId, s.id, {
+        rowVersion: s.rowVersion,
+        status: 'under_testing',
+      });
+      const { validation } = await validateStoredStrategy(tx, s.id);
+      expect(validation.errors).toEqual([]);
+      expect(validation.warnings.map((w) => w.code)).not.toContain('extended_hours_policy_waits');
+      return startStrategy(tx, userId, s.id, {
+        rowVersion: s.rowVersion,
+        confirmed: true,
+        acknowledgedWarnings: validation.warnings.map((w) => w.code),
+      });
+    });
+
+    await pass();
+    const intents = await as((tx) =>
+      tx
+        .select({ extendedHours: schema.orderIntents.extendedHours })
+        .from(schema.orderIntents)
+        .innerJoin(
+          schema.strategyRuntimes,
+          eq(schema.strategyRuntimes.id, schema.orderIntents.runtimeId),
+        )
+        .where(eq(schema.strategyRuntimes.strategyId, strategy.id)),
+    );
+    expect(intents).toHaveLength(1);
+    expect(intents[0]?.extendedHours).toBe(true);
+  });
+});
