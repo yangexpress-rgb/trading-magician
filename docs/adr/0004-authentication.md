@@ -24,6 +24,6 @@ Use Better Auth, self-hosted, with its Drizzle adapter on our Postgres.
 
 ## Consequences
 
-- Client IPs for rate limiting come from a single-value `X-Forwarded-For`. Production must sit behind a proxy that overwrites that header, and `advanced.ipAddress.trustedProxies` must be set at deploy time (Phase 6).
+- Client IPs for rate limiting come from a single-value `X-Forwarded-For` by default. Behind a proxy that appends to that header, Better Auth cannot tell clients apart and every visitor would share one bucket, so a hosted deployment sets `AUTH_IP_HEADERS` (a header the proxy sets to the client address, for example `x-real-ip`) or `AUTH_TRUSTED_PROXIES` (the proxies' IPs or CIDR ranges, so the forwarded chain is walked past them). Both feed `advanced.ipAddress` (`apps/web/lib/client-ip.ts`, added 2026-11-05 for design v1.1 deviation D5). Running locally needs neither.
 - Social sign-in can be added later as Better Auth providers without schema changes.
 - If the auth library is ever replaced, only `apps/web/lib/server/auth.ts`, the auth tables and the auth pages change.

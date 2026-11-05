@@ -51,7 +51,13 @@ Paper trading only, as everywhere else (`docs/adr/0002-paper-only-guard.md`).
    BETTER_AUTH_SECRET=<random string 4>
    SMTP_URL=smtps://resend:<Resend API key>@smtp.resend.com:465
    MAIL_FROM=Trading Magician <onboarding@resend.dev>
+   AUTH_IP_HEADERS=x-real-ip
    ```
+
+   `AUTH_IP_HEADERS` tells the sign-in rate limits which header holds the visitor's address
+   (ADR 0004). Railway's edge sets `X-Real-IP`; check one request's headers after the first
+   deploy, and if it is missing use `AUTH_TRUSTED_PROXIES` with the proxy's address range
+   instead. Without either, every visitor shares one sign-in limit.
 
 4. **Worker service.** New → GitHub Repo → the same repository, same branch. Name it
    `worker`. Config-as-code path: `/deploy/railway/worker.json`. No domain. Variables:

@@ -3,6 +3,7 @@ import { recordAudit, schema, withTenant } from '@tm/db';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { nextCookies } from 'better-auth/next-js';
+import { ipAddressOptions } from '../client-ip';
 import { appDb, authDb } from './db';
 import { serverEnv } from './env';
 import { getMailer } from './mailer';
@@ -27,6 +28,7 @@ function createAuth() {
     advanced: {
       database: { generateId: 'uuid' },
       useSecureCookies: env.APP_URL.startsWith('https://'),
+      ipAddress: ipAddressOptions(env),
     },
     emailAndPassword: {
       enabled: true,
