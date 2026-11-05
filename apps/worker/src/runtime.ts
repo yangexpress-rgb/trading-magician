@@ -40,6 +40,7 @@ import {
   loadAccountRouting,
   type AccountRouting,
   loadRouting,
+  type CredentialKey,
 } from '@tm/db';
 import {
   activeFromFor,
@@ -110,7 +111,7 @@ export interface RuntimeWorkerOptions {
   /** Broker platforms for non-demo accounts (ADR 0018). */
   brokers?: BrokerRegistry;
   /** Opens stored provider credentials; only the worker has it (ADR 0015). */
-  privateKey?: string | undefined;
+  privateKey?: CredentialKey | undefined;
   now?: () => Date;
   logger: Pick<Logger, 'info' | 'warn' | 'error'>;
   leaseSeconds?: number;

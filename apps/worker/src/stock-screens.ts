@@ -11,6 +11,7 @@ import {
   type Database,
   type RoutingFeed,
   type Transaction,
+  type CredentialKey,
 } from '@tm/db';
 import {
   BrokerUnavailableError,
@@ -49,7 +50,7 @@ export interface StockScreenOptions {
   providers: ProviderRegistry;
   /** Company data feeds, for market cap, P/E and other company columns (ADR 0031). */
   fundamentals?: FundamentalsRegistry | undefined;
-  privateKey: string | undefined;
+  privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'info' | 'warn'>;
   now?: () => Date;
 }

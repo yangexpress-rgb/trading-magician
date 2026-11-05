@@ -12,6 +12,7 @@ import {
   withTenant,
   type Database,
   type ValuationInput,
+  type CredentialKey,
 } from '@tm/db';
 import { markFromQuote, valuationSession, type BrokerAdapter, type Mark } from '@tm/domain';
 import Decimal from 'decimal.js';
@@ -39,7 +40,7 @@ export interface ValuationOptions {
   db: Database;
   providers: ProviderRegistry;
   brokers: BrokerRegistry | undefined;
-  privateKey: string | undefined;
+  privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'info' | 'warn'>;
   now?: () => Date;
   everySeconds?: number;

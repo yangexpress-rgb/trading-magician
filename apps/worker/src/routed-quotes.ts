@@ -6,6 +6,7 @@ import {
   type Routing,
   type RoutingFeed,
   type Transaction,
+  type CredentialKey,
 } from '@tm/db';
 import {
   FAILOVER,
@@ -35,7 +36,7 @@ export function createRoutedQuotes(options: {
   now: Date;
   routing: Routing;
   providers: ProviderRegistry;
-  privateKey: string | undefined;
+  privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'warn'>;
 }): LiveQuoteProvider {
   const { tx, userId, now, routing } = options;

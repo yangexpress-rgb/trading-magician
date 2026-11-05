@@ -61,8 +61,12 @@ export {
   keyIdOf,
   maskTail,
   openSecret,
+  openSecretWith,
+  pemUnwrapper,
   sealSecret,
   SealError,
+  type CredentialKey,
+  type KeyUnwrapper,
   type SealedSecret,
 } from './sealed';
 export * from './feeds';

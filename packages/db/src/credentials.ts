@@ -4,7 +4,13 @@ import { isProviderId, PROVIDERS } from '@tm/domain';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Transaction } from './client';
-import { maskTail, openSecret, sealSecret, type SealedSecret } from './sealed';
+import {
+  maskTail,
+  openSecretWith,
+  sealSecret,
+  type CredentialKey,
+  type SealedSecret,
+} from './sealed';
 import { brokerConnections, credentials, dataFeedConnections } from './schema';
 
 /**
@@ -250,12 +256,14 @@ export interface OpenedCredential {
 
 /**
  * Worker only: opens a credential for a provider call. Needs a connection with
- * tm_secrets (the web login gets "permission denied") and the private key.
+ * tm_secrets (the web login gets "permission denied") and the credential key:
+ * a key service unwrapper in staging and production, or a PEM private key in
+ * development (ADR 0035).
  * The result must stay in memory: never log it or store it.
  */
 export async function openCredential(
   tx: Transaction,
-  input: { userId: string; id: string; privateKey: string | undefined },
+  input: { userId: string; id: string; privateKey: CredentialKey | undefined },
 ): Promise<OpenedCredential> {
   if (!input.privateKey) {
     throw new CredentialError('unavailable', 'This worker has no credential key');
@@ -276,7 +284,11 @@ export async function openCredential(
   if (row.environment !== 'paper') {
     throw new CredentialError('unavailable', 'Only paper credentials can be used');
   }
-  const plaintext = openSecret(input.privateKey, row, aadOf(input.userId, input.id, row.provider));
+  const plaintext = await openSecretWith(
+    input.privateKey,
+    row,
+    aadOf(input.userId, input.id, row.provider),
+  );
   const opened: OpenedCredential = {
     provider: row.provider,
     environment: 'paper',
