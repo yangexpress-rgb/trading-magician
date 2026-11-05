@@ -1,23 +1,14 @@
 'use client';
 
 import { Alert, Button, TextField } from '@tm/ui';
-import { useRouter } from 'next/navigation';
-import { useActionState, useEffect, useState } from 'react';
+import { useActionState, useState } from 'react';
 import { deleteAccount, type DeleteAccountState } from './actions';
 
 export function DeleteAccount() {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState<DeleteAccountState, FormData>(deleteAccount, {
     status: 'idle',
   });
-
-  useEffect(() => {
-    if (state.status === 'deleted') {
-      router.push('/sign-in?deleted=1');
-      router.refresh();
-    }
-  }, [state.status, router]);
 
   if (!open) {
     return (

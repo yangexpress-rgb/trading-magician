@@ -74,7 +74,10 @@ function createAuth() {
               .from(schema.users)
               .where(eq(schema.users.id, session.userId));
             if (user?.deletedAt) {
-              throw new APIError('FORBIDDEN', { message: 'This account has been deleted.' });
+              throw new APIError('FORBIDDEN', {
+                code: 'ACCOUNT_DELETED',
+                message: 'This account has been deleted.',
+              });
             }
           },
         },

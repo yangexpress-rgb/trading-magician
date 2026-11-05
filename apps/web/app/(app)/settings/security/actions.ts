@@ -2,12 +2,13 @@
 
 import { eq, prepareAccountDeletion, schema, withTenant } from '@tm/db';
 import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { auth } from '@/lib/server/auth';
 import { appDb, authDb } from '@/lib/server/db';
 import { requireTenant } from '@/lib/server/session';
 
 export interface DeleteAccountState {
-  status: 'idle' | 'error' | 'deleted';
+  status: 'idle' | 'error';
   message?: string;
 }
 
@@ -46,5 +47,5 @@ export async function deleteAccount(
     .api.signOut({ headers: h })
     .catch(() => undefined);
   await authDb().delete(schema.sessions).where(eq(schema.sessions.userId, tenant.userId));
-  return { status: 'deleted' };
+  redirect('/sign-in?deleted=1');
 }
