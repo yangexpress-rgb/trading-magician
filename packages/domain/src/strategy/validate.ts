@@ -13,6 +13,7 @@ import {
   type PlannedOrder,
   type StrategyDefinition,
 } from './schema';
+import { extendedHoursEligible } from './extended-hours';
 import { checkTiming } from './timing';
 import { exprDepth, treeDepth, walkComparisons, walkExpr } from './tree';
 
@@ -395,7 +396,7 @@ function checkOrders(def: StrategyDefinition, phase: PhaseName, ctx: ValidationC
       );
     } else {
       accountsUsed.add(o.accountId);
-      checkAccountForLeg(o, path, account, instrument, add);
+      checkAccountForLeg(o, path, account, instrument, def.execution.marketHoursPolicy, add);
     }
 
     if (phase === 'entry' && !OPENING_SIDES.includes(o.side)) {
@@ -456,6 +457,7 @@ function checkAccountForLeg(
   path: (string | number)[],
   account: AccountInfo,
   instrument: InstrumentInfo | undefined,
+  marketHoursPolicy: StrategyDefinition['execution']['marketHoursPolicy'],
   add: Add,
 ) {
   try {
@@ -544,6 +546,21 @@ function checkAccountForLeg(
       'extended_hours_unsupported',
       `"${account.nickname}" doesn't support extended-hours orders`,
       [...path, 'extendedHours'],
+      o.id,
+    );
+  }
+  if (
+    marketHoursPolicy === 'extended_if_supported' &&
+    !o.extendedHours &&
+    !extendedHoursEligible(o, caps.extendedHours)
+  ) {
+    add(
+      'warning',
+      'extended_hours_policy_waits',
+      caps.extendedHours
+        ? `"${o.legLabel}" waits for the regular session: only day limit orders can be sent in extended hours`
+        : `"${o.legLabel}" waits for the regular session: "${account.nickname}" doesn't trade extended hours`,
+      [...path, 'orderType'],
       o.id,
     );
   }

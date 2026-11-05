@@ -7,6 +7,8 @@ import { order, STOCK_A, STOCK_B } from '../strategy/test-fixtures';
 import {
   activeFromFor,
   legKey,
+  regularSessionOpenAt,
+  sendsExtendedHours,
   newCycleState,
   newRuntimeTriggerState,
   planCycle,
@@ -493,5 +495,48 @@ describe('planEntry', () => {
       halted: false,
     });
     expect(second.decision).toEqual({ kind: 'none' });
+  });
+});
+
+describe('extended hours under the market-hours policy (§6.8)', () => {
+  const dayLimit = { extendedHours: false, orderType: 'limit', timeInForce: 'day' } as const;
+  /** Tuesday 2026-10-06 8:00 New York, before the open. */
+  const PRE = Date.parse('2026-10-06T12:00:00Z');
+
+  it('knows when the regular session is open', () => {
+    expect(regularSessionOpenAt(T0)).toBe(true);
+    expect(regularSessionOpenAt(PRE)).toBe(false);
+  });
+
+  it('sends a day limit leg early only under "extended hours if supported"', () => {
+    expect(sendsExtendedHours(dayLimit, 'extended_if_supported', false, true)).toBe(true);
+    expect(sendsExtendedHours(dayLimit, 'queue', false, true)).toBe(false);
+    expect(sendsExtendedHours(dayLimit, 'extended_if_supported', true, true)).toBe(false);
+  });
+
+  it('keeps market orders, other time in force and accounts without extended hours waiting', () => {
+    expect(
+      sendsExtendedHours(
+        { ...dayLimit, orderType: 'market' },
+        'extended_if_supported',
+        false,
+        true,
+      ),
+    ).toBe(false);
+    expect(
+      sendsExtendedHours({ ...dayLimit, timeInForce: 'gtc' }, 'extended_if_supported', false, true),
+    ).toBe(false);
+    expect(sendsExtendedHours(dayLimit, 'extended_if_supported', false, false)).toBe(false);
+  });
+
+  it("always honours a leg's own extended-hours choice", () => {
+    expect(
+      sendsExtendedHours(
+        { ...dayLimit, extendedHours: true, orderType: 'market' },
+        'queue',
+        true,
+        false,
+      ),
+    ).toBe(true);
   });
 });

@@ -142,3 +142,36 @@ export function checkPreTradeRisk(input: RiskCheckInput): RiskCheckResult {
   }
   return done();
 }
+
+/**
+ * The price collar on a market order that fills later than it was decided
+ * (§7.2, §8.6). The back test fills market orders at the next bar's open and
+ * cancels an opening order whose fill moved more than the collar from the
+ * price it was decided at. Paper execution does the same for an opening
+ * market order decided while the market is closed: it holds the order until
+ * the regular session opens, then sends it only if the opening price is still
+ * within the collar of its reference price.
+ */
+export function holdsForOpenCollar(
+  order: { side: string; orderType: string; extendedHours: boolean },
+  risk: Pick<RiskProfile, 'priceCollarPct'>,
+): boolean {
+  return (
+    !!risk.priceCollarPct &&
+    order.orderType === 'market' &&
+    !order.extendedHours &&
+    (order.side === 'buy' || order.side === 'sell_short')
+  );
+}
+
+/** How far `price` moved from `reference`, in percent, and whether it is past the collar. */
+export function collarBreach(
+  reference: Decimal,
+  price: Decimal,
+  collarPct: string,
+): { movePct: Decimal; breached: boolean } {
+  const movePct = reference.gt(0)
+    ? price.minus(reference).abs().div(reference).times(100)
+    : reference.minus(reference);
+  return { movePct, breached: reference.gt(0) && movePct.gt(collarPct) };
+}

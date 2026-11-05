@@ -1,6 +1,7 @@
 export * from './catalog';
 export * from './defaults';
 export * from './evaluate';
+export * from './extended-hours';
 export * from './ids';
 export * from './lifecycle';
 export * from './mirror';

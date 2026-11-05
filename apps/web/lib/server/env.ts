@@ -1,6 +1,7 @@
 import 'server-only';
 import { logLevel, nodeEnv, parseEnv, pemKey } from '@tm/config';
 import { z } from 'zod';
+import { authIpHeaders, authTrustedProxies } from '../client-ip';
 
 const pgUrl = z.string().regex(/^postgres(ql)?:\/\//, 'must be a postgres:// URL');
 
@@ -41,6 +42,12 @@ export function loadServerEnv(source: Record<string, string | undefined> = proce
        * 'open' does not. Production keeps 'invite' until Yong says otherwise.
        */
       SIGNUP_MODE: z.enum(['invite', 'open']).default('invite'),
+      /**
+       * Where sign-in rate limits read the client's address behind a proxy
+       * (ADR 0004). Set at least one when the app runs behind a proxy.
+       */
+      AUTH_IP_HEADERS: authIpHeaders,
+      AUTH_TRUSTED_PROXIES: authTrustedProxies,
       /** Sends server errors to Sentry (ADR 0025). Optional. */
       SENTRY_DSN: z.string().url().optional(),
       /** Names the environment in error reports; Railway sets RAILWAY_ENVIRONMENT_NAME. */

@@ -239,3 +239,12 @@ Each is an editable input or a single constant.
 | Monitoring          | Sentry free plan for errors, Railway logs and metrics, an uptime check on the health endpoint                                                                |
 | Backups             | Nightly database dump to Cloudflare R2, kept 30 days, monthly restore test on staging                                                                        |
 | Load target         | 20 users × 5 active strategies and 10 back tests at once; pages p95 under 1 s; orders within 5 s of their trigger                                            |
+
+## Design v1.1 fixes (2026-11-05)
+
+| Deviation                                    | Design refs   | Status                                                                                                                                                                                                                                       |
+| -------------------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1 Account deletion keeps order records      | §4.2, §20 #14 | Fixed: soft delete in `settings/security/actions.ts`, sign-in refused in `lib/server/auth.ts`, purge after 30 days in `purge_deleted_accounts` (0047–0048) via the worker prune; ADR 0033; db `account-deletion.test.ts`, e2e `auth.spec.ts` |
+| D2 "Send in extended hours if allowed"       | §6.8, §8.6    | Fixed: `sendsExtendedHours` in `packages/domain/src/execution/cycle.ts`, `extended_hours_policy_waits` warning; ADR 0032; domain `cycle.test.ts`, `validate.test.ts`, worker `brokers.test.ts`                                               |
+| D3 Price collar at the open for paper orders | §7.2, §8.6    | Fixed: `holdsForOpenCollar` and `collarBreach` in `risk.ts`, held and checked in `apps/worker/src/runtime.ts`; ADR 0032; domain `risk.test.ts`, worker `runtime.test.ts`                                                                     |
+| D5 Client IP behind the proxy                | §16.1         | Fixed: `AUTH_IP_HEADERS`, `AUTH_TRUSTED_PROXIES` in `apps/web/lib/client-ip.ts`; ADR 0004, `docs/deploy.md`; `client-ip.test.ts`                                                                                                             |

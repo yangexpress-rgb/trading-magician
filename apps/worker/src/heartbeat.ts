@@ -1,4 +1,4 @@
-import { pruneRateLimits, recordHeartbeat, type Database } from '@tm/db';
+import { pruneRateLimits, purgeDeletedAccounts, recordHeartbeat, type Database } from '@tm/db';
 import type { Logger } from 'pino';
 
 export interface HeartbeatLoop {
@@ -13,8 +13,9 @@ export interface HeartbeatOptions {
 }
 
 /**
- * Marks the worker alive for the system health check, and clears old rate-limit
- * windows about once an hour (ADR 0025).
+ * Marks the worker alive for the system health check, and about once an hour
+ * clears old rate-limit windows (ADR 0025) and purges accounts deleted 30 days
+ * ago (§20 #14).
  */
 export function startHeartbeatLoop(options: HeartbeatOptions): HeartbeatLoop {
   let running = true;
@@ -35,6 +36,8 @@ export function startHeartbeatLoop(options: HeartbeatOptions): HeartbeatLoop {
         if (Date.now() - lastPrune >= 3_600_000) {
           lastPrune = Date.now();
           await pruneRateLimits(options.db);
+          const purged = await purgeDeletedAccounts(options.db);
+          if (purged > 0) options.logger.info({ purged }, 'purged deleted accounts');
         }
       } catch (error) {
         const e = error as { name?: string; message?: string };

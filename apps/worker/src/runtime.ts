@@ -38,10 +38,15 @@ import {
   type WorkingOrder,
   type Transaction,
   loadAccountRouting,
+  type AccountRouting,
   loadRouting,
 } from '@tm/db';
 import {
   activeFromFor,
+  collarBreach,
+  holdsForOpenCollar,
+  regularSessionOpenAt,
+  sendsExtendedHours,
   BrokerRejectedError,
   BrokerUnavailableError,
   checkPreTradeRisk,
@@ -221,7 +226,7 @@ export async function runRuntimePass(
     const health: PassHealth = { brokerDown: false };
     await paper.tick();
     await sendCancels(broker, work, health);
-    await submitReady(tx, { work, broker, now, logger, health });
+    await submitReady(tx, { work, broker, quotes, now, logger, health, accounts });
     const sync = await syncUpdates(tx, broker, work, health);
     // 3. Periodic reconciliation against the broker (§8.5).
     const healed = sync.complete ? await reconcile(tx, broker, work, now, sync.unknown, health) : 0;
@@ -232,7 +237,7 @@ export async function runRuntimePass(
     if (work.status === 'running') work = await watchFeed(tx, work, quotes, now);
 
     if (work.status !== 'stopped') {
-      await planPass(tx, { work, broker, history, quotes, now, logger, health });
+      await planPass(tx, { work, broker, history, quotes, now, logger, health, accounts });
       if (work.status === 'running') await watchRejects(tx, work);
     } else {
       await saveRuntimeState(tx, work.id, work.state, now);
@@ -457,10 +462,45 @@ function requestFor(o: WorkingOrder): BrokerOrderRequest {
  * Submits orders recorded as ready whose submission never completed, e.g. the
  * broker was unreachable. The same client order id means no duplicate (§8.5).
  */
-async function submitReady(tx: Transaction, ctx: Omit<PassContext, 'history' | 'quotes'>) {
+async function submitReady(tx: Transaction, ctx: Omit<PassContext, 'history'>) {
+  const open = regularSessionOpenAt(ctx.now.getTime());
+  const risk = ctx.work.definition.risk;
   for (const o of ctx.work.working) {
     if (o.state !== 'ready' || o.brokerOrderId || o.cancelRequested) continue;
-    await submit(tx, ctx, o.intent.id, requestFor(o));
+    const i = o.intent;
+    if (i.source === 'strategy' && risk.priceCollarPct && holdsForOpenCollar(i, risk)) {
+      // Held for the open (see placeLeg); sent only within the collar.
+      if (!open) continue;
+      const quote = await ctx.quotes.latestQuote({
+        instrumentId: i.instrumentId,
+        symbol: o.symbol,
+      });
+      if (!quote) continue;
+      const reference = new Decimal(i.referencePrice);
+      const { movePct, breached } = collarBreach(reference, quote.last, risk.priceCollarPct);
+      if (breached) {
+        const opened = quote.last.toFixed(2);
+        const decided = reference.toFixed(2);
+        await requestCancel(
+          tx,
+          i.id,
+          'app',
+          'The price opened at ' +
+            '$' +
+            opened +
+            ', ' +
+            movePct.toFixed(1) +
+            '% from ' +
+            '$' +
+            decided +
+            ' when the order was decided. The price collar allows ' +
+            risk.priceCollarPct +
+            '%.',
+        );
+        continue;
+      }
+    }
+    await submit(tx, ctx, i.id, requestFor(o));
   }
 }
 
@@ -472,6 +512,8 @@ interface PassContext {
   now: Date;
   logger: RuntimeWorkerOptions['logger'];
   health: PassHealth;
+  /** Each account's platform and capabilities (ADR 0018). */
+  accounts: ReadonlyMap<string, AccountRouting>;
 }
 
 async function planPass(tx: Transaction, ctx: PassContext) {
@@ -844,6 +886,14 @@ async function placeLeg(
 
   const marketClosedCancel =
     activeFromFor(now.getTime(), def.execution.marketHoursPolicy) === undefined;
+  // Under "extended hours if supported", a day limit leg on an account that
+  // trades extended hours goes out now instead of waiting for the open (§6.8).
+  const extendedHours = sendsExtendedHours(
+    order,
+    def.execution.marketHoursPolicy,
+    regularSessionOpenAt(now.getTime()),
+    ctx.accounts.get(order.accountId)?.capabilities.extendedHours ?? false,
+  );
   const openPositions = [...work.book.positions.values()].filter((q) => !q.isZero()).length;
   let risk = checkPreTradeRisk({
     risk: def.risk,
@@ -898,13 +948,21 @@ async function placeLeg(
     limitPrice: limit?.toString(),
     stopPrice: stop?.toString(),
     timeInForce: order.timeInForce,
-    extendedHours: order.extendedHours,
+    extendedHours,
     referencePrice: quote.last.toString(),
     risk,
     idempotencyKey: key,
     source: 'strategy',
   });
   if (!recorded.created || recorded.state !== 'ready') return false;
+  // Decided while the market is closed: wait for the open, then check the
+  // collar against the opening price, as the back test does (§7.2).
+  if (
+    holdsForOpenCollar({ ...order, extendedHours }, def.risk) &&
+    !regularSessionOpenAt(now.getTime())
+  ) {
+    return true;
+  }
   return submit(tx, ctx, recorded.intentId, {
     clientOrderId: key,
     accountId: order.accountId,
@@ -917,7 +975,7 @@ async function placeLeg(
     limitPrice: limit?.toString(),
     stopPrice: stop?.toString(),
     timeInForce: order.timeInForce,
-    extendedHours: order.extendedHours,
+    extendedHours,
   });
 }
 

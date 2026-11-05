@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import { nextTradingDay, nyDate, regularSession } from '../market/calendar';
 import type { Truth } from '../strategy/evaluate';
 import type { PhaseEvent, PhaseName, PlannedOrder, StrategyDefinition } from '../strategy/schema';
+import { extendedHoursEligible } from '../strategy/extended-hours';
 import { relativeDelaySeconds } from '../strategy/timing';
 import type { OrderState } from './order-state';
 import type { Direction } from './sizing';
@@ -152,6 +153,33 @@ export function legOrderFor(def: StrategyDefinition, phase: PhaseName): PlannedO
     (a, b) =>
       (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
   );
+}
+
+/**
+ * Whether a leg is sent as an extended-hours order (§6.8). A leg that asks for
+ * extended hours always is. Under the "extended hours if supported" policy, a
+ * leg placed outside the regular session is too, when its account trades
+ * extended hours and the order is one brokers take there: a day limit order.
+ * Anything else waits for the regular session, as under "queue".
+ */
+export function sendsExtendedHours(
+  order: Pick<PlannedOrder, 'extendedHours' | 'orderType' | 'timeInForce'>,
+  policy: StrategyDefinition['execution']['marketHoursPolicy'],
+  regularSessionOpen: boolean,
+  accountExtendedHours: boolean,
+): boolean {
+  if (order.extendedHours) return true;
+  return (
+    policy === 'extended_if_supported' &&
+    !regularSessionOpen &&
+    extendedHoursEligible(order, accountExtendedHours)
+  );
+}
+
+/** Whether the regular NYSE session is open at `t`. */
+export function regularSessionOpenAt(t: number): boolean {
+  const session = regularSession(nyDate(new Date(t)));
+  return !!session && t >= Date.parse(session.open) && t < Date.parse(session.close);
 }
 
 /** When an order placed at `t` can first trade, under the market-hours policy. */

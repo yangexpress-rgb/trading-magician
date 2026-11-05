@@ -25,9 +25,11 @@ function SignInForm() {
     setPending(false);
     if (error) {
       setError(
-        error.status === 403
-          ? 'Verify your email first. We sent you a new link.'
-          : 'Email or password is incorrect.',
+        error.code === 'ACCOUNT_DELETED'
+          ? 'This account has been deleted.'
+          : error.status === 403
+            ? 'Verify your email first. We sent you a new link.'
+            : 'Email or password is incorrect.',
       );
       return;
     }
