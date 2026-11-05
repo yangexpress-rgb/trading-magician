@@ -36,7 +36,7 @@ async function seedUser(email: string): Promise<string> {
       userId,
       provider: 'alpaca',
       label: 'Jane key',
-      fields: { keyId: 'PKTESTKEYID00007Q2A', secretKey: 'very-secret-value-0123456789abcdefXYZ9' },
+      fields: { keyId: 'PKTEST', secretKey: 'z'.repeat(40) },
       publicKey: keys.publicKey,
     });
     await notify(tx, { userId, kind: 'filled', title: 'Bought 10 ZTSTA' });
