@@ -35,10 +35,8 @@ const list = (check: (v: string) => boolean, message: string) =>
 
 const isIp = (v: string) => {
   if (IPV4.test(v)) {
-    return v
-      .split('/')[0]!
-      .split('.')
-      .every((o) => Number(o) <= 255);
+    const [address = ''] = v.split('/');
+    return address.split('.').every((o) => Number(o) <= 255);
   }
   return v.includes(':') && IPV6.test(v);
 };
