@@ -1,6 +1,6 @@
 'use client';
 
-import { CONTEXT_INSTRUMENT_ID } from '@tm/domain';
+import { CONTEXT_INSTRUMENT_ID, INDEX_BADGE, isIndicatorOnlyClass } from '@tm/domain';
 import { useEditor } from './editor-context';
 import { MiniSelect } from './fields';
 
@@ -13,6 +13,9 @@ export function contextLabel(slotMode: 'none' | 'selection' | 'legs'): string {
  * Instrument picker shared by every expression and order row. With a
  * Selection group or per-leg conditions it also offers "This instrument"
  * (v1.2 items 1 and 2): the member or leg being evaluated or traded.
+ *
+ * Indices such as the VIX (v1.2 item 5) are offered to conditions with an
+ * "Index — not tradable" badge, and left out of a leg's picker entirely.
  */
 export function InstrumentSelect({
   id,
@@ -22,6 +25,7 @@ export function InstrumentSelect({
   onChange,
   format = (i) => `${i.symbol} · ${i.displayName}`,
   allowContext = true,
+  tradableOnly = false,
 }: {
   id: string;
   label?: string;
@@ -30,8 +34,11 @@ export function InstrumentSelect({
   onChange: (instrumentId: string) => void;
   format?: (i: { symbol: string; displayName: string; assetClass: string }) => string;
   allowContext?: boolean;
+  /** A leg's picker: indicator-only instruments are left out. */
+  tradableOnly?: boolean;
 }) {
-  const { instruments, slotMode } = useEditor();
+  const { instruments: all, slotMode } = useEditor();
+  const instruments = tradableOnly ? all.filter((i) => !isIndicatorOnlyClass(i.assetClass)) : all;
   const offerContext = allowContext && (slotMode !== 'none' || value === CONTEXT_INSTRUMENT_ID);
   const known =
     instruments.some((i) => i.id === value) || (offerContext && value === CONTEXT_INSTRUMENT_ID);
@@ -48,6 +55,7 @@ export function InstrumentSelect({
       {instruments.map((i) => (
         <option key={i.id} value={i.id}>
           {format(i)}
+          {isIndicatorOnlyClass(i.assetClass) ? ` · ${INDEX_BADGE}` : ''}
         </option>
       ))}
     </MiniSelect>

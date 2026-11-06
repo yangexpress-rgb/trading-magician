@@ -10,7 +10,12 @@ import {
   type Database,
   type CredentialKey,
 } from '@tm/db';
-import { BrokerUnavailableError, providerCoversVenue, resolveRoute } from '@tm/domain';
+import {
+  BrokerUnavailableError,
+  findIndexListing,
+  providerCoversVenue,
+  resolveRoute,
+} from '@tm/domain';
 import type { Logger } from 'pino';
 import { withTimeout, type ProviderRegistry } from './providers';
 
@@ -49,6 +54,22 @@ export async function runInstrumentLookups(options: LookupOptions): Promise<numb
     await withTenant(options.db, { userId }, async (tx) => {
       const lookup = await loadPendingLookup(tx, lookupId);
       if (!lookup) return;
+      // An index the app knows, such as the VIX: registered as indicator-only,
+      // never a VIX-futures ETF the stock feed would offer (v1.2 item 5).
+      const index = findIndexListing(lookup.query ?? lookup.symbol ?? '');
+      if (index) {
+        const instrumentId = await registerInstrument(tx, {
+          assetClass: 'index',
+          symbol: index.symbol,
+          venue: index.venue,
+          displayName: index.displayName,
+          provider: index.provider,
+          providerId: index.providerId,
+        });
+        await finishLookup(tx, lookupId, { status: 'found', instrumentId });
+        options.logger.info({ lookupId, symbol: index.symbol }, 'index found');
+        return;
+      }
       const routing = await loadRouting(tx);
       // The feed behind the any-venue US stock route, else any active feed that can look up.
       const route = resolveRoute(routing.routes, {

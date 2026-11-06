@@ -47,7 +47,11 @@ export const assetClass = pgEnum('asset_class', [
   'future',
   'forex',
   'crypto',
+  // Indices a strategy watches but never trades, such as the VIX (v1.2 item 5, ADR 0042).
+  'index',
 ]);
+/** Whether an instrument can be traded or only watched (v1.2 item 5, ADR 0042). */
+export const instrumentKind = pgEnum('instrument_kind', ['tradable', 'indicator_only']);
 export const optionRight = pgEnum('option_right', ['call', 'put']);
 /** `live` exists in the vocabulary only; CHECK constraints below forbid it (ADR 0002). */
 export const tradingMode = pgEnum('trading_mode', ['paper', 'live']);
@@ -363,10 +367,16 @@ export const instruments = pgTable(
     contractMonth: char('contract_month', { length: 7 }),
     providerIds: jsonb('provider_ids').notNull().default({}),
     isDemo: boolean('is_demo').notNull().default(false),
+    /** Indices are indicator-only: conditions read them, no leg or order trades them. */
+    kind: instrumentKind('kind').notNull().default('tradable'),
     ...timestamps(),
   },
   (t) => [
     foreignKey({ columns: [t.underlyingId], foreignColumns: [t.id] }),
+    check(
+      'instrument_index_kind',
+      sql`(${t.assetClass}::text = 'index') = (${t.kind} = 'indicator_only')`,
+    ),
     unique('instrument_identity_uq')
       .on(t.assetClass, t.symbol, t.venue, t.expiry, t.strike, t.optionRight, t.contractMonth)
       .nullsNotDistinct(),

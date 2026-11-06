@@ -707,7 +707,9 @@ function FeedDialog({
             ? 'Company profiles and reported financials from public filings. It is tested as soon as you save it.'
             : custom
               ? 'Any JSON price API, described here: no code change per provider. Test it with a symbol before saving; the app fetches it on the server, never from your browser.'
-              : 'It is tested as soon as you save it.'
+              : provider === 'cboe'
+                ? 'CBOE’s free daily history of the VIX, for conditions that watch it. Daily bars only, no live prices, and indices are never traded. It is tested as soon as you save it.'
+                : 'It is tested as soon as you save it.'
       }
     >
       <form onSubmit={(e) => void save(e)} className="space-y-3" autoComplete="off">
@@ -730,7 +732,9 @@ function FeedDialog({
                 {PROVIDERS[id as keyof typeof PROVIDERS].name}
                 {isFundamentalsProvider(id) && PROVIDERS[id].id === 'sec'
                   ? ' (free, US filings)'
-                  : ''}
+                  : id === 'cboe'
+                    ? ' (free, VIX, end of day)'
+                    : ''}
               </option>
             ))}
           </SelectField>

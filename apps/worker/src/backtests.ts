@@ -1,4 +1,10 @@
-import { loadData, planSeries, simulate, type InstrumentRef } from '@tm/backtest';
+import {
+  loadData,
+  planSeries,
+  simulate,
+  watchOnlyInstruments,
+  type InstrumentRef,
+} from '@tm/backtest';
 import {
   claimBacktestRun,
   instrumentRefs,
@@ -84,7 +90,7 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
     let lastRenew = Date.now();
     const data = await loadData(
       provider,
-      planSeries(work.definition, work.inputs, members),
+      planSeries(work.definition, work.inputs, members, watchOnlyInstruments(instruments)),
       instruments,
       async () => {
         if (Date.now() - lastRenew < (leaseSeconds * 1000) / 3) return;

@@ -15,6 +15,8 @@ export interface InstrumentOptionRow {
   displayName: string;
   assetClass: string;
   venue: string;
+  /** `indicator_only` for an index: conditions may read it, legs can't trade it. */
+  kind: 'tradable' | 'indicator_only';
 }
 
 export type LookupStatus = 'pending' | 'found' | 'not_found' | 'failed';
@@ -49,6 +51,7 @@ const optionColumns = {
   displayName: instruments.displayName,
   assetClass: instruments.assetClass,
   venue: instruments.venue,
+  kind: instruments.kind,
 };
 
 /**
@@ -166,7 +169,8 @@ export async function loadPendingLookup(tx: Transaction, id: string) {
 }
 
 export interface ConfirmedInstrument {
-  assetClass: 'stock' | 'etf';
+  /** `index` only for an index the app knows, such as the VIX (v1.2 item 5). */
+  assetClass: 'stock' | 'etf' | 'index';
   symbol: string;
   venue: string;
   displayName: string;

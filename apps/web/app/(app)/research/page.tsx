@@ -4,7 +4,9 @@ import {
   CHART_RANGES,
   chartIntervalAllowed,
   defaultChartInterval,
+  isProviderId,
   providerCoversVenue,
+  PROVIDERS,
   type ChartInterval,
   type ChartRange,
 } from '@tm/domain';
@@ -34,7 +36,11 @@ export default async function ResearchPage({
       instruments: await listTenantInstruments(tx),
       // A real price feed, such as Alpaca, can search every US stock (ADR 0029).
       canSearchMarket: [...(await loadRouting(tx)).feeds.values()].some(
-        (f) => f.isActive && providerCoversVenue(f.provider, 'US'),
+        (f) =>
+          f.isActive &&
+          providerCoversVenue(f.provider, 'US') &&
+          isProviderId(f.provider) &&
+          (PROVIDERS[f.provider].assetClasses as readonly string[]).includes('stock'),
       ),
       // Company financials come from a company data feed, such as SEC EDGAR (ADR 0031).
       companyFeed: (await activeFundamentalsFeed(tx))?.name ?? null,

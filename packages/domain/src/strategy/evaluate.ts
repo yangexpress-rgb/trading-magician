@@ -195,6 +195,15 @@ export function statValue(e: StatExpr, r: SeriesResolver, barsBack = 0): Decimal
       const width = sd.times(new Decimal(e.multiplier ?? '2'));
       return e.fn === 'BB_UPPER' ? mean.plus(width) : mean.minus(width);
     }
+    case 'BANDWIDTH': {
+      // (upper − lower) / middle, from the same bands; unknown when the middle is 0 (v1.2 item 5).
+      const sd = populationStdDev(xs);
+      if (!sd || mean.isZero()) return undefined;
+      return sd
+        .times(new Decimal(e.multiplier ?? '2'))
+        .times(2)
+        .div(mean);
+    }
   }
 }
 

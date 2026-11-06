@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { assertAllowedTradingMode } from '../trading-mode';
 import { DEMO_VENUE_CODE } from '../integrations/providers';
+import { isIndicatorOnlyClass } from '../market/indices';
 import { checkIndicatorParams, getIndicator, QUOTE_FIELDS } from './catalog';
 import {
   REQUIRED_RISK_LIMITS,
@@ -426,12 +427,31 @@ function checkExpr(
       add('error', 'unknown_instrument', 'Choose a valid instrument', [...p, 'instrumentId'], e.id);
     } else {
       const dataType = e.kind === 'market' && QUOTE_FIELDS.includes(e.field) ? 'quotes' : 'bars';
-      if (!ctx.hasFeed(instrument.assetClass, dataType)) {
+      const index = isIndicatorOnlyClass(instrument.assetClass);
+      if (index && dataType === 'quotes') {
+        add(
+          'error',
+          'index_daily_only',
+          `${instrument.symbol} has daily bars only, no live prices: read its close instead`,
+          [...p, 'field'],
+          e.id,
+        );
+      } else if (!ctx.hasFeed(instrument.assetClass, dataType)) {
         add(
           'error',
           'missing_feed',
           `No active data feed covers ${instrument.symbol} ${dataType}`,
           [...p, 'instrumentId'],
+          e.id,
+        );
+      }
+      // Index history is end-of-day only (CBOE), v1.2 item 5.
+      if (index && (e.kind === 'market' || e.kind === 'indicator') && e.interval !== '1d') {
+        add(
+          'error',
+          'index_daily_only',
+          `${instrument.symbol} has daily bars only: choose the 1 day interval`,
+          [...p, 'interval'],
           e.id,
         );
       }
@@ -648,6 +668,15 @@ function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Ad
       add('error', 'unknown_instrument', 'Choose a valid instrument for the universe', path);
       return;
     }
+    if (isIndicatorOnlyClass(info.assetClass)) {
+      add(
+        'error',
+        'instrument_not_tradable',
+        `${info.symbol} is an index: it can be watched in conditions but not traded, so it can't be in a universe the strategy buys`,
+        path,
+      );
+      return;
+    }
     if (ranking && !ranking.assetClasses.includes(info.assetClass)) {
       add(
         'error',
@@ -797,6 +826,15 @@ function checkOrders(def: StrategyDefinition, phase: PhaseName, ctx: ValidationC
         [...path, 'instrumentId'],
         o.id,
       );
+    if (instrument && isIndicatorOnlyClass(instrument.assetClass)) {
+      add(
+        'error',
+        'instrument_not_tradable',
+        `${instrument.symbol} is an index: it can be watched in conditions but not traded, so it can't be the instrument of "${o.legLabel}"`,
+        [...path, 'instrumentId'],
+        o.id,
+      );
+    }
     if (!account) {
       add(
         'error',
@@ -892,7 +930,12 @@ function checkAccountForLeg(
     );
   }
   const caps = account.capabilities;
-  if (instrument && !caps.assetClasses.includes(instrument.assetClass)) {
+  // An index already has its own, clearer message (instrument_not_tradable).
+  if (
+    instrument &&
+    !isIndicatorOnlyClass(instrument.assetClass) &&
+    !caps.assetClasses.includes(instrument.assetClass)
+  ) {
     add(
       'error',
       'unsupported_asset_class',

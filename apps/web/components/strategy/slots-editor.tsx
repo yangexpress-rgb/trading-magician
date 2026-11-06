@@ -3,6 +3,7 @@
 import {
   BUILTIN_UNIVERSES,
   EXCLUSION_LABELS,
+  isIndicatorOnlyClass,
   PAPER_UNIVERSE_LIMIT,
   randomId,
   SCHEDULE_FREQUENCIES,
@@ -44,7 +45,9 @@ export function EntryStructure({
   definition: StrategyDefinition;
   onChange: (def: StrategyDefinition) => void;
 }) {
-  const { instruments, accounts, editable } = useEditor();
+  const { instruments: all, accounts, editable } = useEditor();
+  // Only tradable instruments can be a leg or a universe member (v1.2 item 5).
+  const instruments = all.filter((i) => !isIndicatorOnlyClass(i.assetClass));
   const selection = definition.entry.kind === 'selection';
   const account = accounts.find((a) => a.isDefault) ?? accounts[0];
   return (
@@ -101,7 +104,9 @@ function SelectionEditor({
   selection: Selection;
   onChange: (s: Selection) => void;
 }) {
-  const { instruments, issueAt, editable, universeClasses } = useEditor();
+  const { instruments: all, issueAt, editable, universeClasses } = useEditor();
+  // An index can be watched by a pre-filter but never held (v1.2 item 5).
+  const instruments = all.filter((i) => !isIndicatorOnlyClass(i.assetClass));
   const path = ['entry', 'selection'] as const;
   const err = (...rest: (string | number)[]) => issueAt([...path, ...rest]);
   const u = selection.universe;

@@ -47,7 +47,7 @@ const KIND_LABELS: Record<Kind, string> = {
   position: 'Position (after Entry fills)',
   calc: 'Calculation',
   metric: 'Metric (shared registry)',
-  stat: 'Statistic (std. dev., z-score, Bollinger)',
+  stat: 'Statistic (std. dev., z-score, Bollinger, BandWidth)',
 };
 
 export const STAT_LABELS: Record<StatFunction, string> = {
@@ -56,6 +56,7 @@ export const STAT_LABELS: Record<StatFunction, string> = {
   BB_UPPER: 'Bollinger upper band',
   BB_MIDDLE: 'Bollinger middle band',
   BB_LOWER: 'Bollinger lower band',
+  BANDWIDTH: 'Bollinger BandWidth',
 };
 
 const STAT_HELP: Record<StatFunction, string> = {
@@ -64,9 +65,11 @@ const STAT_HELP: Record<StatFunction, string> = {
   BB_UPPER: 'N-bar average of the input plus the multiplier × its standard deviation.',
   BB_MIDDLE: 'N-bar average of the input.',
   BB_LOWER: 'N-bar average of the input minus the multiplier × its standard deviation.',
+  BANDWIDTH:
+    '(Upper band − lower band) ÷ middle band, from the same bands. Volatility-squeeze rules compare it with its lowest value over, say, 120 bars.',
 };
 
-const isBand = (fn: StatFunction) => fn.startsWith('BB_');
+const isBand = (fn: StatFunction) => fn.startsWith('BB_') || fn === 'BANDWIDTH';
 
 /** Metrics the picker offers: those defined for every one of the asset classes. */
 export function metricsForClasses(classes: readonly string[]) {

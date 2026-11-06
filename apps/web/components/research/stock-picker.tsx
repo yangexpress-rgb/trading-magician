@@ -7,6 +7,7 @@ import { useId, useMemo, useState } from 'react';
 import { CandidateList } from '@/components/strategy/candidate-list';
 import { useInstrumentLookup } from '@/components/strategy/use-instrument-lookup';
 import { ASSET_CLASS_LABELS } from '@/lib/integration-text';
+import { findIndexListing, INDEX_BADGE, isIndicatorOnlyClass } from '@tm/domain';
 
 /**
  * Chooses what to chart (ADR 0029). One search box filters the stocks the
@@ -36,6 +37,8 @@ export function StockPicker({
     setQuery('');
   });
   const q = query.trim();
+  /** An index the app knows, such as the VIX: found without a stock feed (v1.2 item 5). */
+  const indexHit = findIndexListing(q);
 
   const groups = useMemo(() => {
     const lower = q.toLowerCase();
@@ -45,7 +48,12 @@ export function StockPicker({
       i.displayName.toLowerCase().includes(lower);
     const shown = instruments.filter(match);
     return [
-      { label: 'Your US stocks and ETFs', items: shown.filter((i) => i.venue !== 'DEMO') },
+      {
+        label: 'Your US stocks and ETFs',
+        items: shown.filter((i) => i.venue !== 'DEMO' && !isIndicatorOnlyClass(i.assetClass)),
+      },
+      // Watched, never traded (v1.2 item 5).
+      { label: 'Indices', items: shown.filter((i) => isIndicatorOnlyClass(i.assetClass)) },
       { label: 'Demo instruments', items: shown.filter((i) => i.venue === 'DEMO') },
     ].filter((g) => g.items.length > 0);
   }, [instruments, q]);
@@ -60,7 +68,7 @@ export function StockPicker({
         aria-label="Stocks"
         onSubmit={(e) => {
           e.preventDefault();
-          if (q && canSearchMarket) void find(q);
+          if (q && (canSearchMarket || indexHit)) void find(q);
         }}
       >
         <label htmlFor={`${id}-q`} className="mt-2 block text-sm font-medium">
@@ -106,7 +114,9 @@ export function StockPicker({
                         {i.displayName}
                       </span>
                       <span className="ml-auto shrink-0 text-xs text-ink-muted">
-                        {ASSET_CLASS_LABELS[i.assetClass] ?? i.assetClass}
+                        {isIndicatorOnlyClass(i.assetClass)
+                          ? INDEX_BADGE
+                          : (ASSET_CLASS_LABELS[i.assetClass] ?? i.assetClass)}
                       </span>
                     </button>
                   </li>
@@ -123,7 +133,13 @@ export function StockPicker({
           >
             All US stocks and ETFs
           </h3>
-          {!canSearchMarket ? (
+          {indexHit && !searched ? (
+            <Button size="sm" disabled={pending} onClick={() => void find(q)}>
+              {pending
+                ? `Adding ${indexHit.symbol}…`
+                : `Add ${indexHit.symbol}, ${indexHit.displayName} (${INDEX_BADGE})`}
+            </Button>
+          ) : !canSearchMarket ? (
             <p className="text-sm text-ink-muted" data-testid="needs-feed">
               To search every US stock and ETF, add an Alpaca data feed with your paper API key in{' '}
               <Link href="/settings/data-feeds">Settings › Data feeds</Link>. Until then only stocks

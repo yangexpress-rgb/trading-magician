@@ -1,4 +1,11 @@
-import { loadData, MarketView, planSeries, seriesExprs, type BacktestInputs } from '@tm/backtest';
+import {
+  loadData,
+  MarketView,
+  planSeries,
+  seriesExprs,
+  watchOnlyInstruments,
+  type BacktestInputs,
+} from '@tm/backtest';
 import { PaperBroker } from '@tm/broker';
 import {
   applyBrokerUpdates,
@@ -88,6 +95,7 @@ import {
   type SeriesResolver,
   type Truth,
   withPositions,
+  isIndicatorOnlyClass,
 } from '@tm/domain';
 import { randomUUID } from 'node:crypto';
 import Decimal from 'decimal.js';
@@ -394,6 +402,8 @@ async function watchFeed(
   const limit = work.definition.execution.staleDataSec;
   const bad: string[] = [];
   for (const [instrumentId, ref] of work.instruments) {
+    // An index has daily closes only and is never traded: no live price to watch (v1.2 item 5).
+    if (isIndicatorOnlyClass(ref.assetClass)) continue;
     const q = await quotes.latestQuote({ instrumentId, symbol: ref.symbol });
     // Outside the session the last quote simply stands; that is not a feed problem.
     if (!q) bad.push(`${ref.symbol} (no price)`);
@@ -594,10 +604,10 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   const members = listMembers(def);
   const data = await loadData(
     ctx.history,
-    planSeries(def, evaluationInputs(now), members),
+    planSeries(def, evaluationInputs(now), members, watchOnlyInstruments(work.instruments)),
     work.instruments,
   );
-  const view = new MarketView(data.series);
+  const view = new MarketView(data.series, watchOnlyInstruments(work.instruments));
   view.advance(t);
   let dataTime = 0;
   for (const e of seriesExprs(def, members)) {

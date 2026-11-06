@@ -7,6 +7,7 @@ import {
   isProviderId,
   PROVIDERS,
   providerCoversVenue,
+  providerDataTypes,
   resolveRoute,
   type CustomRestConfig,
   type FailoverStep,
@@ -365,9 +366,6 @@ export async function createFeed(
   return getFeed(tx, row.id);
 }
 
-/** The data a price feed is routed for as soon as it is added (bars and live prices). */
-const AUTO_ROUTE_DATA_TYPES = ['bars', 'quotes'] as const;
-
 /**
  * Gives a price feed its routes (ADR 0038): for every asset class it covers
  * and each of bars and live prices, on any US venue (or on the demo venue for
@@ -385,7 +383,8 @@ async function addMissingRoutes(tx: Transaction, userId: string, feedId: string)
   const venue = providerCoversVenue(feed.provider, null) ? null : DEMO_VENUE_CODE;
   if (!providerCoversVenue(feed.provider, venue)) return;
   for (const assetClass of feed.assetClasses) {
-    for (const dataType of AUTO_ROUTE_DATA_TYPES) {
+    // Bars and live prices, or bars alone for a daily-only index feed (v1.2 item 5).
+    for (const dataType of providerDataTypes(feed.provider)) {
       const [row] = await tx
         .insert(dataRoutes)
         .values({ userId, assetClass, venue, dataType, primaryFeedId: feed.id })

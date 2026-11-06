@@ -24,6 +24,8 @@ import { demoProvider, type FundamentalsRegistry, type ProviderRegistry } from '
 import { secProvider, type SecProviderOptions } from './sec';
 import { createRoutedHistory } from './routed-history';
 import { customRestProvider } from './custom-rest';
+import { cboeProvider } from './cboe';
+import { fakeCboeFetch } from './cboe-fake';
 import { fakeCustomTransport } from './custom-rest-fake';
 import { startRuntimeLoop, type RuntimeLoop } from './runtime';
 import { startValuationLoop, type ValuationLoop } from './valuations';
@@ -102,7 +104,11 @@ if (databaseUrl) {
     demo: demoProvider(quotes, history),
     alpaca: alpacaProvider(alpacaOptions),
     custom_rest: customRestProvider({ transport: customTransport }),
+    cboe: cboeProvider({
+      fetch: env.CBOE_FAKE ? fakeCboeFetch(now ?? (() => new Date())) : undefined,
+    }),
   };
+  if (env.CBOE_FAKE) logger.warn('CBOE index history comes from a local fake');
   const brokers = { alpaca: alpacaBrokerProvider(alpacaOptions) };
   let secOptions: SecProviderOptions = {};
   if (env.SEC_FAKE) {

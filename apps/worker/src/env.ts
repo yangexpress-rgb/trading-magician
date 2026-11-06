@@ -77,6 +77,11 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
         .enum(['true', 'false'])
         .default('false')
         .transform((v) => v === 'true'),
+      /** Tests only: CBOE's index history comes from an in-process fake (v1.2 item 5). */
+      CBOE_FAKE: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((v) => v === 'true'),
       /** Tests only: Alpaca calls go to an in-process fake with made-up symbols. */
       ALPACA_FAKE: z
         .enum(['true', 'false'])
@@ -104,6 +109,9 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
   }
   if (env.NODE_ENV === 'production' && env.CUSTOM_REST_FAKE && !source.E2E_TEST) {
     throw new Error('CUSTOM_REST_FAKE is for tests only');
+  }
+  if (env.NODE_ENV === 'production' && env.CBOE_FAKE && !source.E2E_TEST) {
+    throw new Error('CBOE_FAKE is for tests only');
   }
   if (env.NODE_ENV === 'production' && env.SEC_FAKE && !source.E2E_TEST) {
     throw new Error('SEC_FAKE is for tests only');

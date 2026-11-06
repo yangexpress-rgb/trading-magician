@@ -9,6 +9,8 @@ export interface InstrumentOption {
   displayName: string;
   assetClass: string;
   venue: string;
+  /** `indicator_only` for an index: conditions may read it, legs can't trade it (v1.2 item 5). */
+  kind?: 'tradable' | 'indicator_only' | undefined;
 }
 
 export interface AccountOption {

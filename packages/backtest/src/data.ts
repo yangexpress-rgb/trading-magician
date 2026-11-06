@@ -4,6 +4,7 @@ import {
   contextInstruments,
   definitionSeries,
   getIndicator,
+  isIndicatorOnlyClass,
   referencedInstruments,
   resolveIndicatorParams,
   type Bar,
@@ -111,6 +112,11 @@ export function planSeries(
   def: StrategyDefinition,
   inputs: BacktestInputs,
   members: readonly string[] = [],
+  /**
+   * Indicator-only instruments (indices, v1.2 item 5): read by the rules at
+   * their own interval, never traded, so they need no execution series.
+   */
+  watchOnly: ReadonlySet<string> = new Set(),
 ): SeriesPlan[] {
   const plans = new Map<string, { spec: SeriesSpec; bars: number }>();
   const need = (spec: SeriesSpec, bars: number) => {
@@ -133,6 +139,7 @@ export function planSeries(
   }
   for (const id of strategyInstruments(def, members)) instruments.add(id);
   for (const instrumentId of instruments) {
+    if (watchOnly.has(instrumentId)) continue;
     need(
       {
         instrumentId,
@@ -148,6 +155,13 @@ export function planSeries(
     from: addDays(inputs.from, -warmupDays(spec.interval, bars)),
     to: inputs.to,
   }));
+}
+
+/** Instruments of a run that can only be watched (indices, v1.2 item 5). */
+export function watchOnlyInstruments(instruments: ReadonlyMap<string, InstrumentRef>): Set<string> {
+  const out = new Set<string>();
+  for (const [id, ref] of instruments) if (isIndicatorOnlyClass(ref.assetClass)) out.add(id);
+  return out;
 }
 
 /** Fetches every planned series from the provider. */

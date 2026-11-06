@@ -393,6 +393,13 @@
       "when": 1793992899502,
       "tag": "0055_custom_feed_slow_checks",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1794005552591,
+      "tag": "0056_index_instruments",
+      "breakpoints": true
     }
   ]
 }

@@ -302,6 +302,7 @@ function LegEditor({
             value={order.instrumentId}
             error={err('instrumentId')}
             allowContext={selection || order.instrumentId === CONTEXT_INSTRUMENT_ID}
+            tradableOnly
             format={(i) => `${i.symbol} · ${i.assetClass.toUpperCase()}`}
             onChange={(instrumentId) => set({ instrumentId })}
           />
