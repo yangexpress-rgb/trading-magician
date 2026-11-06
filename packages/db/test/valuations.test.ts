@@ -245,6 +245,42 @@ describe('recordValuation', () => {
     expect(note?.body).toContain('DEMO-A: app 5, broker 7');
   });
 
+  it('flags a broker holding the app has no instrument for, without failing', async () => {
+    // Bought outside the app: the Alpaca adapter reports a stand-in id.
+    const result = await as(userB, async (tx) =>
+      recordValuation(tx, {
+        userId: userB,
+        account: (await loadAccountToValue(tx, accountB, '2026-10-09'))!,
+        session: { date: '2026-10-09', final: true },
+        now: new Date('2026-10-09T20:05:00Z'),
+        ledger: buildLedger([
+          fill(runtimeB, accountB, { direction: 'buy', quantity: d(10), price: d(100) }),
+          fill(runtimeB, accountB, { direction: 'sell', quantity: d(5), price: d(110) }),
+        ]),
+        marks: mark(100),
+        broker: {
+          balance: { currency: 'USD', cash: '49550', equity: '50050' },
+          positions: new Map([
+            [demoA, d(5)],
+            ['alpaca:NKE', d(3)],
+          ]),
+        },
+      }),
+    );
+    expect(result.recorded).toBe(true);
+    expect(result.flagged).toBe(true);
+    expect(result.positionDifferences).toEqual([
+      { instrumentId: 'alpaca:NKE', symbol: 'NKE', app: '0', broker: '3' },
+    ]);
+    const snapshots = await as(userB, (tx) =>
+      tx.select().from(positionSnapshots).where(eq(positionSnapshots.accountId, accountB)),
+    );
+    expect(snapshots.filter((s) => s.asOf.toISOString() === '2026-10-09T20:05:00.000Z')).toEqual([
+      expect.objectContaining({ instrumentId: demoA, source: 'app', quantity: '5' }),
+      expect.objectContaining({ instrumentId: demoA, source: 'broker', quantity: '5' }),
+    ]);
+  });
+
   it('within a dollar is not a difference', async () => {
     const result = await as(userB, async (tx) =>
       recordValuation(tx, {
