@@ -28,7 +28,7 @@ per metric, null instead of 0 for missing data, and v1.1 strategies that run unc
   the input expression at increasing offsets; series needed for that are loaded with the offset
   inflated by the period (`definitionSeries`). `BB_*` use the population deviation so they
   equal BBANDS; `STDDEV`/`ZSCORE` use the sample deviation.
-- **Slots.** A Selection group member or a conditional leg is a *slot* `{legId, instrumentId}`
+- **Slots.** A Selection group member or a conditional leg is a _slot_ `{legId, instrumentId}`
   with at most one cycle. `slotDefinition` gives the definition a slot's cycle runs (its leg bound
   to its instrument, quantity split by N for a selection, the Exit legs for that instrument), so
   the existing cycle machinery (`planCycle` at runtime, the back-test cycle) runs unchanged.
