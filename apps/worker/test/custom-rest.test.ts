@@ -493,6 +493,38 @@ describe('routing through a custom feed', () => {
     down = false;
   });
 
+  it('checks a feed with a small daily limit every 15 minutes, not every minute (N24)', async () => {
+    const claimable = async () =>
+      (
+        await t.ownerSql<
+          { claimed_id: string }[]
+        >`select claimed_id from claim_feed_checks(5, 60, 100)`
+      ).map((r) => r.claimed_id);
+    const age = (seconds: number) =>
+      t.ownerSql`update data_feed_connection
+        set last_checked_at = now() - make_interval(secs => ${seconds}), check_lease_expires_at = null,
+            check_requested_at = null where id = ${customFeedId}`;
+    const setDaily = (perDay: number | null) =>
+      t.ownerSql`update data_feed_connection
+        set config = jsonb_set(config, '{limits,requestsPerDay}', coalesce(to_jsonb(${perDay}::int), 'null'::jsonb))
+        where id = ${customFeedId}`;
+
+    await setDaily(1000);
+    await age(120);
+    expect(await claimable()).not.toContain(customFeedId);
+    await age(901);
+    expect(await claimable()).toContain(customFeedId);
+
+    await setDaily(5000);
+    await age(120);
+    expect(await claimable()).toContain(customFeedId);
+
+    await setDaily(null);
+    await age(120);
+    expect(await claimable()).toContain(customFeedId);
+    await t.ownerSql`update data_feed_connection set check_lease_expires_at = null`;
+  });
+
   it('back-tests a strategy on its daily bars', async () => {
     const strategy = await as(userA, (tx) =>
       createStrategy(tx, userA, { name: 'ZTSTX trend', definition: trend() }),
