@@ -155,19 +155,21 @@ export async function recordValuation(
   const compared = session.final && brokerPositions ? positionRows(books, brokerPositions) : [];
   const differing = compared.filter((p) => !p.app.equals(p.broker));
   if (differing.length > 0) {
-    const ids = differing.map((p) => p.instrumentId);
+    const ids = differing.map((p) => p.instrumentId).filter(isInstrumentId);
     const symbols = new Map(
-      (
-        await tx
-          .select({ id: instruments.id, symbol: instruments.symbol })
-          .from(instruments)
-          .where(inArray(instruments.id, ids))
-      ).map((i) => [i.id, i.symbol]),
+      ids.length === 0
+        ? []
+        : (
+            await tx
+              .select({ id: instruments.id, symbol: instruments.symbol })
+              .from(instruments)
+              .where(inArray(instruments.id, ids))
+          ).map((i) => [i.id, i.symbol]),
     );
     for (const p of differing) {
       positionDifferences.push({
         instrumentId: p.instrumentId,
-        symbol: symbols.get(p.instrumentId) ?? '?',
+        symbol: symbols.get(p.instrumentId) ?? brokerSymbol(p.instrumentId),
         app: str(p.app),
         broker: str(p.broker),
       });
@@ -208,8 +210,11 @@ export async function recordValuation(
     return { ...result, recorded: false };
   }
 
-  if (compared.length > 0) {
-    const snapshots = compared.flatMap(({ instrumentId, app, broker }) => [
+  // A holding the app has no instrument for yet cannot be snapshotted; it is still
+  // listed in positionDifferences above.
+  const known = compared.filter((p) => isInstrumentId(p.instrumentId));
+  if (known.length > 0) {
+    const snapshots = known.flatMap(({ instrumentId, app, broker }) => [
       { userId, accountId: account.id, instrumentId, quantity: str(app), source: 'app', asOf: now },
       {
         userId,
@@ -282,6 +287,23 @@ export async function recordValuation(
 
   await releaseValuation(tx, account.id);
   return { ...result, recorded: true };
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A broker can hold a symbol the app has no instrument for yet (bought outside
+ * the app). Its adapter then reports a stand-in id such as `alpaca:NKE`, which
+ * is not an instrument row and must not be looked up or referenced as one.
+ */
+function isInstrumentId(id: string): boolean {
+  return UUID.test(id);
+}
+
+/** The symbol in a stand-in id (`alpaca:NKE` → `NKE`), or `?`. */
+function brokerSymbol(id: string): string {
+  const colon = id.lastIndexOf(':');
+  return colon >= 0 && colon < id.length - 1 ? id.slice(colon + 1) : '?';
 }
 
 /** Each instrument either side holds, with the app's and the broker's quantity. */
