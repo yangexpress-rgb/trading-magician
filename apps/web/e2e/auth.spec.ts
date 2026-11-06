@@ -29,7 +29,7 @@ test('sign up, verify email, and land in a provisioned paper workspace', async (
   await expect(demo.getByRole('row', { name: /Demo paper account/ })).toContainText('Default');
   await page.getByRole('link', { name: 'Data feeds' }).click();
   await expect(
-    page.getByRole('list', { name: 'Data feeds' }).getByRole('listitem', { name: 'Demo feed' }),
+    page.getByRole('list', { name: 'Price feeds' }).getByRole('listitem', { name: 'Demo feed' }),
   ).toBeVisible();
 });
 

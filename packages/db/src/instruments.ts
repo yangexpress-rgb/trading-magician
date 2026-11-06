@@ -19,17 +19,29 @@ export interface InstrumentOptionRow {
 
 export type LookupStatus = 'pending' | 'found' | 'not_found' | 'failed';
 
+/** A listing the provider offered for a name search, not yet registered. */
+export interface InstrumentCandidate {
+  symbol: string;
+  displayName: string;
+  assetClass: string;
+  venue: string;
+}
+
 export interface InstrumentLookupSummary {
   id: string;
+  /** What the person typed. */
   symbol: string;
   status: LookupStatus;
   message: string | null;
   instrument: InstrumentOptionRow | null;
+  candidates: InstrumentCandidate[];
   createdAt: string;
 }
 
 const SYMBOL = /^[A-Z][A-Z0-9.]{0,9}$/;
 const MAX_PENDING = 5;
+/** Letters, digits and the punctuation company names use. */
+const QUERY = /^[\p{L}\p{N}][\p{L}\p{N} &.,'’-]*$/u;
 
 const optionColumns = {
   id: instruments.id,
@@ -71,10 +83,12 @@ export async function requestInstrumentLookup(
   tx: Transaction,
   input: { userId: string; symbol: string },
 ): Promise<InstrumentLookupSummary> {
-  const symbol = normalizeSymbol(input.symbol);
-  if (!symbol) {
-    throw new IntegrationError('bad_request', 'Enter a ticker symbol, such as the letters ABC');
+  // A ticker or a company name: tried as a ticker when it can be one, then by name.
+  const query = input.symbol.trim().replace(/\s+/g, ' ').slice(0, 60);
+  if (!QUERY.test(query)) {
+    throw new IntegrationError('bad_request', 'Enter a ticker symbol or a company name');
   }
+  const symbol = normalizeSymbol(query) ?? null;
   const [pending] = await tx
     .select({ n: sql<number>`count(*)::int` })
     .from(instrumentLookups)
@@ -84,7 +98,7 @@ export async function requestInstrumentLookup(
   }
   const [row] = await tx
     .insert(instrumentLookups)
-    .values({ userId: input.userId, symbol })
+    .values({ userId: input.userId, symbol, query })
     .returning({ id: instrumentLookups.id });
   if (!row) throw new Error('lookup insert failed');
   return getInstrumentLookup(tx, row.id);
@@ -98,9 +112,11 @@ export async function getInstrumentLookup(
     .select({
       id: instrumentLookups.id,
       symbol: instrumentLookups.symbol,
+      query: instrumentLookups.query,
       status: instrumentLookups.status,
       message: instrumentLookups.message,
       instrumentId: instrumentLookups.instrumentId,
+      candidates: instrumentLookups.candidates,
       createdAt: instrumentLookups.createdAt,
     })
     .from(instrumentLookups)
@@ -115,10 +131,11 @@ export async function getInstrumentLookup(
   }
   return {
     id: row.id,
-    symbol: row.symbol,
+    symbol: row.symbol ?? row.query ?? '',
     status: row.status,
     message: row.message,
     instrument,
+    candidates: (row.candidates as InstrumentCandidate[] | null) ?? [],
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -140,6 +157,7 @@ export async function loadPendingLookup(tx: Transaction, id: string) {
     .select({
       id: instrumentLookups.id,
       symbol: instrumentLookups.symbol,
+      query: instrumentLookups.query,
       attempts: instrumentLookups.attempts,
     })
     .from(instrumentLookups)
@@ -173,7 +191,8 @@ export async function finishLookup(
   id: string,
   outcome:
     | { status: 'found'; instrumentId: string }
-    | { status: 'not_found' | 'failed'; message: string }
+    | { status: 'not_found'; message: string; candidates?: InstrumentCandidate[] }
+    | { status: 'failed'; message: string }
     | { status: 'retry' },
 ): Promise<void> {
   // A retry keeps its lease, which then lapses and lets the lookup be claimed again.
@@ -183,7 +202,18 @@ export async function finishLookup(
     .set(
       outcome.status === 'found'
         ? { status: 'found', instrumentId: outcome.instrumentId, message: null }
-        : { status: outcome.status, message: outcome.message.slice(0, 200) },
+        : outcome.status === 'not_found'
+          ? {
+              status: 'not_found',
+              message: outcome.message.slice(0, 200),
+              candidates: (outcome.candidates ?? []).slice(0, 10).map((c) => ({
+                symbol: c.symbol,
+                displayName: c.displayName.slice(0, 200),
+                assetClass: c.assetClass,
+                venue: c.venue,
+              })),
+            }
+          : { status: 'failed', message: outcome.message.slice(0, 200) },
     )
     .where(and(eq(instrumentLookups.id, id), eq(instrumentLookups.status, 'pending')));
 }

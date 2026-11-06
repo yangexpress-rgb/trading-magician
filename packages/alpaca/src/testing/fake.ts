@@ -3,6 +3,7 @@ import {
   BrokerRejectedError,
   deriveBrokerOrder,
   NYSE_ZONE,
+  nyDate,
   zonedWallTimeToIso,
   type BrokerOrderUpdate,
   type LiveQuoteProvider,
@@ -173,6 +174,18 @@ export class FakeAlpaca {
         next_open: now.toISOString(),
         next_close: now.toISOString(),
       });
+    }
+    if (method === 'GET' && path === '/v2/assets') {
+      // Every listed asset, filtered as Alpaca filters by status and class.
+      const all = Object.keys(FAKE_ALPACA_ASSETS).flatMap((s) => this.asset(s) ?? []);
+      return json(
+        200,
+        all.filter(
+          (a) =>
+            (!q.get('status') || a.status === q.get('status')) &&
+            (!q.get('asset_class') || a.class === q.get('asset_class')),
+        ),
+      );
     }
     const asset = /^\/v2\/assets\/([^/]+)$/.exec(path);
     if (method === 'GET' && asset) {
@@ -463,60 +476,91 @@ export class FakeAlpaca {
     }
     const snap = /^\/v2\/stocks\/([^/]+)\/snapshot$/.exec(path);
     if (snap) {
-      const symbol = decodeURIComponent(snap[1]!);
-      const asset = FAKE_ALPACA_ASSETS[symbol];
-      const quote = asset
-        ? await this.demoQuotes.latestQuote({ instrumentId: symbol, symbol: asset.demo })
-        : undefined;
-      if (!quote) return json(404, { code: 40410000, message: 'not found' });
-      const body: AlpacaSnapshot = {
-        latestTrade: {
-          t: quote.at,
-          x: 'V',
-          p: quote.last.toNumber(),
-          s: 100,
-          c: ['@'],
-          i: ++this.seq,
-          z: 'C',
-        },
-        latestQuote: {
-          t: quote.at,
-          ax: 'V',
-          ap: quote.ask.toNumber(),
-          as: quote.size.toNumber(),
-          bx: 'V',
-          bp: quote.bid.toNumber(),
-          bs: quote.size.toNumber(),
-          c: ['R'],
-          z: 'C',
-        },
-        minuteBar: null,
-        dailyBar: null,
-        prevDailyBar: null,
-      };
-      return json(200, body);
+      const body = await this.snapshot(decodeURIComponent(snap[1]!));
+      return body ? json(200, body) : json(404, { code: 40410000, message: 'not found' });
+    }
+    if (path === '/v2/stocks/snapshots') {
+      // Keyed by symbol; symbols without data are left out, as Alpaca does.
+      const out: Record<string, AlpacaSnapshot> = {};
+      for (const symbol of (q.get('symbols') ?? '').split(',').filter(Boolean)) {
+        const body = await this.snapshot(symbol);
+        if (body) out[symbol] = body;
+      }
+      return json(200, out);
     }
     if (path === '/v2/stocks/bars') return this.bars(q);
     return json(404, { message: 'not found' });
   }
 
-  private async bars(q: URLSearchParams): Promise<Response> {
-    const symbol = q.get('symbols') ?? '';
+  /** The latest trade and quote from the demo path, and its last two daily bars. */
+  private async snapshot(symbol: string): Promise<AlpacaSnapshot | undefined> {
     const asset = FAKE_ALPACA_ASSETS[symbol];
-    const timeframe = q.get('timeframe');
-    if (timeframe !== '1Day' && timeframe !== '1Hour') {
-      return json(422, { code: 42210000, message: 'invalid timeframe' });
-    }
-    if (!asset) return json(200, { bars: {}, next_page_token: null });
-    const adjustment = q.get('adjustment') ?? 'raw';
+    const quote = asset
+      ? await this.demoQuotes.latestQuote({ instrumentId: symbol, symbol: asset.demo })
+      : undefined;
+    if (!asset || !quote) return undefined;
+    const now = this.now();
+    const today = nyDate(now);
+    const daily = await this.barsFor(symbol, '1Day', addIsoDays(today, -10), today, 'raw');
+    // Today's bar, while the session trades, is built from its finished 5-minute bars.
+    const minutes = (await this.barsFor(symbol, '5Min', today, today, 'raw')).filter(
+      (b) => Date.parse(b.t) + 5 * 60_000 <= now.getTime(),
+    );
+    const todayBar: AlpacaBar | undefined = minutes.length
+      ? {
+          t: new Date(zonedWallTimeToIso(`${today}T00:00`, NYSE_ZONE)!).toISOString(),
+          o: minutes[0]!.o,
+          h: Math.max(...minutes.map((b) => b.h)),
+          l: Math.min(...minutes.map((b) => b.l)),
+          c: minutes.at(-1)!.c,
+          v: minutes.reduce((a, b) => a + b.v, 0),
+          n: 100,
+          vw: minutes.at(-1)!.c,
+        }
+      : undefined;
+    const finished = daily.filter((b) => !todayBar || b.t < todayBar.t);
+    return {
+      latestTrade: {
+        t: quote.at,
+        x: 'V',
+        p: quote.last.toNumber(),
+        s: 100,
+        c: ['@'],
+        i: ++this.seq,
+        z: 'C',
+      },
+      latestQuote: {
+        t: quote.at,
+        ax: 'V',
+        ap: quote.ask.toNumber(),
+        as: quote.size.toNumber(),
+        bx: 'V',
+        bp: quote.bid.toNumber(),
+        bs: quote.size.toNumber(),
+        c: ['R'],
+        z: 'C',
+      },
+      minuteBar: minutes.at(-1) ?? null,
+      dailyBar: todayBar ?? finished.at(-1) ?? null,
+      prevDailyBar: todayBar ? (finished.at(-1) ?? null) : (finished.at(-2) ?? null),
+    };
+  }
+
+  private async barsFor(
+    symbol: string,
+    timeframe: '1Day' | '1Hour' | '5Min',
+    start: string,
+    end: string,
+    adjustment: string,
+  ): Promise<AlpacaBar[]> {
+    const asset = FAKE_ALPACA_ASSETS[symbol];
+    if (!asset) return [];
     const history = createDemoHistoryProvider({ now: this.now });
-    const start = (q.get('start') ?? '').slice(0, 10);
-    const end = (q.get('end') ?? '').slice(0, 10);
     const series = await history.getBars({
       instrumentId: symbol,
       symbol: asset.demo,
       assetClass: 'stock',
-      interval: timeframe === '1Day' ? '1d' : '1h',
+      interval: timeframe === '1Day' ? '1d' : timeframe === '5Min' ? '5m' : '1h',
       from: start,
       to: end,
       adjustment:
@@ -527,7 +571,7 @@ export class FakeAlpaca {
             : 'none',
       session: 'regular',
     });
-    const all: AlpacaBar[] = series.bars.map((b) => ({
+    return series.bars.map((b) => ({
       t:
         timeframe === '1Day'
           ? new Date(zonedWallTimeToIso(`${b.start.slice(0, 10)}T00:00`, NYSE_ZONE)!).toISOString()
@@ -540,12 +584,34 @@ export class FakeAlpaca {
       n: 100,
       vw: b.close.toNumber(),
     }));
+  }
+
+  private async bars(q: URLSearchParams): Promise<Response> {
+    const timeframe = q.get('timeframe');
+    if (timeframe !== '1Day' && timeframe !== '1Hour' && timeframe !== '5Min') {
+      return json(422, { code: 42210000, message: 'invalid timeframe' });
+    }
+    const start = (q.get('start') ?? '').slice(0, 10);
+    // Alpaca's end defaults to now.
+    const end = (q.get('end') ?? this.now().toISOString()).slice(0, 10);
+    const adjustment = q.get('adjustment') ?? 'raw';
+    // Pages run through the symbols in order, each symbol's bars oldest first.
+    const all: [string, AlpacaBar][] = [];
+    for (const symbol of (q.get('symbols') ?? '').split(',').filter(Boolean).sort()) {
+      for (const b of await this.barsFor(symbol, timeframe, start, end, adjustment)) {
+        all.push([symbol, b]);
+      }
+    }
     const limit = Math.min(Number(q.get('limit') ?? 1000), 10_000);
     const offset = Number(q.get('page_token') ?? 0);
-    const page = all.slice(offset, offset + limit);
+    const bars: Record<string, AlpacaBar[]> = {};
+    for (const [symbol, b] of all.slice(offset, offset + limit)) (bars[symbol] ??= []).push(b);
     const next = offset + limit < all.length ? String(offset + limit) : null;
-    return json(200, { bars: { [symbol]: page }, next_page_token: next });
+    return json(200, { bars, next_page_token: next });
   }
 }
+
+const addIsoDays = (date: string, days: number) =>
+  new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 
 export { ACCOUNT as FAKE_ALPACA_ACCOUNT };

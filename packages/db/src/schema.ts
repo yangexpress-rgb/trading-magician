@@ -382,9 +382,14 @@ export const instrumentLookups = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    symbol: text('symbol').notNull(),
+    /** The ticker to try first; null when what was typed cannot be one. */
+    symbol: text('symbol'),
+    /** What the person typed: a ticker or a company name (ADR 0029). */
+    query: text('query'),
     status: instrumentLookupStatus('status').notNull().default('pending'),
     instrumentId: uuid('instrument_id').references(() => instruments.id),
+    /** When nothing trades as the symbol: the closest listings by symbol or name, unregistered. */
+    candidates: jsonb('candidates').notNull().default([]),
     /** Short and secret-free; shown to the person. */
     message: text('message'),
     leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
@@ -396,9 +401,138 @@ export const instrumentLookups = pgTable(
       .on(t.createdAt)
       .where(sql`${t.status} = 'pending'`),
     check('instrument_lookup_symbol', sql`${t.symbol} ~ '^[A-Z][A-Z0-9.]{0,9}$'`),
+    check('instrument_lookup_has_text', sql`${t.symbol} IS NOT NULL OR ${t.query} IS NOT NULL`),
+    check('instrument_lookup_query', sql`length(${t.query}) BETWEEN 1 AND 60`),
     check(
       'instrument_lookup_found_has_instrument',
       sql`(${t.status} = 'found') = (${t.instrumentId} IS NOT NULL)`,
+    ),
+  ],
+);
+
+export const priceChartStatus = pgEnum('price_chart_status', ['pending', 'ready', 'failed']);
+
+/**
+ * A person's request for a price chart in Quantitative Research (ADR 0029).
+ * Bars come through the tenant's bars route, which only the worker can open,
+ * so the web app queues the request and the worker stores the bars on the row.
+ * Rows are short-lived: the worker deletes those older than a day.
+ */
+export const priceCharts = pgTable(
+  'price_chart',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => instruments.id),
+    interval: text('interval').notNull(),
+    range: text('range').notNull(),
+    /** Inclusive New York dates the bars cover. */
+    fromDate: date('from_date').notNull(),
+    toDate: date('to_date').notNull(),
+    status: priceChartStatus('status').notNull().default('pending'),
+    /** `[startMs, open, high, low, close, volume][]`, oldest first. */
+    bars: jsonb('bars'),
+    warnings: jsonb('warnings').notNull().default([]),
+    /** The data feed that answered, by its name in Settings › Data feeds. */
+    source: text('source'),
+    /** Short and secret-free; shown to the person. */
+    message: text('message'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    attempts: integer('attempts').notNull().default(0),
+    ...timestamps(),
+  },
+  (t) => [
+    index('price_chart_pending_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'pending'`),
+    index('price_chart_reuse_idx').on(t.userId, t.instrumentId, t.interval, t.range, t.createdAt),
+    check('price_chart_interval', sql`${t.interval} IN ('5m', '1h', '1d')`),
+    check('price_chart_range', sql`${t.range} IN ('1d', '1w', '1m', '3m', '6m', '1y', '5y')`),
+    check('price_chart_dates', sql`${t.fromDate} <= ${t.toDate}`),
+    check('price_chart_ready_has_bars', sql`(${t.status} = 'ready') = (${t.bars} IS NOT NULL)`),
+  ],
+);
+
+export const stockScreenStatus = pgEnum('stock_screen_status', ['pending', 'ready', 'failed']);
+
+/**
+ * Stock screens for Quantitative Research (ADR 0030): the web app asks, the
+ * worker fills in one row of key values per US stock or ETF the tenant's data
+ * feed covers. A cache of provider data, cleared after a day.
+ */
+export const stockScreens = pgTable(
+  'stock_screen',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: stockScreenStatus('status').notNull().default('pending'),
+    /** Which stocks: the S&P 500 members, or every listing the feed covers. */
+    universe: text('universe').notNull().default('all'),
+    /** New York date of the session the screen calls today. */
+    sessionDate: date('session_date'),
+    /** Row tuples in the order of `SCREEN_TEXT_COLUMNS`, `SCREEN_PRICE_COLUMNS`, lastAt, instrumentId, `SCREEN_FUNDAMENTAL_COLUMNS`. */
+    rows: jsonb('rows'),
+    rowCount: integer('row_count'),
+    warnings: jsonb('warnings').notNull().default([]),
+    /** The data feed that answered, by its name in Settings › Data feeds. */
+    source: text('source'),
+    /** Short and secret-free; shown to the person. */
+    message: text('message'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    attempts: integer('attempts').notNull().default(0),
+    ...timestamps(),
+  },
+  (t) => [
+    index('stock_screen_pending_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'pending'`),
+    index('stock_screen_reuse_idx').on(t.userId, t.createdAt),
+    check('stock_screen_universe', sql`${t.universe} IN ('sp500', 'all')`),
+    check('stock_screen_ready_has_rows', sql`(${t.status} = 'ready') = (${t.rows} IS NOT NULL)`),
+  ],
+);
+
+export const companyReportStatus = pgEnum('company_report_status', ['pending', 'ready', 'failed']);
+
+/**
+ * Company pages for Quantitative Research (ADR 0031): the web app asks for a
+ * symbol, the worker fills in the profile, financials and filings from the
+ * tenant's company data feed. A cache of provider data, cleared after a day.
+ */
+export const companyReports = pgTable(
+  'company_report',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    symbol: text('symbol').notNull(),
+    status: companyReportStatus('status').notNull().default('pending'),
+    /** A `CompanyReport` from `@tm/domain`, once ready. */
+    report: jsonb('report'),
+    /** The company data feed that answered, by its name in Settings › Data feeds. */
+    source: text('source'),
+    /** Short and secret-free; shown to the person. */
+    message: text('message'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    attempts: integer('attempts').notNull().default(0),
+    ...timestamps(),
+  },
+  (t) => [
+    index('company_report_pending_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'pending'`),
+    index('company_report_reuse_idx').on(t.userId, t.symbol, t.createdAt),
+    check('company_report_symbol', sql`${t.symbol} ~ '^[A-Z][A-Z0-9.]{0,9}$'`),
+    check(
+      'company_report_ready_has_report',
+      sql`(${t.status} = 'ready') = (${t.report} IS NOT NULL)`,
     ),
   ],
 );

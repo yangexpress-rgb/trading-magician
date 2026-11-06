@@ -142,7 +142,8 @@ export interface FeedInUseDetails {
 // Instrument lookups (ADR 0017)
 
 export const createInstrumentLookupRequest = z.object({
-  symbol: z.string().trim().min(1).max(12),
+  /** A ticker, or a company name to search for (ADR 0029). */
+  symbol: z.string().trim().min(1).max(60),
 });
 export type CreateInstrumentLookupRequest = z.infer<typeof createInstrumentLookupRequest>;
 
@@ -161,6 +162,8 @@ export interface InstrumentLookupDto {
   /** Why nothing was found, in words for the person. */
   message: string | null;
   instrument: InstrumentOptionDto | null;
+  /** When nothing trades as what was typed: the closest listings, to pick from. */
+  candidates: Omit<InstrumentOptionDto, 'id'>[];
   createdAt: string;
 }
 

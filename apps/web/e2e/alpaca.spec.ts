@@ -24,7 +24,7 @@ test('connects an Alpaca feed and finds a US stock for a strategy', async ({ pag
   await add.getByRole('button', { name: 'Add feed' }).click();
   await expect(add).toBeHidden();
   const feed = page
-    .getByRole('list', { name: 'Data feeds' })
+    .getByRole('list', { name: 'Price feeds' })
     .getByRole('listitem', { name: 'Alpaca prices' });
   await expect(feed.getByText('Healthy')).toBeVisible();
   await expect(feed).toContainText('Entitled');
@@ -52,7 +52,7 @@ test('connects an Alpaca feed and finds a US stock for a strategy', async ({ pag
 
   await page.getByLabel('Symbol').fill('NOSUCH');
   await page.getByRole('button', { name: 'Find' }).click();
-  await expect(page.getByText('No US stock or ETF trades as NOSUCH.')).toBeVisible();
+  await expect(page.getByText('No US stock or ETF matches “NOSUCH”.')).toBeVisible();
 
   // It stays available to this person's strategies.
   await page.reload();

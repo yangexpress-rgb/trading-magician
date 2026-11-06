@@ -29,7 +29,8 @@ describe('demo history provider', () => {
       expect(b.low.gt(0) && b.volume.gt(0)).toBe(true);
       expect(Date.parse(b.end)).toBeGreaterThan(Date.parse(b.start));
     }
-  });
+    // The first call generates the paths from 2015 on, which takes a few seconds on a busy runner.
+  }, 20_000);
 
   it('is deterministic and independent of the requested range', async () => {
     const year = await provider.getBars(req());
@@ -100,7 +101,35 @@ describe('demo history provider', () => {
     expect(live.warnings).toEqual(['Demo history has regular-session bars only']);
     const early = await provider.getBars(req({ from: '2010-01-01', to: '2015-01-09' }));
     expect(early.warnings).toEqual(['Demo history starts on 2015-01-02']);
-    await expect(provider.getBars(req({ interval: '5m' }))).rejects.toThrow(/not 5m/);
+    await expect(provider.getBars(req({ interval: '15m' }))).rejects.toThrow(/not 15m/);
     await expect(provider.getBars(req({ symbol: 'NOPE' }))).rejects.toThrow(/No demo history/);
+  });
+});
+
+describe('five-minute demo bars', () => {
+  it('add up to the hourly bars they come from, and never change', async () => {
+    const day = { from: '2024-03-05', to: '2024-03-05' };
+    const hourly = await provider.getBars(req({ ...day, interval: '1h' }));
+    const fives = await provider.getBars(req({ ...day, interval: '5m' }));
+    // 6.5 hours of trading, less any hour left out as missing.
+    expect(fives.bars.length).toBe(
+      hourly.bars.reduce((n, h) => n + (Date.parse(h.end) - Date.parse(h.start)) / 300_000, 0),
+    );
+    for (const h of hourly.bars) {
+      const inside = fives.bars.filter((b) => b.start >= h.start && b.end <= h.end);
+      expect(inside[0]!.open.toString()).toBe(h.open.toString());
+      expect(inside.at(-1)!.close.toString()).toBe(h.close.toString());
+      expect(Math.max(...inside.map((b) => b.high.toNumber()))).toBe(h.high.toNumber());
+      expect(Math.min(...inside.map((b) => b.low.toNumber()))).toBe(h.low.toNumber());
+      expect(inside.reduce((v, b) => v + b.volume.toNumber(), 0)).toBe(h.volume.toNumber());
+      for (const b of inside) {
+        expect(b.high.gte(b.open) && b.high.gte(b.close)).toBe(true);
+        expect(b.low.lte(b.open) && b.low.lte(b.close)).toBe(true);
+      }
+    }
+    const again = await createDemoHistoryProvider({ now: () => NOW }).getBars(
+      req({ ...day, interval: '5m' }),
+    );
+    expect(again.bars).toEqual(fives.bars);
   });
 });

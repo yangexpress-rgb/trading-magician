@@ -73,13 +73,13 @@ test('define, validate, test, start on paper, stop, revise and review versions',
     side: 'Sell short',
     quantity: '10',
   });
-  await addLeg(page, 'Exit', 1, { name: 'Sell A', symbol: 'DEMO-A', side: 'Sell', quantity: '10' });
-  const coverB = await addLeg(page, 'Exit', 2, {
-    name: 'Cover B',
-    symbol: 'DEMO-B',
-    side: 'Buy to cover',
-    quantity: '10',
-  });
+  // Exit is pre-filled with the opposite legs; only the names change here.
+  const sellA = page.getByRole('region', { name: 'Exit leg 1', exact: true });
+  await expect(sellA.getByLabel('Side')).toHaveValue('sell');
+  await sellA.getByLabel('Leg name').fill('Sell A');
+  const coverB = page.getByRole('region', { name: 'Exit leg 2', exact: true });
+  await expect(coverB.getByLabel('Side')).toHaveValue('buy_to_cover');
+  await coverB.getByLabel('Leg name').fill('Cover B');
   await expect(
     validation.getByText('Showing results for the last saved draft', { exact: false }),
   ).toBeVisible();

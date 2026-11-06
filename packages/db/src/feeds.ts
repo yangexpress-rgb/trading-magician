@@ -1,5 +1,7 @@
 import {
   FAILOVER,
+  isFundamentalsProvider,
+  isMarketDataProvider,
   isProviderId,
   PROVIDERS,
   providerCoversVenue,
@@ -253,7 +255,8 @@ async function checkFeedInput(tx: Transaction, input: FeedInput) {
     throw new IntegrationError('bad_request', 'Choose a supported provider');
   }
   const info = PROVIDERS[input.provider];
-  if (!(info.offers as readonly string[]).includes('market_data')) {
+  // Price feeds and company data feeds (ADR 0031) share this table; brokers do not.
+  if (!isMarketDataProvider(input.provider) && !isFundamentalsProvider(input.provider)) {
     throw new IntegrationError('bad_request', `${info.name} does not provide market data`);
   }
   const supported: readonly string[] = info.assetClasses;
@@ -289,7 +292,8 @@ export async function createFeed(
   input: FeedInput & { userId: string },
 ): Promise<FeedSummary> {
   const credentialRef = await checkFeedInput(tx, input);
-  await assertFeature(tx, 'liveData');
+  // Company filings are public and free; only price feeds from a provider are a plan feature.
+  if (isMarketDataProvider(input.provider)) await assertFeature(tx, 'liveData');
   const [row] = await tx
     .insert(dataFeedConnections)
     .values({

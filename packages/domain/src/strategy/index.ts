@@ -3,6 +3,7 @@ export * from './defaults';
 export * from './evaluate';
 export * from './ids';
 export * from './lifecycle';
+export * from './mirror';
 export * from './schema';
 export * from './serialize';
 export * from './timing';

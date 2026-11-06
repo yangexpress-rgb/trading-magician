@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { FAKE_ALPACA_DATA_URL, FAKE_ALPACA_TRADING_URL, FakeAlpaca } from '@tm/alpaca/testing';
+import { FAKE_SEC_DATA_URL, FAKE_SEC_WWW_URL, FakeSec } from '@tm/sec/testing';
 import { StripeBilling } from '@tm/billing';
 import { createDb, withTenant } from '@tm/db';
 import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
@@ -14,7 +15,11 @@ import { createErrorReporter, createLogger } from './logger';
 import { alpacaBrokerProvider, alpacaProvider, type AlpacaProviderOptions } from './alpaca';
 import { startBrokerCheckLoop, type BrokerCheckLoop } from './broker-checks';
 import { startInstrumentLookupLoop, type LookupLoop } from './instrument-lookups';
-import { demoProvider, type ProviderRegistry } from './providers';
+import { startPriceChartLoop, type PriceChartLoop } from './price-charts';
+import { startStockScreenLoop, type StockScreenLoop } from './stock-screens';
+import { startCompanyReportLoop, type CompanyReportLoop } from './company-reports';
+import { demoProvider, type FundamentalsRegistry, type ProviderRegistry } from './providers';
+import { secProvider, type SecProviderOptions } from './sec';
 import { createRoutedHistory } from './routed-history';
 import { startRuntimeLoop, type RuntimeLoop } from './runtime';
 import { startValuationLoop, type ValuationLoop } from './valuations';
@@ -42,6 +47,9 @@ let loop: BacktestLoop | undefined;
 let runtimes: RuntimeLoop | undefined;
 let feedChecks: FeedCheckLoop | undefined;
 let lookups: LookupLoop | undefined;
+let charts: PriceChartLoop | undefined;
+let screens: StockScreenLoop | undefined;
+let companies: CompanyReportLoop | undefined;
 let brokerChecks: BrokerCheckLoop | undefined;
 let valuations: ValuationLoop | undefined;
 let billing: BillingLoop | undefined;
@@ -76,6 +84,16 @@ if (databaseUrl) {
     alpaca: alpacaProvider(alpacaOptions),
   };
   const brokers = { alpaca: alpacaBrokerProvider(alpacaOptions) };
+  let secOptions: SecProviderOptions = {};
+  if (env.SEC_FAKE) {
+    const fake = new FakeSec({ now: now ?? (() => new Date()) });
+    secOptions = {
+      fetch: fake.fetch,
+      fake: { wwwUrl: FAKE_SEC_WWW_URL, dataUrl: FAKE_SEC_DATA_URL },
+    };
+    logger.warn('SEC EDGAR calls go to a local fake');
+  }
+  const fundamentals: FundamentalsRegistry = { sec: secProvider(secOptions) };
   const db = handle.db;
   loop = startBacktestLoop({
     db,
@@ -109,6 +127,7 @@ if (databaseUrl) {
     ...(now ? { now } : {}),
     db: handle.db,
     providers,
+    fundamentals,
     privateKey: env.CREDENTIALS_PRIVATE_KEY,
     logger,
     pollMs: env.FEED_CHECK_POLL_MS,
@@ -148,6 +167,28 @@ if (databaseUrl) {
     logger,
     pollMs: env.FEED_CHECK_POLL_MS,
   });
+  charts = startPriceChartLoop({
+    db,
+    providers,
+    privateKey: env.CREDENTIALS_PRIVATE_KEY,
+    logger,
+    pollMs: env.BACKTEST_POLL_MS,
+  });
+  screens = startStockScreenLoop({
+    db,
+    providers,
+    fundamentals,
+    privateKey: env.CREDENTIALS_PRIVATE_KEY,
+    logger,
+    pollMs: env.BACKTEST_POLL_MS,
+  });
+  companies = startCompanyReportLoop({
+    db,
+    fundamentals,
+    privateKey: env.CREDENTIALS_PRIVATE_KEY,
+    logger,
+    pollMs: env.BACKTEST_POLL_MS,
+  });
 } else {
   logger.warn('No database URL is set; the worker runs no jobs');
 }
@@ -167,6 +208,9 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         runtimes?.stop(),
         feedChecks?.stop(),
         lookups?.stop(),
+        charts?.stop(),
+        screens?.stop(),
+        companies?.stop(),
         brokerChecks?.stop(),
         valuations?.stop(),
         billing?.stop(),

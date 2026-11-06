@@ -145,10 +145,26 @@ describe('instrument lookups', () => {
   it('says when nothing trades under a symbol, and refuses nonsense', async () => {
     const missing = await lookUp(userA, 'NOSUCH');
     expect(missing).toMatchObject({ status: 'not_found' });
-    expect(missing.message).toBe('No US stock or ETF trades as NOSUCH.');
+    expect(missing.message).toBe('No US stock or ETF matches “NOSUCH”.');
     await expect(
       as(userA, (tx) => requestInstrumentLookup(tx, { userId: userA, symbol: '../etc' })),
     ).rejects.toMatchObject({ code: 'bad_request' });
+  });
+
+  it('searches company names when nothing trades as what was typed', async () => {
+    const byName = await lookUp(userA, 'beta');
+    expect(byName).toMatchObject({
+      status: 'not_found',
+      instrument: null,
+      candidates: [{ symbol: 'ZTSTB', displayName: 'Test Beta Corp. Common Stock', venue: 'NYSE' }],
+    });
+    expect(byName.message).toMatch(/Did you mean/);
+    // Words in any case, company suffixes ignored, and names with spaces are fine.
+    const words = await lookUp(userA, 'test broad market');
+    expect(words.candidates.map((c) => c.symbol)).toEqual(['ZTSTX']);
+    // A symbol prefix lists every match, best first; none is registered until picked.
+    const prefix = await lookUp(userA, 'ZTST');
+    expect(prefix.candidates.map((c) => c.symbol)).toEqual(['ZTSTA', 'ZTSTB', 'ZTSTX']);
   });
 
   it('reports a refused key without showing it', async () => {

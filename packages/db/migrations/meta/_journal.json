@@ -260,6 +260,76 @@
       "when": 1791315670941,
       "tag": "0036_auto_routes",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1793719405401,
+      "tag": "0037_price_charts",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1793719406359,
+      "tag": "0038_price_charts_worker",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1793724503596,
+      "tag": "0039_instrument_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1793724504652,
+      "tag": "0040_instrument_search_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1793730199790,
+      "tag": "0041_chart_one_day",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1793734507811,
+      "tag": "0042_stock_screens",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1793734521270,
+      "tag": "0043_stock_screens_worker",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1793752579513,
+      "tag": "0044_stock_screen_universe",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1793843582023,
+      "tag": "0045_company_reports",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1793843597957,
+      "tag": "0046_company_reports_worker",
+      "breakpoints": true
     }
   ]
 }

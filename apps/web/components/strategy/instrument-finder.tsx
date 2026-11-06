@@ -1,19 +1,17 @@
 'use client';
 
-import { ApiError, type InstrumentLookupDto, type InstrumentOptionDto } from '@tm/contracts';
+import type { InstrumentOptionDto } from '@tm/contracts';
 import { Alert, Button, Card, TextField } from '@tm/ui';
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
-import { apiClient } from '@/lib/api-client';
+import { useState } from 'react';
 import { ASSET_CLASS_LABELS } from '@/lib/integration-text';
-
-const POLL_MS = 1000;
-const GIVE_UP_MS = 30_000;
+import { CandidateList } from './candidate-list';
+import { useInstrumentLookup } from './use-instrument-lookup';
 
 /**
- * Finds a real US stock or ETF by symbol (ADR 0017). The worker looks it up
- * through the person's data feed; once found it can be picked anywhere in the
- * editor.
+ * Finds a real US stock or ETF by ticker or company name (ADR 0017, 0029).
+ * The worker looks it up through the person's data feed; once found it can be
+ * picked anywhere in the editor.
  */
 export function InstrumentFinder({
   instruments,
@@ -24,57 +22,19 @@ export function InstrumentFinder({
   onFound: (instrument: InstrumentOptionDto) => void;
   editable: boolean;
 }) {
-  const [symbol, setSymbol] = useState('');
-  const [lookup, setLookup] = useState<InstrumentLookupDto | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
+  const [text, setText] = useState('');
+  const { lookup, error, find, pending } = useInstrumentLookup((found) => {
+    onFound(found);
+    setText('');
+  });
 
   const real = instruments.filter((i) => i.venue !== 'DEMO');
 
-  async function find(e: React.FormEvent) {
-    e.preventDefault();
-    clearTimeout(timer.current);
-    setError(null);
-    try {
-      const started = await apiClient.instruments.lookup({ symbol });
-      setLookup(started);
-      const deadline = Date.now() + GIVE_UP_MS;
-      const poll = async (current: InstrumentLookupDto) => {
-        if (current.status !== 'pending') {
-          if (current.status === 'found' && current.instrument) {
-            onFound(current.instrument);
-            setSymbol('');
-          }
-          return;
-        }
-        if (Date.now() > deadline) {
-          setError('The lookup is taking longer than expected. Try again in a minute.');
-          setLookup(null);
-          return;
-        }
-        timer.current = setTimeout(() => {
-          void apiClient.instruments.getLookup(current.id).then(
-            (next) => {
-              setLookup(next);
-              void poll(next);
-            },
-            () => setError('Could not check the lookup. Try again.'),
-          );
-        }, POLL_MS);
-      };
-      void poll(started);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not start the lookup.');
-    }
-  }
-
-  const status =
-    lookup?.status === 'pending'
-      ? `Looking up ${lookup.symbol}…`
-      : lookup?.status === 'found' && lookup.instrument
-        ? `Added ${lookup.instrument.symbol}, ${lookup.instrument.displayName}. Pick it in any condition or order.`
-        : '';
+  const status = pending
+    ? `Looking up ${lookup?.symbol ?? ''}…`
+    : lookup?.status === 'found' && lookup.instrument
+      ? `Added ${lookup.instrument.symbol}, ${lookup.instrument.displayName}. Pick it in any condition or order.`
+      : '';
 
   return (
     <Card>
@@ -98,17 +58,23 @@ export function InstrumentFinder({
         </ul>
       )}
       {editable && (
-        <form onSubmit={(e) => void find(e)} className="flex flex-wrap items-end gap-2">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void find(text);
+          }}
+          className="flex flex-wrap items-end gap-2"
+        >
           <TextField
             name="instrument-symbol"
-            label="Symbol"
+            label="Symbol or company name"
             required
-            maxLength={12}
+            maxLength={60}
             autoComplete="off"
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
           />
-          <Button type="submit" disabled={lookup?.status === 'pending' || !symbol.trim()}>
+          <Button type="submit" disabled={pending || !text.trim()}>
             Find
           </Button>
         </form>
@@ -118,6 +84,13 @@ export function InstrumentFinder({
       </p>
       {(error || lookup?.status === 'not_found' || lookup?.status === 'failed') && (
         <Alert>{error ?? lookup?.message}</Alert>
+      )}
+      {editable && lookup?.status === 'not_found' && (
+        <CandidateList
+          candidates={lookup.candidates}
+          disabled={pending}
+          onPick={(symbol) => void find(symbol)}
+        />
       )}
     </Card>
   );

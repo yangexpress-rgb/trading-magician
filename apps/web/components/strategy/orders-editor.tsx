@@ -1,9 +1,12 @@
 'use client';
 
 import {
+  exitFollowsEntry,
   ORDER_TYPES,
   QUANTITY_TYPES,
   randomId,
+  refillExitOrders,
+  syncExitWithEntry,
   TIME_IN_FORCE,
   type Expr,
   type OrderSide,
@@ -63,12 +66,29 @@ export function OrdersEditor({
   );
   const labelOf = (id: string) => allLegs.find((l) => l.id === id)?.label;
 
-  const setOrders = (next: PlannedOrder[], legOrder?: string[]) =>
-    onChange({
+  const setOrders = (next: PlannedOrder[], legOrder?: string[]) => {
+    const edited: StrategyDefinition = {
       ...definition,
       [phase]: { ...definition[phase], orders: next },
       ...(legOrder ? { execution: { ...definition.execution, legOrder } } : {}),
-    });
+    };
+    // Exit legs follow Entry until the user changes them (ADR 0028).
+    onChange(phase === 'entry' ? syncExitWithEntry(definition, edited) : edited);
+  };
+  const following = phase === 'exit' && orders.length > 0 && exitFollowsEntry(definition);
+  const canRefill =
+    phase === 'exit' &&
+    definition.entry.orders.length > 0 &&
+    (orders.length === 0 || !exitFollowsEntry(definition));
+  const refill = () => {
+    if (
+      orders.length > 0 &&
+      !window.confirm('Replace your Exit orders with the opposite of your Entry orders?')
+    ) {
+      return;
+    }
+    onChange(refillExitOrders(definition));
+  };
   const legOrder = definition.execution.legOrder;
 
   const addLeg = () => {
@@ -125,6 +145,15 @@ export function OrdersEditor({
           ? 'Orders placed when Entry qualifies. Each leg can trade a different instrument.'
           : 'Orders that close what Entry opened. Exit orders never open a new position.'}
       </p>
+      {following && (
+        <p
+          className="mb-3 rounded-md bg-surface-2 px-2.5 py-1.5 text-xs text-ink-muted"
+          role="note"
+        >
+          Filled in from your Entry orders: the opposite side on the same instrument and quantity.
+          They keep following Entry until you change one; after that they&rsquo;re yours.
+        </p>
+      )}
       {issueAt([phase, 'orders']) && (
         <p className="mb-2 text-xs font-medium text-danger">{issueAt([phase, 'orders'])}</p>
       )}
@@ -164,6 +193,15 @@ export function OrdersEditor({
           onClick={addLeg}
         >
           + Add {title} order
+        </button>
+      )}
+      {editable && canRefill && (
+        <button
+          type="button"
+          className="ml-2 mt-3 rounded-md border border-line bg-surface px-2.5 py-1 text-sm font-medium hover:bg-surface-2"
+          onClick={refill}
+        >
+          Match Entry orders
         </button>
       )}
     </div>

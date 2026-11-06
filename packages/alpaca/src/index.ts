@@ -25,9 +25,21 @@ export {
 export {
   alpacaCapabilities,
   discoverAlpacaAccount,
+  listAlpacaAssets,
   lookupAlpacaAsset,
+  searchInstruments,
   maskAccountNumber,
   type DiscoveredAccount,
   type DiscoveredInstrument,
 } from './account';
 export { ALPACA_BROKER_ID, AlpacaBroker, type AlpacaBrokerOptions } from './broker';
+export {
+  fetchDailyHistory,
+  fetchSnapshots,
+  screenSource,
+  screenUniverse,
+  SCREEN_BATCH,
+  SCREEN_EXCHANGES,
+  type Fetched,
+  type ScreenFetchOptions,
+} from './screen';

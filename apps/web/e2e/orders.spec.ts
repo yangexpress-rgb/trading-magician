@@ -71,19 +71,19 @@ test('long DEMO-A and short DEMO-B on Entry; Exit legs 5 minutes after the Entry
   });
   await expect(page.getByText('These legs are sent as separate orders').first()).toBeVisible();
 
-  const sellA = await addLeg(page, 'Exit', 1, {
-    name: 'Sell A',
-    symbol: 'DEMO-A',
-    side: 'Sell',
-    quantity: '100',
-  });
+  // Exit is pre-filled with the opposite of each Entry leg.
+  const exitRow = (n: number) => page.getByRole('region', { name: `Exit leg ${n}`, exact: true });
+  await expect(
+    page.getByRole('note').filter({ hasText: 'Filled in from your Entry orders' }),
+  ).toBeVisible();
+  const sellA = exitRow(1);
+  await expect(sellA.getByLabel('Side')).toHaveValue('sell');
+  await expect(sellA.getByLabel('Quantity', { exact: true })).toHaveValue('100');
+  await sellA.getByLabel('Leg name').fill('Sell A');
   await fiveMinutesAfterEntrySubmitted(sellA);
-  const coverB = await addLeg(page, 'Exit', 2, {
-    name: 'Cover B',
-    symbol: 'DEMO-B',
-    side: 'Buy to cover',
-    quantity: '100',
-  });
+  const coverB = exitRow(2);
+  await expect(coverB.getByLabel('Side')).toHaveValue('buy_to_cover');
+  await coverB.getByLabel('Leg name').fill('Cover B');
   await fiveMinutesAfterEntrySubmitted(coverB);
   await expect(sellA.getByText('Timing: 5 minutes after entry order submitted')).toBeVisible();
 
@@ -171,8 +171,10 @@ test('exact zoned times, limit prices, sequential legs and risk limits round-tri
   expect(a).toMatchObject({ orderType: 'limit', limitPrice: { kind: 'constant', value: '99.5' } });
   expect(definition.execution).toMatchObject({
     multiLegPolicy: 'sequential',
-    legOrder: [b.id, a.id],
+    // Exit legs were pre-filled from Entry, so they are in the submission order too.
+    legOrder: [b.id, a.id, ...definition.exit.orders.map((o: { id: string }) => o.id)],
   });
+  expect(definition.exit.orders).toHaveLength(2);
   expect(definition.risk.dailyLossLimit).toBeUndefined();
   expect(validation.errors.map((e: { code: string }) => e.code)).toContain('missing_risk_limit');
 
@@ -181,4 +183,39 @@ test('exact zoned times, limit prices, sequential legs and risk limits round-tri
   await expect(again.getByLabel('Date and time', { exact: true })).toHaveValue('2027-01-15T09:30');
   await expect(page.getByLabel(/^Daily loss limit/)).toHaveValue('');
   await expect(page.getByRole('list').filter({ hasText: '1.Open B' })).toBeVisible();
+});
+
+test('Exit orders follow Entry until edited, and can be matched to Entry again', async ({
+  page,
+  baseURL,
+}) => {
+  await signUpAndVerify(page, uniqueEmail('mirror'));
+  await newStrategy(page, baseURL!, 'Mirrored exit');
+
+  await addLeg(page, 'Entry', 1, { name: 'Long A', symbol: 'DEMO-A', side: 'Buy', quantity: '50' });
+  const entry = page.getByRole('region', { name: 'Entry leg 1', exact: true });
+  const exit = page.getByRole('region', { name: 'Exit leg 1', exact: true });
+  await expect(exit.getByLabel('Leg name')).toHaveValue('Exit Long A');
+  await expect(exit.getByLabel('Side')).toHaveValue('sell');
+  await expect(exit.getByLabel('Quantity', { exact: true })).toHaveValue('50');
+  await expect(exit.getByLabel('Instrument', { exact: true })).toHaveValue(
+    await entry.getByLabel('Instrument', { exact: true }).inputValue(),
+  );
+
+  // Entry changes carry over while Exit is untouched.
+  await entry.getByLabel('Side').selectOption({ label: 'Sell short' });
+  await entry.getByLabel('Quantity', { exact: true }).fill('70');
+  await expect(exit.getByLabel('Side')).toHaveValue('buy_to_cover');
+  await expect(exit.getByLabel('Quantity', { exact: true })).toHaveValue('70');
+
+  // Once Exit is edited it is the user's own.
+  await exit.getByLabel('Quantity', { exact: true }).fill('30');
+  await entry.getByLabel('Quantity', { exact: true }).fill('80');
+  await expect(exit.getByLabel('Quantity', { exact: true })).toHaveValue('30');
+  await expect(page.getByText('Filled in from your Entry orders')).toHaveCount(0);
+
+  page.once('dialog', (d) => void d.accept());
+  await page.getByRole('button', { name: 'Match Entry orders' }).click();
+  await expect(exit.getByLabel('Quantity', { exact: true })).toHaveValue('80');
+  await expect(page.getByText('Filled in from your Entry orders')).toBeVisible();
 });
