@@ -96,6 +96,16 @@ test('connects a second paper account, makes it the default and turns one off sa
   await expect(accounts).toContainText('US listings');
   expect(await page.content()).not.toContain(FAKE_SECRET);
 
+  // Even before it is the default, new strategies start on the Alpaca paper account.
+  const before = await (
+    await page.request.post('/api/v1/strategies', { data: { name: 'Before default' }, headers })
+  ).json();
+  const brokers = await (await page.request.get('/api/v1/brokers')).json();
+  const alpacaPaper = brokers.platforms
+    .flatMap((p: { accounts: { id: string; nickname: string }[] }) => p.accounts)
+    .find((a: { nickname: string }) => a.nickname === 'Alpaca paper ••••0042');
+  expect(before.defaultAccountId).toBe(alpacaPaper.id);
+
   // Make it the default: new strategies use it.
   await accounts.getByRole('button', { name: 'Make Alpaca paper ••••0042 the default' }).click();
   const makeDefault = page.getByRole('dialog', { name: 'Make Alpaca paper ••••0042 the default?' });

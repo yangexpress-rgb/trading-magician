@@ -16,6 +16,7 @@ import {
   UNKNOWN_INSTRUMENT,
   validDefinition,
 } from './test-fixtures';
+import { CONTEXT_INSTRUMENT_ID } from './evaluate';
 import { validateStrategy, type ValidationContext } from './validate';
 
 function check(edit: (def: StrategyDefinition) => void, ctx: ValidationContext = context()) {
@@ -32,6 +33,57 @@ function check(edit: (def: StrategyDefinition) => void, ctx: ValidationContext =
 describe('a complete strategy', () => {
   it('has no errors or warnings', () => {
     expect(check(() => undefined)).toMatchObject({ errors: [], warnings: [] });
+  });
+});
+
+describe('per-leg conditions without a shared Entry condition (v1.2 item 2)', () => {
+  const ret12 = (id: string, instrumentId: string) => ({
+    kind: 'metric' as const,
+    id,
+    metric: 'return',
+    params: { lookbackMonths: '12', skipMonths: '0' },
+    instrumentId,
+  });
+  const legsOnly = (d: StrategyDefinition, withLegConditions: boolean) => {
+    d.entry.condition.children = [];
+    d.entry.orders = [STOCK_A, STOCK_B].map((id, i) => {
+      const leg = order(`buy-${i}`, { instrumentId: id });
+      if (!withLegConditions) return leg;
+      return {
+        ...leg,
+        legCondition: {
+          kind: 'group' as const,
+          id: `lg-${i}`,
+          op: 'and' as const,
+          negate: false,
+          children: [
+            comparison(
+              `beats-${i}`,
+              ret12(`own-${i}`, CONTEXT_INSTRUMENT_ID),
+              'gt',
+              ret12(`other-${i}`, i ? STOCK_A : STOCK_B),
+            ),
+          ],
+        },
+      };
+    });
+    d.exit.orders = [STOCK_A, STOCK_B].map((id, i) =>
+      order(`sell-${i}`, { instrumentId: id, side: 'close' }),
+    );
+  };
+
+  it('needs no shared Entry condition when the legs carry their own', () => {
+    for (const schedule of [undefined, 'monthEnd'] as const) {
+      const { errors } = check((d) => {
+        legsOnly(d, true);
+        if (schedule) d.schedule = { frequency: schedule };
+      });
+      expect(errors).toEqual([]);
+    }
+  });
+
+  it('still asks for an Entry condition when no leg has one', () => {
+    expect(check((d) => legsOnly(d, false)).errors).toContain('empty_condition');
   });
 });
 

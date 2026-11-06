@@ -447,7 +447,7 @@ export const PAPER_UNIVERSE_LIMIT = 50;
 
 /**
  * Why a strategy can be back tested but not yet run on paper, or undefined.
- * Decision of 2026-11-06: S&P 500 Selection groups back test in this round
+ * Open decision (design v1.2 N13, O17): S&P 500 Selection groups back test in this round
  * and run on paper once the worker caches bars (Design v1.2 N11).
  */
 export function paperRunBlocker(def: StrategyDefinition): string | undefined {

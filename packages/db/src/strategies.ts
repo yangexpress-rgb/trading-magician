@@ -35,6 +35,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { recordAudit } from './audit';
+import { preferredLegAccountId } from './leg-accounts';
 import { assertWithinLimit } from './entitlements';
 import { notify } from './notifications';
 import { cancelWorkingOrders, closePositions, listPositions } from './order-views';
@@ -623,10 +624,8 @@ export async function createStrategy(
   const def = input.definition === undefined ? createDefinition() : parseOrThrow(input.definition);
   await assertWithinLimit(tx, userId, 'savedStrategies');
   const [profile] = await tx.select().from(profiles).where(eq(profiles.userId, userId));
-  const [account] = await tx
-    .select({ id: tradingAccounts.id })
-    .from(tradingAccounts)
-    .where(eq(tradingAccounts.isDefault, true));
+  // New strategies start on the Alpaca paper account when there is one.
+  const accountId = await preferredLegAccountId(tx);
   const hash = definitionHash(def);
   const [row] = await tx
     .insert(strategies)
@@ -640,7 +639,7 @@ export async function createStrategy(
       draftHash: hash,
       baseCurrency: profile?.baseCurrency ?? 'USD',
       timezone: profile?.timezone ?? 'America/New_York',
-      defaultAccountId: account?.id ?? null,
+      defaultAccountId: accountId,
     })
     .returning({ id: strategies.id });
   if (!row) throw new Error('Failed to create strategy');

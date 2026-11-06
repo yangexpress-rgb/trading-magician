@@ -184,7 +184,9 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
       </div>
       <p className="text-sm text-ink-muted">
         This build trades on paper only. A platform connects with a paper API key, and its accounts
-        are found for you. New strategies use the default account.
+        are found for you. New strategies and new legs use a broker&rsquo;s paper account (such as
+        Alpaca paper) when you have one, the default one first; otherwise the built-in paper
+        account.
       </p>
       {error && <Alert>{error}</Alert>}
       {notice && <Alert tone="info">{notice}</Alert>}
