@@ -24,7 +24,23 @@ export const CUSTOM_REST_LIMITS = {
   maxBars: 20_000,
   pathLength: 200,
   urlLength: 500,
+  /**
+   * Health checks (design v1.2 N24): every minute, except a feed with a daily
+   * limit under `smallDailyLimit`, which is checked every `slowCheckSeconds`
+   * so checks (96 a day) leave most of a small free tier for real requests.
+   * Mirrored in claim_feed_checks (migration 0055).
+   */
+  smallDailyLimit: 3_000,
+  slowCheckSeconds: 900,
 } as const;
+
+/** Seconds between health checks of an active custom feed (design v1.2 N24). */
+export function customHealthCheckSeconds(limits: { requestsPerDay: number | null }): number {
+  return limits.requestsPerDay !== null &&
+    limits.requestsPerDay < CUSTOM_REST_LIMITS.smallDailyLimit
+    ? CUSTOM_REST_LIMITS.slowCheckSeconds
+    : 60;
+}
 
 export const CUSTOM_REST_PLACEHOLDERS = ['symbol', 'from', 'to', 'apikey'] as const;
 export type CustomRestPlaceholder = (typeof CUSTOM_REST_PLACEHOLDERS)[number];

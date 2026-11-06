@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  customHealthCheckSeconds,
   buildRequest,
   canonicalCustomRestConfig,
   checkCustomRestConfig,
@@ -239,5 +240,15 @@ describe('reading answers', () => {
       ],
     });
     expect(parseJsonPath('a..b').ok).toBe(false);
+  });
+});
+
+describe('health check interval (N24)', () => {
+  it('slows checks only for a small daily limit', () => {
+    expect(customHealthCheckSeconds({ requestsPerDay: null })).toBe(60);
+    expect(customHealthCheckSeconds({ requestsPerDay: 5000 })).toBe(60);
+    expect(customHealthCheckSeconds({ requestsPerDay: 3000 })).toBe(60);
+    expect(customHealthCheckSeconds({ requestsPerDay: 2999 })).toBe(900);
+    expect(customHealthCheckSeconds({ requestsPerDay: 250 })).toBe(900);
   });
 });

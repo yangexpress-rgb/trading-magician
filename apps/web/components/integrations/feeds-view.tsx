@@ -8,6 +8,7 @@ import {
   type RouteDto,
 } from '@tm/contracts';
 import {
+  customHealthCheckSeconds,
   formatDateTime,
   FUNDAMENTALS_PROVIDER_IDS,
   isFundamentalsProvider,
@@ -177,6 +178,9 @@ export function FeedsView({
                 {f.config.limits.requestsPerDay !== null
                   ? ` and ${f.config.limits.requestsPerDay.toLocaleString('en-US')} a day`
                   : ''}
+                {customHealthCheckSeconds(f.config.limits) > 60
+                  ? ` · checked every ${customHealthCheckSeconds(f.config.limits) / 60} minutes to spare its daily limit`
+                  : ''}
               </p>
             )}
             <p className="mt-1 text-ink-muted">
@@ -255,11 +259,12 @@ export function FeedsView({
           </Button>
         </div>
         <p className="text-sm text-ink-muted">
-          Where prices come from. Each feed is checked every minute while it is on; Test checks it
-          now. A feed gets its routes as soon as it is added, for bars and live prices of every
-          asset class it covers, and they are deleted with it. Where another feed already has a
-          route, the new feed becomes its backup: if the primary stops sending current prices, the
-          backup takes over until the primary has been healthy for 5 minutes.
+          Where prices come from. Each feed is checked every minute while it is on (a custom feed
+          with a small daily limit every 15 minutes); Test checks it now. A feed gets its routes as
+          soon as it is added, for bars and live prices of every asset class it covers, and they are
+          deleted with it. Where another feed already has a route, the new feed becomes its backup:
+          if the primary stops sending current prices, the backup takes over until the primary has
+          been healthy for 5 minutes.
         </p>
         {error && <Alert>{error}</Alert>}
         {!data && !error && <p className="text-sm">Loading feeds…</p>}

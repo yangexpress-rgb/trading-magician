@@ -45,7 +45,8 @@ Settings, with no code change per vendor and no vendor-specific code at all.
   needs a new test, renaming it does not. Tests are limited to 10 a minute per person and deleted
   after a day.
 - **It joins routing like any feed.** Adding it creates or backs up routes for bars and live prices
-  as any price feed does (ADR 0038); it is checked every minute while on (the latest quote of its
+  as any price feed does (ADR 0038); it is checked every minute while on, or every 15 minutes when its daily limit is under 3,000
+  (design v1.2 N24, migration 0055) (the latest quote of its
   health-check symbol, through its limits), its quotes fail over after the 60-second stale rule and
   back after 5 minutes healthy, and both switches are audited and notified (ADR 0016). A quote with
   no mapped time counts as fetched now. It gives daily bars only; it does not look up, search,
@@ -79,7 +80,8 @@ Settings, with no code change per vendor and no vendor-specific code at all.
   change. APIs that key bars by date in an object (rather than a list), need two key headers, use
   milliseconds, paginate bars, or put the date range in another form need a later extension of the
   description, still without vendor code.
-- A health check every minute is about 1,440 requests a day, more than many free tiers allow; a
+- A health check every minute is about 1,440 requests a day, more than many free tiers allow, so a
+  feed with a daily limit under 3,000 is checked every 15 minutes (96 a day) instead; a
   daily limit makes the feed hold back (and go down) instead of being cut off by the provider.
 - Options, fundamentals, streaming feeds and file-based feeds (such as the CBOE VIX CSV) are not
   covered.

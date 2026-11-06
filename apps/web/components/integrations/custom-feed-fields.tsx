@@ -371,7 +371,7 @@ export function CustomFeedFields({
             hint: `Starts at ${CUSTOM_REST_LIMITS.defaultRequestsPerMinute}; lower it freely, never above the provider’s limit or ${CUSTOM_REST_LIMITS.maxRequestsPerMinute}.`,
           })}
           {text('requestsPerDay', 'Daily limit (optional)', {
-            hint: 'For free tiers counted by the day. Health checks alone use about 1,440 a day.',
+            hint: `For free tiers counted by the day. Health checks run every minute (about 1,440 a day), or every ${CUSTOM_REST_LIMITS.slowCheckSeconds / 60} minutes (96 a day) when this is under ${CUSTOM_REST_LIMITS.smallDailyLimit.toLocaleString('en-US')}.`,
           })}
           {text('timeoutSec', 'Timeout (seconds)', {
             required: true,
@@ -379,7 +379,7 @@ export function CustomFeedFields({
           })}
           {text('testSymbol', 'Health check symbol', {
             required: true,
-            hint: 'Its latest quote is fetched every minute while the feed is on.',
+            hint: 'Its latest quote is fetched at each health check while the feed is on.',
           })}
         </div>
       </fieldset>
