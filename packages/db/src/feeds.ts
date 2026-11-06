@@ -1,4 +1,5 @@
 import {
+  DEMO_VENUE_CODE,
   FAILOVER,
   isFundamentalsProvider,
   isMarketDataProvider,
@@ -9,7 +10,7 @@ import {
   type FailoverStep,
   type RouteLike,
 } from '@tm/domain';
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
 import { assertFeature } from './entitlements';
@@ -319,36 +320,67 @@ export async function createFeed(
   return getFeed(tx, row.id);
 }
 
-/** What a new feed is routed for when nothing else covers it yet. */
+/** The data a price feed is routed for as soon as it is added (bars and live prices). */
 const AUTO_ROUTE_DATA_TYPES = ['bars', 'quotes'] as const;
 
 /**
- * Makes a real-provider feed the primary for every asset class it covers, on
- * any venue, for bars and live prices, wherever no route exists yet. Routes the
- * user already set up are left alone. Demo feeds keep their seeded demo routes.
+ * Gives a price feed its routes (ADR 0038): for every asset class it covers
+ * and each of bars and live prices, on any US venue (or on the demo venue for
+ * a demo feed). Where no route exists yet it makes one with this feed as the
+ * primary, so the route belongs to it; where another feed's route has no
+ * backup yet, this feed becomes that route's fallback. Routes that already
+ * have both are left alone. Company data feeds have no routes.
  */
 async function addMissingRoutes(tx: Transaction, userId: string, feedId: string) {
   const [feed] = await tx
     .select()
     .from(dataFeedConnections)
     .where(eq(dataFeedConnections.id, feedId));
-  if (!feed || !feed.isActive || !providerCoversVenue(feed.provider, null)) return;
+  if (!feed || !feed.isActive || !isMarketDataProvider(feed.provider)) return;
+  const venue = providerCoversVenue(feed.provider, null) ? null : DEMO_VENUE_CODE;
+  if (!providerCoversVenue(feed.provider, venue)) return;
   for (const assetClass of feed.assetClasses) {
     for (const dataType of AUTO_ROUTE_DATA_TYPES) {
       const [row] = await tx
         .insert(dataRoutes)
-        .values({ userId, assetClass, venue: null, dataType, primaryFeedId: feed.id })
+        .values({ userId, assetClass, venue, dataType, primaryFeedId: feed.id })
         .onConflictDoNothing()
         .returning({ id: dataRoutes.id });
-      if (!row) continue;
-      await recordAudit(tx, {
-        userId,
-        actorType: 'system',
-        action: 'data_route.created',
-        resourceType: 'data_route',
-        resourceId: row.id,
-        context: { primaryFeedId: feed.id, fallbackFeedId: null, automatic: true },
-      });
+      if (row) {
+        await recordAudit(tx, {
+          userId,
+          actorType: 'system',
+          action: 'data_route.created',
+          resourceType: 'data_route',
+          resourceId: row.id,
+          context: { primaryFeedId: feed.id, fallbackFeedId: null, automatic: true },
+        });
+        continue;
+      }
+      // Another feed already serves it: back that route up if nothing does yet.
+      const backedUp = await tx
+        .update(dataRoutes)
+        .set({ fallbackFeedId: feed.id, rowVersion: sql`${dataRoutes.rowVersion} + 1` })
+        .where(
+          and(
+            eq(dataRoutes.assetClass, assetClass),
+            venue === null ? isNull(dataRoutes.venue) : eq(dataRoutes.venue, venue),
+            eq(dataRoutes.dataType, dataType),
+            isNull(dataRoutes.fallbackFeedId),
+            ne(dataRoutes.primaryFeedId, feed.id),
+          ),
+        )
+        .returning({ id: dataRoutes.id });
+      for (const r of backedUp) {
+        await recordAudit(tx, {
+          userId,
+          actorType: 'system',
+          action: 'data_route.fallback_changed',
+          resourceType: 'data_route',
+          resourceId: r.id,
+          context: { from: null, to: feed.id, automatic: true },
+        });
+      }
     }
   }
 }
@@ -537,28 +569,66 @@ async function rerouteFeed(
 }
 
 /**
- * Removes a feed. A real-provider feed takes its any-venue routes with it when
- * it is their only feed (as `addMissingRoutes` made them) and no strategy is
- * running on it; any other route must be pointed at another feed first.
+ * Removes a feed together with its routes (ADR 0038): every route it is the
+ * primary for is deleted, and it is taken off as the backup of any other
+ * route. Gaps it leaves are filled by the user's other price feeds, oldest
+ * first, so a route it backed up moves to that backup. Refused while a
+ * running strategy gets its prices from it; turning it off first moves those
+ * routes or pauses the strategies (§9.4).
  */
 export async function deleteFeed(
   tx: Transaction,
   input: { userId: string; id: string },
 ): Promise<void> {
-  const before = await getFeed(tx, input.id);
-  if (before.provider !== 'demo' && (await feedDependents(tx, input.id)).length === 0) {
-    const sole = (await listRoutes(tx)).filter(
-      (r) => r.primary.id === input.id && r.fallback === null && r.venue === null,
-    );
-    for (const route of sole) await deleteRoute(tx, { userId: input.userId, id: route.id });
-  }
   const feed = await getFeed(tx, input.id);
-  if (feed.routes.length > 0) {
+  const running = (await feedDependents(tx, input.id)).filter((d) => d.status === 'running');
+  if (running.length > 0) {
     throw new IntegrationError(
       'invalid_state',
-      'Routes still use this feed. Point them at another feed first.',
-      { routes: feed.routes },
+      `${running.map((d) => d.strategyName).join(', ')} ${running.length === 1 ? 'gets' : 'get'} prices from this feed. Turn it off first to move its routes to another feed or pause ${running.length === 1 ? 'it' : 'them'}.`,
+      { dependents: running, routes: feed.routes },
     );
+  }
+  const owned = feed.routes.filter((r) => r.role === 'primary').map((r) => r.routeId);
+  const backedUp = feed.routes.filter((r) => r.role === 'fallback').map((r) => r.routeId);
+  if (owned.length > 0) {
+    // A strategy pinned to one of these routes goes back to the default routing.
+    await tx
+      .update(strategies)
+      .set({ dataRouteId: null })
+      .where(inArray(strategies.dataRouteId, owned));
+    await tx.delete(dataRoutes).where(inArray(dataRoutes.id, owned));
+    for (const id of owned) {
+      await recordAudit(tx, {
+        userId: input.userId,
+        actorType: 'user',
+        action: 'data_route.deleted',
+        resourceType: 'data_route',
+        resourceId: id,
+        context: { withFeed: input.id },
+      });
+    }
+  }
+  if (backedUp.length > 0) {
+    await tx
+      .update(dataRoutes)
+      .set({
+        fallbackFeedId: null,
+        activeSource: 'primary',
+        primaryOkSince: null,
+        rowVersion: sql`${dataRoutes.rowVersion} + 1`,
+      })
+      .where(inArray(dataRoutes.id, backedUp));
+    for (const id of backedUp) {
+      await recordAudit(tx, {
+        userId: input.userId,
+        actorType: 'user',
+        action: 'data_route.fallback_changed',
+        resourceType: 'data_route',
+        resourceId: id,
+        context: { from: input.id, to: null, withFeed: input.id },
+      });
+    }
   }
   await tx.delete(dataFeedConnections).where(eq(dataFeedConnections.id, input.id));
   await recordAudit(tx, {
@@ -567,7 +637,7 @@ export async function deleteFeed(
     action: 'data_feed.deleted',
     resourceType: 'data_feed_connection',
     resourceId: input.id,
-    context: { provider: feed.provider },
+    context: { provider: feed.provider, routesDeleted: owned.length },
   });
   // Any gaps it leaves go to the user's other feeds, oldest first.
   const others = await tx

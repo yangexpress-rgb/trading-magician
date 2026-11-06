@@ -30,9 +30,11 @@ test('connects an Alpaca feed and finds a US stock for a strategy', async ({ pag
   await expect(feed).toContainText('Entitled');
   expect(await page.content()).not.toContain(FAKE_SECRET);
 
-  // Adding the feed routes US stocks and ETFs on any venue to it, with no route to add by hand.
-  await expect(feed).toContainText('Primary for Stocks live prices (any us venue)');
-  await expect(feed).toContainText('Primary for Stocks bars (any us venue)');
+  // Adding the feed routes US stocks and ETFs on any venue to it, listed under it (ADR 0038).
+  const feedRoutes = feed.getByRole('table', { name: 'Routes for Alpaca prices' });
+  await expect(feedRoutes).toContainText('Stocks live prices');
+  await expect(feedRoutes).toContainText('Stocks bars');
+  await expect(feedRoutes).toContainText('Any US venue');
 
   const created = await (
     await page.request.post('/api/v1/strategies', {

@@ -2,7 +2,6 @@
 
 import {
   ApiError,
-  ROUTE_DATA_TYPES,
   type FeedDto,
   type FeedInUseDetails,
   type FeedListDto,
@@ -44,10 +43,10 @@ const message = (e: unknown, fallback: string) => (e instanceof ApiError ? e.mes
 /**
  * Settings › Data feeds (§9.2, §15.4): every price feed with its health, last
  * update, entitlement and routes; add, test, edit, turn on or off, remove.
- * Then the company data feeds (ADR 0031), which give company profiles and
- * financials rather than prices, and below them the routes that pick a
- * primary and fallback price feed for each kind of data. Updates arrive
- * live, so a test result appears on its own.
+ * Each price feed lists its routes underneath it (ADR 0038): they are made
+ * when the feed is added and deleted with it. Then the company data feeds
+ * (ADR 0031), which give company profiles and financials rather than prices.
+ * Updates arrive live, so a test result appears on its own.
  */
 export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
   const [data, setData] = useState<FeedListDto | null>(null);
@@ -58,7 +57,7 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
     null,
   );
   const [removing, setRemoving] = useState<FeedDto | null>(null);
-  const [addingRoute, setAddingRoute] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -90,6 +89,18 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
       await load();
     } catch (e) {
       setError(message(e, fallback));
+    }
+  }
+
+  async function remove() {
+    if (!removing) return;
+    try {
+      await apiClient.feeds.remove(removing.id);
+      setRemoving(null);
+      setRemoveError(null);
+      await load();
+    } catch (e) {
+      setRemoveError(message(e, 'Could not remove the feed.'));
     }
   }
 
@@ -147,22 +158,15 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
             {f.lastError && !f.checking && (
               <p className="mt-1 text-danger">Last check: {f.lastError}</p>
             )}
-            <p className="mt-1">
-              {company
-                ? f.id === companyInUse
+            {company && (
+              <p className="mt-1">
+                {f.id === companyInUse
                   ? 'In use for company pages in Quantitative Research and the screener’s company columns'
                   : f.isActive
                     ? 'Standing by: another company data feed is in use'
-                    : 'Not in use while off'
-                : f.routes.length === 0
-                  ? 'Not used by any route'
-                  : f.routes
-                      .map(
-                        (r) =>
-                          `${r.role === 'primary' ? 'Primary' : 'Fallback'} for ${ASSET_CLASS_LABELS[r.assetClass] ?? r.assetClass} ${DATA_TYPE_LABELS[r.dataType].toLowerCase()} (${venueLabel(r.venue).toLowerCase()})${r.serving ? ', in use now' : ''}`,
-                      )
-                      .join('; ')}
-            </p>
+                    : 'Not in use while off'}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -199,6 +203,15 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
             </Button>
           </div>
         </div>
+        {!company && data && (
+          <FeedRoutes
+            feed={f}
+            routes={data.routes}
+            feeds={priceFeeds}
+            when={when}
+            onChanged={() => void load()}
+          />
+        )}
       </li>
     );
   };
@@ -216,7 +229,10 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
         </div>
         <p className="text-sm text-ink-muted">
           Where prices come from. Each feed is checked every minute while it is on; Test checks it
-          now.
+          now. A feed gets its routes as soon as it is added, for bars and live prices of every
+          asset class it covers, and they are deleted with it. Where another feed already has a
+          route, the new feed becomes its backup: if the primary stops sending current prices, the
+          backup takes over until the primary has been healthy for 5 minutes.
         </p>
         {error && <Alert>{error}</Alert>}
         {!data && !error && <p className="text-sm">Loading feeds…</p>}
@@ -255,16 +271,6 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
         )}
       </section>
 
-      {data && (
-        <RoutesSection
-          routes={data.routes}
-          feeds={priceFeeds}
-          when={when}
-          onChanged={() => void load()}
-          onAdd={() => setAddingRoute(true)}
-        />
-      )}
-
       <FeedDialog
         open={adding !== null}
         kind={adding ?? 'prices'}
@@ -298,72 +304,68 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
       )}
       <Dialog
         open={removing !== null}
-        onClose={() => setRemoving(null)}
+        onClose={() => {
+          setRemoving(null);
+          setRemoveError(null);
+        }}
         title={`Remove ${removing?.name ?? 'feed'}?`}
         description={
-          removing && removing.routes.length > 0
-            ? 'Routes still use this feed. Point them at another feed first.'
+          removing && removing.routes.some((r) => r.role === 'primary')
+            ? `Its ${removing.routes.filter((r) => r.role === 'primary').length === 1 ? 'route is' : `${removing.routes.filter((r) => r.role === 'primary').length} routes are`} deleted with it, and your other price feeds take over what they cover. A stored API key it used stays under Stored API keys.`
             : 'Its settings are deleted. A stored API key it used stays under Stored API keys.'
         }
       >
-        <div className="flex gap-2">
-          <Button
-            variant="danger"
-            disabled={!removing || removing.routes.length > 0}
-            onClick={() =>
-              removing &&
-              void act(
-                () => apiClient.feeds.remove(removing.id),
-                'Could not remove the feed.',
-              ).then(() => setRemoving(null))
-            }
-          >
+        {/* Shown in the dialog: a live refresh of the page clears the page-level error. */}
+        {removeError && <Alert>{removeError}</Alert>}
+        <div className="mt-2 flex gap-2">
+          <Button variant="danger" disabled={!removing} onClick={() => void remove()}>
             Remove feed
           </Button>
-          <Button onClick={() => setRemoving(null)}>Keep it</Button>
+          <Button
+            onClick={() => {
+              setRemoving(null);
+              setRemoveError(null);
+            }}
+          >
+            Keep it
+          </Button>
         </div>
       </Dialog>
-      {data && (
-        <RouteDialog
-          open={addingRoute}
-          feeds={priceFeeds}
-          onClose={() => setAddingRoute(false)}
-          onSaved={() => {
-            setAddingRoute(false);
-            void load();
-          }}
-        />
-      )}
     </div>
   );
 }
 
-function RoutesSection({
+const routeLabel = (r: { assetClass: string; dataType: RouteDto['dataType'] }) =>
+  `${ASSET_CLASS_LABELS[r.assetClass] ?? r.assetClass} ${DATA_TYPE_LABELS[r.dataType].toLowerCase()}`;
+
+/**
+ * A price feed's routes, shown under it (ADR 0038): the routes it is the
+ * primary for, each with a backup feed to pick, and the routes of other feeds
+ * it backs up, which it can take over as the primary.
+ */
+function FeedRoutes({
+  feed,
   routes,
   feeds,
   when,
   onChanged,
-  onAdd,
 }: {
+  feed: FeedDto;
   routes: RouteDto[];
   feeds: FeedDto[];
   when: (iso: string | null) => string;
   onChanged: () => void;
-  onAdd: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const own = routes.filter((r) => r.primary.id === feed.id);
+  const backing = routes.filter((r) => r.fallback?.id === feed.id);
 
   async function change(
     route: RouteDto,
-    patch: { primaryFeedId?: string; fallbackFeedId?: string | null },
+    next: { primaryFeedId: string; fallbackFeedId: string | null },
   ) {
     try {
-      await apiClient.routes.update(route.id, {
-        rowVersion: route.rowVersion,
-        primaryFeedId: patch.primaryFeedId ?? route.primary.id,
-        fallbackFeedId:
-          patch.fallbackFeedId === undefined ? (route.fallback?.id ?? null) : patch.fallbackFeedId,
-      });
+      await apiClient.routes.update(route.id, { rowVersion: route.rowVersion, ...next });
       setError(null);
       onChanged();
     } catch (e) {
@@ -372,93 +374,102 @@ function RoutesSection({
   }
 
   return (
-    <section aria-labelledby="routes-heading" className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="routes-heading" className="text-lg font-semibold">
-          Routes
-        </h2>
-        <Button onClick={onAdd}>Add a route</Button>
-      </div>
-      <p className="text-sm text-ink-muted">
-        Each route sends one kind of data to a primary feed. If the primary stops sending current
-        prices, the fallback takes over, and the primary takes back over once it has been healthy
-        for 5 minutes.
-      </p>
+    <div className="mt-4 border-t border-line pt-3 text-sm">
+      <h3 className="font-medium">Routes</h3>
       {error && <Alert>{error}</Alert>}
-      <Table label="Routes">
-        <thead>
-          <tr>
-            <Th>Asset class</Th>
-            <Th>Venue</Th>
-            <Th>Data</Th>
-            <Th>Primary</Th>
-            <Th>Fallback</Th>
-            <Th>Prices from</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {routes.map((r) => {
-            const label = `${ASSET_CLASS_LABELS[r.assetClass] ?? r.assetClass} ${DATA_TYPE_LABELS[r.dataType].toLowerCase()}, ${venueLabel(r.venue).toLowerCase()}`;
-            const fits = feeds.filter((f) => f.assetClasses.includes(r.assetClass));
-            return (
-              <tr key={r.id}>
-                <Td>{ASSET_CLASS_LABELS[r.assetClass] ?? r.assetClass}</Td>
-                <Td>{venueLabel(r.venue)}</Td>
-                <Td>{DATA_TYPE_LABELS[r.dataType]}</Td>
-                <Td>
-                  <label className="sr-only" htmlFor={`primary-${r.id}`}>
-                    Primary feed for {label}
-                  </label>
-                  <select
-                    id={`primary-${r.id}`}
-                    className="rounded-md border border-line bg-surface px-2 py-1 text-sm"
-                    value={r.primary.id}
-                    onChange={(e) => void change(r, { primaryFeedId: e.target.value })}
-                  >
-                    {fits.map((f) => (
-                      <option key={f.id} value={f.id}>
-                        {f.name}
-                        {f.isActive ? '' : ' (off)'}
-                      </option>
-                    ))}
-                  </select>
-                </Td>
-                <Td>
-                  <label className="sr-only" htmlFor={`fallback-${r.id}`}>
-                    Fallback feed for {label}
-                  </label>
-                  <select
-                    id={`fallback-${r.id}`}
-                    className="rounded-md border border-line bg-surface px-2 py-1 text-sm"
-                    value={r.fallback?.id ?? ''}
-                    onChange={(e) => void change(r, { fallbackFeedId: e.target.value || null })}
-                  >
-                    <option value="">None</option>
-                    {fits
-                      .filter((f) => f.id !== r.primary.id)
-                      .map((f) => (
+      {own.length === 0 ? (
+        <p className="mt-1 text-ink-muted">
+          {feed.isActive
+            ? backing.length > 0
+              ? 'No routes of its own: other feeds already get these prices first.'
+              : 'No routes of its own yet.'
+            : 'No routes while off.'}
+        </p>
+      ) : (
+        <Table label={`Routes for ${feed.name}`}>
+          <thead>
+            <tr>
+              <Th>Data</Th>
+              <Th>Venue</Th>
+              <Th>Backup feed</Th>
+              <Th>Prices from</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {own.map((r) => {
+              const label = `${routeLabel(r)}, ${venueLabel(r.venue).toLowerCase()}`;
+              const backups = feeds.filter(
+                (f) =>
+                  f.id !== feed.id &&
+                  f.assetClasses.includes(r.assetClass) &&
+                  (r.venue === 'DEMO') === (f.provider === 'demo'),
+              );
+              return (
+                <tr key={r.id}>
+                  <Td>{routeLabel(r)}</Td>
+                  <Td>{venueLabel(r.venue)}</Td>
+                  <Td>
+                    <label className="sr-only" htmlFor={`fallback-${r.id}`}>
+                      Backup feed for {label}
+                    </label>
+                    <select
+                      id={`fallback-${r.id}`}
+                      className="rounded-md border border-line bg-surface px-2 py-1 text-sm"
+                      value={r.fallback?.id ?? ''}
+                      onChange={(e) =>
+                        void change(r, {
+                          primaryFeedId: feed.id,
+                          fallbackFeedId: e.target.value || null,
+                        })
+                      }
+                    >
+                      <option value="">None</option>
+                      {backups.map((f) => (
                         <option key={f.id} value={f.id}>
                           {f.name}
                           {f.isActive ? '' : ' (off)'}
                         </option>
                       ))}
-                  </select>
-                </Td>
-                <Td>
-                  {r.activeSource === 'fallback' ? (
-                    <Badge tone="warn">
-                      {r.fallback?.name ?? 'Fallback'} since {when(r.switchedAt)}
-                    </Badge>
-                  ) : (
-                    r.primary.name
-                  )}
-                </Td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </Table>
-    </section>
+                    </select>
+                  </Td>
+                  <Td>
+                    {r.activeSource === 'fallback' ? (
+                      <Badge tone="warn">
+                        {r.fallback?.name ?? 'Backup'} since {when(r.switchedAt)}
+                      </Badge>
+                    ) : (
+                      'This feed'
+                    )}
+                  </Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </Table>
+      )}
+      {backing.length > 0 && (
+        <ul aria-label={`${feed.name} backs up`} className="mt-2 space-y-1">
+          {backing.map((r) => (
+            <li key={r.id} className="flex flex-wrap items-center gap-2">
+              <span>
+                Backup for {routeLabel(r)} ({venueLabel(r.venue).toLowerCase()}) from{' '}
+                {r.primary.name}
+                {r.activeSource === 'fallback' ? ', in use now' : ''}
+              </span>
+              <Button
+                aria-label={`Make ${feed.name} primary for ${routeLabel(r)}`}
+                size="sm"
+                onClick={() =>
+                  void change(r, { primaryFeedId: feed.id, fallbackFeedId: r.primary.id })
+                }
+              >
+                Make primary
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -761,118 +772,6 @@ function TurnOffDialog({
         </Button>
         <Button onClick={onClose}>Keep it on</Button>
       </div>
-    </Dialog>
-  );
-}
-
-function RouteDialog({
-  open,
-  feeds,
-  onClose,
-  onSaved,
-}: {
-  open: boolean;
-  feeds: FeedDto[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [assetClass, setAssetClass] = useState('stock');
-  const [venue, setVenue] = useState<'any' | 'DEMO'>('any');
-  const [dataType, setDataType] = useState<(typeof ROUTE_DATA_TYPES)[number]>('quotes');
-  const [primary, setPrimary] = useState('');
-  const [fallback, setFallback] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const fits = feeds.filter(
-    (f) => f.assetClasses.includes(assetClass) && (venue === 'DEMO') === (f.provider === 'demo'),
-  );
-
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      await apiClient.routes.create({
-        assetClass,
-        venue: venue === 'any' ? null : venue,
-        dataType,
-        primaryFeedId: primary || fits[0]?.id || '',
-        fallbackFeedId: fallback || null,
-      });
-      setError(null);
-      onSaved();
-    } catch (err) {
-      setError(message(err, 'Could not add the route.'));
-    }
-  }
-
-  return (
-    <Dialog open={open} onClose={onClose} title="Add a route">
-      <form onSubmit={(e) => void save(e)} className="space-y-3">
-        {error && <Alert>{error}</Alert>}
-        <SelectField
-          name="route-asset"
-          label="Asset class"
-          value={assetClass}
-          onChange={(e) => setAssetClass(e.target.value)}
-        >
-          <option value="stock">Stocks</option>
-          <option value="etf">ETFs</option>
-        </SelectField>
-        <SelectField
-          name="route-venue"
-          label="Venue"
-          value={venue}
-          onChange={(e) => setVenue(e.target.value as 'any' | 'DEMO')}
-        >
-          <option value="any">Any US venue</option>
-          <option value="DEMO">Demo instruments</option>
-        </SelectField>
-        <SelectField
-          name="route-data"
-          label="Data"
-          value={dataType}
-          onChange={(e) => setDataType(e.target.value as (typeof ROUTE_DATA_TYPES)[number])}
-        >
-          {ROUTE_DATA_TYPES.map((d) => (
-            <option key={d} value={d}>
-              {DATA_TYPE_LABELS[d]}
-            </option>
-          ))}
-        </SelectField>
-        <SelectField
-          name="route-primary"
-          label="Primary feed"
-          value={primary}
-          onChange={(e) => setPrimary(e.target.value)}
-        >
-          {fits.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.name}
-            </option>
-          ))}
-        </SelectField>
-        <SelectField
-          name="route-fallback"
-          label="Fallback feed"
-          value={fallback}
-          onChange={(e) => setFallback(e.target.value)}
-        >
-          <option value="">None</option>
-          {fits
-            .filter((f) => f.id !== (primary || fits[0]?.id))
-            .map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-        </SelectField>
-        <div className="flex gap-2">
-          <Button type="submit" variant="primary" disabled={fits.length === 0}>
-            Add route
-          </Button>
-          <Button type="button" onClick={onClose}>
-            Cancel
-          </Button>
-        </div>
-      </form>
     </Dialog>
   );
 }
