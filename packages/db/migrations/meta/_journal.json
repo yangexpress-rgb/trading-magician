@@ -351,6 +351,13 @@
       "when": 1793892613244,
       "tag": "0049_operator_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1793930894025,
+      "tag": "0050_admin",
+      "breakpoints": true
     }
   ]
 }

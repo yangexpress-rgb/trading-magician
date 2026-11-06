@@ -20,7 +20,9 @@
     "invites:mint": "tsx scripts/invites.ts mint",
     "invites:list": "tsx scripts/invites.ts list",
     "invites:release": "tsx scripts/invites.ts release",
-    "load:seed": "tsx scripts/load-seed.ts"
+    "load:seed": "tsx scripts/load-seed.ts",
+    "users:grant-admin": "tsx scripts/admins.ts grant",
+    "users:revoke-admin": "tsx scripts/admins.ts revoke"
   },
   "dependencies": {
     "@tm/backtest": "workspace:*",

@@ -74,13 +74,20 @@ function createAuth() {
         create: {
           before: async (session) => {
             const [user] = await authDb()
-              .select({ deletedAt: schema.users.deletedAt })
+              .select({ deletedAt: schema.users.deletedAt, lockedAt: schema.users.lockedAt })
               .from(schema.users)
               .where(eq(schema.users.id, session.userId));
             if (user?.deletedAt) {
               throw new APIError('FORBIDDEN', {
                 code: 'ACCOUNT_DELETED',
                 message: 'This account has been deleted.',
+              });
+            }
+            // An admin locked the account (ADR 0037); locking also ended its sessions.
+            if (user?.lockedAt) {
+              throw new APIError('FORBIDDEN', {
+                code: 'ACCOUNT_LOCKED',
+                message: 'This account is locked.',
               });
             }
           },

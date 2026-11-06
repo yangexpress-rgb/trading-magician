@@ -136,6 +136,19 @@ It prints a temporary password once and signs the person out everywhere. Give it
 channel you trust; they sign in and change it in Settings › Security. Staging uses this. Decide
 for production before inviting anyone.
 
+### Admin page
+
+The app has an admin page at `/admin` (ADR 0037) for testers, invite codes, password resets,
+system health and the audit log. Make yourself an admin once, after signing up:
+
+```sh
+railway ssh -s web -- sh -c 'cd /app && pnpm --filter @tm/db users:grant-admin you@example.com'
+```
+
+An **Admin** tab then appears under Settings in the side bar. `users:revoke-admin` takes it
+away. Admins can lock and unlock people (locking signs them out everywhere and refuses sign-in),
+reset passwords, create, revoke and release invite codes, and read the whole audit trail.
+
 ## Staging and production
 
 Railway environments keep two full copies apart (ADR 0025). **Staging comes first**: the steps
