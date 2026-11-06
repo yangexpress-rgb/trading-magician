@@ -4,6 +4,7 @@ import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
 import { CredentialsPanel } from '@/components/integrations/credentials-panel';
 import { NotificationPrefsPanel } from '@/components/notification-prefs-panel';
+import { ChangePassword } from './change-password';
 import { DeleteAccount } from './delete-account';
 import { SessionsPanel } from './sessions-panel';
 
@@ -27,6 +28,12 @@ export default async function SecurityPage() {
           Stored API keys
         </h2>
         <CredentialsPanel prefs={{ timeZone: profile.timezone, locale: profile.locale }} />
+      </Card>
+      <Card aria-labelledby="password-heading">
+        <h2 id="password-heading" className="mb-3 text-lg font-semibold">
+          Password
+        </h2>
+        <ChangePassword />
       </Card>
       <Card aria-labelledby="sessions-heading">
         <h2 id="sessions-heading" className="mb-3 text-lg font-semibold">

@@ -83,3 +83,4 @@ export * from './billing';
 export * from './ops';
 export * from './invites';
 export * from './account-deletion';
+export * from './operator-accounts';

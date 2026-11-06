@@ -125,8 +125,16 @@ Paper trading only, as everywhere else (`docs/adr/0002-paper-only-guard.md`).
 
 `EMAIL_VERIFICATION=off` on web makes the app work without any email: sign-up signs the person
 straight in, and no verification or password-reset email is sent. The invite code is the only
-gate on who can sign up. Nobody can reset a forgotten password themselves; the operator does it
-in the database. Staging uses this. Decide for production before inviting anyone.
+gate on who can sign up (web refuses to start with it and `SIGNUP_MODE=open`). Nobody can reset
+a forgotten password themselves; the operator does it (ADR 0036):
+
+```sh
+railway ssh -s web -- sh -c 'cd /app && pnpm --filter @tm/web users:reset-password person@example.com'
+```
+
+It prints a temporary password once and signs the person out everywhere. Give it to them over a
+channel you trust; they sign in and change it in Settings › Security. Staging uses this. Decide
+for production before inviting anyone.
 
 ## Staging and production
 
