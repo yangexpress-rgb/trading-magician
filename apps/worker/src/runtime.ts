@@ -53,6 +53,20 @@ import {
   checkPreTradeRisk,
   evaluateCondition,
   evaluateExpr,
+  hasComparisons,
+  listMembers,
+  planSlots,
+  rankUniverse,
+  scheduledPeriod,
+  scheduleOf,
+  selectionCount,
+  selectLegs,
+  slotDefinition,
+  slotKey,
+  slotModeOf,
+  withContext,
+  type Slot,
+  type StrategyDefinition,
   newCycleState,
   nyDate,
   planCycle,
@@ -576,49 +590,56 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   }
 
   // 3. Conditions on the newest completed bars (§6.5).
+  const mode = slotModeOf(def);
+  const members = listMembers(def);
   const data = await loadData(
     ctx.history,
-    planSeries(def, evaluationInputs(now)),
+    planSeries(def, evaluationInputs(now), members),
     work.instruments,
   );
   const view = new MarketView(data.series);
   view.advance(t);
   let dataTime = 0;
-  for (const e of seriesExprs(def)) {
+  for (const e of seriesExprs(def, members)) {
     const bars = data.series.get(`${e.instrumentId}|${e.interval}|${e.adjustment}|${e.session}`);
     const last = bars?.filter((b) => Date.parse(b.end) <= t).at(-1);
     if (last) dataTime = Math.max(dataTime, Date.parse(last.end));
   }
   const newData = dataTime > 0 && dataTime > (state.lastDataTime ?? 0);
   if (newData) state.lastDataTime = dataTime;
+  // The schedule gates Entry and re-selection; Exit rules run on every bar (v1.2 item 4).
+  const period = newData ? scheduledPeriod(def.schedule, t, state.lastSchedulePeriod) : undefined;
+  const entryDue = period !== undefined;
+  if (entryDue && scheduleOf(def) !== 'daily') state.lastSchedulePeriod = period;
   const evaluate = (phase: PhaseName, r: SeriesResolver = view): Truth =>
     evaluateCondition(def[phase].condition, r);
   /** The view plus a cycle's positions, for Exit rules and Exit order prices. */
-  const cycleView = (c: ActiveCycle): SeriesResolver =>
-    withPositions(view, (id) => {
+  const cycleView = (c: ActiveCycle): SeriesResolver => {
+    const r = withPositions(view, (id) => {
       const e = c.entries.get(id);
       if (!e || e.quantity.isZero()) return undefined;
       return { quantity: c.positions.get(id) ?? ZERO, averagePrice: e.cost.div(e.quantity) };
     });
+    // A slot's rules read "this instrument" as the slot's own (v1.2).
+    return c.cycle.slot ? withContext(r, c.cycle.slot.instrumentId) : r;
+  };
+  const symbolOf = (id: string) => work.instruments.get(id)?.symbol ?? '?';
+  const count =
+    mode === 'selection' && def.entry.selection
+      ? selectionCount(def.entry.selection, members.length)
+      : 1;
+  /** What a cycle runs: the strategy, or its slot's definition. */
+  const cycleDefinition = (c: ActiveCycle): StrategyDefinition =>
+    c.cycle.slot ? slotDefinition(def, c.cycle.slot, count) : def;
 
-  // Entry: a new cycle, another batch, or nothing (§6.9).
-  const entryTruth = newData ? { truth: evaluate('entry') } : undefined;
-  const entry = planEntry({
-    definition: def,
-    state: state.trigger,
-    active: work.cycles.map((c) => ({ id: c.id, cycle: c.cycle })),
-    now: t,
-    entryTruth,
-    halted: halted || dailyLossHit || drawdownHit,
-  });
-  state.trigger = entry.state;
-  // The trigger event is written after its cycle, so both can point at each other.
-  const entryEventId = entryTruth ? randomUUID() : undefined;
+  const entryHalted = halted || dailyLossHit || drawdownHit;
   const cycles: ActiveCycle[] = [...work.cycles];
-  let newCycleId: string | undefined;
-  if (entry.decision.kind === 'new_cycle') {
-    const cycle = newCycleState(entry.decision.triggered ? t : undefined);
-    const triggered = entry.decision.triggered;
+  let entryTruth: { truth: Truth } | undefined;
+  let entryEventId: string | undefined;
+  const newCycleIds: string[] = [];
+  const rebalanceExits = new Set<string>();
+
+  const openCycle = async (cycle: ReturnType<typeof newCycleState>, triggered: boolean) => {
     const id = await insertCycle(tx, {
       userId: work.userId,
       runtimeId: work.id,
@@ -627,7 +648,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       entryTriggerEventId: triggered ? entryEventId : undefined,
       at: now,
     });
-    newCycleId = id;
+    newCycleIds.push(id);
     cycles.push({
       id,
       seq: work.nextSeq,
@@ -639,6 +660,8 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       entryTriggerEventId: triggered ? (entryEventId ?? null) : null,
       exitTriggerEventId: null,
     });
+    const seq = work.nextSeq;
+    work.nextSeq += 1;
     await recordAudit(tx, {
       userId: work.userId,
       actorType: 'system',
@@ -648,20 +671,75 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       context: { runtimeId: work.id, triggerEventId: entryEventId ?? null },
     });
     if (triggered) {
+      const what = cycle.slot ? ` for ${symbolOf(cycle.slot.instrumentId)}` : '';
       await notify(tx, {
         userId: work.userId,
         kind: 'triggered',
-        title: `${work.strategyName}: Entry triggered`,
-        body: `Cycle ${work.nextSeq} started; its Entry orders follow their timing rules.`,
+        title: `${work.strategyName}: Entry triggered${what}`,
+        body: `Cycle ${seq} started; its Entry orders follow their timing rules.`,
         link: `/orders?strategy=${work.strategyId}`,
         resourceType: 'strategy_cycle',
         resourceId: id,
         dedupeKey: `entry:${id}`,
       });
     }
-  } else if (entry.decision.kind === 'add_batch') {
-    const target = cycles.find((c) => c.id === (entry.decision as { cycleId: string }).cycleId);
-    if (target) target.cycle = { ...target.cycle, entryBatches: target.cycle.entryBatches + 1 };
+    return id;
+  };
+
+  let qualified = false;
+  if (mode === 'none') {
+    // Entry: a new cycle, another batch, or nothing (§6.9).
+    entryTruth = newData && entryDue ? { truth: evaluate('entry') } : undefined;
+    const entry = planEntry({
+      definition: def,
+      state: state.trigger,
+      active: work.cycles.map((c) => ({ id: c.id, cycle: c.cycle })),
+      now: t,
+      entryTruth,
+      halted: entryHalted,
+    });
+    state.trigger = entry.state;
+    // The trigger event is written after its cycle, so both can point at each other.
+    entryEventId = entryTruth ? randomUUID() : undefined;
+    qualified = entry.decision.kind !== 'none';
+    if (entry.decision.kind === 'new_cycle') {
+      await openCycle(newCycleState(entry.decision.triggered ? t : undefined), entry.decision.triggered);
+    } else if (entry.decision.kind === 'add_batch') {
+      const target = cycles.find((c) => c.id === (entry.decision as { cycleId: string }).cycleId);
+      if (target) target.cycle = { ...target.cycle, entryBatches: target.cycle.entryBatches + 1 };
+    }
+  } else if (entryDue) {
+    // Selection groups and per-leg conditions (v1.2 items 1, 2), as the back test does.
+    let candidates: Slot[] = [];
+    if (mode === 'selection' && def.entry.selection) {
+      const template = def.entry.orders[0];
+      const gate: Truth = hasComparisons(def.entry.condition) ? evaluate('entry') : true;
+      const ranking = rankUniverse(def.entry.selection, members, view, symbolOf);
+      if (gate === true && template)
+        candidates = ranking.selected.map((instrumentId) => ({ legId: template.id, instrumentId }));
+      entryTruth = { truth: gate };
+    } else {
+      const legs = selectLegs(def, view, symbolOf);
+      candidates = legs.selected;
+      entryTruth = { truth: candidates.length > 0 };
+    }
+    entryEventId = randomUUID();
+    const plan = planSlots({
+      mode,
+      scheduled: scheduleOf(def) !== 'daily',
+      candidates,
+      held: work.cycles
+        .filter((c) => c.cycle.slot)
+        .map((c) => ({
+          key: slotKey(c.cycle.slot as Slot),
+          id: c.id,
+          open: c.cycle.status === 'open',
+        })),
+      halted: entryHalted,
+    });
+    for (const id of plan.exit) rebalanceExits.add(id);
+    for (const slot of plan.enter) await openCycle({ ...newCycleState(t), slot }, true);
+    qualified = plan.enter.length > 0 || plan.exit.length > 0;
   }
 
   if (entryTruth && entryEventId) {
@@ -669,29 +747,44 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       id: entryEventId,
       userId: work.userId,
       runtimeId: work.id,
-      cycleId: newCycleId,
+      cycleId: newCycleIds[0],
       phase: 'entry',
       dataTime: new Date(dataTime),
       evaluatedAt: now,
       result: entryTruth.truth,
-      qualified: entry.decision.kind !== 'none',
+      qualified,
       values: leafValues(def.entry.condition, view),
     });
+  }
+
+  // A rebalance sells and buys on the same pass: what is being closed doesn't
+  // count against buying power for the new entries (v1.2, slots only).
+  let closingGross = ZERO;
+  if (mode !== 'none') {
+    for (const c of cycles) {
+      if (c.cycle.status !== 'exit_working' && !rebalanceExits.has(c.id)) continue;
+      for (const [id, q] of c.positions) {
+        const px = await markOf(id);
+        if (px) closingGross = closingGross.plus(q.abs().times(px));
+      }
+    }
   }
 
   // 4. Plan and act on each active cycle.
   const working = () => work.working.length;
   let placedThisPass = 0;
   for (const c of cycles) {
+    const cycleDef = cycleDefinition(c);
     const exitTruth =
       newData && c.cycle.status === 'open' ? { truth: evaluate('exit', cycleView(c)) } : undefined;
     const plan = planCycle({
-      definition: def,
+      definition: cycleDef,
       cycle: c.cycle,
       legs: c.legs,
       positions: c.positions,
       now: t,
       exitTruth,
+      forceExit: rebalanceExits.has(c.id) ? 'rebalance' : undefined,
     });
     let exitEventId: string | undefined;
     if (exitTruth) {
@@ -753,8 +846,9 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         leg,
         quoteFor,
         view: cycleView(c),
+        definition: cycleDef,
         equity,
-        gross,
+        gross: leg.phase === 'entry' ? gross.minus(closingGross) : gross,
         dailyLossHit,
         drawdownHit,
         activeOrders: working() + placedThisPass,
@@ -845,6 +939,8 @@ interface PlaceInput {
   leg: PlannedLeg;
   quoteFor: (instrumentId: string) => Promise<Quote | undefined>;
   view: SeriesResolver;
+  /** The cycle's definition: the strategy, or its slot's (v1.2). */
+  definition: StrategyDefinition;
   equity: Decimal;
   gross: Decimal;
   dailyLossHit: boolean;
@@ -864,7 +960,7 @@ async function placeLeg(
   input: PlaceInput,
 ): Promise<boolean | undefined> {
   const { work, now } = ctx;
-  const def = work.definition;
+  const def = input.definition;
   const { cycle: c, plan, leg } = input;
   const order = def[leg.phase].orders.find((o) => o.id === leg.legId);
   if (!order) return skip(plan, leg);

@@ -18,7 +18,7 @@ import { checkTiming } from './timing';
 import { exprDepth, treeDepth, walkComparisons, walkExpr, walkExpressions } from './tree';
 import { CONTEXT_INSTRUMENT_ID } from './evaluate';
 import { checkMetricRef, getMetric, metricReferences } from './metrics';
-import { hasComparisons, slotModeOf } from './selection';
+import { hasComparisons, paperRunBlocker, slotModeOf } from './selection';
 import type { MetricRef } from './schema';
 
 /**
@@ -553,6 +553,8 @@ function checkSlots(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
 
   if (mode === 'selection') checkSelection(def, ctx, add);
   else checkLegConditions(def, ctx, add);
+  const blocker = paperRunBlocker(def);
+  if (blocker) add('warning', 'selection_backtest_only', blocker, ['entry', 'selection', 'universe']);
 }
 
 function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Add) {

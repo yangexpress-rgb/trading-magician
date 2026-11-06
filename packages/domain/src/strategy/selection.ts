@@ -419,3 +419,27 @@ export function referencedInstruments(def: StrategyDefinition): string[] {
   for (const ref of definitionMetrics(def)) for (const id of metricReferences(ref)) ids.add(id);
   return [...ids];
 }
+
+/** A list universe's members; a built-in one is resolved by the caller. */
+export function listMembers(def: StrategyDefinition): string[] {
+  const u = def.entry.kind === 'selection' ? def.entry.selection?.universe : undefined;
+  return u?.type === 'list' ? [...new Set(u.instrumentIds)] : [];
+}
+
+/** Largest list universe a paper run takes; every member's bars load on each pass. */
+export const PAPER_UNIVERSE_LIMIT = 50;
+
+/**
+ * Why a strategy can be back tested but not yet run on paper, or undefined.
+ * Decision of 2026-11-06: S&P 500 Selection groups back test in this round
+ * and run on paper once the worker caches bars (Design v1.2 D-v12-2).
+ */
+export function paperRunBlocker(def: StrategyDefinition): string | undefined {
+  if (def.entry.kind !== 'selection') return undefined;
+  const u = def.entry.selection?.universe;
+  if (u?.type === 'builtin')
+    return 'S&P 500 Selection groups can be back tested, but not run on paper yet: the paper runtime would reload 500 stocks’ bars on every pass. Use a list of up to 50 instruments to run on paper.';
+  if (u?.type === 'list' && new Set(u.instrumentIds).size > PAPER_UNIVERSE_LIMIT)
+    return `Paper runs take list universes of up to ${PAPER_UNIVERSE_LIMIT} instruments; this one has ${new Set(u.instrumentIds).size}. It can still be back tested.`;
+  return undefined;
+}

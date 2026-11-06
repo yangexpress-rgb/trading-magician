@@ -149,6 +149,8 @@ export async function loadData(
   provider: HistoricalDataProvider,
   plans: readonly SeriesPlan[],
   instruments: ReadonlyMap<string, InstrumentRef>,
+  /** Called after each series, e.g. to keep a queue lease while hundreds load. */
+  onProgress?: () => Promise<void>,
 ): Promise<LoadedData> {
   const series = new Map<string, Bar[]>();
   const versions = new Set<string>();
@@ -166,6 +168,7 @@ export async function loadData(
     series.set(seriesKey(plan.spec), result.bars);
     versions.add(result.dataVersion);
     for (const w of result.warnings) warnings.add(`${instrument.symbol}: ${w}`);
+    await onProgress?.();
   }
   return { series, dataVersions: [...versions].sort(), warnings: [...warnings] };
 }

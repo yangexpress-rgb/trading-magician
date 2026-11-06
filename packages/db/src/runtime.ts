@@ -1,5 +1,6 @@
-import type { InstrumentRef } from '@tm/backtest';
+import { strategyInstruments, type InstrumentRef } from '@tm/backtest';
 import {
+  listMembers,
   activeFromFor,
   newRuntimeTriggerState,
   parseDefinition,
@@ -56,6 +57,8 @@ export interface RuntimeState {
   brokerDownSince?: number | undefined;
   /** Since when a price used by the rules has been stale or missing, epoch ms. */
   staleSince?: number | undefined;
+  /** The calendar period last evaluated on a non-daily schedule, e.g. "2026-03" (v1.2 item 4). */
+  lastSchedulePeriod?: string | undefined;
 }
 
 export interface WorkingOrder {
@@ -290,25 +293,12 @@ export async function loadRuntimeWork(
   const raw = rt.runtime.state as Partial<RuntimeState>;
   const state: RuntimeState = { ...raw, trigger: raw.trigger ?? newRuntimeTriggerState() };
 
-  const ids = new Set<string>();
+  // Legs, condition instruments, list-universe members and benchmarks (v1.2).
+  const ids = new Set<string>(strategyInstruments(definition, listMembers(definition)));
   const accounts = new Set<string>();
   for (const phase of [definition.entry, definition.exit]) {
-    for (const o of phase.orders) {
-      ids.add(o.instrumentId);
-      accounts.add(o.accountId);
-    }
+    for (const o of phase.orders) accounts.add(o.accountId);
   }
-  const walk = (node: unknown): void => {
-    if (!node || typeof node !== 'object') return;
-    const n = node as Record<string, unknown>;
-    if (typeof n.instrumentId === 'string') ids.add(n.instrumentId);
-    for (const v of Object.values(n)) {
-      if (Array.isArray(v)) v.forEach(walk);
-      else if (v && typeof v === 'object') walk(v);
-    }
-  };
-  walk(definition.entry.condition);
-  walk(definition.exit.condition);
 
   // Every order of the runtime, with fills.
   const orders = await tx

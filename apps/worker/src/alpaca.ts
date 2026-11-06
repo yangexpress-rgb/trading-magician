@@ -122,6 +122,11 @@ export function alpacaProvider(options: AlpacaProviderOptions = {}): MarketDataP
       const found = await lookupAlpacaAsset(clientFor(ctx), symbol);
       return found ? toListing(found) : undefined;
     },
+    listings: async (ctx, symbols) => {
+      const wanted = new Set(symbols);
+      const list = await assetList(clientFor(ctx), ctx.now().getTime());
+      return list.filter((a) => wanted.has(a.symbol)).map(toListing);
+    },
     search: async (ctx, query) => {
       const list = await assetList(clientFor(ctx), ctx.now().getTime());
       return searchInstruments(list, query).map(toListing);

@@ -4,6 +4,8 @@ import type { Truth } from '../strategy/evaluate';
 import type { PhaseEvent, PhaseName, PlannedOrder, StrategyDefinition } from '../strategy/schema';
 import { extendedHoursEligible } from '../strategy/extended-hours';
 import { relativeDelaySeconds } from '../strategy/timing';
+import { timeStopReached } from '../strategy/schedule';
+import type { Slot as StrategySlot } from '../strategy/selection';
 import type { OrderState } from './order-state';
 import type { Direction } from './sizing';
 import { initialTriggerState, stepTrigger, type TriggerState } from './trigger';
@@ -54,6 +56,10 @@ export interface CycleState {
   skipped: string[];
   flattened: boolean;
   exitTrigger: TriggerState;
+  /** The universe member or leg this cycle holds (v1.2 Selection groups and per-leg conditions). */
+  slot?: StrategySlot | undefined;
+  /** Why the current Exit round started, when not the Exit condition (v1.2). */
+  exitReason?: 'rebalance' | 'time_stop' | undefined;
 }
 
 export const legKey = (phase: LegPhase, legId: string, attempt: number) =>
@@ -97,6 +103,8 @@ export interface CycleInput {
   now: number;
   /** Truth of the Exit condition on data that is new since the last pass. */
   exitTruth?: { truth: Truth } | undefined;
+  /** Exit now because a rebalance no longer selects this slot (v1.2 items 1, 2). */
+  forceExit?: 'rebalance' | undefined;
 }
 
 export interface CyclePlan {
@@ -408,6 +416,20 @@ export function planCycle(input: CycleInput): CyclePlan {
     if (stepTrigger(cycle.exitTrigger, input.exitTruth.truth, now, def.exit.trigger)) {
       cycle.status = 'exit_working';
       cycle.exitTriggeredAt = now;
+      plan.notes.push('exit_triggered');
+    }
+  }
+  // A rebalance or the time stop exits too, by OR with the condition (v1.2).
+  if (cycle.status === 'open') {
+    const reason = input.forceExit
+      ? input.forceExit
+      : timeStopReached(def, events.entry_partial_fill, now)
+        ? 'time_stop'
+        : undefined;
+    if (reason) {
+      cycle.status = 'exit_working';
+      cycle.exitTriggeredAt = now;
+      cycle.exitReason = reason;
       plan.notes.push('exit_triggered');
     }
   }

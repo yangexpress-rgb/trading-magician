@@ -217,3 +217,29 @@ export async function finishLookup(
     )
     .where(and(eq(instrumentLookups.id, id), eq(instrumentLookups.status, 'pending')));
 }
+
+/**
+ * Registered real (non-demo) US stocks and ETFs by symbol, for resolving a
+ * built-in universe such as the S&P 500 (Design v1.2 item 1). The first
+ * listing per symbol wins.
+ */
+export async function instrumentsBySymbol(
+  tx: Transaction,
+  symbols: readonly string[],
+): Promise<Map<string, string>> {
+  if (symbols.length === 0) return new Map();
+  const rows = await tx
+    .select({ id: instruments.id, symbol: instruments.symbol })
+    .from(instruments)
+    .where(
+      and(
+        inArray(instruments.symbol, [...symbols]),
+        inArray(instruments.assetClass, ['stock', 'etf']),
+        eq(instruments.isDemo, false),
+      ),
+    )
+    .orderBy(asc(instruments.symbol), asc(instruments.createdAt));
+  const out = new Map<string, string>();
+  for (const r of rows) if (!out.has(r.symbol)) out.set(r.symbol, r.id);
+  return out;
+}
