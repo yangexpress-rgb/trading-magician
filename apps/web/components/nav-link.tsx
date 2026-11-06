@@ -10,14 +10,17 @@ export function NavLink({
   children,
   className,
   activeClassName,
+  exact = false,
 }: {
   href: string;
+  /** Active only on this exact path, not on paths below it. */
+  exact?: boolean | undefined;
   children: ReactNode;
   className?: string;
   activeClassName?: string;
 }) {
   const pathname = usePathname();
-  const active = pathname === href || pathname.startsWith(`${href}/`);
+  const active = pathname === href || (!exact && pathname.startsWith(`${href}/`));
   return (
     <Link
       href={href}

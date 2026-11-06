@@ -92,3 +92,9 @@ export const MinusCircleIcon = (p: IconProps) => (
     <path d="M8 12h8" />
   </Icon>
 );
+export const AdminIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z" />
+    <path d="m9 12 2 2 4-4" />
+  </Icon>
+);

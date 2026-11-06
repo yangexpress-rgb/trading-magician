@@ -9,9 +9,8 @@
  * you trust; they sign in with it and change it in Settings › Security. Their
  * other sessions are signed out, and the reset is audited in their trail.
  */
-import { randomBytes } from 'node:crypto';
 import { hashPassword } from 'better-auth/crypto';
-import { createDb, resetPasswordAsOperator } from '@tm/db';
+import { createDb, generateTemporaryPassword, resetPasswordAsOperator } from '@tm/db';
 
 function need(name: string): string {
   const value = process.env[name];
@@ -25,9 +24,7 @@ async function main(): Promise<void> {
   const auth = createDb(need('DATABASE_AUTH_URL'), { max: 1 });
   const app = createDb(need('DATABASE_APP_URL'), { max: 1 });
   try {
-    // 20 characters from a 32-letter alphabet without look-alikes: about 100 bits.
-    const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789ab';
-    const password = Array.from(randomBytes(20), (b) => alphabet[b % 32]).join('');
+    const password = generateTemporaryPassword();
     const result = await resetPasswordAsOperator(
       auth.db,
       app.db,

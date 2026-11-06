@@ -79,7 +79,24 @@ export const users = pgTable('user', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   /** When the purge ran: personal details gone, order and audit records kept. */
   purgedAt: timestamp('purged_at', { withTimezone: true }),
+  /**
+   * When an admin locked the account (ADR 0037). Sign-in is refused and every
+   * session ended until an admin unlocks it.
+   */
+  lockedAt: timestamp('locked_at', { withTimezone: true }),
   ...timestamps(),
+});
+
+/**
+ * Who may open the admin page (ADR 0037). Granted only from the command line
+ * with the owner connection, never from the app; no app role can read or write
+ * it except through the admin_* functions.
+ */
+export const platformAdmins = pgTable('platform_admin', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  grantedAt: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 /** Auth library tables (Better Auth). Only the tm_auth role can read them. */

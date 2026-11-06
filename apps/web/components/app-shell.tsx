@@ -1,4 +1,12 @@
-import { ChartIcon, LabIcon, ModeBadge, OrdersIcon, ResearchIcon, SettingsIcon } from '@tm/ui';
+import {
+  AdminIcon,
+  ChartIcon,
+  LabIcon,
+  ModeBadge,
+  OrdersIcon,
+  ResearchIcon,
+  SettingsIcon,
+} from '@tm/ui';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { NavLink } from './nav-link';
@@ -14,7 +22,19 @@ export const PRIMARY_NAV = [
   { href: '/settings', label: 'Settings', icon: <SettingsIcon /> },
 ] as const;
 
-export function AppShell({ email, children }: { email: string; children: ReactNode }) {
+/** Shown only to admins (ADR 0037), after the primary tabs. */
+const ADMIN_NAV = { href: '/admin', label: 'Admin', icon: <AdminIcon /> } as const;
+
+export function AppShell({
+  email,
+  isAdmin = false,
+  children,
+}: {
+  email: string;
+  isAdmin?: boolean;
+  children: ReactNode;
+}) {
+  const nav = isAdmin ? [...PRIMARY_NAV, ADMIN_NAV] : PRIMARY_NAV;
   return (
     <div className="min-h-screen md:grid md:grid-cols-[232px_1fr]">
       <a
@@ -30,7 +50,7 @@ export function AppShell({ email, children }: { email: string; children: ReactNo
         </div>
         <nav aria-label="Primary" className="overflow-x-auto px-2 pb-2 md:pb-0">
           <ul className="flex gap-1 md:flex-col">
-            {PRIMARY_NAV.map((item) => (
+            {nav.map((item) => (
               <li key={item.href}>
                 <NavLink
                   href={item.href}
