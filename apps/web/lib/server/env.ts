@@ -76,6 +76,11 @@ export function loadServerEnv(source: Record<string, string | undefined> = proce
   if (env.NODE_ENV === 'production' && env.BILLING_FAKE && !source.E2E_TEST) {
     throw new Error('BILLING_FAKE is for tests only');
   }
+  if (env.EMAIL_VERIFICATION === 'off' && env.SIGNUP_MODE !== 'invite') {
+    throw new Error(
+      'EMAIL_VERIFICATION=off needs SIGNUP_MODE=invite: without email, the invite code is what admits people',
+    );
+  }
   if (env.NODE_ENV === 'production' && env.MAIL_TRANSPORT === 'outbox' && !source.E2E_TEST) {
     throw new Error('MAIL_TRANSPORT=outbox is for development and tests only');
   }

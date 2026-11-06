@@ -1,45 +1,19 @@
-'use client';
-
-import { Button, TextField } from '@tm/ui';
 import Link from 'next/link';
-import { useState, type FormEvent } from 'react';
-import { authClient } from '@/lib/auth-client';
+import { ForgotPasswordForm } from '@/components/forgot-password-form';
+import { serverEnv } from '@/lib/server/env';
 
 export default function ForgotPasswordPage() {
-  const [sent, setSent] = useState(false);
-  const [pending, setPending] = useState(false);
-
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    setPending(true);
-    await authClient.requestPasswordReset({
-      email: String(form.get('email')),
-      redirectTo: '/reset-password',
-    });
-    setPending(false);
-    // Same message whether or not the account exists, so emails can't be probed.
-    setSent(true);
-  }
-
-  if (sent) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-xl font-semibold">Check your email</h1>
-        <p>If an account exists for that address, we sent a link to reset the password.</p>
-        <Link href="/sign-in">Back to sign in</Link>
-      </div>
-    );
-  }
-
+  if (serverEnv().EMAIL_VERIFICATION === 'required') return <ForgotPasswordForm />;
+  // The app sends no email (ADR 0036), so a reset link can't reach anyone.
   return (
-    <form className="space-y-4" onSubmit={onSubmit}>
+    <div className="space-y-4">
       <h1 className="text-xl font-semibold">Reset your password</h1>
-      <TextField label="Email" name="email" type="email" autoComplete="email" required />
-      <Button variant="primary" type="submit" className="w-full" disabled={pending}>
-        Send reset link
-      </Button>
+      <p>
+        Trading Magician doesn&apos;t send email yet, so there is no reset link. Ask the person who
+        invited you to reset your password. They will give you a temporary one to sign in with, and
+        you can change it in Settings.
+      </p>
       <Link href="/sign-in">Back to sign in</Link>
-    </form>
+    </div>
   );
 }
