@@ -206,11 +206,12 @@ beforeEach(async () => {
 
 describe('routes', () => {
   it('provisions demo routes on the demo venue, and keeps demo and real feeds apart', async () => {
-    const route = await stockDemoRoute();
-    expect(route.primary.id).toBe(demoFeed);
     const backup = await asUser((tx) =>
       createFeed(tx, { userId, name: 'Demo backup', provider: 'demo', assetClasses: ['stock'] }),
     );
+    // A new demo feed backs up the demo routes on its own.
+    const route = await stockDemoRoute();
+    expect(route).toMatchObject({ primary: { id: demoFeed }, fallback: { id: backup.id } });
     // A second demo feed can back up the first, and changing the primary is audited (§9.4).
     const moved = await asUser((tx) =>
       updateRoute(tx, {
@@ -307,7 +308,7 @@ describe('routes', () => {
     const after = await asUser((tx) => listRoutes(tx));
     for (const r of before) expect(after.find((a) => a.id === r.id)?.primary.id).toBe(r.primary.id);
 
-    // A second real feed fills no gaps, so it gets no routes of its own.
+    // A second real feed gets no routes of its own; it backs up the first feed's routes.
     const second = await asUser((tx) =>
       createFeed(tx, {
         userId,
@@ -317,19 +318,37 @@ describe('routes', () => {
         assetClasses: ['stock'],
       }),
     );
-    expect(second.routes).toEqual([]);
+    expect(second.routes.map((r) => `${r.role}:${r.assetClass}/${r.dataType}`).sort()).toEqual([
+      'fallback:stock/bars',
+      'fallback:stock/quotes',
+    ]);
 
-    // Removing the first feed takes its routes with it; the second fills the gaps it can.
+    // Removing the first feed deletes all its routes; the second gets its own in their place.
+    const firstRoutes = added.map((r) => r.id);
     await asUser((tx) => deleteFeed(tx, { userId, id: alpaca.id }));
+    const left = await asUser((tx) => listRoutes(tx));
+    expect(left.some((r) => firstRoutes.includes(r.id))).toBe(false);
     const now = await asUser((tx) => getFeed(tx, second.id));
     expect(
-      now.routes.map((r) => `${r.assetClass}/${r.venue ?? 'any'}/${r.dataType}`).sort(),
-    ).toEqual(['stock/any/bars', 'stock/any/quotes']);
+      now.routes.map((r) => `${r.role}:${r.assetClass}/${r.venue ?? 'any'}/${r.dataType}`).sort(),
+    ).toEqual(['primary:stock/any/bars', 'primary:stock/any/quotes']);
 
     // Removing the last one leaves the routing as it was.
     await asUser((tx) => deleteFeed(tx, { userId, id: second.id }));
     const remaining = await asUser((tx) => listRoutes(tx));
     expect(remaining.map((r) => r.id).sort()).toEqual(before.map((r) => r.id).sort());
+  });
+
+  it('makes a new demo feed the backup for demo routes, and takes it off them when removed', async () => {
+    const spare = await asUser((tx) =>
+      createFeed(tx, { userId, name: 'Demo extra', provider: 'demo', assetClasses: ['stock'] }),
+    );
+    expect(
+      spare.routes.map((r) => `${r.role}:${r.assetClass}/${r.venue}/${r.dataType}`).sort(),
+    ).toEqual(['fallback:stock/DEMO/bars', 'fallback:stock/DEMO/quotes']);
+    await asUser((tx) => deleteFeed(tx, { userId, id: spare.id }));
+    const routes = await asUser((tx) => listRoutes(tx));
+    expect(routes.every((r) => r.primary.id === demoFeed && r.fallback === null)).toBe(true);
   });
 
   it('refuses a feed for an asset class it does not cover, or a key for another provider', async () => {
@@ -546,13 +565,10 @@ describe('turning off a feed in use (§9.4)', () => {
       reason: 'Its data feed Demo spare was turned off.',
     });
 
-    // A feed that routes still use cannot be removed.
-    await expect(asUser((tx) => deleteFeed(tx, { userId, id: backup.id }))).rejects.toThrow(
-      /Routes still use this feed/,
-    );
-
-    // Restore the provisioned routing.
-    await t.ownerSql`update data_route set primary_feed_id = ${demoFeed}, fallback_feed_id = null, active_source = 'primary'`;
+    // Removing it deletes its routes; the demo feed, back on, gets them again.
     await asUser((tx) => deleteFeed(tx, { userId, id: backup.id }));
+    const restored = await asUser((tx) => listRoutes(tx));
+    expect(restored.length).toBeGreaterThan(0);
+    expect(restored.every((r) => r.primary.id === demoFeed && r.fallback === null)).toBe(true);
   });
 });

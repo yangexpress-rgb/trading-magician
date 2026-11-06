@@ -4,9 +4,10 @@ import { createStrategyWithRules, group, leg, series } from './backtest-fixtures
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 /**
- * Settings › Data feeds (§9.2–9.4, §15.4): feeds are tested by the worker,
- * routes pick a primary and a fallback, and turning off a feed that running
- * strategies depend on asks what should happen to them first.
+ * Settings › Data feeds (§9.2–9.4, §15.4, ADR 0038): feeds are tested by the
+ * worker, each price feed lists its routes underneath it, a new feed gets its
+ * routes (or backs up existing ones) on its own and they go with it, and
+ * turning off a feed that running strategies depend on asks first.
  */
 
 const comparison = (id: string, instrumentId: string, operator: 'gt' | 'lt') => ({
@@ -58,7 +59,9 @@ test('tests feeds, sets a fallback and turns a feed off safely', async ({ page, 
   await page.goto('/settings/data-feeds');
   const feeds = page.getByRole('list', { name: 'Price feeds' });
   const demo = feeds.getByRole('listitem', { name: 'Demo feed', exact: true });
-  await expect(demo).toContainText('Primary for Stocks live prices (demo instruments)');
+  const demoRoutes = demo.getByRole('table', { name: 'Routes for Demo feed' });
+  await expect(demoRoutes).toContainText('Stocks live prices');
+  await expect(demoRoutes).toContainText('Demo instruments');
 
   // Test asks the worker to check it now; the result comes back live.
   await demo.getByRole('button', { name: 'Test Demo feed' }).click();
@@ -75,14 +78,42 @@ test('tests feeds, sets a fallback and turns a feed off safely', async ({ page, 
   await expect(add).toBeHidden();
   const backup = feeds.getByRole('listitem', { name: 'Backup demo feed' });
   await expect(backup.getByText('Healthy')).toBeVisible();
-  await expect(backup).toContainText('Not used by any route');
+  // It backs up the demo feed's routes on its own.
+  await expect(backup).toContainText(
+    'Backup for Stocks live prices (demo instruments) from Demo feed',
+  );
+  await expect(
+    demoRoutes.getByLabel('Backup feed for Stocks live prices, demo instruments'),
+  ).toHaveValue(/.+/);
 
-  // Point a route's fallback at it.
-  const routes = page.getByRole('table', { name: 'Routes' });
-  await routes
-    .getByLabel('Fallback feed for Stocks live prices, demo instruments')
-    .selectOption({ label: 'Backup demo feed' });
-  await expect(backup).toContainText('Fallback for Stocks live prices (demo instruments)');
+  // Removing it while it is a backup is allowed and takes it off those routes.
+  await backup.getByRole('button', { name: 'Remove' }).click();
+  await page
+    .getByRole('dialog', { name: 'Remove Backup demo feed?' })
+    .getByRole('button', { name: 'Remove feed' })
+    .click();
+  await expect(backup).toBeHidden();
+  await expect(
+    demoRoutes.getByLabel('Backup feed for Stocks live prices, demo instruments'),
+  ).toHaveValue('');
+
+  // Added again, it backs them up again.
+  await page.getByRole('button', { name: 'Add a feed' }).click();
+  await add.getByLabel('Provider').selectOption({ label: 'Demo (built in)' });
+  await add.getByLabel('Name').fill('Backup demo feed');
+  await add.getByRole('button', { name: 'Add feed' }).click();
+  await expect(add).toBeHidden();
+  await expect(backup).toContainText(
+    'Backup for Stocks live prices (demo instruments) from Demo feed',
+  );
+
+  // Removing the demo feed is refused while a running strategy gets prices from it.
+  await demo.getByRole('button', { name: 'Remove' }).click();
+  const remove = page.getByRole('dialog', { name: 'Remove Demo feed?' });
+  await expect(remove).toContainText('deleted with it');
+  await remove.getByRole('button', { name: 'Remove feed' }).click();
+  await expect(page.getByText('Idle watcher gets prices from this feed.')).toBeVisible();
+  await expect(remove).toBeHidden();
 
   // Turning off the demo feed names the strategy and offers a replacement or a pause.
   await demo.getByRole('button', { name: 'Turn off' }).click();
@@ -103,8 +134,10 @@ test('tests feeds, sets a fallback and turns a feed off safely', async ({ page, 
   await turnOff.getByRole('button', { name: 'Turn off' }).click();
   await expect(turnOff).toBeHidden();
   await expect(demo.getByText('Off', { exact: true })).toBeVisible();
-  await expect(demo).toContainText('Not used by any route');
-  await expect(backup).toContainText('Primary for Stocks live prices (demo instruments)');
+  await expect(demo).toContainText('No routes while off.');
+  await expect(backup.getByRole('table', { name: 'Routes for Backup demo feed' })).toContainText(
+    'Stocks live prices',
+  );
   const execution = await (await page.request.get('/api/v1/execution')).json();
   expect(
     execution.runtimes.find((r: { strategyId: string }) => r.strategyId === strategy.id)?.status,
