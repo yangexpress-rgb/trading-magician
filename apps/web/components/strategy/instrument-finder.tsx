@@ -42,8 +42,8 @@ export function InstrumentFinder({
         US stocks and ETFs
       </h2>
       <p className="mb-3 text-sm text-ink-muted">
-        Besides the demo instruments, a strategy can use any US stock or ETF your data feed can
-        find. Feeds are set up in <Link href="/settings/data-feeds">Settings › Data feeds</Link>.
+        A strategy can use any US stock or ETF your data feed can find. Feeds are set up in{' '}
+        <Link href="/settings/data-feeds">Settings › Data feeds</Link>.
       </p>
       {real.length > 0 && (
         <ul aria-label="Your US stocks and ETFs" className="mb-3 flex flex-wrap gap-2 text-sm">

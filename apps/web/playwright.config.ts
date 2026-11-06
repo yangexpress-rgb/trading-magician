@@ -63,6 +63,8 @@ export default defineConfig({
         MAIL_TRANSPORT: 'outbox',
         MAIL_OUTBOX_DIR: '.mail-outbox',
         E2E_TEST: '1',
+        // The tests run on the invented demo instruments and demo feed (ADR 0039).
+        DEMO_DATA: 'on',
         // Tests make more strategies than Free keeps; the limits have their own tests (ADR 0022).
         SIGNUP_PLAN: 'dev',
         // Sign-up needs no code here; the invite-only server below covers that (ADR 0026).
@@ -81,6 +83,8 @@ export default defineConfig({
         MAIL_TRANSPORT: 'outbox',
         MAIL_OUTBOX_DIR: '.mail-outbox',
         E2E_TEST: '1',
+        // The tests run on the invented demo instruments and demo feed (ADR 0039).
+        DEMO_DATA: 'on',
         SIGNUP_PLAN: 'dev',
         SIGNUP_MODE: 'invite',
         CREDENTIALS_PUBLIC_KEY: credentialKeys.publicKey,
@@ -106,6 +110,8 @@ export default defineConfig({
         SEC_FAKE: 'true',
         BILLING_FAKE: 'true',
         E2E_TEST: '1',
+        // The tests run on the invented demo instruments and demo feed (ADR 0039).
+        DEMO_DATA: 'on',
         LOG_LEVEL: 'warn',
         CREDENTIALS_PRIVATE_KEY: credentialKeys.privateKey,
       },

@@ -36,9 +36,9 @@ import {
 /**
  * Fills in stock screens for Quantitative Research (ADR 0030): every US
  * stock and ETF the tenant's US stock feed covers, one row of key values
- * each. Without a feed that can screen the market, the demo instruments are
- * screened from the demo feed. A feed that cannot be reached is retried a
- * few times, then reported.
+ * each. A demo feed (tests only, ADR 0039) screens the demo instruments.
+ * With no feed at all the screen fails and says to add one. A feed that
+ * cannot be reached is retried a few times, then reported.
  */
 
 const SP500_MEMBERS: ReadonlySet<string> = new Set(SP500_SECTORS.keys());
@@ -72,7 +72,7 @@ export function pickScreenFeed(
   const feed =
     feeds.find((f) => f.provider !== 'demo' && providerCoversVenue(f.provider, 'US')) ??
     feeds.find((f) => f.provider === 'demo');
-  return { feed, provider: feed ? providers[feed.provider] : providers.demo };
+  return { feed, provider: feed ? providers[feed.provider] : undefined };
 }
 
 export async function runStockScreens(options: StockScreenOptions): Promise<number> {
@@ -126,9 +126,19 @@ export async function runStockScreens(options: StockScreenOptions): Promise<numb
       }
       return { ...picked, credential: opened, known, company };
     });
-    const source = feed?.name ?? 'Demo data';
+    const source = feed?.name ?? 'No data feed';
+    if (!provider?.screen) {
+      await inTenant((tx) =>
+        finishStockScreen(tx, screenId, {
+          status: 'failed',
+          message:
+            'Add an Alpaca data feed with your paper API key in Settings › Data feeds to screen US stocks and ETFs.',
+          source,
+        }),
+      );
+      continue;
+    }
     try {
-      if (!provider?.screen) throw new Error('No feed can screen');
       const result = await withTimeout(
         provider.screen(
           { now, credential },

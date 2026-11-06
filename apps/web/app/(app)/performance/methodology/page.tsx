@@ -85,9 +85,9 @@ export default function MethodologyPage() {
           </Item>
           <Item term="Equity">
             Starting equity plus realized and unrealized profit, less fees already paid on what is
-            still open. The demo account starts at $100,000, the same as an Alpaca paper account.
-            Other accounts take their starting point from the broker the first time it reports
-            equity.
+            still open. The built-in paper account starts at $100,000, the same as an Alpaca paper
+            account. Other accounts take their starting point from the broker the first time it
+            reports equity.
           </Item>
           <Item term="Currency">
             All amounts are in US dollars, the currency of every supported account.

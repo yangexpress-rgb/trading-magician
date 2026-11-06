@@ -203,7 +203,9 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
                   <div className="min-w-0 text-sm">
                     <p className="text-base font-semibold">{p.name}</p>
                     <p className="mt-1 flex flex-wrap items-center gap-2">
-                      <Badge tone="neutral">{providerName(p.provider)}</Badge>
+                      <Badge tone="neutral">
+                        {p.provider === 'demo' ? 'Built-in paper' : providerName(p.provider)}
+                      </Badge>
                       <ModeBadge mode="paper" />
                       <Badge tone={p.isActive ? 'ok' : 'neutral'}>
                         {p.isActive ? 'On' : 'Off'}

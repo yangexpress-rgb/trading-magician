@@ -5,6 +5,9 @@ import { createDb, type DbHandle } from '../src/client';
 import { runMigrations } from '../src/migrate';
 import { seedReferenceData } from '../src/seed';
 
+// The tests run on the invented demo instruments and demo feed (ADR 0039).
+process.env.DEMO_DATA ??= 'on';
+
 /**
  * Creates a throwaway database with migrations and seed applied, plus login
  * users for the tm_app and tm_auth roles, so tests exercise the real grants and
@@ -61,7 +64,7 @@ export async function createTestDatabase(): Promise<TestDatabase> {
   } finally {
     await admin`select pg_advisory_unlock(${MIGRATION_LOCK})`;
   }
-  await seedReferenceData(owner.db);
+  await seedReferenceData(owner.db, { demo: true });
   // Most tests create more strategies than the Free plan keeps; new workspaces
   // start on the dev plan here. entitlements.test.ts covers the real default.
   await owner.db.execute(sql`update plan set is_default = false`);

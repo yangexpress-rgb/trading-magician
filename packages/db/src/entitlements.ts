@@ -111,9 +111,8 @@ const COUNT_MESSAGES: Record<CountLimit, (plan: string, n: number) => string> = 
 
 const FEATURE_MESSAGES: Record<FeatureLimit, (plan: string) => string> = {
   paperIntegrations: (plan) =>
-    `The ${plan} plan trades on the demo account only. Connecting Alpaca or another broker needs a plan that includes it. ${UPGRADE}`,
-  liveData: (plan) =>
-    `The ${plan} plan uses the demo feed only. Adding a market data provider needs a plan that includes it. ${UPGRADE}`,
+    `The ${plan} plan trades on the built-in paper account only. Connecting Alpaca or another broker needs a plan that includes it. ${UPGRADE}`,
+  liveData: (plan) => `The ${plan} plan doesn't include market data from a provider. ${UPGRADE}`,
   realIntegrations: () => 'Real-money trading is not available yet.',
 };
 
@@ -241,7 +240,7 @@ async function runningStrategies(
   }));
 }
 
-/** Accounts on a broker other than the built-in demo one. */
+/** Accounts on a broker other than the built-in paper one. */
 async function outsideAccounts(tx: Transaction): Promise<Set<string>> {
   const rows = await tx
     .select({ id: tradingAccounts.id })

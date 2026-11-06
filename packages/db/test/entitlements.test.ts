@@ -213,7 +213,7 @@ describe('limits', () => {
     expect(e.details).toMatchObject({ limit: 'activeStrategies', allowed: 1, used: 1 });
   });
 
-  it('keeps Free on the demo broker and feed', async () => {
+  it('keeps Free on the built-in paper broker, with its own market data (ADR 0039)', async () => {
     const credential = await alpacaKey(free);
     const platform = await planLimit(
       as(free, (tx) =>
@@ -226,18 +226,37 @@ describe('limits', () => {
       ),
     );
     expect(platform.details).toMatchObject({ limit: 'paperIntegrations', allowed: false });
-    const feed = await planLimit(
+    const feed = await as(free, (tx) =>
+      createFeed(tx, {
+        userId: free,
+        name: 'Alpaca data',
+        provider: 'alpaca',
+        credentialId: credential.id,
+        assetClasses: ['stock'],
+      }),
+    );
+    expect(feed.provider).toBe('alpaca');
+    // A plan without market data still can't add a feed.
+    await t.owner.db
+      .update(entitlements)
+      .set({ overrides: { liveData: false } })
+      .where(eq(entitlements.userId, free));
+    const refused = await planLimit(
       as(free, (tx) =>
         createFeed(tx, {
           userId: free,
-          name: 'Alpaca data',
+          name: 'More data',
           provider: 'alpaca',
           credentialId: credential.id,
           assetClasses: ['stock'],
         }),
       ),
     );
-    expect(feed.details).toMatchObject({ limit: 'liveData' });
+    expect(refused.details).toMatchObject({ limit: 'liveData' });
+    await t.owner.db
+      .update(entitlements)
+      .set({ overrides: {} })
+      .where(eq(entitlements.userId, free));
   });
 
   it('leaves an account past the limit off, and refuses to turn it on', async () => {

@@ -126,8 +126,8 @@ export function StockPicker({
           {!canSearchMarket ? (
             <p className="text-sm text-ink-muted" data-testid="needs-feed">
               To search every US stock and ETF, add an Alpaca data feed with your paper API key in{' '}
-              <Link href="/settings/data-feeds">Settings › Data feeds</Link>. Until then only the
-              demo instruments can be charted.
+              <Link href="/settings/data-feeds">Settings › Data feeds</Link>. Until then only stocks
+              you already use can be charted.
             </p>
           ) : !q ? (
             <p className="text-sm text-ink-muted">
