@@ -87,7 +87,44 @@ export interface CalcExpr {
   op: (typeof CALC_OPS)[number];
   args: Expr[];
 }
-export type Expr = ConstantExpr | MarketExpr | IndicatorExpr | PositionExpr | CalcExpr;
+/**
+ * A named metric from the shared metric registry (v1.2 item 1, principle 3):
+ * the same definition serves conditions, Selection-group ranking and the
+ * screener. Metrics read daily bars; `params` follow the metric's spec.
+ */
+export interface MetricExpr {
+  kind: 'metric';
+  id: NodeId;
+  metric: string;
+  params: Record<string, number | string>;
+  instrumentId: string;
+}
+/**
+ * A statistical function over any expression, evaluated bar by bar over its
+ * own history (v1.2 item 3): standard deviation, z-score and Bollinger bands
+ * of a price, a calculated spread or another indicator.
+ */
+export const STAT_FUNCTIONS = ['STDDEV', 'ZSCORE', 'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER'] as const;
+export type StatFunction = (typeof STAT_FUNCTIONS)[number];
+export interface StatExpr {
+  kind: 'stat';
+  id: NodeId;
+  fn: StatFunction;
+  input: Expr;
+  period: number;
+  /** Band width in standard deviations, for the Bollinger functions. */
+  multiplier?: string | undefined;
+  /** Bars back from the current one, as on market values. */
+  offset?: number | undefined;
+}
+export type Expr =
+  | ConstantExpr
+  | MarketExpr
+  | IndicatorExpr
+  | PositionExpr
+  | CalcExpr
+  | MetricExpr
+  | StatExpr;
 
 const offset = z.number().int().min(0).max(500).default(0);
 
@@ -118,6 +155,26 @@ export const positionExprSchema = z.object({
   id,
   field: z.enum(POSITION_FIELDS),
   ...seriesSource,
+});
+
+export const metricExprSchema = z.object({
+  kind: z.literal('metric'),
+  id,
+  metric: z.string().min(1).max(40),
+  params: z.record(z.string(), z.union([z.number(), z.string().max(64)])),
+  instrumentId: z.string().uuid({ message: 'Choose an instrument' }),
+});
+
+const statExprSchema = z.object({
+  kind: z.literal('stat'),
+  id,
+  fn: z.enum(STAT_FUNCTIONS),
+  get input(): z.ZodType<Expr> {
+    return exprSchema;
+  },
+  period: z.number().int().min(2, 'Use at least 2 bars').max(500),
+  multiplier: positiveDecimalString.optional(),
+  offset: z.number().int().min(0).max(500).optional(),
 });
 
 const calcExprSchema = z
@@ -153,6 +210,8 @@ export const exprSchema: z.ZodType<Expr> = z.discriminatedUnion('kind', [
   indicatorExprSchema,
   positionExprSchema,
   calcExprSchema,
+  metricExprSchema,
+  statExprSchema,
 ]);
 
 // ---------------------------------------------------------------------------
@@ -308,6 +367,12 @@ export const plannedOrderSchema = z.object({
   /** When true, only the timing rule must qualify, not the phase condition (§6.8). */
   timingOnly: z.boolean().default(false),
   notes: z.string().max(500).optional(),
+  /**
+   * Entry legs only (v1.2 item 2): the leg fires only when the Entry
+   * condition and this condition are both true. Expressions on the leg's
+   * own instrument may use `CONTEXT_INSTRUMENT_ID`.
+   */
+  legCondition: conditionGroupSchema.optional(),
 });
 export type PlannedOrder = z.infer<typeof plannedOrderSchema>;
 
@@ -334,6 +399,86 @@ export const phaseSchema = z.object({
   orders: z.array(plannedOrderSchema).max(20),
 });
 export type Phase = z.infer<typeof phaseSchema>;
+
+// ---------------------------------------------------------------------------
+// v1.2: Selection groups, per-leg fire mode, exit rules and the schedule.
+// Every field is optional and absent on v1.1 definitions, so they parse,
+// hash and run exactly as before (design principle 5).
+// ---------------------------------------------------------------------------
+
+/** A metric from the registry with its parameters (see metrics.ts). */
+export const metricRefSchema = z.object({
+  metric: z.string().min(1).max(40),
+  params: z.record(z.string(), z.union([z.number(), z.string().max(64)])).default({}),
+});
+export type MetricRef = z.infer<typeof metricRefSchema>;
+
+export const BUILTIN_UNIVERSES = ['sp500'] as const;
+export type BuiltinUniverse = (typeof BUILTIN_UNIVERSES)[number];
+
+export const universeSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('builtin'), id: z.enum(BUILTIN_UNIVERSES) }),
+  z.object({
+    type: z.literal('list'),
+    instrumentIds: z
+      .array(z.string().uuid({ message: 'Choose an instrument' }))
+      .min(1, 'Add at least one instrument to the list')
+      .max(600),
+  }),
+]);
+export type Universe = z.infer<typeof universeSchema>;
+
+export const selectionSchema = z.object({
+  universe: universeSchema,
+  ranking: metricRefSchema,
+  /** Highest value first, or lowest first (cheapest by P/E style). */
+  direction: z.enum(['desc', 'asc']),
+  count: z.discriminatedUnion('type', [
+    z.object({ type: z.literal('fixed'), value: z.number().int().min(1).max(600) }),
+    z.object({ type: z.literal('percent'), value: z.number().gt(0).max(100) }),
+  ]),
+  /** Evaluated per member before ranking; failing or unknown members are left out. */
+  preFilter: conditionGroupSchema.optional(),
+  weighting: z.literal('equal'),
+});
+export type Selection = z.infer<typeof selectionSchema>;
+
+export const fireModeSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('allPassing') }),
+  z.object({ mode: z.literal('bestByMetric'), metric: metricRefSchema }),
+]);
+export type FireMode = z.infer<typeof fireModeSchema>;
+
+export const entryPhaseSchema = phaseSchema.extend({
+  /** `fixed` when absent: the legs name their instruments, as in v1.1. */
+  kind: z.enum(['fixed', 'selection']).optional(),
+  selection: selectionSchema.optional(),
+  fireMode: fireModeSchema.optional(),
+});
+export type EntryPhase = z.infer<typeof entryPhaseSchema>;
+
+export const EXIT_RULE_KINDS = ['timeStop'] as const;
+export const exitRuleSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('timeStop'),
+    id,
+    /** Trading days held, counting the day the position opened. */
+    barsHeld: z.number().int().min(1, 'Hold for at least 1 day').max(2520),
+  }),
+]);
+export type ExitRule = z.infer<typeof exitRuleSchema>;
+
+export const exitPhaseSchema = phaseSchema.extend({
+  /** Rules combined with the Exit condition by OR: the first to trigger exits. */
+  rules: z.array(exitRuleSchema).max(5).optional(),
+});
+export type ExitPhase = z.infer<typeof exitPhaseSchema>;
+
+export const SCHEDULE_FREQUENCIES = ['daily', 'weekly', 'monthEnd', 'quarterEnd', 'yearEnd'] as const;
+export type ScheduleFrequency = (typeof SCHEDULE_FREQUENCIES)[number];
+/** When Entry and re-selection are evaluated; Exit rules run on every bar regardless. */
+export const scheduleSchema = z.object({ frequency: z.enum(SCHEDULE_FREQUENCIES) });
+export type Schedule = z.infer<typeof scheduleSchema>;
 
 export const executionSchema = z.object({
   multiLegPolicy: z.enum(['concurrent', 'sequential', 'after_prior_fill']),
@@ -375,10 +520,12 @@ export const REQUIRED_RISK_LIMITS = [
 
 export const strategyDefinitionSchema = z.object({
   schemaVersion: z.literal(STRATEGY_SCHEMA_VERSION),
-  entry: phaseSchema,
-  exit: phaseSchema,
+  entry: entryPhaseSchema,
+  exit: exitPhaseSchema,
   execution: executionSchema,
   risk: riskProfileSchema,
+  /** Absent means daily: every bar, as in v1.1. */
+  schedule: scheduleSchema.optional(),
 });
 export type StrategyDefinition = z.infer<typeof strategyDefinitionSchema>;
 export type PhaseName = 'entry' | 'exit';

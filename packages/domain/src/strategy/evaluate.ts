@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { computeMetric, metricExprRef, populationStdDev, sampleStdDev } from './metrics';
 import type {
   Comparison,
   ConditionNode,
@@ -6,7 +7,17 @@ import type {
   IndicatorExpr,
   MarketExpr,
   PositionExpr,
+  StatExpr,
 } from './schema';
+
+/**
+ * Stands for "this leg's instrument" or "this universe member" (v1.2 items 1
+ * and 2). Expressions in a leg condition, a Selection group's pre-filter and
+ * its Exit rules may name it; the engine binds it to the instrument being
+ * evaluated with `withContext`. It is the nil UUID, so every schema that
+ * takes an instrument id accepts it and no stored id can collide with it.
+ */
+export const CONTEXT_INSTRUMENT_ID = '00000000-0000-0000-0000-000000000000';
 
 /**
  * Pure evaluation of conditions against market values (Design v1.0 §6.5 steps
@@ -61,6 +72,22 @@ export function seriesOf(e: Expr): SeriesExpr | undefined {
   return undefined;
 }
 
+/** A resolver that reads `CONTEXT_INSTRUMENT_ID` as `instrumentId`. */
+export function withContext(r: SeriesResolver, instrumentId: string): SeriesResolver {
+  const bind = <T extends SeriesExpr>(e: T): T =>
+    e.instrumentId === CONTEXT_INSTRUMENT_ID ? { ...e, instrumentId } : e;
+  return {
+    value: (expr, barsBack) => r.value(bind(expr), barsBack),
+    isStale: (expr) => r.isStale(bind(expr)),
+    ...(r.position
+      ? {
+          position: (id: string) =>
+            r.position?.(id === CONTEXT_INSTRUMENT_ID ? instrumentId : id),
+        }
+      : {}),
+  };
+}
+
 /** A resolver that also answers for one cycle's positions. */
 export function withPositions(
   r: SeriesResolver,
@@ -101,6 +128,10 @@ export function evaluateExpr(expr: Expr, r: SeriesResolver, barsBack = 0): Decim
       return r.value(expr, barsBack);
     case 'position':
       return positionValue(expr, r, barsBack);
+    case 'metric':
+      return computeMetric(metricExprRef(expr), expr.instrumentId, r, barsBack);
+    case 'stat':
+      return statValue(expr, r, barsBack);
     case 'calc': {
       const args: Decimal[] = [];
       for (const arg of expr.args) {
@@ -127,6 +158,43 @@ export function evaluateExpr(expr: Expr, r: SeriesResolver, barsBack = 0): Decim
         case 'max':
           return Decimal.max(...args);
       }
+    }
+  }
+}
+
+/**
+ * A statistical function over its input's own history (v1.2 item 3). The
+ * input is evaluated on each of the last `period` bars, so a calculated
+ * spread gets the same treatment as a price. Unknown when any of those
+ * values is unknown, and the z-score when the deviation is zero.
+ */
+export function statValue(e: StatExpr, r: SeriesResolver, barsBack = 0): Decimal | undefined {
+  const start = barsBack + (e.offset ?? 0);
+  const xs: Decimal[] = [];
+  for (let k = 0; k < e.period; k++) {
+    const v = evaluateExpr(e.input, r, start + k);
+    if (v === undefined) return undefined;
+    xs.push(v);
+  }
+  const mean = xs.reduce((a, x) => a.plus(x), new Decimal(0)).div(xs.length);
+  switch (e.fn) {
+    case 'STDDEV':
+      return sampleStdDev(xs);
+    case 'ZSCORE': {
+      const sd = sampleStdDev(xs);
+      const current = xs[0];
+      if (!sd || sd.isZero() || !current) return undefined;
+      return current.minus(mean).div(sd);
+    }
+    case 'BB_MIDDLE':
+      return mean;
+    case 'BB_UPPER':
+    case 'BB_LOWER': {
+      // Population deviation, exactly as the Bollinger band indicator on a price.
+      const sd = populationStdDev(xs);
+      if (!sd) return undefined;
+      const width = sd.times(new Decimal(e.multiplier ?? '2'));
+      return e.fn === 'BB_UPPER' ? mean.plus(width) : mean.minus(width);
     }
   }
 }

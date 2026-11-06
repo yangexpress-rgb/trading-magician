@@ -1,7 +1,5 @@
-import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { simulate } from './engine';
-import type { BacktestResult } from './results';
 import {
   breakoutDonchian,
   meanReversionRsi2,
@@ -11,7 +9,7 @@ import {
   trendSma200,
   twoLegs,
 } from './fixtures/spy-strategies';
-import { inputs, loaded } from './test-utils';
+import { fingerprint, inputs, loaded } from './test-utils';
 
 /**
  * Backward compatibility for v1.2 (design principle 5): the three SPY
@@ -19,27 +17,6 @@ import { inputs, loaded } from './test-utils';
  * before the v1.2 builder changes. The hashes were taken on main at 8b7b954,
  * before any v1.2 code, over every result field that existed then.
  */
-const V11_FIELDS = [
-  'conditions',
-  'orders',
-  'symbols',
-  'engineVersion',
-  'dataVersions',
-  'assumptions',
-  'sharpeMethod',
-  'metrics',
-  'equity',
-  'trades',
-  'fills',
-  'contributions',
-  'warnings',
-] as const;
-
-export function fingerprint(r: BacktestResult): string {
-  const picked = Object.fromEntries(V11_FIELDS.map((k) => [k, r[k]]));
-  return createHash('sha256').update(JSON.stringify(picked)).digest('hex').slice(0, 16);
-}
-
 const INSTRUMENTS = new Map([
   [SPY, { symbol: 'SPY', assetClass: 'etf', lotSize: '1' }],
   [QQQ, { symbol: 'QQQ', assetClass: 'etf', lotSize: '1' }],

@@ -1,11 +1,11 @@
 import {
   addDays,
+  CONTEXT_INSTRUMENT_ID,
+  contextInstruments,
+  definitionSeries,
   getIndicator,
+  referencedInstruments,
   resolveIndicatorParams,
-  seriesOf,
-  walkExpr,
-  walkExpressions,
-  type Expr,
   type Bar,
   type BarInterval,
   type HistoricalDataProvider,
@@ -43,21 +43,27 @@ export interface LoadedData {
 
 type SeriesExpr = MarketExpr | IndicatorExpr;
 
-/** Every market and indicator expression in conditions and order prices. */
-export function seriesExprs(def: StrategyDefinition): SeriesExpr[] {
-  const all: Expr[] = [];
-  for (const phase of [def.entry, def.exit]) {
-    all.push(...walkExpressions(phase.condition));
-    for (const o of phase.orders) {
-      if (o.limitPrice) all.push(...walkExpr(o.limitPrice));
-      if (o.stopPrice) all.push(...walkExpr(o.stopPrice));
-    }
-  }
-  // A position value reads its interval's close, so that series is loaded too.
-  return all.flatMap((e) => {
-    const series = seriesOf(e);
-    return series ? [series] : [];
-  });
+/**
+ * Every series the rules read: market and indicator expressions in
+ * conditions and order prices (a position value reads its interval's
+ * close), what metrics and statistical functions read further back, and
+ * "this instrument" expanded to every universe member or leg (v1.2).
+ * `members` are a Selection group's resolved universe.
+ */
+export function seriesExprs(def: StrategyDefinition, members: readonly string[] = []): SeriesExpr[] {
+  return definitionSeries(def, members);
+}
+
+/** Instruments a run trades or reads, "this instrument" resolved. */
+export function strategyInstruments(def: StrategyDefinition, members: readonly string[] = []): string[] {
+  const ids = new Set<string>([
+    ...seriesExprs(def, members).map((e) => e.instrumentId),
+    ...[...def.entry.orders, ...def.exit.orders].map((o) => o.instrumentId),
+    ...contextInstruments(def, members),
+    ...referencedInstruments(def),
+  ]);
+  ids.delete(CONTEXT_INSTRUMENT_ID);
+  return [...ids];
 }
 
 /** Bars of history an expression needs before its first value. */
@@ -95,7 +101,11 @@ export interface SeriesPlan {
  * execution series (run interval and adjustment) for every instrument used,
  * each starting early enough to warm up its indicators.
  */
-export function planSeries(def: StrategyDefinition, inputs: BacktestInputs): SeriesPlan[] {
+export function planSeries(
+  def: StrategyDefinition,
+  inputs: BacktestInputs,
+  members: readonly string[] = [],
+): SeriesPlan[] {
   const plans = new Map<string, { spec: SeriesSpec; bars: number }>();
   const need = (spec: SeriesSpec, bars: number) => {
     const key = seriesKey(spec);
@@ -103,7 +113,7 @@ export function planSeries(def: StrategyDefinition, inputs: BacktestInputs): Ser
     if (!existing || existing.bars < bars) plans.set(key, { spec, bars });
   };
   const instruments = new Set<string>();
-  for (const e of seriesExprs(def)) {
+  for (const e of seriesExprs(def, members)) {
     instruments.add(e.instrumentId);
     need(
       {
@@ -115,7 +125,7 @@ export function planSeries(def: StrategyDefinition, inputs: BacktestInputs): Ser
       lookbackBars(e),
     );
   }
-  for (const o of [...def.entry.orders, ...def.exit.orders]) instruments.add(o.instrumentId);
+  for (const id of strategyInstruments(def, members)) instruments.add(id);
   for (const instrumentId of instruments) {
     need(
       {
