@@ -1,4 +1,12 @@
-import { eq, getStrategy, listTenantInstruments, schema, StrategyError, withTenant } from '@tm/db';
+import {
+  eq,
+  getStrategy,
+  listTenantInstruments,
+  preferredLegAccountId,
+  schema,
+  StrategyError,
+  withTenant,
+} from '@tm/db';
 import { formatDateTime, STATUS_LABELS } from '@tm/domain';
 import { Badge, buttonClasses, Card, ModeBadge, PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
@@ -28,16 +36,21 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
         id: schema.tradingAccounts.id,
         nickname: schema.tradingAccounts.nickname,
         mode: schema.tradingAccounts.mode,
-        isDefault: schema.tradingAccounts.isDefault,
       })
       .from(schema.tradingAccounts)
       .where(eq(schema.tradingAccounts.isActive, true))
       .orderBy(schema.tradingAccounts.nickname),
+    preferredAccountId: await preferredLegAccountId(tx),
   })).catch((e: unknown) => {
     if (e instanceof StrategyError && e.code === 'not_found') notFound();
     throw e;
   });
-  const { strategy, instruments, accounts } = loaded;
+  const { strategy, instruments } = loaded;
+  // New legs start on the Alpaca paper account when there is one (pickLegAccount).
+  const accounts = loaded.accounts.map((a) => ({
+    ...a,
+    isDefault: a.id === loaded.preferredAccountId,
+  }));
 
   return (
     <>

@@ -15,6 +15,7 @@ export interface AccountOption {
   id: string;
   nickname: string;
   mode: 'paper' | 'live';
+  /** The account new legs start on: a broker's paper account when there is one. */
   isDefault: boolean;
 }
 

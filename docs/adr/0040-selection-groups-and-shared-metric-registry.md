@@ -39,8 +39,9 @@ per metric, null instead of 0 for missing data, and v1.1 strategies that run unc
   a period at most once, after the close of the period's last trading day; the runtime stores the
   last period in its state. Exits and the time stop (`timeStopReached`, trading days since the
   first Entry fill) run every bar.
-- **S&P 500 is back test only for now** (Yong, 2026-11-06): `paperRunBlocker` stops Start for a
-  built-in universe or a list over 50. Back tests resolve members through the feed's asset list
+- **S&P 500 is back test only for now — an open decision, not settled.** As built,
+  `paperRunBlocker` stops Start for a built-in universe or a list over 50. Yong has not confirmed
+  this limit (design v1.2 N13, O17); it stays until he decides. Back tests resolve members through the feed's asset list
   (`apps/worker/src/universes.ts`) and warn about survivorship bias.
 - **Results** keep up to 400 selection rounds in the run result (`selections`) and an exit reason
   per trade (`backtest_trade.exit_reason`, migration 0052).
