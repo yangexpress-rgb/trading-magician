@@ -112,7 +112,8 @@ test('tests feeds, sets a fallback and turns a feed off safely', async ({ page, 
   const remove = page.getByRole('dialog', { name: 'Remove Demo feed?' });
   await expect(remove).toContainText('deleted with it');
   await remove.getByRole('button', { name: 'Remove feed' }).click();
-  await expect(page.getByText('Idle watcher gets prices from this feed.')).toBeVisible();
+  await expect(remove).toContainText('Idle watcher gets prices from this feed.');
+  await remove.getByRole('button', { name: 'Keep it' }).click();
   await expect(remove).toBeHidden();
 
   // Turning off the demo feed names the strategy and offers a replacement or a pause.

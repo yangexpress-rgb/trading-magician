@@ -57,6 +57,7 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
     null,
   );
   const [removing, setRemoving] = useState<FeedDto | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -88,6 +89,18 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
       await load();
     } catch (e) {
       setError(message(e, fallback));
+    }
+  }
+
+  async function remove() {
+    if (!removing) return;
+    try {
+      await apiClient.feeds.remove(removing.id);
+      setRemoving(null);
+      setRemoveError(null);
+      await load();
+    } catch (e) {
+      setRemoveError(message(e, 'Could not remove the feed.'));
     }
   }
 
@@ -291,7 +304,10 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
       )}
       <Dialog
         open={removing !== null}
-        onClose={() => setRemoving(null)}
+        onClose={() => {
+          setRemoving(null);
+          setRemoveError(null);
+        }}
         title={`Remove ${removing?.name ?? 'feed'}?`}
         description={
           removing && removing.routes.some((r) => r.role === 'primary')
@@ -299,21 +315,20 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
             : 'Its settings are deleted. A stored API key it used stays under Stored API keys.'
         }
       >
-        <div className="flex gap-2">
-          <Button
-            variant="danger"
-            disabled={!removing}
-            onClick={() =>
-              removing &&
-              void act(
-                () => apiClient.feeds.remove(removing.id),
-                'Could not remove the feed.',
-              ).then(() => setRemoving(null))
-            }
-          >
+        {/* Shown in the dialog: a live refresh of the page clears the page-level error. */}
+        {removeError && <Alert>{removeError}</Alert>}
+        <div className="mt-2 flex gap-2">
+          <Button variant="danger" disabled={!removing} onClick={() => void remove()}>
             Remove feed
           </Button>
-          <Button onClick={() => setRemoving(null)}>Keep it</Button>
+          <Button
+            onClick={() => {
+              setRemoving(null);
+              setRemoveError(null);
+            }}
+          >
+            Keep it
+          </Button>
         </div>
       </Dialog>
     </div>
