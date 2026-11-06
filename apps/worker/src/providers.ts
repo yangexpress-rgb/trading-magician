@@ -1,4 +1,4 @@
-import type { ConfirmedInstrument, FeedCheckResult, OpenedCredential } from '@tm/db';
+import type { ConfirmedInstrument, FeedCheckResult, OpenedCredential, Transaction } from '@tm/db';
 import { DEMO_INSTRUMENTS } from '@tm/db';
 import {
   addDays,
@@ -6,6 +6,7 @@ import {
   SCREEN_HISTORY_DAYS,
   type Bar,
   type CompanyReport,
+  type CustomRestConfig,
   type HistoricalDataProvider,
   type LiveQuoteProvider,
   type ScreenDay,
@@ -21,6 +22,11 @@ import {
 export interface ProviderContext {
   now: () => Date;
   credential?: OpenedCredential | undefined;
+  /** The feed being used: custom REST feeds read their description from it (ADR 0041). */
+  feed?: { id: string; config: CustomRestConfig | null } | undefined;
+  /** The tenant, for providers that keep a cache and request counts in the database. */
+  userId?: string | undefined;
+  inTenant?: (<T>(fn: (tx: Transaction) => Promise<T>) => Promise<T>) | undefined;
 }
 
 /** What a provider found for a symbol, before it is registered. */

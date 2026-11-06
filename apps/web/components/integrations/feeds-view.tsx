@@ -28,6 +28,17 @@ import {
 } from '@/lib/integration-text';
 import { subscribeLive } from '@/lib/live-events';
 import { CredentialFields } from './credential-fields';
+import {
+  configFromForm,
+  CustomFeedFields,
+  EMPTY_CUSTOM_FORM,
+  formFromConfig,
+  problemsOf,
+  testKey,
+  useCustomTest,
+  type CustomFormState,
+  type CustomKeyState,
+} from './custom-feed-fields';
 
 /** Price feeds are routed; company data feeds (ADR 0031) are not. */
 type FeedKind = 'prices' | 'company';
@@ -159,6 +170,15 @@ export function FeedsView({
                 : f.assetClasses.map((a) => ASSET_CLASS_LABELS[a] ?? a).join(', ')}
               {f.credential ? ` · ${company ? 'Uses' : 'Signs in with'} ${f.credential.label}` : ''}
             </p>
+            {f.config && (
+              <p className="mt-1 text-ink-muted">
+                Daily bars and latest quotes from {new URL(f.config.baseUrl).hostname} · up to{' '}
+                {f.config.limits.requestsPerMinute} requests a minute
+                {f.config.limits.requestsPerDay !== null
+                  ? ` and ${f.config.limits.requestsPerDay.toLocaleString('en-US')} a day`
+                  : ''}
+              </p>
+            )}
             <p className="mt-1 text-ink-muted">
               Last update {when(f.lastSuccessAt)} · last checked {when(f.lastCheckedAt)}
             </p>
@@ -511,9 +531,26 @@ function FeedDialog({
   const [newKeyLabel, setNewKeyLabel] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // A custom REST feed (ADR 0041): its settings, its key, and the test it must pass.
+  const [customForm, setCustomForm] = useState<CustomFormState>(EMPTY_CUSTOM_FORM);
+  const [customKey, setCustomKey] = useState<CustomKeyState>({ credentialId: '', newKey: {} });
+  const [createdKeyId, setCreatedKeyId] = useState<string | null>(null);
+  const [testSymbol, setTestSymbol] = useState('SPY');
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof CustomFormState, string>>>(
+    {},
+  );
+  const [testError, setTestError] = useState<string | null>(null);
+  const customTest = useCustomTest();
 
   useEffect(() => {
     if (!open) return;
+    setCustomForm(feed?.config ? formFromConfig(feed.config) : EMPTY_CUSTOM_FORM);
+    setCustomKey({ credentialId: feed?.config ? (feed.credential?.id ?? '') : '', newKey: {} });
+    setCreatedKeyId(null);
+    setTestSymbol(feed?.config?.testSymbol ?? 'SPY');
+    setFieldErrors({});
+    setTestError(null);
+    customTest.reset();
     const p = feed?.provider ?? choices.find((id) => id !== 'demo') ?? choices[0] ?? 'alpaca';
     setProvider(p);
     // A company data feed is usually the only one of its kind, so it starts named after its provider.
@@ -530,7 +567,70 @@ function FeedDialog({
   }, [open, feed, choices]);
 
   const info = PROVIDERS[provider as keyof typeof PROVIDERS];
-  const needsKey = info.credentialFields.length > 0;
+  const custom = provider === 'custom_rest';
+  // A custom feed's key sits with its own settings.
+  const needsKey = info.credentialFields.length > 0 && !custom;
+  const customKeys = keys.filter((k) => k.provider === 'custom_rest');
+  const customCredentialId =
+    customForm.authType === 'none' || customKey.credentialId === 'new'
+      ? null
+      : customKey.credentialId || null;
+  const currentTestKey = testKey(customForm, customCredentialId);
+  const customUnchanged =
+    !!feed?.config &&
+    currentTestKey === testKey(formFromConfig(feed.config), feed.credential?.id ?? null);
+  const customTested =
+    customTest.test?.status === 'succeeded' && customTest.testedKey === currentTestKey;
+
+  /** A typed key is sealed on the server before its first test, then cleared here. */
+  async function ensureCustomKey(): Promise<string | null> {
+    if (customForm.authType === 'none') return null;
+    const typing = customKey.credentialId === 'new' || customKeys.length === 0;
+    if (!typing) return customKey.credentialId || null;
+    if (!customKey.newKey.apiKey?.trim()) throw new Error('Enter the API key or token first.');
+    const created = await apiClient.credentials.create({
+      provider: 'custom_rest',
+      label: `${name.trim() || 'Custom feed'} key`,
+      fields: customKey.newKey,
+    });
+    setCreatedKeyId(created.id);
+    setKeys((cur) => [
+      ...cur,
+      { id: created.id, label: created.label, provider: created.provider },
+    ]);
+    setCustomKey({ credentialId: created.id, newKey: {} });
+    return created.id;
+  }
+
+  async function runCustomTest() {
+    setTestError(null);
+    setFieldErrors({});
+    try {
+      const credentialId = await ensureCustomKey();
+      await customTest.run(
+        () =>
+          apiClient.feeds.testCustom({
+            config: configFromForm(customForm),
+            credentialId,
+            symbol: testSymbol || undefined,
+          }),
+        testKey(customForm, credentialId),
+      );
+    } catch (e) {
+      setFieldErrors(problemsOf(e));
+      setTestError(
+        e instanceof ApiError || e instanceof Error ? e.message : 'Could not test the feed.',
+      );
+    }
+  }
+
+  function close() {
+    // A key typed for a feed that was never saved is not kept.
+    if (createdKeyId) void apiClient.credentials.remove(createdKeyId).catch(() => undefined);
+    setNewKey({});
+    setCustomKey({ credentialId: '', newKey: {} });
+    onClose();
+  }
   const keysForProvider = keys.filter((k) => k.provider === provider);
   const addingKey = needsKey && (credentialId === 'new' || keysForProvider.length === 0);
   const company = kind === 'company';
@@ -540,6 +640,25 @@ function FeedDialog({
     e.preventDefault();
     setBusy(true);
     try {
+      if (custom) {
+        if (!customTested && !customUnchanged) {
+          setError('Test the feed first: it can be saved once a test of these settings passes.');
+          return;
+        }
+        const body = {
+          name,
+          assetClasses,
+          credentialId: customCredentialId,
+          config: configFromForm(customForm),
+          testId: customTested ? (customTest.test?.id ?? null) : null,
+        };
+        if (feed) await apiClient.feeds.update(feed.id, { rowVersion: feed.rowVersion, ...body });
+        else await apiClient.feeds.create({ provider, ...body });
+        setCreatedKeyId(null);
+        setError(null);
+        onSaved();
+        return;
+      }
       let keyId: string | null = needsKey ? credentialId || null : null;
       if (addingKey) {
         const created = await apiClient.credentials.create({
@@ -563,6 +682,7 @@ function FeedDialog({
       setError(null);
       onSaved();
     } catch (err) {
+      setFieldErrors(problemsOf(err));
       setError(message(err, 'Could not save the feed.'));
     } finally {
       setBusy(false);
@@ -572,17 +692,17 @@ function FeedDialog({
   return (
     <Dialog
       open={open}
-      onClose={() => {
-        setNewKey({});
-        onClose();
-      }}
+      size={custom ? 'lg' : 'md'}
+      onClose={close}
       title={feed ? `Edit ${feed.name}` : company ? 'Add a company data feed' : 'Add a data feed'}
       description={
         feed
           ? undefined
           : company
             ? 'Company profiles and reported financials from public filings. It is tested as soon as you save it.'
-            : 'It is tested as soon as you save it.'
+            : custom
+              ? 'Any JSON price API, described here: no code change per provider. Test it with a symbol before saving; the app fetches it on the server, never from your browser.'
+              : 'It is tested as soon as you save it.'
       }
     >
       <form onSubmit={(e) => void save(e)} className="space-y-3" autoComplete="off">
@@ -597,6 +717,7 @@ function FeedDialog({
               setProvider(p);
               setAssetClasses([...PROVIDERS[p].assetClasses]);
               setCredentialId('');
+              customTest.reset();
             }}
           >
             {choices.map((id) => (
@@ -655,6 +776,22 @@ function FeedDialog({
             <option value="new">{company ? 'Add a new contact…' : 'Add a new key…'}</option>
           </SelectField>
         )}
+        {custom && (
+          <CustomFeedFields
+            form={customForm}
+            onChange={setCustomForm}
+            keys={customKeys}
+            keyState={customKey}
+            onKeyState={setCustomKey}
+            errors={fieldErrors}
+            test={customTest.test}
+            testing={customTest.testing}
+            testError={testError}
+            onTest={() => void runCustomTest()}
+            testSymbol={testSymbol}
+            onTestSymbol={setTestSymbol}
+          />
+        )}
         {addingKey && (
           <>
             <TextField
@@ -673,11 +810,22 @@ function FeedDialog({
             />
           </>
         )}
+        {custom && !customTested && !customUnchanged && (
+          <p className="text-sm text-ink-muted">
+            {customTest.test?.status === 'succeeded'
+              ? 'The settings changed since the last test. Test again to save.'
+              : 'A custom feed can be saved once a test passes.'}
+          </p>
+        )}
         <div className="flex gap-2">
-          <Button type="submit" variant="primary" disabled={busy}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={busy || (custom && !customTested && !customUnchanged)}
+          >
             {busy ? 'Saving…' : feed ? 'Save changes' : 'Add feed'}
           </Button>
-          <Button type="button" onClick={onClose} disabled={busy}>
+          <Button type="button" onClick={close} disabled={busy}>
             Cancel
           </Button>
         </div>
@@ -705,7 +853,8 @@ function TurnOffDialog({
         (f) =>
           f.id !== state.feed.id &&
           f.isActive &&
-          f.provider === state.feed.provider &&
+          // Any feed that covers the same instruments: demo for demo, real for real.
+          (f.provider === 'demo') === (state.feed.provider === 'demo') &&
           state.feed.routes.every((r) => f.assetClasses.includes(r.assetClass)),
       )
     : [];

@@ -52,7 +52,8 @@ export function createRoutedQuotes(options: {
     try {
       if (provider) {
         let credential: OpenedCredential | undefined;
-        if (provider.needsCredential) {
+        // A custom feed has a key only when its description signs in with one (ADR 0041).
+        if (provider.needsCredential || feed.credentialRef) {
           if (!feed.credentialRef) throw new Error('no stored key');
           credential = await openCredential(tx, {
             userId,
@@ -60,7 +61,13 @@ export function createRoutedQuotes(options: {
             privateKey: options.privateKey,
           });
         }
-        source = provider.quotes({ now: at, credential });
+        source = provider.quotes({
+          now: at,
+          credential,
+          feed: { id: feed.id, config: feed.config },
+          userId,
+          inTenant: (fn) => fn(tx),
+        });
       }
     } catch (error) {
       options.logger.warn(

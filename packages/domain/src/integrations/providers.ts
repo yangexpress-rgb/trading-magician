@@ -55,6 +55,20 @@ export const PROVIDERS = {
       },
     ],
   },
+  custom_rest: {
+    id: 'custom_rest',
+    name: 'Custom REST (JSON)',
+    offers: ['market_data'],
+    assetClasses: ['stock', 'etf'],
+    coverage: 'us',
+    credentialFields: [
+      {
+        name: 'apiKey',
+        label: 'API key or token',
+        help: 'From your provider’s dashboard. It is sealed when you send it and only ever sent to the feed’s own host.',
+      },
+    ],
+  },
   sec: {
     id: 'sec',
     name: 'SEC EDGAR',
@@ -76,6 +90,16 @@ export const PROVIDER_IDS = Object.keys(PROVIDERS) as ProviderId[];
 
 export function isProviderId(value: string): value is ProviderId {
   return Object.hasOwn(PROVIDERS, value);
+}
+
+/**
+ * Whether a feed of this provider needs a stored credential. A custom REST
+ * feed needs one only when its description signs in with a key (ADR 0041).
+ */
+export function providerNeedsKey(id: string, authType?: string | null): boolean {
+  if (!isProviderId(id)) return false;
+  if (id === 'custom_rest') return !!authType && authType !== 'none';
+  return PROVIDERS[id].credentialFields.length > 0;
 }
 
 /** Providers whose connections need a stored credential. */

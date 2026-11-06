@@ -72,6 +72,11 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
         .enum(['true', 'false'])
         .default('false')
         .transform((v) => v === 'true'),
+      /** Tests only: custom REST feeds reach an in-process fake JSON API (ADR 0041). */
+      CUSTOM_REST_FAKE: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((v) => v === 'true'),
       /** Tests only: Alpaca calls go to an in-process fake with made-up symbols. */
       ALPACA_FAKE: z
         .enum(['true', 'false'])
@@ -96,6 +101,9 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
   }
   if (env.NODE_ENV === 'production' && env.ALPACA_FAKE && !source.E2E_TEST) {
     throw new Error('ALPACA_FAKE is for tests only');
+  }
+  if (env.NODE_ENV === 'production' && env.CUSTOM_REST_FAKE && !source.E2E_TEST) {
+    throw new Error('CUSTOM_REST_FAKE is for tests only');
   }
   if (env.NODE_ENV === 'production' && env.SEC_FAKE && !source.E2E_TEST) {
     throw new Error('SEC_FAKE is for tests only');

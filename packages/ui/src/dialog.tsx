@@ -12,12 +12,15 @@ export function Dialog({
   title,
   description,
   children,
+  size = 'md',
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   description?: ReactNode;
   children: ReactNode;
+  /** `lg` for long forms, such as a custom data feed. */
+  size?: 'md' | 'lg';
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -40,7 +43,7 @@ export function Dialog({
         e.preventDefault();
         onClose();
       }}
-      className="m-auto w-full max-w-md rounded-lg border border-line bg-surface p-5 text-ink shadow-xl backdrop:bg-black/40"
+      className={`m-auto max-h-[90vh] w-full overflow-y-auto rounded-lg border border-line bg-surface p-5 text-ink shadow-xl backdrop:bg-black/40 ${size === 'lg' ? 'max-w-2xl' : 'max-w-md'}`}
     >
       {open && (
         <>

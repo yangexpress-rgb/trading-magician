@@ -1,3 +1,4 @@
+import type { CustomRestConfig } from '@tm/domain';
 import { z } from 'zod';
 
 /**
@@ -48,11 +49,22 @@ export interface CredentialListDto {
 
 const assetClassList = z.array(z.string().min(1).max(20)).min(1).max(10);
 
+/**
+ * A custom REST feed's description (ADR 0041). Checked in full on the server
+ * (`checkCustomRestConfig`); here only its size is bounded.
+ */
+const customConfig = z
+  .record(z.string().max(40), z.unknown())
+  .refine((v) => JSON.stringify(v).length <= 8_000, 'The feed settings are too long');
+
 export const createFeedRequest = z.object({
   name: z.string().trim().min(1).max(100),
   provider: z.string().min(1).max(40),
   credentialId: z.uuid().nullable().optional(),
   assetClasses: assetClassList,
+  config: customConfig.optional(),
+  /** A succeeded test of this config and key; a custom feed cannot be saved without one. */
+  testId: z.uuid().nullable().optional(),
 });
 export type CreateFeedRequest = z.infer<typeof createFeedRequest>;
 
@@ -61,8 +73,44 @@ export const updateFeedRequest = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   credentialId: z.uuid().nullable().optional(),
   assetClasses: assetClassList.optional(),
+  config: customConfig.optional(),
+  testId: z.uuid().nullable().optional(),
 });
 export type UpdateFeedRequest = z.infer<typeof updateFeedRequest>;
+
+/** "Test" on a custom REST feed before it is saved (ADR 0041). */
+export const customFeedTestRequest = z.object({
+  config: customConfig,
+  credentialId: z.uuid().nullable().optional(),
+  symbol: z.string().trim().min(1).max(12).optional(),
+});
+export type CustomFeedTestRequest = z.infer<typeof customFeedTestRequest>;
+
+export interface CustomFeedTestDto {
+  id: string;
+  status: 'pending' | 'succeeded' | 'failed';
+  symbol: string;
+  result: {
+    symbol: string;
+    bars: {
+      count: number;
+      first: string | null;
+      last: string | null;
+      sample: {
+        date: string;
+        open: string;
+        high: string;
+        low: string;
+        close: string;
+        volume: string;
+      }[];
+      url: string;
+    };
+    quote: { last: string; bid: string | null; ask: string | null; at: string | null; url: string };
+  } | null;
+  message: string | null;
+  createdAt: string;
+}
 
 export const setFeedActiveRequest = z.object({
   active: z.boolean(),
@@ -113,6 +161,8 @@ export interface FeedDto {
     dataType: (typeof ROUTE_DATA_TYPES)[number];
     serving: boolean;
   }[];
+  /** A custom REST feed's description (`CustomRestConfig`); null for other providers. */
+  config: CustomRestConfig | null;
   rowVersion: number;
 }
 

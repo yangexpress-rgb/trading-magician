@@ -71,6 +71,7 @@ export {
   type SealedSecret,
 } from './sealed';
 export * from './feeds';
+export * from './custom-feeds';
 export * from './instruments';
 export * from './price-charts';
 export * from './stock-screens';
