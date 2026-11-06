@@ -21,7 +21,7 @@ import { runStockScreens } from '../src/stock-screens';
 
 /**
  * The stock screener (ADR 0030): the web app queues a screen, the worker
- * fills it in from the tenant's US stock feed, or the demo feed without one.
+ * fills it in from the tenant's US stock feed, or the demo feed in tests.
  */
 
 let t: TestDatabase;
@@ -87,6 +87,18 @@ describe('stock screens', () => {
     expect(idx.changePct).not.toBeNull();
     expect(idx.change1mPct).not.toBeNull();
     expect(done.rowCount).toBe(rows.length);
+  });
+
+  it('says to add a feed when there is none (demo data off, ADR 0039)', async () => {
+    const [row] = await t.auth.db
+      .insert(schema.users)
+      .values({ name: 'No feed', email: 'screens-nofeed@example.test' })
+      .returning({ id: schema.users.id });
+    const nofeed = row!.id;
+    await provisionWorkspace(t.app.db, { userId: nofeed, displayName: 'No feed', demo: false });
+    const done = await screen(nofeed);
+    expect(done.status).toBe('failed');
+    expect(done.message).toMatch(/Add an Alpaca data feed/);
   });
 
   it('hands back a recent screen, and a fresh one when asked', async () => {

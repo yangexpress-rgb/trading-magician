@@ -31,3 +31,13 @@ export const DEMO_ACCOUNT_CAPABILITIES = {
   atomicMultiLeg: false,
   coverage: 'demo',
 } as const;
+
+/**
+ * Whether the invented demo data is switched on (ADR 0039). It is off by
+ * default: real deployments use real feeds only, with no demo instruments and
+ * no demo feed. The automated tests turn it on (`DEMO_DATA=on`) so they can
+ * run without any provider.
+ */
+export function demoDataEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return env.DEMO_DATA === 'on';
+}

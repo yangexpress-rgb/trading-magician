@@ -16,7 +16,7 @@ import {
   type DisplayPreferences,
 } from '@tm/domain';
 import { Alert, Badge, Button, Dialog, SelectField, Table, Td, TextField, Th } from '@tm/ui';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 import {
   ASSET_CLASS_LABELS,
@@ -48,7 +48,14 @@ const message = (e: unknown, fallback: string) => (e instanceof ApiError ? e.mes
  * (ADR 0031), which give company profiles and financials rather than prices.
  * Updates arrive live, so a test result appears on its own.
  */
-export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
+export function FeedsView({
+  prefs,
+  demoData = false,
+}: {
+  prefs: DisplayPreferences;
+  /** Whether the demo feed can be added; only the tests turn demo data on (ADR 0039). */
+  demoData?: boolean;
+}) {
   const [data, setData] = useState<FeedListDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState<FeedKind | null>(null);
@@ -275,6 +282,7 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
         open={adding !== null}
         kind={adding ?? 'prices'}
         feed={null}
+        demoData={demoData}
         onClose={() => setAdding(null)}
         onSaved={() => {
           setAdding(null);
@@ -285,6 +293,7 @@ export function FeedsView({ prefs }: { prefs: DisplayPreferences }) {
         open={editing !== null}
         kind={editing ? kindOf(editing.provider) : 'prices'}
         feed={editing}
+        demoData={demoData}
         onClose={() => setEditing(null)}
         onSaved={() => {
           setEditing(null);
@@ -477,6 +486,7 @@ function FeedDialog({
   open,
   kind,
   feed,
+  demoData,
   onClose,
   onSaved,
 }: {
@@ -484,10 +494,15 @@ function FeedDialog({
   kind: FeedKind;
   /** Null to add a new feed. */
   feed: FeedDto | null;
+  demoData: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [provider, setProvider] = useState<string>('alpaca');
+  const choices = useMemo(
+    () => PROVIDERS_FOR[kind].filter((id) => demoData || id !== 'demo'),
+    [kind, demoData],
+  );
   const [name, setName] = useState('');
   const [assetClasses, setAssetClasses] = useState<string[]>([]);
   const [credentialId, setCredentialId] = useState<string>('');
@@ -499,8 +514,7 @@ function FeedDialog({
 
   useEffect(() => {
     if (!open) return;
-    const choices = PROVIDERS_FOR[kind];
-    const p = feed?.provider ?? choices.find((id) => id !== 'demo') ?? choices[0] ?? 'demo';
+    const p = feed?.provider ?? choices.find((id) => id !== 'demo') ?? choices[0] ?? 'alpaca';
     setProvider(p);
     // A company data feed is usually the only one of its kind, so it starts named after its provider.
     setName(feed?.name ?? (kind === 'company' ? PROVIDERS[p as keyof typeof PROVIDERS].name : ''));
@@ -513,7 +527,7 @@ function FeedDialog({
       (r) => setKeys(r.credentials),
       () => setKeys([]),
     );
-  }, [open, feed, kind]);
+  }, [open, feed, choices]);
 
   const info = PROVIDERS[provider as keyof typeof PROVIDERS];
   const needsKey = info.credentialFields.length > 0;
@@ -585,7 +599,7 @@ function FeedDialog({
               setCredentialId('');
             }}
           >
-            {PROVIDERS_FOR[kind].map((id) => (
+            {choices.map((id) => (
               <option key={id} value={id}>
                 {PROVIDERS[id as keyof typeof PROVIDERS].name}
                 {isFundamentalsProvider(id) && PROVIDERS[id].id === 'sec'

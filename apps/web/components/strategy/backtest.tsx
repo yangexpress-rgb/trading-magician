@@ -242,7 +242,7 @@ export function BacktestInputsForm({
             </option>
           ))}
         </SelectField>
-        <div className="flex items-end text-sm text-ink-muted">Data: generated demo history</div>
+        <div className="flex items-end text-sm text-ink-muted">Data: bars from your data feed</div>
       </fieldset>
       <details className="mt-3 rounded-md border border-line p-3">
         <summary className="cursor-pointer text-sm font-medium">Costs and fills</summary>

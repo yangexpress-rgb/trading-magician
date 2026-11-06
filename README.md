@@ -81,7 +81,9 @@ The worker connects with its own login, which may also read sealed credentials:
 
 ### End-to-end tests
 
-With the database migrated, seeded and logins created, and the env above set:
+The tests run on invented demo instruments and a demo feed, which exist only with
+`DEMO_DATA=on` (docs/adr/0039-no-demo-data-in-deployments.md). With the database migrated,
+seeded with `DEMO_DATA=on pnpm --filter @tm/db db:seed`, logins created, and the env above set:
 
 ```sh
 pnpm --filter @tm/web build

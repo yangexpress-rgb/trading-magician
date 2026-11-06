@@ -1,4 +1,4 @@
-import { loadRouting, withTenant } from '@tm/db';
+import { demoDataEnabled, loadRouting, withTenant } from '@tm/db';
 import { providerCoversVenue } from '@tm/domain';
 import { PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
@@ -34,7 +34,11 @@ export default async function ScreenerPage({
         description="Screen every stock and ETF your data feed covers by price, change, volume and company figures."
       />
       <ResearchNav />
-      <StockScreener canScreenMarket={canScreenMarket} initialQuery={initial.toString()} />
+      <StockScreener
+        canScreenMarket={canScreenMarket}
+        demoData={demoDataEnabled()}
+        initialQuery={initial.toString()}
+      />
     </>
   );
 }

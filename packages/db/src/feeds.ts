@@ -13,6 +13,7 @@ import {
 import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
+import { demoDataEnabled } from './demo';
 import { assertFeature } from './entitlements';
 import { notify } from './notifications';
 import {
@@ -252,7 +253,8 @@ export interface FeedInput {
 }
 
 async function checkFeedInput(tx: Transaction, input: FeedInput) {
-  if (!isProviderId(input.provider)) {
+  // The demo feed exists only with demo data on, for the tests (ADR 0039).
+  if (!isProviderId(input.provider) || (input.provider === 'demo' && !demoDataEnabled())) {
     throw new IntegrationError('bad_request', 'Choose a supported provider');
   }
   const info = PROVIDERS[input.provider];

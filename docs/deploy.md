@@ -5,7 +5,8 @@ The app runs as three Railway services in one project: **Postgres**, **web** (Ne
 build from the same `Dockerfile`; their start commands live in `deploy/railway/web.json` and
 `deploy/railway/worker.json`.
 
-Every web deploy first runs migrations, the demo seed and `db:setup-logins` (the
+Every web deploy first runs migrations, the seed (a no-op unless `DEMO_DATA=on`, which only
+the tests set; ADR 0039) and `db:setup-logins` (the
 `preDeployCommand`). All three are safe to repeat. Railway runs that command without a shell,
 so it is wrapped in `sh -c '…'`; without the wrapper only the migration runs and the database
 logins are never created (the worker then logs `password authentication failed for user

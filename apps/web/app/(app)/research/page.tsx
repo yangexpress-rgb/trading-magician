@@ -50,7 +50,7 @@ export default async function ResearchPage({
       : defaultChartInterval(range);
   const instrumentId =
     instruments.find((i) => i.id === wanted)?.id ??
-    // Start on the broad-market demo ETF, so the page never opens empty.
+    // With demo data on (tests only, ADR 0039), start on the broad-market demo ETF.
     instruments.find((i) => i.symbol === 'DEMO-IDX')?.id ??
     instruments[0]?.id ??
     null;

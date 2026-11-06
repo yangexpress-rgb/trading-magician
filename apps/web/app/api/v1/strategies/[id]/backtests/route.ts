@@ -24,7 +24,7 @@ export const POST = api<Params>(async (request, { tx, userId }, { id }) => {
   const today = nyDate(new Date().toISOString());
   if (inputs.from < DEMO_HISTORY_START) {
     throw new HttpError('bad_request', 'Some fields need attention', [
-      { path: ['from'], message: `Demo history starts on ${DEMO_HISTORY_START}` },
+      { path: ['from'], message: `Back tests start no earlier than ${DEMO_HISTORY_START}` },
     ]);
   }
   if (inputs.to >= today) {

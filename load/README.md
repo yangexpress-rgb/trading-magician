@@ -40,4 +40,4 @@ at application code, worker capacity or Railway resource limits.
 
 **Gap to settle before the recorded run:** `journey.js` does not start any paper strategies, so
 the order-within-5-seconds target only has data if paper strategies are running on staging
-during the run (start a few by hand, with a demo feed, before step 2).
+during the run (start a few by hand, on the built-in paper account with an Alpaca feed, before step 2).

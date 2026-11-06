@@ -76,13 +76,16 @@ const nyDay = (date: string) =>
  */
 export function StockScreener({
   canScreenMarket,
+  demoData = false,
   initialQuery,
 }: {
   canScreenMarket: boolean;
+  /** Whether the demo feed can stand in for a real one; tests only (ADR 0039). */
+  demoData?: boolean;
   initialQuery: string;
 }) {
   const router = useRouter();
-  // With a real feed the screen opens on the S&P 500; the demo feed has only its own instruments.
+  // With a real feed the screen opens on the S&P 500; a demo feed (tests) has only its own instruments.
   const defaultUniverse: Universe = canScreenMarket ? 'sp500' : 'all';
   const start = useMemo(
     () => decodeScreenState(new URLSearchParams(initialQuery), defaultUniverse),
@@ -154,10 +157,12 @@ export function StockScreener({
   // The S&P 500 loads on its own, in seconds; the whole market only when asked for.
   // Rows of the whole market already cover the S&P 500, so going back needs no load.
   const want: Universe = canScreenMarket ? universe : 'all';
+  // With no feed at all there is nothing to screen; the notice above says what to add.
+  const screenable = canScreenMarket || demoData;
   useEffect(() => {
-    if (loaded.current === 'all' || loaded.current === want) return;
+    if (!screenable || loaded.current === 'all' || loaded.current === want) return;
     void load(want, false);
-  }, [want, load]);
+  }, [want, load, screenable]);
   useEffect(() => () => clearTimeout(timer.current), []);
 
   // Keep the screen in the address without a navigation.
@@ -273,8 +278,9 @@ export function StockScreener({
     <div className="space-y-4">
       {!canScreenMarket && (
         <Alert tone="info">
-          The screener shows the demo instruments. To screen every US stock and ETF, add an Alpaca
-          data feed in{' '}
+          {demoData
+            ? 'The screener shows the demo instruments. To screen every US stock and ETF, add an Alpaca data feed in '
+            : 'To screen US stocks and ETFs, add an Alpaca data feed with your paper API key in '}
           <Link href="/settings/data-feeds" className="underline">
             Settings › Data feeds
           </Link>
@@ -337,7 +343,7 @@ export function StockScreener({
                   <option value="all">All US stocks</option>
                 </>
               ) : (
-                <option value="all">Demo instruments</option>
+                <option value="all">{demoData ? 'Demo instruments' : 'All US stocks'}</option>
               )}
             </select>
           </label>

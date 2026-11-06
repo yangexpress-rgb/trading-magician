@@ -11,6 +11,7 @@ export {
   DEMO_ASSET_CLASSES,
   DEMO_INSTRUMENTS,
   DEMO_VENUE,
+  demoDataEnabled,
 } from './demo';
 export { loadOwnerDbEnv, loadRuntimeDbEnv } from './env';
 export { provisionWorkspace, type ProvisionInput } from './provision';
