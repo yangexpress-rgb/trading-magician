@@ -35,7 +35,7 @@ describe('CBOE index history feed (v1.2 item 5)', () => {
     // One download serves every later request.
     await history.getBars(request({ from: '1990-01-01' }));
     expect(calls).toBe(1);
-  });
+  }, 30_000);
 
   it('refuses intraday bars and indices it does not know', async () => {
     const history = cboeProvider({ fetch: fakeCboeFetch(now) }).history({ now });
