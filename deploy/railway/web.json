@@ -6,7 +6,7 @@
   },
   "deploy": {
     "preDeployCommand": [
-      "pnpm --filter @tm/db db:migrate && pnpm --filter @tm/db db:seed && pnpm --filter @tm/db db:setup-logins"
+      "sh -c 'pnpm --filter @tm/db db:migrate && pnpm --filter @tm/db db:seed && pnpm --filter @tm/db db:setup-logins'"
     ],
     "startCommand": "pnpm --filter @tm/web start",
     "healthcheckPath": "/api/health",

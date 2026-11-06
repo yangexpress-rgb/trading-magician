@@ -6,7 +6,24 @@ build from the same `Dockerfile`; their start commands live in `deploy/railway/w
 `deploy/railway/worker.json`.
 
 Every web deploy first runs migrations, the demo seed and `db:setup-logins` (the
-`preDeployCommand`). All three are safe to repeat.
+`preDeployCommand`). All three are safe to repeat. Railway runs that command without a shell,
+so it is wrapped in `sh -c '…'`; without the wrapper only the migration runs and the database
+logins are never created (the worker then logs `password authentication failed for user
+"tm_worker_login"`).
+
+### If Railway will not take the config file path
+
+When staging was first built (2026-11-06), Railway refused the config-as-code paths below. If
+that happens, set the same values by hand in each service's Settings; they are what
+`deploy/railway/*.json` hold:
+
+| Setting            | web                                                                                                               | worker                           | backup                                 |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------- | -------------------------------- | -------------------------------------- |
+| Builder            | Dockerfile, `Dockerfile`                                                                                          | Dockerfile, `Dockerfile`         | Dockerfile, `deploy/backup/Dockerfile` |
+| Pre-deploy command | `sh -c 'pnpm --filter @tm/db db:migrate && pnpm --filter @tm/db db:seed && pnpm --filter @tm/db db:setup-logins'` | none                             | none                                   |
+| Start command      | `pnpm --filter @tm/web start`                                                                                     | `pnpm --filter @tm/worker start` | `backup.sh`                            |
+| Health check       | `/api/health`, timeout 120 s                                                                                      | none                             | none                                   |
+| Restart policy     | On failure, 5 retries                                                                                             | Always                           | Never; cron `30 7 * * *`               |
 
 Paper trading only, as everywhere else (`docs/adr/0002-paper-only-guard.md`).
 

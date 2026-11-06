@@ -4,8 +4,9 @@ The record for the invite-only, paper-only launch (pre-launch punch list, design
 deviations D9 and D10). Each row says what was done, where, when, and the result. A row is only
 "passed" when its acceptance check was seen to pass, not when code for it was merged.
 
-Status on 2026-11-05: code for every item is merged. **Web deployment is on hold** (Yong,
-2026-11-05 16:03Z: keep the app local for now), so nothing below has run against a deployment.
+Status on 2026-11-06: code for every item is merged. Web deployment was on hold from
+2026-11-05 16:03Z and resumed 2026-11-06 00:18Z (Yong: deploy to Railway); staging now exists,
+production does not.
 Railway, the AWS KMS key, Sentry, the uptime monitor, R2, staging Alpaca keys and the k6 run
 resume when Yong says so. The real-provider checks in Section 7 were run on Yong's Mac instead;
 they count as evidence about the providers, and are repeated in staging when deployment resumes.
@@ -45,11 +46,11 @@ RPO 24 hours, RTO 4 hours: see `docs/deploy.md`, Recovery objectives. The drill 
 
 ## Section 5. Railway staging and production
 
-| Step                                                                      | Result                    |
-| ------------------------------------------------------------------------- | ------------------------- |
-| Staging created, variables set, migrations current, services start        | _pending_: needs Railway  |
-| Smoke test: sign up, sign in, strategy, back test, paper run, Orders      | _pending_                 |
-| Production created from staging, `/api/health` shows `liveTrading: false` | _pending_ (after 6 and 7) |
+| Step                                                                      | Result                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging created, variables set, migrations current, services start        | Passed 2026-11-06: https://web-staging-737c.up.railway.app, web and worker from main; pre-deploy migrated, seeded and created the logins; `/api/health` 200 with `liveTrading: false`; `/api/health/system` 200 (database and worker ok). Mail, Sentry, KMS, Stripe and R2 not set yet. |
+| Smoke test: sign up, sign in, strategy, back test, paper run, Orders      | _pending_                                                                                                                                                                                                                                                                               |
+| Production created from staging, `/api/health` shows `liveTrading: false` | _pending_ (after 6 and 7)                                                                                                                                                                                                                                                               |
 
 ## Section 6. k6 load test (staging only)
 
