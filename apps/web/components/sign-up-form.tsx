@@ -6,7 +6,14 @@ import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { authClient } from '@/lib/auth-client';
 
-export function SignUpForm({ inviteRequired }: { inviteRequired: boolean }) {
+export function SignUpForm({
+  inviteRequired,
+  verifyEmail = true,
+}: {
+  inviteRequired: boolean;
+  /** False when EMAIL_VERIFICATION=off: sign-up signs the person straight in. */
+  verifyEmail?: boolean;
+}) {
   const router = useRouter();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);
@@ -28,6 +35,11 @@ export function SignUpForm({ inviteRequired }: { inviteRequired: boolean }) {
     setPending(false);
     if (error) {
       setError(error.message ?? 'Sign-up failed. Try again.');
+      return;
+    }
+    if (!verifyEmail) {
+      router.push('/strategy-lab');
+      router.refresh();
       return;
     }
     router.push(`/check-email?email=${encodeURIComponent(email)}`);
