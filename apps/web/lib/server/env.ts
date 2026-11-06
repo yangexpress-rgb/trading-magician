@@ -19,6 +19,12 @@ export function loadServerEnv(source: Record<string, string | undefined> = proce
       SMTP_URL: z.string().url().default('smtp://localhost:1025'),
       MAIL_OUTBOX_DIR: z.string().default('.mail-outbox'),
       /**
+       * 'off' signs people straight in after sign-up and sends no verification
+       * email. For staging, which has no mail service; the invite code is the
+       * gate there. Password-reset emails are not sent either.
+       */
+      EMAIL_VERIFICATION: z.enum(['required', 'off']).default('required'),
+      /**
        * Seals provider credentials (ADR 0015). Public half only: the web app can
        * store a secret but never read one back. Without it, saving is refused.
        */

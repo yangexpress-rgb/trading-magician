@@ -11,6 +11,7 @@ import { getMailer } from './mailer';
 
 function createAuth() {
   const env = serverEnv();
+  const verifyEmail = env.EMAIL_VERIFICATION === 'required';
   return betterAuth({
     appName: 'Trading Magician',
     baseURL: env.APP_URL,
@@ -33,10 +34,12 @@ function createAuth() {
     },
     emailAndPassword: {
       enabled: true,
-      requireEmailVerification: true,
+      requireEmailVerification: verifyEmail,
       minPasswordLength: 12,
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: async ({ user, url }) => {
+        // No mail service (EMAIL_VERIFICATION=off): nothing to send the link with.
+        if (!verifyEmail) return;
         await getMailer().send({
           to: user.email,
           subject: 'Reset your Trading Magician password',
@@ -45,10 +48,11 @@ function createAuth() {
       },
     },
     emailVerification: {
-      sendOnSignUp: true,
-      sendOnSignIn: true,
+      sendOnSignUp: verifyEmail,
+      sendOnSignIn: verifyEmail,
       autoSignInAfterVerification: true,
       sendVerificationEmail: async ({ user, url }) => {
+        if (!verifyEmail) return;
         await getMailer().send({
           to: user.email,
           subject: 'Verify your Trading Magician email',
