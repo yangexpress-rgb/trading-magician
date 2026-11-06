@@ -5,6 +5,7 @@ import { FAKE_SEC_DATA_URL, FAKE_SEC_WWW_URL, FakeSec } from '@tm/sec/testing';
 import { StripeBilling } from '@tm/billing';
 import { createDb, withTenant } from '@tm/db';
 import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
+import { resolveBuiltinUniverse } from './universes';
 import { startBacktestLoop, type BacktestLoop } from './backtests';
 import { startBillingLoop, type BillingLoop } from './billing-sync';
 import { loadWorkerEnv, shiftedClock } from './env';
@@ -116,6 +117,14 @@ if (databaseUrl) {
         now: () => new Date(),
         providers,
         privateKey: credentialKey,
+      }),
+    resolveUniverse: (userId) =>
+      resolveBuiltinUniverse({
+        db,
+        userId,
+        providers,
+        privateKey: credentialKey,
+        now: () => new Date(),
       }),
     workerId,
     logger,

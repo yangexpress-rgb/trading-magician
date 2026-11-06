@@ -11,7 +11,11 @@ import { addDays, nyDate } from '@tm/domain';
 import { Alert, Badge, Button, Card, SelectField, Table, Td, TextField, Th } from '@tm/ui';
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { LineChart } from '@/components/line-chart';
-import { PhaseReports } from '@/components/strategy/backtest-detail';
+import {
+  EXIT_REASON_LABELS,
+  PhaseReports,
+  SelectionRounds,
+} from '@/components/strategy/backtest-detail';
 import { apiClient } from '@/lib/api-client';
 import {
   describeRun,
@@ -487,6 +491,14 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
             <PhaseReports run={run} />
           </Section>
 
+          {run.result.selections && (
+            <Section
+              title={run.result.selections.kind === 'ranking' ? 'Selection rounds' : 'Leg rounds'}
+            >
+              <SelectionRounds log={run.result.selections} interval={interval} />
+            </Section>
+          )}
+
           <Section title="Trades">
             {trades && trades.length > 0 ? (
               <Table label="Trades">
@@ -511,7 +523,12 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                         {formatMarketTime(t.entryTime, interval)}
                       </Td>
                       <Td className="whitespace-nowrap">
-                        {formatMarketTime(t.exitTime, interval)}
+                        <div>{formatMarketTime(t.exitTime, interval)}</div>
+                        {t.exitReason && (
+                          <div className="text-xs text-ink-muted">
+                            {EXIT_REASON_LABELS[t.exitReason]}
+                          </div>
+                        )}
                       </Td>
                       <Td>
                         <TradeLegs trade={t} />

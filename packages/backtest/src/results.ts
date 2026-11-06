@@ -51,6 +51,45 @@ export interface BacktestTrade {
   netPnl: string;
   /** Net P/L as a percentage of the Entry value. */
   returnPct: string | null;
+  /** Which rule closed the cycle, for strategies using v1.2 rules. */
+  exitReason?: 'condition' | 'rebalance' | 'time_stop';
+}
+
+/**
+ * One evaluation of a Selection group or of per-leg conditions (v1.2):
+ * the table the engine ranked, so a rebalance can be checked by hand.
+ * Rows are [symbol, metric value, pre-filter or leg condition, rank,
+ * selected, why left out].
+ */
+export type SelectionRow = [
+  string,
+  string | null,
+  boolean | null,
+  number | null,
+  boolean,
+  string | null,
+];
+
+export interface SelectionRound {
+  time: string;
+  /** Scheduled period evaluated, e.g. "2025-03" for month end, or the day on a daily schedule. */
+  period: string;
+  /** The strategy-level Entry condition gating a Selection group; null when unknown. */
+  gate?: boolean | null;
+  rows: SelectionRow[];
+  entered: string[];
+  exited: string[];
+  /** Entries were held back by the daily loss limit or drawdown. */
+  halted?: boolean;
+}
+
+export interface SelectionLog {
+  kind: 'ranking' | 'legs';
+  metric: { metric: string; params: Record<string, number | string> } | null;
+  direction: 'asc' | 'desc';
+  schedule: string;
+  exclusionLabels: Record<string, string>;
+  rounds: SelectionRound[];
 }
 
 export interface EquityPoint {
@@ -224,4 +263,6 @@ export interface BacktestResult {
   orders?: BacktestOrder[];
   /** Symbols by instrument id, for wording conditions. */
   symbols?: Record<string, string>;
+  /** Selection group rankings or per-leg selections, evaluation by evaluation (v1.2). */
+  selections?: SelectionLog;
 }

@@ -3,6 +3,7 @@
 import { ApiError } from '@tm/contracts';
 import {
   canonicalJson,
+  slotModeOf,
   strategyDefinitionSchema,
   type ConditionGroup,
   type PhaseName,
@@ -23,6 +24,7 @@ import {
 import { InstrumentFinder } from '@/components/strategy/instrument-finder';
 import { BackTestPanel, useValidation, ValidationPanel } from '@/components/strategy/lifecycle';
 import { OrdersEditor } from '@/components/strategy/orders-editor';
+import { EntryStructure, ExitRulesEditor } from '@/components/strategy/slots-editor';
 import { ExecutionAndRisk, TriggerSettings } from '@/components/strategy/settings-editor';
 import { apiClient } from '@/lib/api-client';
 
@@ -129,6 +131,20 @@ export function StrategyEditor({
     }
   }
 
+  const slotMode = slotModeOf(definition);
+  const universe = definition.entry.selection?.universe;
+  const universeKey =
+    universe?.type === 'list' ? universe.instrumentIds.join(',') : (universe?.id ?? '');
+  const universeClasses = useMemo(() => {
+    if (!universe || universe.type === 'builtin') return ['stock'];
+    const classes = new Set(
+      universe.instrumentIds.map(
+        (id) => instruments.find((i) => i.id === id)?.assetClass ?? 'stock',
+      ),
+    );
+    return [...classes];
+  }, [universeKey, instruments]);
+
   const ctx: EditorContextValue = useMemo(
     () => ({
       instruments,
@@ -137,8 +153,10 @@ export function StrategyEditor({
       baseCurrency,
       issueAt: (path) => issues.get(pathKey(path)),
       editable,
+      slotMode,
+      universeClasses,
     }),
-    [instruments, accounts, timeZone, baseCurrency, issues, editable],
+    [instruments, accounts, timeZone, baseCurrency, issues, editable, slotMode, universeClasses],
   );
 
   const stateText =
@@ -236,6 +254,7 @@ export function StrategyEditor({
                   ? 'The strategy enters when these conditions qualify.'
                   : 'After Entry fills, the strategy exits when these conditions qualify.'}
               </p>
+              {phase === 'entry' && <EntryStructure definition={definition} onChange={edit} />}
               <h3 className="mb-2 text-base font-semibold text-cond">{title} conditions</h3>
               <ConditionTreeEditor
                 root={definition[phase].condition}
@@ -243,11 +262,20 @@ export function StrategyEditor({
                 label={`${title} conditions`}
                 path={[phase, 'condition']}
               />
-              <TriggerSettings
-                phase={phase}
-                value={definition[phase].trigger}
-                onChange={(trigger) => edit((d) => ({ ...d, [phase]: { ...d[phase], trigger } }))}
-              />
+              {phase === 'exit' && <ExitRulesEditor definition={definition} onChange={edit} />}
+              {slotMode === 'none' ? (
+                <TriggerSettings
+                  phase={phase}
+                  value={definition[phase].trigger}
+                  onChange={(trigger) => edit((d) => ({ ...d, [phase]: { ...d[phase], trigger } }))}
+                />
+              ) : (
+                <p className="mt-3 text-xs text-ink-muted">
+                  Trigger options don&rsquo;t apply here: with{' '}
+                  {slotMode === 'selection' ? 'a Selection group' : 'per-leg conditions'} each
+                  instrument is evaluated on its own at every scheduled evaluation.
+                </p>
+              )}
               <OrdersEditor definition={definition} phase={phase} onChange={edit} />
             </Card>
           );

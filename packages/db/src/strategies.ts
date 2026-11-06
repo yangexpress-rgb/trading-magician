@@ -3,6 +3,7 @@ import {
   canonicalJson,
   collectInstrumentUses,
   createDefinition,
+  paperRunBlocker,
   parseDefinition,
   planTransition,
   STATUS_LABELS,
@@ -886,6 +887,15 @@ export async function startStrategy(
     throw new StrategyError('transition_blocked', plan.message, {
       reason: plan.reason,
       details: plan.details ?? [],
+      validation,
+    });
+  }
+  // Back test only for now (decision of 2026-11-06, Design v1.2).
+  const blocker = paperRunBlocker(parseOrThrow(row.draftDefinition));
+  if (blocker) {
+    throw new StrategyError('transition_blocked', blocker, {
+      reason: 'backtest_only',
+      details: [blocker],
       validation,
     });
   }

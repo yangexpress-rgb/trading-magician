@@ -32,6 +32,11 @@ export interface MarketDataProvider {
   history(ctx: ProviderContext): HistoricalDataProvider;
   /** Finds a US stock or ETF by symbol; providers without real instruments omit it. */
   lookup?(ctx: ProviderContext, symbol: string): Promise<InstrumentListing | undefined>;
+  /**
+   * Listings for many exact symbols at once, e.g. the S&P 500 members a
+   * Selection group ranks (v1.2 item 1); symbols the provider lacks are left out.
+   */
+  listings?(ctx: ProviderContext, symbols: readonly string[]): Promise<InstrumentListing[]>;
   /** The best few listings for a symbol or company name, as a person typed it. */
   search?(ctx: ProviderContext, query: string): Promise<InstrumentListing[]>;
   /**

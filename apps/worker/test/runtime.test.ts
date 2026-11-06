@@ -790,3 +790,152 @@ describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', (
     await stopAll();
   });
 });
+
+describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, time stop', () => {
+  const CONTEXT = '00000000-0000-0000-0000-000000000000';
+  const daily = (instrumentId: string, id: string) => ({
+    ...hourly(instrumentId, id),
+    interval: '1d' as const,
+  });
+  const group = (id: string, children: StrategyDefinition['entry']['condition']['children']) => ({
+    kind: 'group' as const,
+    id,
+    op: 'and' as const,
+    negate: false,
+    children,
+  });
+  const above = (id: string, instrumentId: string, value: string) => ({
+    kind: 'comparison' as const,
+    id,
+    operator: 'gt' as const,
+    left: hourly(instrumentId, `${id}-px`),
+    right: { kind: 'constant' as const, id: `${id}-k`, value },
+  });
+
+  it('fires only the leg whose own condition holds, in its own cycle', async () => {
+    clock = T0 + 2 * 86_400_000; // Thursday
+    const def = createDefinition();
+    def.entry.orders = [
+      leg('a', { legLabel: 'Buy A', legCondition: group('ca', [above('ca1', demoA, '1')]) }),
+      leg('b', {
+        legLabel: 'Buy B',
+        instrumentId: demoB,
+        legCondition: group('cb', [above('cb1', demoB, '1000000')]),
+      }),
+    ];
+    def.exit.condition = never();
+    def.exit.orders = [
+      leg('sa', { legLabel: 'Sell A', side: 'close' }),
+      leg('sb', { legLabel: 'Sell B', instrumentId: demoB, side: 'close' }),
+    ];
+    const { runtimeId } = await startPaper('Per-leg', def);
+    await pass();
+    const o = await orders(runtimeId);
+    expect(o.map((x) => [x.phase, x.legLabel])).toEqual([['entry', 'Buy A']]);
+    const [c] = await cycles(runtimeId);
+    expect((c!.state as { slot?: { instrumentId: string } }).slot?.instrumentId).toBe(demoA);
+    // Entry-only on a daily schedule: nothing else fires while A is held.
+    clock += 3_600_000;
+    await pass();
+    expect((await orders(runtimeId)).filter((x) => x.phase === 'entry')).toHaveLength(1);
+    await stopAll();
+  });
+
+  it('holds the top-ranked member of a list universe, with split sizing', async () => {
+    clock = T0 + 3 * 86_400_000; // Friday
+    const def = createDefinition();
+    def.entry.kind = 'selection';
+    def.entry.selection = {
+      universe: { type: 'list', instrumentIds: [demoA, demoB] },
+      ranking: { metric: 'return', params: { lookbackMonths: '1', skipMonths: '0' } },
+      direction: 'desc',
+      count: { type: 'fixed', value: 2 },
+      weighting: 'equal',
+    };
+    def.entry.orders = [
+      leg('each', {
+        legLabel: 'Buy each',
+        instrumentId: CONTEXT,
+        quantity: { type: 'units', value: '20', rounding: 'down' },
+      }),
+    ];
+    def.exit.orders = [
+      leg('close-each', { legLabel: 'Close each', instrumentId: CONTEXT, side: 'close' }),
+    ];
+    const { runtimeId } = await startPaper('Selection', def);
+    await pass();
+    const o = await orders(runtimeId);
+    // Both members are selected; 20 shares split equally across the 2 selections.
+    expect(o.map((x) => [x.legLabel, x.quantity])).toEqual([
+      ['Buy each', '10'],
+      ['Buy each', '10'],
+    ]);
+    const slots = (await cycles(runtimeId)).map(
+      (c) => (c.state as { slot?: { instrumentId: string } }).slot?.instrumentId,
+    );
+    expect(new Set(slots)).toEqual(new Set([demoA, demoB]));
+    // Re-evaluated on the next bar: still selected, so nothing is sold and bought back.
+    clock += 86_400_000 * 3; // Monday
+    await pass();
+    expect(await orders(runtimeId)).toHaveLength(2);
+    await stopAll();
+  });
+
+  it('refuses to start an S&P 500 Selection group on paper, saying why', async () => {
+    const def = createDefinition();
+    def.entry.kind = 'selection';
+    def.entry.selection = {
+      universe: { type: 'builtin', id: 'sp500' },
+      ranking: { metric: 'return', params: {} },
+      direction: 'desc',
+      count: { type: 'fixed', value: 10 },
+      weighting: 'equal',
+    };
+    def.entry.orders = [leg('each', { instrumentId: CONTEXT })];
+    def.exit.orders = [leg('close-each', { instrumentId: CONTEXT, side: 'close' })];
+    await expect(startPaper('S&P', def)).rejects.toThrow(
+      /can be back tested, but not run on paper/,
+    );
+  });
+
+  it('evaluates Entry only after a month-end close', async () => {
+    // Thursday 2026-10-29, mid-session: October's last trading day is Friday the 30th.
+    clock = Date.parse('2026-10-29T15:31:00Z');
+    const def = pairDefinition();
+    def.entry.condition = group('in-g', [
+      { ...above('in', demoA, '1'), left: daily(demoA, 'in-px') },
+    ]);
+    def.exit.condition = never();
+    def.schedule = { frequency: 'monthEnd' };
+    const { runtimeId } = await startPaper('Month end', def);
+    await pass();
+    clock = Date.parse('2026-10-30T15:31:00Z'); // the 29th's daily bar is in, but not a month end
+    await pass();
+    expect(await orders(runtimeId)).toHaveLength(0);
+    clock = Date.parse('2026-10-30T20:05:00Z'); // after the close of October's last trading day
+    await pass();
+    expect((await orders(runtimeId)).map((x) => x.phase)).toEqual(['entry', 'entry']);
+    await stopAll();
+  });
+
+  it('exits after N trading days held, by the time stop alone', async () => {
+    clock = Date.parse('2026-11-02T15:31:00Z'); // Monday
+    const def = pairDefinition();
+    def.exit.condition = never();
+    def.exit.rules = [{ kind: 'timeStop', id: 'ts', barsHeld: 2 }];
+    const { runtimeId } = await startPaper('Time stop', def);
+    await pass();
+    clock += 5_000;
+    await pass(); // filled on Monday
+    expect((await cycles(runtimeId))[0]!.status).toBe('open');
+    clock = Date.parse('2026-11-02T21:00:00Z'); // Monday's close: held 1 day
+    await pass();
+    expect((await orders(runtimeId)).filter((x) => x.phase === 'exit')).toHaveLength(0);
+    clock = Date.parse('2026-11-03T21:00:00Z'); // Tuesday's close: held 2 days
+    await pass();
+    expect((await orders(runtimeId)).filter((x) => x.phase === 'exit')).toHaveLength(2);
+    const [c] = await cycles(runtimeId);
+    expect((c!.state as { exitReason?: string }).exitReason).toBe('time_stop');
+    await stopAll();
+  });
+});

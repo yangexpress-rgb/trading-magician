@@ -15,7 +15,11 @@ import {
 } from './schema';
 import { extendedHoursEligible } from './extended-hours';
 import { checkTiming } from './timing';
-import { exprDepth, treeDepth, walkComparisons, walkExpr } from './tree';
+import { exprDepth, treeDepth, walkComparisons, walkExpr, walkExpressions } from './tree';
+import { CONTEXT_INSTRUMENT_ID } from './evaluate';
+import { checkMetricRef, getMetric, metricReferences } from './metrics';
+import { hasComparisons, paperRunBlocker, slotModeOf } from './selection';
+import type { MetricRef } from './schema';
 
 /**
  * Validation before save and activation (Design v1.0 §6.10).
@@ -109,6 +113,7 @@ export function validateStrategy(
     checkCondition(def, phase, ctx, add);
     checkOrders(def, phase, ctx, add);
   }
+  checkSlots(def, ctx, add);
   checkExitExposure(def, add);
   checkPositionValues(def, add);
   checkExecution(def, add);
@@ -145,6 +150,12 @@ function checkUniqueIds(def: StrategyDefinition, add: Add) {
     seen.add(n.id);
     if (n.kind === 'group') n.children.forEach(visitNode);
   };
+  for (const o of def.entry.orders) if (o.legCondition) visitNode(o.legCondition);
+  if (def.entry.selection?.preFilter) visitNode(def.entry.selection.preFilter);
+  for (const r of def.exit.rules ?? []) {
+    if (seen.has(r.id)) add('error', 'duplicate_id', 'The definition has duplicate ids', [], r.id);
+    seen.add(r.id);
+  }
   for (const phase of ['entry', 'exit'] as const) {
     visitNode(def[phase].condition);
     def[phase].orders.forEach((o, i) => {
@@ -188,7 +199,18 @@ function checkCondition(
   if (comparisons.length === 0) {
     const allTimingOnly =
       def[phase].orders.length > 0 && def[phase].orders.every((o) => o.timingOnly);
-    if (!allTimingOnly) {
+    // A Selection group or per-leg conditions decide entries themselves, and an
+    // exit rule such as the time stop can be the only exit (v1.2).
+    // A rebalance (Selection group, or per-leg conditions on a calendar
+    // schedule) exits what is no longer selected.
+    const mode = slotModeOf(def);
+    const decidedElsewhere =
+      phase === 'entry'
+        ? mode !== 'none'
+        : (def.exit.rules?.length ?? 0) > 0 ||
+          mode === 'selection' ||
+          (mode === 'legs' && (def.schedule?.frequency ?? 'daily') !== 'daily');
+    if (!allTimingOnly && !decidedElsewhere) {
       add(
         'error',
         'empty_condition',
@@ -215,6 +237,19 @@ function checkCondition(
     );
   }
 
+  // "This instrument" means the slot's instrument, which exists in Exit rules of
+  // a Selection group or per-leg strategy; the strategy-level Entry has none.
+  const context = phase === 'exit' && slotModeOf(def) !== 'none';
+  checkTree(root, [phase, 'condition'], ctx, add, context);
+}
+
+function checkTree(
+  root: ConditionGroup,
+  rootPath: (string | number)[],
+  ctx: ValidationContext,
+  add: Add,
+  context: boolean,
+) {
   const visitGroup = (g: ConditionGroup, path: (string | number)[]) => {
     if (g !== root && g.children.length === 0) {
       add('error', 'empty_group', 'This group is empty; add a condition or remove it', path, g.id);
@@ -222,14 +257,20 @@ function checkCondition(
     g.children.forEach((c, i) => {
       const childPath = [...path, 'children', i];
       if (c.kind === 'group') visitGroup(c, childPath);
-      else checkComparison(c, childPath, ctx, add);
+      else checkComparison(c, childPath, ctx, add, context);
     });
   };
-  visitGroup(root, [phase, 'condition']);
+  visitGroup(root, rootPath);
 }
 
 function isSeries(e: Expr): boolean {
-  return e.kind === 'market' || e.kind === 'indicator' || e.kind === 'position';
+  return (
+    e.kind === 'market' ||
+    e.kind === 'indicator' ||
+    e.kind === 'position' ||
+    e.kind === 'metric' ||
+    e.kind === 'stat'
+  );
 }
 
 function containsSeries(e: Expr): boolean {
@@ -242,14 +283,24 @@ function checkComparison(
   path: (string | number)[],
   ctx: ValidationContext,
   add: Add,
+  context = false,
 ) {
   const sides: [Expr | undefined, string][] = [
     [c.left, 'left'],
     [c.right, 'right'],
     [c.upper, 'upper'],
   ];
-  for (const [expr, key] of sides) if (expr) checkExpr(expr, [...path, key], ctx, add);
+  for (const [expr, key] of sides) if (expr) checkExpr(expr, [...path, key], ctx, add, context);
 
+  if (c.operator === 'is_stale' && (c.left.kind === 'metric' || c.left.kind === 'stat')) {
+    add(
+      'error',
+      'state_needs_market_data',
+      'Staleness checks need market data or an indicator on the left',
+      [...path, 'left'],
+      c.id,
+    );
+  }
   if ((c.operator === 'is_available' || c.operator === 'is_stale') && !isSeries(c.left)) {
     add(
       'error',
@@ -293,7 +344,13 @@ function checkComparison(
   }
 }
 
-function checkExpr(expr: Expr, path: (string | number)[], ctx: ValidationContext, add: Add) {
+function checkExpr(
+  expr: Expr,
+  path: (string | number)[],
+  ctx: ValidationContext,
+  add: Add,
+  context = false,
+) {
   if (exprDepth(expr) > LIMITS.maxExpressionDepth) {
     add(
       'error',
@@ -321,8 +378,50 @@ function checkExpr(expr: Expr, path: (string | number)[], ctx: ValidationContext
       return;
     }
     if (e.kind === 'constant') return;
+    if (e.kind === 'stat') {
+      visit(e.input, [...p, 'input']);
+      if (![...walkExpr(e.input)].some(isSeries)) {
+        add(
+          'error',
+          'stat_needs_market_data',
+          `${e.fn} needs a price, a calculated expression or an indicator as its input`,
+          [...p, 'input'],
+          e.id,
+        );
+      }
+      if ([...walkExpr(e.input)].some((x) => x.kind === 'position')) {
+        add(
+          'error',
+          'stat_on_position',
+          'Position values have no history, so they cannot feed a statistical function',
+          [...p, 'input'],
+          e.id,
+        );
+      }
+      return;
+    }
 
+    if (e.instrumentId === CONTEXT_INSTRUMENT_ID) {
+      if (!context) {
+        add(
+          'error',
+          'context_instrument_misplaced',
+          '"This instrument" only works in a leg condition, a Selection group\'s pre-filter, or the Exit rules of such a strategy',
+          [...p, 'instrumentId'],
+          e.id,
+        );
+      }
+      if (e.kind === 'metric') checkMetric(metricOf(e), [...p, 'params'], e.id, undefined, add);
+      return;
+    }
     const instrument = ctx.instruments.get(e.instrumentId);
+    if (e.kind === 'metric') {
+      checkMetric(metricOf(e), [...p, 'params'], e.id, instrument, add);
+      for (const ref of metricReferences(metricOf(e))) {
+        if (!ctx.instruments.has(ref))
+          add('error', 'unknown_instrument', 'Choose a valid benchmark', [...p, 'params'], e.id);
+      }
+    }
     if (!instrument) {
       add('error', 'unknown_instrument', 'Choose a valid instrument', [...p, 'instrumentId'], e.id);
     } else {
@@ -357,6 +456,317 @@ function checkExpr(expr: Expr, path: (string | number)[], ctx: ValidationContext
   visit(expr, path);
 }
 
+const metricOf = (e: Extract<Expr, { kind: 'metric' }>): MetricRef => ({
+  metric: e.metric,
+  params: e.params,
+});
+
+function checkMetric(
+  ref: MetricRef,
+  path: (string | number)[],
+  nodeId: string | undefined,
+  instrument: InstrumentInfo | undefined,
+  add: Add,
+) {
+  for (const problem of checkMetricRef(ref)) add('error', 'invalid_metric', problem, path, nodeId);
+  const spec = getMetric(ref.metric);
+  if (spec && instrument && !spec.assetClasses.includes(instrument.assetClass)) {
+    add(
+      'error',
+      'metric_unsupported',
+      `${spec.label} can't be computed for ${instrument.symbol} (${instrument.assetClass})`,
+      path,
+      nodeId,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Selection groups and per-leg conditions (v1.2 items 1 and 2)
+// ---------------------------------------------------------------------------
+
+function checkSlots(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
+  const mode = slotModeOf(def);
+
+  // Leg conditions only belong on Entry legs; Exit legs follow the Exit rules.
+  def.exit.orders.forEach((o, i) => {
+    if (o.legCondition)
+      add(
+        'error',
+        'leg_condition_on_exit',
+        `Exit leg "${o.legLabel}" can't have a leg condition; Exit legs follow the Exit rules`,
+        ['exit', 'orders', i, 'legCondition'],
+        o.id,
+      );
+  });
+
+  if (mode === 'none') {
+    for (const phase of ['entry', 'exit'] as const) {
+      def[phase].orders.forEach((o, i) => {
+        if (o.instrumentId === CONTEXT_INSTRUMENT_ID)
+          add(
+            'error',
+            'context_instrument_misplaced',
+            `"${o.legLabel}" trades "this instrument", which only a Selection group defines`,
+            [phase, 'orders', i, 'instrumentId'],
+            o.id,
+          );
+      });
+    }
+    return;
+  }
+
+  if (def.execution.reentry.mode !== 'single_cycle') {
+    add(
+      'error',
+      'slots_need_single_cycle',
+      mode === 'selection'
+        ? 'A Selection group holds one position per selected instrument; set re-entry to "One cycle at a time"'
+        : 'Per-leg conditions hold one position per leg; set re-entry to "One cycle at a time"',
+      ['execution', 'reentry', 'mode'],
+    );
+  }
+  if (def.execution.multiLegPolicy !== 'concurrent') {
+    add(
+      'error',
+      'slots_need_concurrent',
+      "Selection groups and per-leg conditions send each instrument's orders on their own; use concurrent submission",
+      ['execution', 'multiLegPolicy'],
+    );
+  }
+  // Each slot runs on its own, so legs can't time themselves off another leg.
+  for (const phase of ['entry', 'exit'] as const) {
+    def[phase].orders.forEach((o, i) => {
+      const t = o.timing;
+      if (
+        t.mode === 'exact' ||
+        (t.mode === 'relative' && t.reference.kind === 'leg') ||
+        o.timingOnly
+      ) {
+        add(
+          'error',
+          'slots_timing',
+          `"${o.legLabel}" must go immediately or after a phase event: with ${mode === 'selection' ? 'a Selection group' : 'per-leg conditions'} each instrument trades on its own`,
+          [phase, 'orders', i, 'timing'],
+          o.id,
+        );
+      }
+    });
+  }
+
+  if (mode === 'selection') checkSelection(def, ctx, add);
+  else checkLegConditions(def, ctx, add);
+  const blocker = paperRunBlocker(def);
+  if (blocker)
+    add('warning', 'selection_backtest_only', blocker, ['entry', 'selection', 'universe']);
+}
+
+function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
+  const sel = def.entry.selection;
+  if (!sel) {
+    add('error', 'selection_missing', 'Set up the Selection group: universe, metric and count', [
+      'entry',
+      'selection',
+    ]);
+    return;
+  }
+  const template = def.entry.orders[0];
+  if (def.entry.orders.length !== 1 || !template) {
+    add(
+      'error',
+      'selection_one_leg',
+      'A Selection group has exactly one Entry leg, which every selected instrument uses',
+      ['entry', 'orders'],
+    );
+  } else if (template.instrumentId !== CONTEXT_INSTRUMENT_ID) {
+    add(
+      'error',
+      'selection_leg_instrument',
+      `"${template.legLabel}" must trade "each selected instrument", not a fixed one`,
+      ['entry', 'orders', 0, 'instrumentId'],
+      template.id,
+    );
+  }
+  def.exit.orders.forEach((o, i) => {
+    if (o.instrumentId !== CONTEXT_INSTRUMENT_ID)
+      add(
+        'error',
+        'selection_exit_instrument',
+        `Exit leg "${o.legLabel}" must close "each selected instrument"`,
+        ['exit', 'orders', i, 'instrumentId'],
+        o.id,
+      );
+  });
+
+  // The metric must be one the registry computes for the universe's instruments.
+  const members =
+    sel.universe.type === 'list'
+      ? sel.universe.instrumentIds.map((id) => ({ id, info: ctx.instruments.get(id) }))
+      : [];
+  const ranking = getMetric(sel.ranking.metric);
+  for (const problem of checkMetricRef(sel.ranking))
+    add('error', 'invalid_metric', problem, ['entry', 'selection', 'ranking']);
+  for (const id of metricReferences(sel.ranking)) {
+    if (!ctx.instruments.has(id))
+      add('error', 'unknown_instrument', 'Choose a valid benchmark', [
+        'entry',
+        'selection',
+        'ranking',
+      ]);
+  }
+  const account = template ? ctx.accounts.get(template.accountId) : undefined;
+  if (sel.universe.type === 'builtin') {
+    if (ranking && !ranking.assetClasses.includes('stock')) {
+      add('error', 'metric_unsupported', `${ranking.label} can't be computed for S&P 500 stocks`, [
+        'entry',
+        'selection',
+        'ranking',
+      ]);
+    }
+    if (!ctx.hasFeed('stock', 'bars')) {
+      add('error', 'missing_feed', 'No active data feed covers US stock bars for the S&P 500', [
+        'entry',
+        'selection',
+        'universe',
+      ]);
+    }
+    if (account && !account.capabilities.assetClasses.includes('stock')) {
+      add(
+        'error',
+        'unsupported_asset_class',
+        `"${account.nickname}" can't trade stocks, so it can't hold S&P 500 members`,
+        ['entry', 'selection', 'universe'],
+      );
+    }
+  }
+  const seen = new Set<string>();
+  members.forEach(({ id, info }, i) => {
+    const path = ['entry', 'selection', 'universe', 'instrumentIds', i];
+    if (seen.has(id)) add('warning', 'universe_duplicate', 'This instrument is listed twice', path);
+    seen.add(id);
+    if (!info) {
+      add('error', 'unknown_instrument', 'Choose a valid instrument for the universe', path);
+      return;
+    }
+    if (ranking && !ranking.assetClasses.includes(info.assetClass)) {
+      add(
+        'error',
+        'metric_unsupported',
+        `${ranking.label} can't be computed for ${info.symbol} (${info.assetClass})`,
+        path,
+      );
+    }
+    if (!ctx.hasFeed(info.assetClass, 'bars')) {
+      add('error', 'missing_feed', `No active data feed covers ${info.symbol} bars`, path);
+    }
+    if (account) checkTradable(info, account, path, `${info.symbol} in the universe`, add);
+  });
+  if (
+    sel.count.type === 'fixed' &&
+    sel.universe.type === 'list' &&
+    sel.count.value > members.length
+  ) {
+    add(
+      'warning',
+      'selection_count_above_universe',
+      `The universe has ${members.length} instruments, fewer than the ${sel.count.value} to hold`,
+      ['entry', 'selection', 'count', 'value'],
+    );
+  }
+  if (sel.preFilter) checkTree(sel.preFilter, ['entry', 'selection', 'preFilter'], ctx, add, true);
+}
+
+/** Whether an account can trade an instrument, in the words of the leg checks. */
+function checkTradable(
+  info: InstrumentInfo,
+  account: AccountInfo,
+  path: (string | number)[],
+  what: string,
+  add: Add,
+) {
+  const caps = account.capabilities;
+  if (!caps.assetClasses.includes(info.assetClass)) {
+    add(
+      'error',
+      'unsupported_asset_class',
+      `${what} can't be traded on "${account.nickname}" (it doesn't trade ${info.assetClass})`,
+      path,
+    );
+  }
+  if (info.venue && caps.coverage) {
+    const demo = info.venue === DEMO_VENUE_CODE;
+    if ((caps.coverage === 'demo') !== demo) {
+      add('error', 'unsupported_venue', `${what} can't be traded on "${account.nickname}"`, path);
+    }
+  }
+}
+
+function checkLegConditions(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
+  const fire = def.entry.fireMode;
+  if (fire?.mode === 'bestByMetric') {
+    for (const problem of checkMetricRef(fire.metric))
+      add('error', 'invalid_metric', problem, ['entry', 'fireMode', 'metric']);
+    const spec = getMetric(fire.metric.metric);
+    def.entry.orders.forEach((o, i) => {
+      const info = ctx.instruments.get(o.instrumentId);
+      if (spec && info && !spec.assetClasses.includes(info.assetClass))
+        add(
+          'error',
+          'metric_unsupported',
+          `${spec.label} can't be computed for ${info.symbol}, so "${o.legLabel}" can't be compared`,
+          ['entry', 'orders', i, 'instrumentId'],
+          o.id,
+        );
+    });
+  }
+  def.entry.orders.forEach((o, i) => {
+    const path = ['entry', 'orders', i, 'legCondition'];
+    if (!o.legCondition) return;
+    if (!hasComparisons(o.legCondition)) {
+      add(
+        'error',
+        'empty_leg_condition',
+        `Add a condition to "${o.legLabel}" or remove its leg condition`,
+        path,
+        o.legCondition.id,
+      );
+    }
+    checkTree(o.legCondition, path, ctx, add, true);
+    // Instruments the leg condition reads must be tradable on the leg's account.
+    const account = ctx.accounts.get(o.accountId);
+    if (!account) return;
+    const seen = new Set<string>();
+    for (const e of walkExpressions(o.legCondition)) {
+      if (!('instrumentId' in e) || e.instrumentId === CONTEXT_INSTRUMENT_ID) continue;
+      if (seen.has(e.instrumentId)) continue;
+      seen.add(e.instrumentId);
+      const info = ctx.instruments.get(e.instrumentId);
+      if (info)
+        checkTradable(
+          info,
+          account,
+          path,
+          `${info.symbol} in the condition of "${o.legLabel}"`,
+          add,
+        );
+    }
+  });
+  // Each leg that may fire on its own needs an Exit leg for its instrument.
+  def.entry.orders.forEach((o, i) => {
+    const covered = def.exit.orders.some(
+      (x) => x.instrumentId === o.instrumentId || x.instrumentId === CONTEXT_INSTRUMENT_ID,
+    );
+    if (!covered)
+      add(
+        'error',
+        'leg_without_exit',
+        `Add an Exit leg for "${o.legLabel}": with per-leg conditions each leg is closed on its own`,
+        ['entry', 'orders', i],
+        o.id,
+      );
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Planned orders
 
@@ -376,9 +786,10 @@ function checkOrders(def: StrategyDefinition, phase: PhaseName, ctx: ValidationC
   const accountsUsed = new Set<string>();
   orders.forEach((o, i) => {
     const path = [phase, 'orders', i];
+    const context = o.instrumentId === CONTEXT_INSTRUMENT_ID;
     const instrument = ctx.instruments.get(o.instrumentId);
     const account = ctx.accounts.get(o.accountId);
-    if (!instrument)
+    if (!instrument && !context)
       add(
         'error',
         'unknown_instrument',
@@ -654,8 +1065,9 @@ function checkPrices(o: PlannedOrder, path: (string | number)[], ctx: Validation
       [...path, 'limitPrice'],
       o.id,
     );
-  if (o.limitPrice) checkExpr(o.limitPrice, [...path, 'limitPrice'], ctx, add);
-  if (o.stopPrice) checkExpr(o.stopPrice, [...path, 'stopPrice'], ctx, add);
+  const context = o.instrumentId === CONTEXT_INSTRUMENT_ID;
+  if (o.limitPrice) checkExpr(o.limitPrice, [...path, 'limitPrice'], ctx, add, context);
+  if (o.stopPrice) checkExpr(o.stopPrice, [...path, 'stopPrice'], ctx, add, context);
 }
 
 /**
@@ -664,6 +1076,8 @@ function checkPrices(o: PlannedOrder, path: (string | number)[], ctx: Validation
  */
 function checkPositionValues(def: StrategyDefinition, add: Add) {
   const traded = new Set(def.entry.orders.map((o) => o.instrumentId));
+  // A slot's Exit rules may measure "this instrument", the slot's own position.
+  if (slotModeOf(def) !== 'none') traded.add(CONTEXT_INSTRUMENT_ID);
   const sources: { phase: PhaseName; path: (string | number)[]; exprs: Expr[] }[] = [];
   for (const phase of ['entry', 'exit'] as const) {
     for (const c of walkComparisons(def[phase].condition)) {

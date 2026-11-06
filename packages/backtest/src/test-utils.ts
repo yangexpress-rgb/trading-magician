@@ -14,6 +14,8 @@ import {
   type StrategyDefinition,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
+import { createHash } from 'node:crypto';
+import type { BacktestResult } from './results';
 import { seriesKey, type InstrumentRef, type LoadedData } from './data';
 import { DEFAULT_BACKTEST_INPUTS, type BacktestInputs } from './inputs';
 
@@ -130,4 +132,29 @@ export function strategy(
   def.exit.condition.children = [exit];
   def.exit.orders = exitLegs;
   return def;
+}
+
+/**
+ * A result's fingerprint over every field a v1.1 result had, for the
+ * backward-compatibility checks (regression.test.ts).
+ */
+const V11_FIELDS = [
+  'conditions',
+  'orders',
+  'symbols',
+  'engineVersion',
+  'dataVersions',
+  'assumptions',
+  'sharpeMethod',
+  'metrics',
+  'equity',
+  'trades',
+  'fills',
+  'contributions',
+  'warnings',
+] as const;
+
+export function fingerprint(r: BacktestResult): string {
+  const picked = Object.fromEntries(V11_FIELDS.map((k) => [k, r[k]]));
+  return createHash('sha256').update(JSON.stringify(picked)).digest('hex').slice(0, 16);
 }

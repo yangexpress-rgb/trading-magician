@@ -1,5 +1,19 @@
 import {
   checkPreTradeRisk,
+  evaluateCondition,
+  hasComparisons,
+  planSlots,
+  rankUniverse,
+  scheduledPeriod,
+  scheduleOf,
+  selectLegs,
+  slotDefinition,
+  slotKey,
+  slotModeOf,
+  timeStopReached,
+  withContext,
+  EXCLUSION_LABELS,
+  type Slot,
   evaluateExpr,
   nyDate,
   nextTradingDay,
@@ -20,7 +34,13 @@ import {
   withPositions,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
-import { seriesExprs, seriesKey, type InstrumentRef, type LoadedData } from './data';
+import {
+  seriesExprs,
+  seriesKey,
+  strategyInstruments,
+  type InstrumentRef,
+  type LoadedData,
+} from './data';
 import { quoteFill, stopReached, volumeCap, type Direction } from './fills';
 import { ConditionRecorder, whyNotFired } from './explain';
 import { describeAssumptions, type BacktestInputs } from './inputs';
@@ -35,6 +55,8 @@ import {
   type BacktestTrade,
   type EquityPoint,
   type InstrumentContribution,
+  type SelectionLog,
+  type SelectionRound,
 } from './results';
 
 /**
@@ -138,6 +160,12 @@ interface CyclePosition {
 
 interface Cycle {
   no: number;
+  /** What this cycle runs: the strategy, or a slot's definition (v1.2). */
+  def: StrategyDefinition;
+  /** The universe member or leg this cycle holds, for Selection groups and per-leg conditions. */
+  slot?: Slot;
+  /** Why the cycle exited, when v1.2 exit reasons apply. */
+  exitReason?: 'condition' | 'rebalance' | 'time_stop';
   state: 'entering' | 'open' | 'exiting' | 'closed' | 'aborted';
   entryTriggeredAt?: number;
   events: Map<PhaseEvent, number>;
@@ -158,7 +186,12 @@ export interface SimulationInput {
   instruments: ReadonlyMap<string, InstrumentRef>;
   inputs: BacktestInputs;
   data: LoadedData;
+  /** A Selection group's universe, resolved to instrument ids (v1.2 item 1). */
+  members?: readonly string[];
 }
+
+/** Rounds of a selection log kept in a result, so results stay small. */
+export const MAX_SELECTION_ROUNDS = 400;
 
 class Warnings {
   private readonly map = new Map<string, { message: string; count: number }>();
@@ -191,8 +224,13 @@ export function simulate({
   instruments,
   inputs,
   data,
+  members = [],
 }: SimulationInput): BacktestResult {
   const warnings = new Warnings();
+  const mode = slotModeOf(def);
+  const frequency = scheduleOf(def);
+  /** v1.2 features in use: results then say why each cycle exited. */
+  const v12 = mode !== 'none' || frequency !== 'daily' || (def.exit.rules?.length ?? 0) > 0;
   for (const w of data.warnings) warnings.add(`data:${w}`, w);
   const view = new MarketView(data.series);
   const ex = def.execution;
@@ -204,7 +242,8 @@ export function simulate({
   const borrowRate = new Decimal(inputs.borrowRatePct).div(100).div(252);
   const initial = new Decimal(inputs.initialCapital);
 
-  if (seriesExprs(def).some((e) => SUBSTITUTED_FIELDS.includes(e.field))) {
+  const allSeries = seriesExprs(def, members);
+  if (allSeries.some((e) => SUBSTITUTED_FIELDS.includes(e.field))) {
     warnings.add(
       'quote_fields',
       'Bars have no quotes, so last, bid, ask and mid use the bar close and VWAP uses the typical price',
@@ -218,11 +257,7 @@ export function simulate({
       adjustment: inputs.adjustment,
       session: 'regular',
     });
-  const usedInstruments = new Set<string>([
-    ...seriesExprs(def).map((e) => e.instrumentId),
-    ...def.entry.orders.map((o) => o.instrumentId),
-    ...def.exit.orders.map((o) => o.instrumentId),
-  ]);
+  const usedInstruments = new Set<string>(strategyInstruments(def, members));
   const symbol = (id: string) => instruments.get(id)?.symbol ?? '?';
   const lot = (id: string) => new Decimal(instruments.get(id)?.lotSize ?? '1');
 
@@ -295,12 +330,15 @@ export function simulate({
   };
 
   /** The market view plus this cycle's positions, for Exit rules and Exit order prices. */
-  const cycleView = (c: Cycle): SeriesResolver =>
-    withPositions(view, (id) => {
+  const cycleView = (c: Cycle): SeriesResolver => {
+    const r = withPositions(view, (id) => {
       const p = c.positions.get(id);
       if (!p || p.entryQuantity.isZero()) return undefined;
       return { quantity: p.quantity, averagePrice: p.entryCost.div(p.entryQuantity) };
     });
+    // A slot's rules read "this instrument" as the slot's own (v1.2).
+    return c.slot ? withContext(r, c.slot.instrumentId) : r;
+  };
 
   // ---------------------------------------------------------------------------
   // Orders
@@ -328,7 +366,7 @@ export function simulate({
   function onLegProblem(c: Cycle, leg: LegState, now: number) {
     if (leg.phase === 'flatten') return;
     const phaseLegs = leg.phase === 'entry' ? c.entryLegs : c.exitLegs;
-    if (def[leg.phase].orders.length < 2) return;
+    if (c.def[leg.phase].orders.length < 2) return;
     warnings.add('leg_failed', 'A leg of a multi-leg plan did not fill completely in time');
     if (ex.onLegFailure === 'leave_and_alert') return;
     const because = { leg: leg.leg.legLabel };
@@ -486,6 +524,19 @@ export function simulate({
       );
     }
 
+    // A rebalance sells and buys on the same bar: what is being closed doesn't
+    // count against buying power for the new entries (v1.2 slots only).
+    const closingGross =
+      mode === 'none'
+        ? ZERO
+        : cycles
+            .filter((x) => x.state === 'exiting' && x !== c)
+            .reduce((sum, x) => {
+              let g = ZERO;
+              for (const [id, p] of x.positions)
+                g = g.plus(p.quantity.abs().times(mark(id) ?? ZERO));
+              return sum.plus(g);
+            }, ZERO);
     const sized = sizeOrder({
       order: o,
       referencePrice: ref,
@@ -511,7 +562,7 @@ export function simulate({
       referencePrice: ref,
       limitPrice: limit,
       activeOrders: working().length,
-      grossExposure: positionValue().gross,
+      grossExposure: positionValue().gross.minus(closingGross),
       equity: equityNow(),
       dailyLossHit: dailyHalt,
       drawdownHit: drawdownHalt,
@@ -658,9 +709,11 @@ export function simulate({
 
   const activeCycles = () => cycles.filter((c) => c.state !== 'closed' && c.state !== 'aborted');
 
-  function newCycle(now: number, triggered: boolean): Cycle {
+  function newCycle(now: number, triggered: boolean, slot?: Slot, count = 1): Cycle {
     const c: Cycle = {
       no: cycles.length + 1,
+      def: slot ? slotDefinition(def, slot, count) : def,
+      ...(slot ? { slot } : {}),
       state: 'entering',
       events: new Map(),
       legEvents: new Map(),
@@ -698,12 +751,28 @@ export function simulate({
     allLegs.push(s);
     return s;
   };
-  const exitLegsFor = (c: Cycle) => legOrderFor(def, 'exit').map((l) => legState(c, l, 'exit'));
+  const exitLegsFor = (c: Cycle) => legOrderFor(c.def, 'exit').map((l) => legState(c, l, 'exit'));
 
   function addEntryBatch(c: Cycle) {
     c.entries += 1;
-    c.entryLegs.push(...legOrderFor(def, 'entry').map((l) => legState(c, l, 'entry')));
+    c.entryLegs.push(...legOrderFor(c.def, 'entry').map((l) => legState(c, l, 'entry')));
   }
+
+  /** Starts a cycle's Exit now, for a reason other than its Exit condition. */
+  function forceExit(c: Cycle, now: number, reason: 'rebalance' | 'time_stop') {
+    c.state = 'exiting';
+    c.exitReason = reason;
+    c.legEvents.set('exit:trigger', now);
+    if (c.exitLegs.length === 0) c.exitLegs = exitLegsFor(c);
+  }
+
+  // Selection groups and per-leg conditions (v1.2 items 1, 2): the log of each evaluation.
+  const selectionRounds: SelectionRound[] = [];
+  let roundsDropped = 0;
+  let lastPeriod: string | undefined;
+  let entryEvaluations = 0;
+  const template = def.entry.orders[0];
+  const excludedNoValue = new Set<string>();
 
   function timingDue(c: Cycle, s: LegState, triggeredAt: number | undefined, now: number): boolean {
     const t = s.leg.timing;
@@ -807,6 +876,75 @@ export function simulate({
     }
   }
 
+  /** One evaluation of a Selection group or per-leg conditions (v1.2 items 1, 2). */
+  function selectSlots(now: number, period: string) {
+    if (mode === 'none') return;
+    const halted = dailyHalt || drawdownHalt;
+    let candidates: Slot[] = [];
+    let count = 1;
+    const round: SelectionRound = { time: iso(now), period, rows: [], entered: [], exited: [] };
+    if (mode === 'selection' && def.entry.selection && template) {
+      // A strategy-level Entry condition gates the whole selection (a regime filter).
+      const gate = hasComparisons(def.entry.condition)
+        ? evaluateCondition(def.entry.condition, view)
+        : true;
+      if (hasComparisons(def.entry.condition)) {
+        const row = entryConditions.record(iso(now), view);
+        if (gate === true) entryConditions.markFired(row, 'fired');
+      }
+      const ranking = rankUniverse(def.entry.selection, members, view, symbol);
+      count = ranking.count;
+      round.gate = gate ?? null;
+      round.rows = ranking.rows.map((r) => [
+        r.symbol,
+        r.value,
+        r.filter,
+        r.rank,
+        r.selected && gate === true,
+        r.excluded,
+      ]);
+      for (const r of ranking.rows)
+        if (r.excluded === 'no_value') excludedNoValue.add(r.instrumentId);
+      if (gate === true)
+        candidates = ranking.selected.map((instrumentId) => ({ legId: template.id, instrumentId }));
+    } else {
+      const legs = selectLegs(def, view, symbol);
+      round.rows = legs.rows.map((r) => [r.symbol, r.value, r.passed, null, r.selected, null]);
+      candidates = legs.selected;
+      if (hasComparisons(def.entry.condition)) entryConditions.record(iso(now), view);
+    }
+    const held = activeCycles()
+      .filter((c) => c.slot)
+      .map((c) => ({ key: slotKey(c.slot as Slot), id: String(c.no), open: c.state === 'open' }));
+    const plan = planSlots({
+      mode,
+      scheduled: frequency !== 'daily',
+      candidates,
+      held,
+      halted,
+    });
+    for (const id of plan.exit) {
+      const c = cycles[Number(id) - 1];
+      if (!c) continue;
+      forceExit(c, now, 'rebalance');
+      round.exited.push(symbol(c.slot?.instrumentId ?? ''));
+    }
+    for (const slot of plan.enter) {
+      newCycle(now, true, slot, count);
+      round.entered.push(symbol(slot.instrumentId));
+    }
+    if (halted && candidates.length > 0) round.halted = true;
+    // Keep scheduled evaluations and the ones that traded; daily no-change rounds are many.
+    const keep =
+      frequency !== 'daily' ||
+      selectionRounds.length === 0 ||
+      round.entered.length > 0 ||
+      round.exited.length > 0;
+    if (!keep) return;
+    if (selectionRounds.length >= MAX_SELECTION_ROUNDS) roundsDropped += 1;
+    else selectionRounds.push(round);
+  }
+
   // ---------------------------------------------------------------------------
   // The clock
 
@@ -874,7 +1012,7 @@ export function simulate({
         continue;
       }
       const phase = order.leg.phase;
-      const multiLeg = phase !== 'flatten' && def[phase].orders.length > 1;
+      const multiLeg = phase !== 'flatten' && order.cycle.def[phase].orders.length > 1;
       if (multiLeg && now - order.activeFrom > ex.legTimeoutSec * 1000) {
         endLeg(
           order.leg,
@@ -892,42 +1030,52 @@ export function simulate({
     // 4. Conditions on closed bars, then due legs.
     if (
       [...usedInstruments].some(
-        (id) => view.latest(execKey(id)) && seriesExprs(def).some((e) => view.isStale(e)),
+        (id) => view.latest(execKey(id)) && allSeries.some((e) => view.isStale(e)),
       )
     ) {
       staleSteps += 1;
     }
-    const entryRow = entryConditions.record(iso(now), view);
-    const entryTruth = entryRow.truth ?? undefined;
-    if (entryTruth === undefined) unknownEntrySteps += 1;
-    const entryBefore = { ...entryTrigger };
-    const fires = stepTrigger(entryTrigger, entryTruth, now, def.entry.trigger);
-    const active = activeCycles();
-    if (fires && dailyHalt) entryConditions.markFired(entryRow, 'daily_loss');
-    else if (fires && drawdownHalt) entryConditions.markFired(entryRow, 'drawdown');
-    else if (fires) {
-      const mode = ex.reentry.mode;
-      const current = active.at(-1);
-      let acted = true;
-      if (current && current.entryTriggeredAt === undefined && current.state === 'entering') {
-        current.entryTriggeredAt = now;
-        current.events.set('entry_trigger', now);
-      } else if (active.length === 0 || mode === 'independent_cycles') {
-        newCycle(now, true);
-      } else if (
-        mode === 'pyramid' &&
-        current &&
-        current.state === 'open' &&
-        current.entries < (ex.reentry.cap ?? 1)
-      ) {
-        addEntryBatch(current);
-      } else acted = false;
-      entryConditions.markFired(entryRow, acted ? 'fired' : 'cycle_open');
-    } else if (entryTruth === true) {
-      entryRow.outcome = whyNotFired(entryBefore, entryTrigger, now, def.entry.trigger);
+    // The schedule gates Entry and re-selection; Exit rules run on every bar (v1.2 item 4).
+    const period = scheduledPeriod(def.schedule, now, lastPeriod);
+    const evaluateEntry = period !== undefined;
+    if (evaluateEntry && frequency !== 'daily') lastPeriod = period;
+    if (evaluateEntry) entryEvaluations += 1;
+
+    if (mode === 'none' && evaluateEntry) {
+      const entryRow = entryConditions.record(iso(now), view);
+      const entryTruth = entryRow.truth ?? undefined;
+      if (entryTruth === undefined) unknownEntrySteps += 1;
+      const entryBefore = { ...entryTrigger };
+      const fires = stepTrigger(entryTrigger, entryTruth, now, def.entry.trigger);
+      const active = activeCycles();
+      if (fires && dailyHalt) entryConditions.markFired(entryRow, 'daily_loss');
+      else if (fires && drawdownHalt) entryConditions.markFired(entryRow, 'drawdown');
+      else if (fires) {
+        const mode = ex.reentry.mode;
+        const current = active.at(-1);
+        let acted = true;
+        if (current && current.entryTriggeredAt === undefined && current.state === 'entering') {
+          current.entryTriggeredAt = now;
+          current.events.set('entry_trigger', now);
+        } else if (active.length === 0 || mode === 'independent_cycles') {
+          newCycle(now, true);
+        } else if (
+          mode === 'pyramid' &&
+          current &&
+          current.state === 'open' &&
+          current.entries < (ex.reentry.cap ?? 1)
+        ) {
+          addEntryBatch(current);
+        } else acted = false;
+        entryConditions.markFired(entryRow, acted ? 'fired' : 'cycle_open');
+      } else if (entryTruth === true) {
+        entryRow.outcome = whyNotFired(entryBefore, entryTrigger, now, def.entry.trigger);
+      }
+    } else if (mode !== 'none' && evaluateEntry) {
+      selectSlots(now, period);
     }
     // Timing-only exact Entry legs open a cycle at their time without the condition (§6.8).
-    if (activeCycles().length === 0 && !dailyHalt && !drawdownHalt) {
+    if (mode === 'none' && activeCycles().length === 0 && !dailyHalt && !drawdownHalt) {
       const due = def.entry.orders.find(
         (o) =>
           o.timingOnly &&
@@ -950,12 +1098,16 @@ export function simulate({
         if (stepTrigger(c.exitTrigger, truth, now, def.exit.trigger)) {
           exitConditions.markFired(row);
           c.state = 'exiting';
+          if (v12) c.exitReason = 'condition';
           c.events.set('entry_trigger', c.events.get('entry_trigger') ?? now);
           c.legEvents.set('exit:trigger', now);
         } else if (truth === true) {
           row.outcome = whyNotFired(before, c.exitTrigger, now, def.exit.trigger);
         }
         if (c.exitLegs.length === 0) c.exitLegs = exitLegsFor(c);
+        // The time stop, combined with the Exit condition by OR (v1.2 item 4).
+        if (c.state === 'open' && timeStopReached(def, c.events.get('entry_partial_fill'), now))
+          forceExit(c, now, 'time_stop');
       }
       if (c.state === 'open' || c.state === 'exiting') {
         const exitTriggeredAt = c.state === 'exiting' ? c.legEvents.get('exit:trigger') : undefined;
@@ -996,10 +1148,23 @@ export function simulate({
       openAtEnd.length,
     );
   }
-  if (steps.length > 0 && unknownEntrySteps / steps.length > 0.2) {
+  if (excludedNoValue.size > 0) {
+    warnings.add(
+      'selection_no_value',
+      `${excludedNoValue.size} universe members were left out of some rankings because their metric had no value (fewer bars than the lookback needs); see the ranking table`,
+    );
+  }
+  if (roundsDropped > 0) {
+    warnings.add(
+      'selection_log_truncated',
+      `The selection log keeps the first ${MAX_SELECTION_ROUNDS} evaluations; ${roundsDropped} later ones are not shown`,
+    );
+  }
+  const evaluatedSteps = frequency === 'daily' ? steps.length : entryEvaluations;
+  if (mode === 'none' && evaluatedSteps > 0 && unknownEntrySteps / evaluatedSteps > 0.2) {
     warnings.add(
       'insufficient_data',
-      `The Entry conditions could not be evaluated on ${Math.round((unknownEntrySteps / steps.length) * 100)}% of bars for lack of data`,
+      `The Entry conditions could not be evaluated on ${Math.round((unknownEntrySteps / evaluatedSteps) * 100)}% of bars for lack of data`,
     );
   }
   if (staleSteps > 0) {
@@ -1049,6 +1214,7 @@ export function simulate({
         returnPct: c.entryValue.gt(0)
           ? net.div(c.entryValue).times(HUNDRED).toDecimalPlaces(2).toString()
           : null,
+        ...(v12 && status === 'closed' ? { exitReason: c.exitReason ?? 'condition' } : {}),
       };
     });
 
@@ -1197,5 +1363,23 @@ export function simulate({
     fills,
     contributions,
     warnings: warnings.list(),
+    ...(mode !== 'none' ? { selections: selectionLog() } : {}),
   };
+
+  function selectionLog(): SelectionLog {
+    const ref =
+      mode === 'selection'
+        ? def.entry.selection?.ranking
+        : def.entry.fireMode?.mode === 'bestByMetric'
+          ? def.entry.fireMode.metric
+          : undefined;
+    return {
+      kind: mode === 'selection' ? 'ranking' : 'legs',
+      metric: ref ? { metric: ref.metric, params: ref.params } : null,
+      direction: mode === 'selection' ? (def.entry.selection?.direction ?? 'desc') : 'desc',
+      schedule: frequency,
+      exclusionLabels: EXCLUSION_LABELS,
+      rounds: selectionRounds,
+    };
+  }
 }

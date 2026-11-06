@@ -1,6 +1,7 @@
-import { loadData, planSeries, simulate } from '@tm/backtest';
+import { loadData, planSeries, simulate, type InstrumentRef } from '@tm/backtest';
 import {
   claimBacktestRun,
+  instrumentRefs,
   completeRun,
   failRun,
   finishCanceled,
@@ -10,7 +11,7 @@ import {
   type BacktestRunStatus,
   type Database,
 } from '@tm/db';
-import { UnsupportedBarRequestError, type HistoricalDataProvider } from '@tm/domain';
+import { listMembers, UnsupportedBarRequestError, type HistoricalDataProvider } from '@tm/domain';
 import type { Logger } from 'pino';
 
 /**
@@ -29,6 +30,8 @@ export interface BacktestWorkerOptions {
   logger: Pick<Logger, 'info' | 'warn' | 'error'>;
   leaseSeconds?: number;
   maxAttempts?: number;
+  /** Resolves a built-in universe (the S&P 500) for a tenant (Design v1.2 item 1). */
+  resolveUniverse?: (userId: string) => Promise<{ ids: string[]; warnings: string[] }>;
 }
 
 export type ProcessOutcome = 'idle' | 'lost' | BacktestRunStatus;
@@ -63,11 +66,33 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
     if (work.cancelRequested)
       return (await inTenant((tx) => finishCanceled(tx, runId, workerId))) ?? 'lost';
 
+    // A Selection group's universe: a list as stored, or the S&P 500 resolved now.
+    let members = listMembers(work.definition);
+    const universeWarnings: string[] = [];
+    const instruments = new Map<string, InstrumentRef>(work.instruments);
+    const universe = work.definition.entry.selection?.universe;
+    if (work.definition.entry.kind === 'selection' && universe?.type === 'builtin') {
+      if (!options.resolveUniverse)
+        throw new UnsupportedBarRequestError('This worker cannot resolve the S&P 500 universe');
+      const resolved = await options.resolveUniverse(userId);
+      members = resolved.ids;
+      universeWarnings.push(...resolved.warnings);
+      const refs = await inTenant((tx) => instrumentRefs(tx, members));
+      for (const [id, ref] of refs) instruments.set(id, ref);
+    }
+    // Hundreds of members take a while to load; keep the lease while they do.
+    let lastRenew = Date.now();
     const data = await loadData(
       provider,
-      planSeries(work.definition, work.inputs),
-      work.instruments,
+      planSeries(work.definition, work.inputs, members),
+      instruments,
+      async () => {
+        if (Date.now() - lastRenew < (leaseSeconds * 1000) / 3) return;
+        lastRenew = Date.now();
+        await inTenant((tx) => renewLease(tx, runId, workerId, leaseSeconds));
+      },
     );
+    data.warnings.push(...universeWarnings);
     const lease = await inTenant((tx) => renewLease(tx, runId, workerId, leaseSeconds));
     if (!lease) return 'lost';
     if (lease.cancelRequested) {
@@ -76,9 +101,10 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
 
     const result = simulate({
       definition: work.definition,
-      instruments: work.instruments,
+      instruments,
       inputs: work.inputs,
       data,
+      members,
     });
     const status = await inTenant((tx) => completeRun(tx, userId, runId, workerId, result));
     logger.info({ runId, status, ms: Date.now() - started }, 'back test finished');

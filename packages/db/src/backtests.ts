@@ -1,11 +1,16 @@
 import {
-  seriesExprs,
+  strategyInstruments,
   type BacktestInputs,
   type BacktestMetrics,
   type BacktestResult,
   type InstrumentRef,
 } from '@tm/backtest';
-import { parseDefinition, validateStrategy, type StrategyDefinition } from '@tm/domain';
+import {
+  listMembers,
+  parseDefinition,
+  validateStrategy,
+  type StrategyDefinition,
+} from '@tm/domain';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
@@ -64,6 +69,8 @@ export interface BacktestTradeRow {
   netPnl: string;
   returnPct: string | null;
   legs: BacktestResult['trades'][number]['legs'];
+  /** Why the cycle exited; absent on runs from before v1.2. */
+  exitReason?: BacktestResult['trades'][number]['exitReason'];
 }
 
 const summaryColumns = {
@@ -213,11 +220,14 @@ export async function listBacktestTrades(
       netPnl: backtestTrades.netPnl,
       returnPct: backtestTrades.returnPct,
       legs: backtestTrades.legs,
+      exitReason: backtestTrades.exitReason,
     })
     .from(backtestTrades)
     .where(eq(backtestTrades.runId, runId))
     .orderBy(backtestTrades.cycle);
-  return rows as BacktestTradeRow[];
+  return rows.map(({ exitReason, ...r }) =>
+    exitReason ? { ...r, exitReason } : r,
+  ) as BacktestTradeRow[];
 }
 
 async function getRunStatus(tx: Transaction, runId: string) {
@@ -315,11 +325,8 @@ export async function loadRunWork(
     .where(ownedBy(runId, worker));
   if (!row) return null;
   const definition = parseDefinition(row.definition);
-  const ids = new Set<string>();
-  for (const phase of [definition.entry, definition.exit]) {
-    for (const o of phase.orders) ids.add(o.instrumentId);
-  }
-  for (const e of seriesExprs(definition)) ids.add(e.instrumentId);
+  // A built-in universe's members are resolved by the worker (Design v1.2 item 1).
+  const ids = new Set<string>(strategyInstruments(definition, listMembers(definition)));
   const rows =
     ids.size === 0
       ? []
@@ -398,6 +405,7 @@ export async function completeRun(
         netPnl: t.netPnl,
         returnPct: t.returnPct,
         legs: t.legs,
+        exitReason: t.exitReason ?? null,
       })),
     );
   }
@@ -437,4 +445,24 @@ export async function failRun(
     .where(ownedBy(runId, worker))
     .returning({ id: backtestRuns.id });
   return rows.length > 0;
+}
+
+/** Symbol, asset class and lot size of instruments, e.g. a resolved universe's members. */
+export async function instrumentRefs(
+  tx: Transaction,
+  ids: readonly string[],
+): Promise<Map<string, InstrumentRef>> {
+  if (ids.length === 0) return new Map();
+  const rows = await tx
+    .select({
+      id: instruments.id,
+      symbol: instruments.symbol,
+      assetClass: instruments.assetClass,
+      lotSize: instruments.lotSize,
+    })
+    .from(instruments)
+    .where(inArray(instruments.id, [...ids]));
+  return new Map(
+    rows.map((r) => [r.id, { symbol: r.symbol, assetClass: r.assetClass, lotSize: r.lotSize }]),
+  );
 }

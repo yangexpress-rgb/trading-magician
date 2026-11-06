@@ -1,5 +1,7 @@
 import {
+  CONTEXT_INSTRUMENT_ID,
   getIndicator,
+  getMetric,
   type ComparisonOperator,
   type ConditionNode,
   type Expr,
@@ -93,6 +95,10 @@ const CALC_SYMBOLS = { add: '+', sub: '−', mul: '×', div: '÷' } as const;
 
 export type SymbolLookup = (instrumentId: string) => string | undefined;
 
+function instrumentText(id: string, symbol: SymbolLookup): string {
+  return id === CONTEXT_INSTRUMENT_ID ? 'this instrument' : (symbol(id) ?? '?');
+}
+
 /** Compact text for an expression, e.g. "SMA(30) of DEMO-A close". */
 export function describeExpr(expr: Expr, symbol: SymbolLookup): string {
   switch (expr.kind) {
@@ -100,7 +106,7 @@ export function describeExpr(expr: Expr, symbol: SymbolLookup): string {
       return expr.value;
     case 'market': {
       const ago = expr.offset ? ` ${expr.offset} bars ago` : '';
-      return `${symbol(expr.instrumentId) ?? '?'} ${FIELD_LABELS[expr.field].toLowerCase()}${ago}`;
+      return `${instrumentText(expr.instrumentId, symbol)} ${FIELD_LABELS[expr.field].toLowerCase()}${ago}`;
     }
     case 'indicator': {
       const spec = getIndicator(expr.name);
@@ -109,10 +115,27 @@ export function describeExpr(expr: Expr, symbol: SymbolLookup): string {
         : '';
       const field = spec?.defaultField === null ? '' : ` ${FIELD_LABELS[expr.field].toLowerCase()}`;
       const ago = expr.offset ? ` ${expr.offset} bars ago` : '';
-      return `${expr.name}(${params}) of ${symbol(expr.instrumentId) ?? '?'}${field}${ago}`;
+      return `${expr.name}(${params}) of ${instrumentText(expr.instrumentId, symbol)}${field}${ago}`;
+    }
+    case 'metric': {
+      const spec = getMetric(expr.metric);
+      const params = spec
+        ? spec.params
+            .map((p) => {
+              const v = expr.params[p.name] ?? p.default;
+              return p.kind === 'instrument' ? (symbol(String(v)) ?? '?') : String(v);
+            })
+            .join(', ')
+        : '';
+      return `${spec?.label ?? expr.metric}(${params}) of ${instrumentText(expr.instrumentId, symbol)}`;
+    }
+    case 'stat': {
+      const mult = expr.multiplier && expr.fn.startsWith('BB_') ? `, ${expr.multiplier}` : '';
+      const ago = expr.offset ? ` ${expr.offset} bars ago` : '';
+      return `${expr.fn}(${describeExpr(expr.input, symbol)}, ${expr.period}${mult})${ago}`;
     }
     case 'position':
-      return `${symbol(expr.instrumentId) ?? '?'} position ${POSITION_FIELD_LABELS[expr.field].toLowerCase()}`;
+      return `${instrumentText(expr.instrumentId, symbol)} position ${POSITION_FIELD_LABELS[expr.field].toLowerCase()}`;
     case 'calc': {
       const args = expr.args.map((a) => describeExpr(a, symbol));
       if (expr.op === 'neg') return `−(${args[0] ?? ''})`;
@@ -213,7 +236,7 @@ const QUANTITY_UNITS = {
 /** One-line text for a leg, e.g. "Buy 100 DEMO-A · Limit at 99.5 · Day". */
 export function describeLeg(order: PlannedOrder, symbol: SymbolLookup, currency: string): string {
   const qty = QUANTITY_UNITS[order.quantity.type](order.quantity.value, currency);
-  const parts = [`${SIDE_LABELS[order.side]} ${qty} ${symbol(order.instrumentId) ?? '?'}`];
+  const parts = [`${SIDE_LABELS[order.side]} ${qty} ${instrumentText(order.instrumentId, symbol)}`];
   let type: string = ORDER_TYPE_LABELS[order.orderType];
   if (order.limitPrice) type += ` at ${describeExpr(order.limitPrice, symbol)}`;
   if (order.stopPrice) type += `, stop ${describeExpr(order.stopPrice, symbol)}`;
@@ -227,6 +250,9 @@ const SECTION_NAMES: Record<string, string> = {
   condition: 'conditions',
   trigger: 'trigger options',
   orders: 'orders',
+  selection: 'Selection group',
+  fireMode: 'leg choice',
+  rules: 'rules',
 };
 
 /**
@@ -248,6 +274,7 @@ export function describeIssueLocation(
     return name ? `${phase} ${name}` : phase;
   }
   if (head === 'execution') return 'Execution';
+  if (head === 'schedule') return 'Schedule';
   if (head === 'risk') return 'Risk limits';
   return 'Strategy';
 }

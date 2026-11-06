@@ -98,9 +98,10 @@ export function moveNode(
 }
 
 function cloneExpr(expr: Expr, ids: IdFactory): Expr {
-  return expr.kind === 'calc'
-    ? { ...expr, id: ids(), args: expr.args.map((a) => cloneExpr(a, ids)) }
-    : { ...expr, id: ids() };
+  if (expr.kind === 'calc')
+    return { ...expr, id: ids(), args: expr.args.map((a) => cloneExpr(a, ids)) };
+  if (expr.kind === 'stat') return { ...expr, id: ids(), input: cloneExpr(expr.input, ids) };
+  return { ...expr, id: ids() };
 }
 
 /** Deep-copies a node with fresh ids. */
@@ -150,6 +151,7 @@ export function* walkExpressions(node: ConditionNode): Generator<Expr> {
 export function* walkExpr(expr: Expr): Generator<Expr> {
   yield expr;
   if (expr.kind === 'calc') for (const arg of expr.args) yield* walkExpr(arg);
+  if (expr.kind === 'stat') yield* walkExpr(expr.input);
 }
 
 export function* walkComparisons(node: ConditionNode): Generator<Comparison> {
@@ -162,7 +164,9 @@ export function treeDepth(node: ConditionNode): number {
 }
 
 export function exprDepth(expr: Expr): number {
-  return expr.kind === 'calc' ? 1 + Math.max(0, ...expr.args.map(exprDepth)) : 1;
+  if (expr.kind === 'calc') return 1 + Math.max(0, ...expr.args.map(exprDepth));
+  if (expr.kind === 'stat') return 1 + exprDepth(expr.input);
+  return 1;
 }
 
 export interface InstrumentUse {
@@ -171,26 +175,61 @@ export interface InstrumentUse {
   role: 'condition' | 'order';
 }
 
-/** Every instrument the strategy touches, for indexing and data-feed checks. */
+/**
+ * Every instrument the strategy touches, for indexing and data-feed checks:
+ * condition and price expressions (leg conditions and a Selection group's
+ * pre-filter included), legs, list universes and metric benchmarks.
+ * "This instrument" (`CONTEXT_INSTRUMENT_ID`) is not an instrument and is
+ * left out.
+ */
 export function collectInstrumentUses(def: StrategyDefinition): InstrumentUse[] {
   const uses: InstrumentUse[] = [];
+  const context = '00000000-0000-0000-0000-000000000000';
+  const addExpr = (e: Expr, phase: PhaseName) => {
+    if ('instrumentId' in e && e.instrumentId !== context)
+      uses.push({ instrumentId: e.instrumentId, phase, role: 'condition' });
+    if (e.kind === 'metric')
+      for (const v of Object.values(e.params))
+        if (typeof v === 'string' && /^[0-9a-f-]{36}$/.test(v) && v !== context)
+          uses.push({ instrumentId: v, phase, role: 'condition' });
+  };
+  const trees: [ConditionGroup | undefined, PhaseName][] = [
+    [def.entry.condition, 'entry'],
+    [def.exit.condition, 'exit'],
+    [def.entry.selection?.preFilter, 'entry'],
+    ...def.entry.orders.map((o): [ConditionGroup | undefined, PhaseName] => [
+      o.legCondition,
+      'entry',
+    ]),
+  ];
+  for (const [tree, phase] of trees) {
+    if (!tree) continue;
+    for (const expr of walkExpressions(tree)) addExpr(expr, phase);
+  }
   for (const phase of ['entry', 'exit'] as const) {
-    for (const expr of walkExpressions(def[phase].condition)) {
-      if (expr.kind === 'market' || expr.kind === 'indicator' || expr.kind === 'position') {
-        uses.push({ instrumentId: expr.instrumentId, phase, role: 'condition' });
-      }
-    }
     for (const order of def[phase].orders) {
-      uses.push({ instrumentId: order.instrumentId, phase, role: 'order' });
+      if (order.instrumentId !== context)
+        uses.push({ instrumentId: order.instrumentId, phase, role: 'order' });
       for (const price of [order.limitPrice, order.stopPrice]) {
         if (!price) continue;
-        for (const e of walkExpr(price)) {
-          if (e.kind === 'market' || e.kind === 'indicator' || e.kind === 'position') {
-            uses.push({ instrumentId: e.instrumentId, phase, role: 'condition' });
-          }
-        }
+        for (const e of walkExpr(price)) addExpr(e, phase);
       }
     }
+  }
+  const selection = def.entry.kind === 'selection' ? def.entry.selection : undefined;
+  if (selection?.universe.type === 'list') {
+    for (const id of selection.universe.instrumentIds)
+      uses.push({ instrumentId: id, phase: 'entry', role: 'order' });
+  }
+  const metricRefs = [
+    selection?.ranking,
+    def.entry.fireMode?.mode === 'bestByMetric' ? def.entry.fireMode.metric : undefined,
+  ];
+  for (const ref of metricRefs) {
+    if (!ref) continue;
+    for (const v of Object.values(ref.params))
+      if (typeof v === 'string' && /^[0-9a-f-]{36}$/.test(v) && v !== context)
+        uses.push({ instrumentId: v, phase: 'entry', role: 'condition' });
   }
   return uses;
 }

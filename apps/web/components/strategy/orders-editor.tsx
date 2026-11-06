@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CONTEXT_INSTRUMENT_ID,
   exitFollowsEntry,
   ORDER_TYPES,
   QUANTITY_TYPES,
@@ -24,7 +25,9 @@ import {
 } from '@/lib/strategy-text';
 import { useEditor } from './editor-context';
 import { ExpressionEditor, newExpr } from './expression-editor';
+import { ConditionTreeEditor } from './condition-editor';
 import { MiniInput, MiniSelect, RowButton } from './fields';
+import { InstrumentSelect } from './instrument-select';
 import { TimingEditor } from './timing-editor';
 
 const PHASE_SIDES: Record<PhaseName, readonly OrderSide[]> = {
@@ -169,6 +172,7 @@ export function OrdersEditor({
                 number={i + 1}
                 count={orders.length}
                 legs={allLegs.filter((l) => l.id !== order.id)}
+                selection={definition.entry.kind === 'selection'}
                 describe={(o) => describeTiming(o, labelOf)}
                 onChange={(o) => update(i, o)}
                 onMove={(d) => move(i, d)}
@@ -214,6 +218,7 @@ function LegEditor({
   number,
   count,
   legs,
+  selection,
   describe,
   onChange,
   onMove,
@@ -225,13 +230,14 @@ function LegEditor({
   number: number;
   count: number;
   legs: { id: string; label: string; phase: PhaseName }[];
+  selection: boolean;
   describe: (o: PlannedOrder) => string;
   onChange: (o: PlannedOrder) => void;
   onMove: (delta: -1 | 1) => void;
   onDuplicate: () => void;
   onRemove: () => void;
 }) {
-  const { instruments, accounts, editable, issueAt, baseCurrency } = useEditor();
+  const { accounts, editable, issueAt, baseCurrency } = useEditor();
   const [expanded, setExpanded] = useState(false);
   const path = [phase, 'orders', number - 1] as const;
   const err = (...rest: (string | number)[]) => issueAt([...path, ...rest]);
@@ -291,22 +297,14 @@ function LegEditor({
             error={err('legLabel')}
             onChange={(e) => set({ legLabel: e.target.value })}
           />
-          <MiniSelect
+          <InstrumentSelect
             id={id('instrument')}
-            label="Instrument"
             value={order.instrumentId}
             error={err('instrumentId')}
-            onChange={(e) => set({ instrumentId: e.target.value })}
-          >
-            {!instruments.some((i) => i.id === order.instrumentId) && (
-              <option value={order.instrumentId}>Choose an instrument</option>
-            )}
-            {instruments.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.symbol} · {i.assetClass.toUpperCase()}
-              </option>
-            ))}
-          </MiniSelect>
+            allowContext={selection || order.instrumentId === CONTEXT_INSTRUMENT_ID}
+            format={(i) => `${i.symbol} · ${i.assetClass.toUpperCase()}`}
+            onChange={(instrumentId) => set({ instrumentId })}
+          />
           <MiniSelect
             id={id('side')}
             label="Side"
@@ -392,6 +390,61 @@ function LegEditor({
             ))}
           </MiniSelect>
         </div>
+
+        {phase === 'entry' && !selection && (
+          <div className="mt-2">
+            {order.legCondition ? (
+              <>
+                <h4 className="mb-1 text-sm font-semibold text-cond">
+                  Conditions for this leg only
+                </h4>
+                <p className="mb-1 text-xs text-ink-muted">
+                  This leg enters when these hold and the Entry conditions hold. &ldquo;This
+                  leg&rsquo;s instrument&rdquo; means {order.legLabel || 'this leg'}&rsquo;s
+                  instrument.
+                </p>
+                <ConditionTreeEditor
+                  root={order.legCondition}
+                  label={`${name} conditions`}
+                  path={[...path, 'legCondition']}
+                  onChange={(legCondition) => set({ legCondition })}
+                />
+                {editable && (
+                  <RowButton
+                    label={`Remove the conditions for ${name}`}
+                    className="mt-1 text-danger"
+                    onClick={() => {
+                      const { legCondition: _l, ...rest } = order;
+                      void _l;
+                      onChange(rest);
+                    }}
+                  >
+                    Remove leg conditions
+                  </RowButton>
+                )}
+              </>
+            ) : (
+              editable && (
+                <RowButton
+                  label={`Add a condition for ${name}`}
+                  onClick={() =>
+                    set({
+                      legCondition: {
+                        kind: 'group',
+                        id: randomId(),
+                        op: 'and',
+                        negate: false,
+                        children: [],
+                      },
+                    })
+                  }
+                >
+                  + Add a condition for this leg
+                </RowButton>
+              )
+            )}
+          </div>
+        )}
 
         <div className="mt-2">
           <TimingEditor
