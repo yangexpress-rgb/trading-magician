@@ -179,7 +179,7 @@ load test (`load/README.md`) and the real-provider checks (`docs/launch-checks.m
 ### Production must not contain
 
 `CREDENTIALS_PRIVATE_KEY`, `SIGNUP_PLAN`, `SIGNUP_MODE=open`, `PAPER_CLOCK_START`, `ALPACA_FAKE`,
-`SEC_FAKE`, `BILLING_FAKE`, or any Stripe key that does not start with `sk_test_`/`rk_test_`
+`SEC_FAKE`, `CUSTOM_REST_FAKE`, `BILLING_FAKE`, or any Stripe key that does not start with `sk_test_`/`rk_test_`
 (the apps refuse a live Stripe key). Check the Variables tab of web and worker before inviting
 anyone.
 

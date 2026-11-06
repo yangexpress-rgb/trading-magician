@@ -59,6 +59,8 @@ const EXTRA_LIMITS: { name: string; path: RegExp; perMinute: number }[] = [
   { name: 'price-chart', path: /^\/api\/v1\/research\/price-charts$/, perMinute: 30 },
   { name: 'stock-screen', path: /^\/api\/v1\/research\/stock-screens$/, perMinute: 10 },
   { name: 'company-report', path: /^\/api\/v1\/research\/company-reports$/, perMinute: 30 },
+  // Each test calls the person's provider twice (ADR 0041).
+  { name: 'custom-feed-test', path: /^\/api\/v1\/data-feeds\/custom-tests$/, perMinute: 10 },
   {
     name: 'execution',
     path: /^\/api\/v1\/(strategies\/[^/]+\/(start|stop)|execution(\/|$)|orders\/)/,
@@ -153,6 +155,9 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       }
       if ('feedId' in params && !UUID.test(params.feedId ?? '')) {
         return errorResponse('not_found', 'Data feed not found');
+      }
+      if ('testId' in params && !UUID.test(params.testId ?? '')) {
+        return errorResponse('not_found', 'Test not found');
       }
       if ('routeId' in params && !UUID.test(params.routeId ?? '')) {
         return errorResponse('not_found', 'Route not found');

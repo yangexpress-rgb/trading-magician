@@ -20,5 +20,6 @@ export * from './market';
 export * from './execution';
 export * from './integrations/providers';
 export * from './integrations/routing';
+export * from './integrations/custom-rest';
 export * from './performance';
 export * from './billing/plans';

@@ -9,6 +9,8 @@ import {
   type CredentialKey,
 } from '@tm/db';
 import type { Logger } from 'pino';
+import { runCustomFeedTests } from './custom-feed-tests';
+import type { Transport } from './custom-rest-transport';
 import { withTimeout, type FundamentalsRegistry, type ProviderRegistry } from './providers';
 
 /**
@@ -33,6 +35,8 @@ export interface FeedCheckOptions {
   privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'info' | 'warn'>;
   now?: () => Date;
+  /** Tests and local checks only: how custom REST feeds are reached (ADR 0041). */
+  customTransport?: Transport | undefined;
 }
 
 /** Checks one batch of due feeds; returns how many were checked. */
@@ -54,7 +58,7 @@ export async function runFeedChecks(options: FeedCheckOptions): Promise<number> 
       } else {
         try {
           const credential =
-            provider.needsCredential && feed.credentialRef
+            feed.credentialRef && (provider.needsCredential || feed.config)
               ? await openCredential(tx, {
                   userId,
                   id: feed.credentialRef,
@@ -69,7 +73,13 @@ export async function runFeedChecks(options: FeedCheckOptions): Promise<number> 
             };
           } else {
             result = await withTimeout(
-              provider.check({ now: () => now, credential }),
+              provider.check({
+                now: () => now,
+                credential,
+                feed: { id: feed.id, config: feed.config },
+                userId,
+                inTenant: (fn) => fn(tx),
+              }),
               FEED_CHECKS.timeoutMs,
               'The check',
             );
@@ -116,6 +126,8 @@ export function startFeedCheckLoop(options: FeedCheckOptions & { pollMs: number 
     while (running) {
       try {
         await runFeedChecks(options);
+        // Tests of custom feeds that are not saved yet ride along (ADR 0041).
+        await runCustomFeedTests({ ...options, transport: options.customTransport });
       } catch (error) {
         const e = error as { name?: string; message?: string };
         options.logger.warn(

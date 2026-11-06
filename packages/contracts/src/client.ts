@@ -22,6 +22,8 @@ import type {
   CreateFeedRequest,
   CreateRouteRequest,
   FeedDto,
+  CustomFeedTestDto,
+  CustomFeedTestRequest,
   FeedListDto,
   RouteDto,
   SetFeedActiveRequest,
@@ -215,6 +217,11 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
       setActive: (id: string, body: SetFeedActiveRequest) =>
         call<FeedDto>('POST', `/data-feeds/${enc(id)}/active`, body),
       test: (id: string) => call<FeedDto>('POST', `/data-feeds/${enc(id)}/test`),
+      /** Tests a custom REST feed's settings before they are saved (ADR 0041). */
+      testCustom: (body: CustomFeedTestRequest) =>
+        call<CustomFeedTestDto>('POST', '/data-feeds/custom-tests', body),
+      customTest: (id: string) =>
+        call<CustomFeedTestDto>('GET', `/data-feeds/custom-tests/${enc(id)}`),
       remove: (id: string) => call<undefined>('DELETE', `/data-feeds/${enc(id)}`),
     },
     routes: {

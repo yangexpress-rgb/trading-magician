@@ -619,16 +619,131 @@ export const dataFeedConnections = pgTable(
     /** Set by "Test"; the worker checks the feed soon after and clears it. */
     checkRequestedAt: timestamp('check_requested_at', { withTimezone: true }),
     checkLeaseExpiresAt: timestamp('check_lease_expires_at', { withTimezone: true }),
+    /**
+     * A custom REST feed's description (`CustomRestConfig`, ADR 0041): URLs,
+     * sign-in method, JSON paths and limits. Never the key, which is sealed in
+     * `credential`. Null for every other provider.
+     */
+    config: jsonb('config'),
     ...timestamps(),
     rowVersion: rowVersion(),
   },
   (t) => [
     unique('data_feed_connection_id_user_uq').on(t.id, t.userId),
+    check(
+      'data_feed_connection_custom_config',
+      sql`(${t.provider} = 'custom_rest') = (${t.config} IS NOT NULL)`,
+    ),
     foreignKey({
       name: 'data_feed_connection_credential_fk',
       columns: [t.credentialRef, t.userId],
       foreignColumns: [credentials.id, credentials.userId],
     }),
+  ],
+);
+
+export const customFeedTestStatus = pgEnum('custom_feed_test_status', [
+  'pending',
+  'succeeded',
+  'failed',
+]);
+
+/**
+ * "Test" on a custom REST feed before it is saved (ADR 0041): the web app
+ * stores the description and the symbol, the worker fetches and maps one
+ * daily-bars and one quote answer and stores what it read or the exact
+ * reason it failed. Saving needs a succeeded test of the same description
+ * and key. Cleared after a day.
+ */
+export const customFeedTests = pgTable(
+  'custom_feed_test',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** The checked description, as it would be saved. */
+    config: jsonb('config').notNull(),
+    /** sha256 of the canonical description and the key's id, matched on save. */
+    digest: text('digest').notNull(),
+    credentialRef: uuid('credential_ref'),
+    symbol: text('symbol').notNull(),
+    status: customFeedTestStatus('status').notNull().default('pending'),
+    /** What was read: a few bars, their count and the quote; secret-free. */
+    result: jsonb('result'),
+    /** The failure, exact and secret-free. */
+    message: text('message'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    attempts: integer('attempts').notNull().default(0),
+    ...timestamps(),
+  },
+  (t) => [
+    foreignKey({
+      name: 'custom_feed_test_credential_fk',
+      columns: [t.credentialRef, t.userId],
+      foreignColumns: [credentials.id, credentials.userId],
+    }).onDelete('cascade'),
+    index('custom_feed_test_pending_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'pending'`),
+    check('custom_feed_test_symbol', sql`${t.symbol} ~ '^[A-Z][A-Z0-9.-]{0,11}$'`),
+  ],
+);
+
+/**
+ * What custom REST feeds answered, kept in the database (ADR 0041) so a
+ * back test, a chart and every worker reuse one fetch: daily bars per symbol
+ * and date range, and the latest quote per symbol.
+ */
+export const customFeedCache = pgTable(
+  'custom_feed_cache',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    feedId: uuid('feed_id').notNull(),
+    kind: text('kind').notNull(),
+    symbol: text('symbol').notNull(),
+    /** New York dates for bars; empty for a quote. */
+    rangeFrom: text('range_from').notNull().default(''),
+    rangeTo: text('range_to').notNull().default(''),
+    payload: jsonb('payload').notNull(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('custom_feed_cache_key').on(t.feedId, t.kind, t.symbol, t.rangeFrom, t.rangeTo),
+    foreignKey({
+      name: 'custom_feed_cache_feed_fk',
+      columns: [t.feedId, t.userId],
+      foreignColumns: [dataFeedConnections.id, dataFeedConnections.userId],
+    }).onDelete('cascade'),
+    check('custom_feed_cache_kind', sql`${t.kind} in ('bars', 'quote')`),
+  ],
+);
+
+/**
+ * Requests each custom REST feed has made, per minute and per day, counted in
+ * the database so every worker keeps to the same limit (ADR 0041).
+ */
+export const customFeedUsage = pgTable(
+  'custom_feed_usage',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    feedId: uuid('feed_id').notNull(),
+    period: text('period').notNull(),
+    windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
+    count: integer('count').notNull().default(0),
+  },
+  (t) => [
+    uniqueIndex('custom_feed_usage_key').on(t.feedId, t.period, t.windowStart),
+    foreignKey({
+      name: 'custom_feed_usage_feed_fk',
+      columns: [t.feedId, t.userId],
+      foreignColumns: [dataFeedConnections.id, dataFeedConnections.userId],
+    }).onDelete('cascade'),
+    check('custom_feed_usage_period', sql`${t.period} in ('minute', 'day')`),
   ],
 );
 

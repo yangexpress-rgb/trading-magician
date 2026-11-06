@@ -23,6 +23,8 @@ import { startCompanyReportLoop, type CompanyReportLoop } from './company-report
 import { demoProvider, type FundamentalsRegistry, type ProviderRegistry } from './providers';
 import { secProvider, type SecProviderOptions } from './sec';
 import { createRoutedHistory } from './routed-history';
+import { customRestProvider } from './custom-rest';
+import { fakeCustomTransport } from './custom-rest-fake';
 import { startRuntimeLoop, type RuntimeLoop } from './runtime';
 import { startValuationLoop, type ValuationLoop } from './valuations';
 
@@ -92,9 +94,14 @@ if (databaseUrl) {
     fakeTicker = setInterval(() => void fake.tick().catch(() => undefined), 500);
     logger.warn('Alpaca calls go to a local fake');
   }
+  const customTransport = env.CUSTOM_REST_FAKE
+    ? fakeCustomTransport({ now: now ?? (() => new Date()) })
+    : undefined;
+  if (customTransport) logger.warn('Custom REST feeds reach a local fake JSON API');
   const providers: ProviderRegistry = {
     demo: demoProvider(quotes, history),
     alpaca: alpacaProvider(alpacaOptions),
+    custom_rest: customRestProvider({ transport: customTransport }),
   };
   const brokers = { alpaca: alpacaBrokerProvider(alpacaOptions) };
   let secOptions: SecProviderOptions = {};
@@ -151,6 +158,7 @@ if (databaseUrl) {
     fundamentals,
     privateKey: credentialKey,
     logger,
+    customTransport,
     pollMs: env.FEED_CHECK_POLL_MS,
   });
   brokerChecks = startBrokerCheckLoop({

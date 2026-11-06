@@ -1,4 +1,5 @@
 import {
+  canonicalCustomRestConfig,
   DEMO_VENUE_CODE,
   FAILOVER,
   isFundamentalsProvider,
@@ -7,12 +8,14 @@ import {
   PROVIDERS,
   providerCoversVenue,
   resolveRoute,
+  type CustomRestConfig,
   type FailoverStep,
   type RouteLike,
 } from '@tm/domain';
 import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
+import { assertCustomFeedTested, checkedCustomConfig, customCredential } from './custom-feeds';
 import { demoDataEnabled } from './demo';
 import { assertFeature } from './entitlements';
 import { notify } from './notifications';
@@ -74,6 +77,8 @@ export interface FeedSummary {
   /** A test has been asked for and not finished yet. */
   checking: boolean;
   routes: FeedRouteUse[];
+  /** A custom REST feed's description (ADR 0041); never its key. Null for other providers. */
+  config: CustomRestConfig | null;
   rowVersion: number;
 }
 
@@ -139,6 +144,7 @@ export async function listFeeds(tx: Transaction): Promise<FeedSummary[]> {
         } satisfies FeedRouteUse,
       ];
     }),
+    config: (f.config as CustomRestConfig | null) ?? null,
     rowVersion: f.rowVersion,
   }));
 }
@@ -250,6 +256,30 @@ export interface FeedInput {
   provider: string;
   credentialId?: string | null | undefined;
   assetClasses: string[];
+  /** A custom REST feed's description, as the form sends it (ADR 0041). */
+  config?: unknown;
+  /** The succeeded test of that description and key; saving a custom feed needs one. */
+  testId?: string | null | undefined;
+}
+
+/**
+ * A custom REST feed is checked against its own description: the key it
+ * needs depends on its sign-in, and it cannot be saved untested (ADR 0041).
+ */
+async function checkCustomFeedInput(
+  tx: Transaction,
+  input: FeedInput,
+  current?: { config: CustomRestConfig | null; credentialRef: string | null },
+): Promise<{ credentialRef: string | null; config: CustomRestConfig }> {
+  const config = checkedCustomConfig(input.config);
+  const credentialRef = await customCredential(tx, config, input.credentialId);
+  // Compared in canonical form: jsonb does not keep key order.
+  const unchanged =
+    current?.config &&
+    canonicalCustomRestConfig(current.config) === canonicalCustomRestConfig(config) &&
+    current.credentialRef === credentialRef;
+  if (!unchanged) await assertCustomFeedTested(tx, { config, credentialRef, testId: input.testId });
+  return { credentialRef, config };
 }
 
 async function checkFeedInput(tx: Transaction, input: FeedInput) {
@@ -270,6 +300,8 @@ async function checkFeedInput(tx: Transaction, input: FeedInput) {
       `${info.name} covers ${info.assetClasses.join(' and ')} here`,
     );
   }
+  // A custom feed's key follows its description (checkCustomFeedInput).
+  if (input.provider === 'custom_rest') return null;
   if (info.credentialFields.length === 0) {
     if (input.credentialId) {
       throw new IntegrationError('bad_request', `${info.name} needs no API key`);
@@ -294,7 +326,17 @@ export async function createFeed(
   tx: Transaction,
   input: FeedInput & { userId: string },
 ): Promise<FeedSummary> {
-  const credentialRef = await checkFeedInput(tx, input);
+  let config: CustomRestConfig | null = null;
+  let credentialRef: string | null;
+  if (input.provider === 'custom_rest') {
+    await checkFeedInput(tx, input);
+    ({ credentialRef, config } = await checkCustomFeedInput(tx, input));
+  } else {
+    if (input.config !== undefined && input.config !== null) {
+      throw new IntegrationError('bad_request', 'Only a custom REST feed takes settings');
+    }
+    credentialRef = await checkFeedInput(tx, input);
+  }
   // Company filings are public and free; only price feeds from a provider are a plan feature.
   if (isMarketDataProvider(input.provider)) await assertFeature(tx, 'liveData');
   const [row] = await tx
@@ -304,6 +346,7 @@ export async function createFeed(
       name: input.name.trim().slice(0, 100),
       provider: input.provider,
       credentialRef,
+      config,
       assetClasses: input.assetClasses as (typeof dataFeedConnections.$inferInsert)['assetClasses'],
       // Tested straight away, so its health is known before it is routed.
       checkRequestedAt: new Date(),
@@ -396,6 +439,9 @@ export async function updateFeed(
     name?: string | undefined;
     credentialId?: string | null | undefined;
     assetClasses?: string[] | undefined;
+    /** Custom REST feeds only: a new description, which needs a new test (ADR 0041). */
+    config?: unknown;
+    testId?: string | null | undefined;
   },
 ): Promise<FeedSummary> {
   const current = await getFeed(tx, input.id);
@@ -411,13 +457,27 @@ export async function updateFeed(
     credentialId: input.credentialId === undefined ? current.credential?.id : input.credentialId,
     assetClasses: input.assetClasses ?? current.assetClasses,
   };
-  const credentialRef = await checkFeedInput(tx, next);
-  const credentialChanged = credentialRef !== (current.credential?.id ?? null);
+  let credentialRef = await checkFeedInput(tx, next);
+  let config: CustomRestConfig | null = current.config;
+  if (current.provider === 'custom_rest') {
+    ({ credentialRef, config } = await checkCustomFeedInput(
+      tx,
+      { ...next, config: input.config ?? current.config, testId: input.testId },
+      { config: current.config, credentialRef: current.credential?.id ?? null },
+    ));
+  } else if (input.config !== undefined && input.config !== null) {
+    throw new IntegrationError('bad_request', 'Only a custom REST feed takes settings');
+  }
+  const configChanged =
+    (config ? canonicalCustomRestConfig(config) : null) !==
+    (current.config ? canonicalCustomRestConfig(current.config) : null);
+  const credentialChanged = credentialRef !== (current.credential?.id ?? null) || configChanged;
   await tx
     .update(dataFeedConnections)
     .set({
       name: next.name.trim().slice(0, 100),
       credentialRef,
+      config,
       assetClasses: next.assetClasses as (typeof dataFeedConnections.$inferInsert)['assetClasses'],
       rowVersion: current.rowVersion + 1,
       ...(credentialChanged ? { checkRequestedAt: new Date() } : {}),
@@ -429,7 +489,7 @@ export async function updateFeed(
     action: 'data_feed.updated',
     resourceType: 'data_feed_connection',
     resourceId: input.id,
-    context: { credentialChanged },
+    context: { credentialChanged, ...(configChanged ? { configChanged } : {}) },
   });
   return getFeed(tx, input.id);
 }
@@ -868,6 +928,7 @@ export interface FeedToCheck {
   credentialRef: string | null;
   isActive: boolean;
   health: Health;
+  config: CustomRestConfig | null;
 }
 
 export async function loadFeedToCheck(
@@ -882,10 +943,11 @@ export async function loadFeedToCheck(
       credentialRef: dataFeedConnections.credentialRef,
       isActive: dataFeedConnections.isActive,
       health: dataFeedConnections.health,
+      config: dataFeedConnections.config,
     })
     .from(dataFeedConnections)
     .where(eq(dataFeedConnections.id, id));
-  return row;
+  return row ? { ...row, config: (row.config as CustomRestConfig | null) ?? null } : undefined;
 }
 
 export interface FeedCheckResult {
@@ -949,6 +1011,8 @@ export interface RoutingFeed {
   provider: string;
   credentialRef: string | null;
   isActive: boolean;
+  /** A custom REST feed's description (ADR 0041). */
+  config: CustomRestConfig | null;
 }
 
 export interface Routing {
@@ -966,10 +1030,16 @@ export async function loadRouting(tx: Transaction): Promise<Routing> {
         provider: dataFeedConnections.provider,
         credentialRef: dataFeedConnections.credentialRef,
         isActive: dataFeedConnections.isActive,
+        config: dataFeedConnections.config,
       })
       .from(dataFeedConnections),
   ]);
-  return { routes, feeds: new Map(feeds.map((f) => [f.id, f])) };
+  return {
+    routes,
+    feeds: new Map(
+      feeds.map((f) => [f.id, { ...f, config: (f.config as CustomRestConfig | null) ?? null }]),
+    ),
+  };
 }
 
 /**

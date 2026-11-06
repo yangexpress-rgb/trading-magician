@@ -32,6 +32,7 @@ describe('worker env', () => {
       HEARTBEAT_MS: 30_000,
       BILLING_FAKE: false,
       SEC_FAKE: false,
+      CUSTOM_REST_FAKE: false,
       ALPACA_FAKE: false,
     });
   });
@@ -42,6 +43,9 @@ describe('worker env', () => {
     );
     expect(() => loadWorkerEnv({ STRIPE_SECRET_KEY: 'sk_live_abc123' })).toThrow();
     expect(() => loadWorkerEnv({ NODE_ENV: 'production', BILLING_FAKE: 'true' })).toThrow(
+      /tests only/,
+    );
+    expect(() => loadWorkerEnv({ NODE_ENV: 'production', CUSTOM_REST_FAKE: 'true' })).toThrow(
       /tests only/,
     );
   });
