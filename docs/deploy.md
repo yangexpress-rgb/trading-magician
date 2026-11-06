@@ -30,9 +30,10 @@ Paper trading only, as everywhere else (`docs/adr/0002-paper-only-guard.md`).
 ## What you need
 
 - A Railway account on the Hobby plan, with GitHub connected so it can see this repository.
-- A Resend account for sign-up and password-reset emails, and one API key from it. Until you
-  verify a domain with Resend, it only delivers to the address you signed up to Resend with,
-  so that is the only address that can finish signing up.
+- Optional: a Resend account for sign-up and password-reset emails, and one API key from it.
+  Until you verify a domain with Resend, it only delivers to the address you signed up to
+  Resend with, so that is the only address that can finish signing up. Without a mail service,
+  set `EMAIL_VERIFICATION=off` on web instead (see [No mail service](#no-mail-service)).
 - Four random strings of letters and digits, at least 32 characters each (a password manager's
   generator works). They are only ever pasted into Railway.
 
@@ -52,7 +53,12 @@ Paper trading only, as everywhere else (`docs/adr/0002-paper-only-guard.md`).
 3. **Web service.** New → GitHub Repo → this repository. Name the service `web`. In its
    Settings:
    - Source: set the branch to deploy.
-   - Config-as-code: set the path to `/deploy/railway/web.json`.
+   - Config-as-code: set the path to `/deploy/railway/web.json`. Railway no longer accepts
+     this path on new services (it asks for `.railway/railway.ts` instead). If it refuses,
+     copy the settings from `web.json` into the service by hand: Dockerfile path `Dockerfile`,
+     the pre-deploy command, start command, health check `/api/health` with a 120 s timeout,
+     and restart on failure. Keep the pre-deploy command wrapped in `sh -c "…"`: Railway runs
+     it without a shell, so a bare `a && b && c` only runs `a`.
    - Networking: Generate Domain.
 
    In Variables, open the Raw Editor and paste:
@@ -71,13 +77,17 @@ Paper trading only, as everywhere else (`docs/adr/0002-paper-only-guard.md`).
    AUTH_IP_HEADERS=x-real-ip
    ```
 
+   Without a Resend key, leave out `SMTP_URL` and `MAIL_FROM` and add `EMAIL_VERIFICATION=off`.
+
    `AUTH_IP_HEADERS` tells the sign-in rate limits which header holds the visitor's address
    (ADR 0004). Railway's edge sets `X-Real-IP`; check one request's headers after the first
    deploy, and if it is missing use `AUTH_TRUSTED_PROXIES` with the proxy's address range
    instead. Without either, every visitor shares one sign-in limit.
 
 4. **Worker service.** New → GitHub Repo → the same repository, same branch. Name it
-   `worker`. Config-as-code path: `/deploy/railway/worker.json`. No domain. Variables:
+   `worker`. Config-as-code path: `/deploy/railway/worker.json` (if Railway refuses it, set the
+   start command `pnpm --filter @tm/worker start` and restart policy Always by hand). No domain.
+   Variables:
 
    ```text
    DATABASE_WORKER_URL=postgresql://tm_worker_login:${{shared.DB_WORKER_LOGIN_PASSWORD}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}
@@ -96,6 +106,10 @@ Paper trading only, as everywhere else (`docs/adr/0002-paper-only-guard.md`).
    pnpm --filter @tm/db invites:mint 1 "me"
    ```
 
+   Railway's database is private by default. Either run this inside the web service
+   (`railway ssh -s web -- sh -c 'cd /app && pnpm --filter @tm/db invites:mint 1 "me"'`), or add
+   a TCP proxy to Postgres for a moment, use its public URL, and delete the proxy straight after.
+
    Codes are printed once. `invites:list` shows how many are left, and
    `invites:release <code> [note]` frees one that was claimed but never used. Each mint and
    release writes an `invite.minted` or `invite.released` audit event with the count and note,
@@ -105,7 +119,14 @@ Paper trading only, as everywhere else (`docs/adr/0002-paper-only-guard.md`).
 
 6. **Deploy and sign up.** Deploy both services, open the web domain, and sign up with your
    Resend address, using the code you minted. The verification email arrives from
-   `onboarding@resend.dev`.
+   `onboarding@resend.dev`. With `EMAIL_VERIFICATION=off`, sign-up takes you straight in.
+
+### No mail service
+
+`EMAIL_VERIFICATION=off` on web makes the app work without any email: sign-up signs the person
+straight in, and no verification or password-reset email is sent. The invite code is the only
+gate on who can sign up. Nobody can reset a forgotten password themselves; the operator does it
+in the database. Staging uses this. Decide for production before inviting anyone.
 
 ## Staging and production
 
@@ -117,7 +138,8 @@ load test (`load/README.md`) and the real-provider checks (`docs/launch-checks.m
    Environments → New Environment → **Empty**, then add Postgres, web, worker and backup to it).
    It gets its own Postgres, its own KMS key, its own R2 prefix and Stripe in test mode. No
    production data and no real person's credentials ever go into staging.
-2. Optional for staging only: `SIGNUP_PLAN=pro` on web, so test sign-ups skip checkout.
+2. Optional for staging only: `SIGNUP_PLAN=pro` on web, so test sign-ups skip checkout, and
+   `EMAIL_VERIFICATION=off` if staging has no mail service.
 3. Once staging passes, Project Settings → Environments → New Environment → **Duplicate**
    `staging`, name it `production`. Railway copies the services and variable names.
 4. In production, set every random string and key again with **new** values: shared variables,
