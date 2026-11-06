@@ -62,6 +62,8 @@ export interface BacktestTradeDto {
   netPnl: string;
   returnPct: string | null;
   legs: BacktestTradeLeg[];
+  /** Why the cycle exited (v1.2); absent on older runs. */
+  exitReason?: 'condition' | 'rebalance' | 'time_stop';
 }
 
 export interface BacktestListDto {

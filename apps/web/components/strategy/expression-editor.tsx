@@ -3,8 +3,13 @@
 import {
   BAR_INTERVALS,
   CALC_OPS,
+  CONTEXT_INSTRUMENT_ID,
   getIndicator,
+  getMetric,
   INDICATORS,
+  METRICS,
+  resolveMetricParams,
+  STAT_FUNCTIONS,
   MARKET_FIELDS,
   POSITION_FIELDS,
   PRICE_ADJUSTMENTS,
@@ -15,7 +20,10 @@ import {
   type Expr,
   type IndicatorExpr,
   type MarketExpr,
+  type MetricExpr,
+  type MetricRef,
   type PositionExpr,
+  type StatFunction,
 } from '@tm/domain';
 import { cx } from '@tm/ui';
 import {
@@ -27,6 +35,7 @@ import {
 } from '@/lib/strategy-text';
 import { useEditor } from './editor-context';
 import { MiniInput, MiniSelect, RowButton } from './fields';
+import { InstrumentSelect } from './instrument-select';
 
 type Path = readonly (string | number)[];
 type Kind = Expr['kind'];
@@ -37,7 +46,38 @@ const KIND_LABELS: Record<Kind, string> = {
   indicator: 'Indicator',
   position: 'Position (after Entry fills)',
   calc: 'Calculation',
+  metric: 'Metric (shared registry)',
+  stat: 'Statistic (std. dev., z-score, Bollinger)',
 };
+
+export const STAT_LABELS: Record<StatFunction, string> = {
+  STDDEV: 'Standard deviation',
+  ZSCORE: 'Z-score',
+  BB_UPPER: 'Bollinger upper band',
+  BB_MIDDLE: 'Bollinger middle band',
+  BB_LOWER: 'Bollinger lower band',
+};
+
+const STAT_HELP: Record<StatFunction, string> = {
+  STDDEV: 'Sample standard deviation (n − 1) of the input over the last N bars.',
+  ZSCORE: '(Input − its N-bar average) ÷ its N-bar sample standard deviation.',
+  BB_UPPER: 'N-bar average of the input plus the multiplier × its standard deviation.',
+  BB_MIDDLE: 'N-bar average of the input.',
+  BB_LOWER: 'N-bar average of the input minus the multiplier × its standard deviation.',
+};
+
+const isBand = (fn: StatFunction) => fn.startsWith('BB_');
+
+/** Metrics the picker offers: those defined for every one of the asset classes. */
+export function metricsForClasses(classes: readonly string[]) {
+  return METRICS.filter((m) => classes.every((c) => m.assetClasses.includes(c)));
+}
+
+export function defaultMetricRef(metric = 'return'): MetricRef {
+  const spec = getMetric(metric) ?? METRICS[0];
+  if (!spec) throw new Error('The metric registry is empty');
+  return { metric: spec.id, params: resolveMetricParams(spec, {}) };
+}
 
 function seriesDefaults(instrumentId: string) {
   return {
@@ -52,7 +92,11 @@ function seriesDefaults(instrumentId: string) {
 /** A fresh expression of `kind`, keeping the instrument the user already picked. */
 export function newExpr(kind: Kind, instrumentId: string, from?: Expr): Expr {
   const instrument =
-    from && (from.kind === 'market' || from.kind === 'indicator' || from.kind === 'position')
+    from &&
+    (from.kind === 'market' ||
+      from.kind === 'indicator' ||
+      from.kind === 'position' ||
+      from.kind === 'metric')
       ? from.instrumentId
       : instrumentId;
   switch (kind) {
@@ -92,6 +136,19 @@ export function newExpr(kind: Kind, instrumentId: string, from?: Expr): Expr {
           newExpr('constant', instrument),
         ],
       };
+    case 'metric':
+      return { kind, id: randomId(), ...defaultMetricRef(), instrumentId: instrument };
+    case 'stat':
+      return {
+        kind,
+        id: randomId(),
+        fn: 'ZSCORE',
+        period: 20,
+        input:
+          from && from.kind !== 'stat' && from.kind !== 'constant'
+            ? { ...from, id: randomId() }
+            : newExpr('market', instrument),
+      };
   }
 }
 
@@ -115,8 +172,9 @@ export function ExpressionEditor({
   path: Path;
   depth?: number;
 }) {
-  const { instruments, issueAt, editable } = useEditor();
-  const fallbackInstrument = instruments[0]?.id ?? '';
+  const { instruments, issueAt, editable, slotMode } = useEditor();
+  const fallbackInstrument =
+    slotMode !== 'none' ? CONTEXT_INSTRUMENT_ID : (instruments[0]?.id ?? '');
   const id = (field: string) => `${expr.id}-${field}`;
   const err = (...rest: (string | number)[]) => issueAt([...path, ...rest]);
   // Position values exist only once Entry has filled, so only Exit offers them.
@@ -140,12 +198,16 @@ export function ExpressionEditor({
           value={expr.kind}
           onChange={(e) => {
             const kind = e.target.value as Kind;
-            if (kind === 'calc' && depth >= MAX_NESTING) return;
+            if ((kind === 'calc' || kind === 'stat') && depth >= MAX_NESTING) return;
             onChange(newExpr(kind, fallbackInstrument, expr));
           }}
         >
           {kinds.map((k) => (
-            <option key={k} value={k} disabled={k === 'calc' && depth >= MAX_NESTING}>
+            <option
+              key={k}
+              value={k}
+              disabled={(k === 'calc' || k === 'stat') && depth >= MAX_NESTING}
+            >
               {KIND_LABELS[k]}
             </option>
           ))}
@@ -170,6 +232,76 @@ export function ExpressionEditor({
           <PositionFields expr={expr} onChange={onChange} id={id} err={err} />
         )}
 
+        {expr.kind === 'metric' && (
+          <MetricFields expr={expr} onChange={onChange} id={id} err={err} />
+        )}
+
+        {expr.kind === 'stat' && (
+          <>
+            <MiniSelect
+              id={id('fn')}
+              label="Function"
+              value={expr.fn}
+              onChange={(e) => {
+                const fn = e.target.value as StatFunction;
+                const { multiplier, ...rest } = expr;
+                onChange(
+                  isBand(fn) ? { ...rest, fn, multiplier: multiplier ?? '2' } : { ...rest, fn },
+                );
+              }}
+            >
+              {STAT_FUNCTIONS.map((f) => (
+                <option key={f} value={f}>
+                  {STAT_LABELS[f]}
+                </option>
+              ))}
+            </MiniSelect>
+            <MiniInput
+              id={id('period')}
+              label="Period (bars)"
+              type="number"
+              min={2}
+              max={500}
+              step={1}
+              value={Number.isFinite(expr.period) ? String(expr.period) : ''}
+              error={err('period')}
+              onChange={(e) =>
+                onChange({
+                  ...expr,
+                  period: e.target.value === '' ? Number.NaN : Number(e.target.value),
+                })
+              }
+            />
+            {isBand(expr.fn) && (
+              <MiniInput
+                id={id('multiplier')}
+                label="Std. dev. multiplier"
+                inputMode="decimal"
+                value={expr.multiplier ?? ''}
+                error={err('multiplier')}
+                onChange={(e) => onChange({ ...expr, multiplier: e.target.value.trim() })}
+              />
+            )}
+            <MiniInput
+              id={id('offset')}
+              label="Bars ago"
+              type="number"
+              min={0}
+              max={500}
+              step={1}
+              value={String(expr.offset ?? 0)}
+              error={err('offset')}
+              onChange={(e) => {
+                const { offset: _o, ...rest } = expr;
+                void _o;
+                const n = e.target.value === '' ? 0 : Number(e.target.value);
+                onChange(n ? { ...rest, offset: n } : rest);
+              }}
+            />
+            <p className="col-span-full text-xs text-ink-muted">{STAT_HELP[expr.fn]}</p>
+          </>
+        )}
+
         {expr.kind === 'calc' && (
           <MiniSelect
             id={id('op')}
@@ -187,6 +319,18 @@ export function ExpressionEditor({
           </MiniSelect>
         )}
       </div>
+
+      {expr.kind === 'stat' && (
+        <div className="mt-2">
+          <ExpressionEditor
+            expr={expr.input}
+            legend={`${legend}, input (a price or a calculated expression)`}
+            path={[...path, 'input']}
+            depth={depth + 1}
+            onChange={(input) => onChange({ ...expr, input })}
+          />
+        </div>
+      )}
 
       {expr.kind === 'calc' && (
         <div className="mt-2 space-y-2">
@@ -251,10 +395,8 @@ function SeriesFields({
   id: (field: string) => string;
   err: (...rest: (string | number)[]) => string | undefined;
 }) {
-  const { instruments } = useEditor();
   const spec = expr.kind === 'indicator' ? getIndicator(expr.name) : undefined;
   const showField = expr.kind === 'market' || spec?.defaultField !== null;
-  const known = instruments.some((i) => i.id === expr.instrumentId);
 
   return (
     <>
@@ -283,20 +425,12 @@ function SeriesFields({
           ))}
         </MiniSelect>
       )}
-      <MiniSelect
+      <InstrumentSelect
         id={id('instrument')}
-        label="Instrument"
         value={expr.instrumentId}
         error={err('instrumentId')}
-        onChange={(e) => onChange({ ...expr, instrumentId: e.target.value })}
-      >
-        {!known && <option value={expr.instrumentId}>Choose an instrument</option>}
-        {instruments.map((i) => (
-          <option key={i.id} value={i.id}>
-            {i.symbol} · {i.displayName}
-          </option>
-        ))}
-      </MiniSelect>
+        onChange={(instrumentId) => onChange({ ...expr, instrumentId })}
+      />
       {showField && (
         <MiniSelect
           id={id('field')}
@@ -430,24 +564,14 @@ function PositionFields({
   id: (field: string) => string;
   err: (...rest: (string | number)[]) => string | undefined;
 }) {
-  const { instruments } = useEditor();
-  const known = instruments.some((i) => i.id === expr.instrumentId);
   return (
     <>
-      <MiniSelect
+      <InstrumentSelect
         id={id('instrument')}
-        label="Instrument"
         value={expr.instrumentId}
         error={err('instrumentId')}
-        onChange={(e) => onChange({ ...expr, instrumentId: e.target.value })}
-      >
-        {!known && <option value={expr.instrumentId}>Choose an instrument</option>}
-        {instruments.map((i) => (
-          <option key={i.id} value={i.id}>
-            {i.symbol} · {i.displayName}
-          </option>
-        ))}
-      </MiniSelect>
+        onChange={(instrumentId) => onChange({ ...expr, instrumentId })}
+      />
       <MiniSelect
         id={id('field')}
         label="Value"
@@ -483,6 +607,144 @@ function PositionFields({
               ? 'Unrealized profit or loss in dollars, at each bar close.'
               : 'Shares held in this cycle; negative when short.'}
       </p>
+    </>
+  );
+}
+
+/**
+ * The registry metric fields (v1.2 item 1): metric, its parameters, and the
+ * instrument. The same definitions rank Selection groups.
+ */
+function MetricFields({
+  expr,
+  onChange,
+  id,
+  err,
+}: {
+  expr: MetricExpr;
+  onChange: (expr: Expr) => void;
+  id: (field: string) => string;
+  err: (...rest: (string | number)[]) => string | undefined;
+}) {
+  const { instruments, universeClasses } = useEditor();
+  const classes =
+    expr.instrumentId === CONTEXT_INSTRUMENT_ID
+      ? universeClasses
+      : [instruments.find((i) => i.id === expr.instrumentId)?.assetClass ?? 'stock'];
+  return (
+    <>
+      <InstrumentSelect
+        id={id('instrument')}
+        value={expr.instrumentId}
+        error={err('instrumentId')}
+        onChange={(instrumentId) => onChange({ ...expr, instrumentId })}
+      />
+      <MetricRefFields
+        value={{ metric: expr.metric, params: expr.params }}
+        classes={classes}
+        id={id}
+        error={err('metric') ?? err('params')}
+        onChange={(ref) => onChange({ ...expr, metric: ref.metric, params: ref.params })}
+      />
+    </>
+  );
+}
+
+/** Metric picker and parameters, shared by conditions, ranking and fire mode. */
+export function MetricRefFields({
+  value,
+  classes,
+  id,
+  error,
+  label = 'Metric',
+  onChange,
+}: {
+  value: MetricRef;
+  classes: readonly string[];
+  id: (field: string) => string;
+  error?: string | undefined;
+  label?: string;
+  onChange: (ref: MetricRef) => void;
+}) {
+  const { instruments } = useEditor();
+  const spec = getMetric(value.metric);
+  const offered = metricsForClasses(classes);
+  return (
+    <>
+      <MiniSelect
+        id={id('metric')}
+        label={label}
+        value={value.metric}
+        error={error}
+        onChange={(e) => {
+          const ref = defaultMetricRef(e.target.value);
+          // A benchmark defaults to SPY when the strategy knows it (v1.2 item 1).
+          const next = getMetric(ref.metric);
+          for (const p of next?.params ?? []) {
+            if (p.kind === 'instrument' && !ref.params[p.name]) {
+              const spy = instruments.find((i) => i.symbol === 'SPY') ?? instruments[0];
+              if (spy) ref.params = { ...ref.params, [p.name]: spy.id };
+            }
+          }
+          onChange(ref);
+        }}
+      >
+        {!offered.some((m) => m.id === value.metric) && (
+          <option value={value.metric}>
+            {spec ? `${spec.label} (not for these instruments)` : `${value.metric} (unsupported)`}
+          </option>
+        )}
+        {offered.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.label}
+          </option>
+        ))}
+      </MiniSelect>
+      {spec?.params.map((p) => {
+        const v = value.params[p.name] ?? p.default;
+        const setParam = (next: number | string) =>
+          onChange({ ...value, params: { ...value.params, [p.name]: next } });
+        if (p.kind === 'instrument') {
+          return (
+            <InstrumentSelect
+              key={p.name}
+              id={id(`metric-${p.name}`)}
+              label={p.label}
+              value={String(v)}
+              allowContext={false}
+              onChange={setParam}
+            />
+          );
+        }
+        return p.kind === 'enum' ? (
+          <MiniSelect
+            key={p.name}
+            id={id(`metric-${p.name}`)}
+            label={p.label}
+            value={String(v)}
+            onChange={(e) => setParam(e.target.value)}
+          >
+            {p.options?.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </MiniSelect>
+        ) : (
+          <MiniInput
+            key={p.name}
+            id={id(`metric-${p.name}`)}
+            label={p.label}
+            type="number"
+            step={p.kind === 'int' ? 1 : 'any'}
+            min={p.min}
+            max={p.max}
+            value={String(v)}
+            onChange={(e) => setParam(e.target.value === '' ? '' : Number(e.target.value))}
+          />
+        );
+      })}
+      {spec && <p className="col-span-full text-xs text-ink-muted">{spec.help}</p>}
     </>
   );
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import type { SlotMode } from '@tm/domain';
 import { createContext, useContext } from 'react';
 
 export interface InstrumentOption {
@@ -27,6 +28,13 @@ export interface EditorContextValue {
   issueAt: (path: readonly (string | number)[]) => string | undefined;
   /** False when the strategy can't be edited, e.g. while actively executing. */
   editable: boolean;
+  /**
+   * Selection group or per-leg conditions (v1.2): instrument pickers then offer
+   * "This instrument", the member or leg being evaluated.
+   */
+  slotMode: SlotMode;
+  /** Asset classes of the instruments a Selection group can hold, for the metric picker. */
+  universeClasses: readonly string[];
 }
 
 export const EditorContext = createContext<EditorContextValue | null>(null);

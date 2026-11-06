@@ -703,7 +703,10 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     entryEventId = entryTruth ? randomUUID() : undefined;
     qualified = entry.decision.kind !== 'none';
     if (entry.decision.kind === 'new_cycle') {
-      await openCycle(newCycleState(entry.decision.triggered ? t : undefined), entry.decision.triggered);
+      await openCycle(
+        newCycleState(entry.decision.triggered ? t : undefined),
+        entry.decision.triggered,
+      );
     } else if (entry.decision.kind === 'add_batch') {
       const target = cycles.find((c) => c.id === (entry.decision as { cycleId: string }).cycleId);
       if (target) target.cycle = { ...target.cycle, entryBatches: target.cycle.entryBatches + 1 };

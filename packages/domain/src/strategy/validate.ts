@@ -487,7 +487,6 @@ function checkMetric(
 
 function checkSlots(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
   const mode = slotModeOf(def);
-  const entry = def.entry;
 
   // Leg conditions only belong on Entry legs; Exit legs follow the Exit rules.
   def.exit.orders.forEach((o, i) => {
@@ -531,7 +530,7 @@ function checkSlots(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
     add(
       'error',
       'slots_need_concurrent',
-      'Selection groups and per-leg conditions send each instrument\'s orders on their own; use concurrent submission',
+      "Selection groups and per-leg conditions send each instrument's orders on their own; use concurrent submission",
       ['execution', 'multiLegPolicy'],
     );
   }
@@ -539,7 +538,11 @@ function checkSlots(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
   for (const phase of ['entry', 'exit'] as const) {
     def[phase].orders.forEach((o, i) => {
       const t = o.timing;
-      if (t.mode === 'exact' || (t.mode === 'relative' && t.reference.kind === 'leg') || o.timingOnly) {
+      if (
+        t.mode === 'exact' ||
+        (t.mode === 'relative' && t.reference.kind === 'leg') ||
+        o.timingOnly
+      ) {
         add(
           'error',
           'slots_timing',
@@ -554,7 +557,8 @@ function checkSlots(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
   if (mode === 'selection') checkSelection(def, ctx, add);
   else checkLegConditions(def, ctx, add);
   const blocker = paperRunBlocker(def);
-  if (blocker) add('warning', 'selection_backtest_only', blocker, ['entry', 'selection', 'universe']);
+  if (blocker)
+    add('warning', 'selection_backtest_only', blocker, ['entry', 'selection', 'universe']);
 }
 
 function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
@@ -604,17 +608,20 @@ function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Ad
     add('error', 'invalid_metric', problem, ['entry', 'selection', 'ranking']);
   for (const id of metricReferences(sel.ranking)) {
     if (!ctx.instruments.has(id))
-      add('error', 'unknown_instrument', 'Choose a valid benchmark', ['entry', 'selection', 'ranking']);
+      add('error', 'unknown_instrument', 'Choose a valid benchmark', [
+        'entry',
+        'selection',
+        'ranking',
+      ]);
   }
   const account = template ? ctx.accounts.get(template.accountId) : undefined;
   if (sel.universe.type === 'builtin') {
     if (ranking && !ranking.assetClasses.includes('stock')) {
-      add(
-        'error',
-        'metric_unsupported',
-        `${ranking.label} can't be computed for S&P 500 stocks`,
-        ['entry', 'selection', 'ranking'],
-      );
+      add('error', 'metric_unsupported', `${ranking.label} can't be computed for S&P 500 stocks`, [
+        'entry',
+        'selection',
+        'ranking',
+      ]);
     }
     if (!ctx.hasFeed('stock', 'bars')) {
       add('error', 'missing_feed', 'No active data feed covers US stock bars for the S&P 500', [
@@ -654,7 +661,11 @@ function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Ad
     }
     if (account) checkTradable(info, account, path, `${info.symbol} in the universe`, add);
   });
-  if (sel.count.type === 'fixed' && sel.universe.type === 'list' && sel.count.value > members.length) {
+  if (
+    sel.count.type === 'fixed' &&
+    sel.universe.type === 'list' &&
+    sel.count.value > members.length
+  ) {
     add(
       'warning',
       'selection_count_above_universe',
@@ -685,12 +696,7 @@ function checkTradable(
   if (info.venue && caps.coverage) {
     const demo = info.venue === DEMO_VENUE_CODE;
     if ((caps.coverage === 'demo') !== demo) {
-      add(
-        'error',
-        'unsupported_venue',
-        `${what} can't be traded on "${account.nickname}"`,
-        path,
-      );
+      add('error', 'unsupported_venue', `${what} can't be traded on "${account.nickname}"`, path);
     }
   }
 }
@@ -735,7 +741,14 @@ function checkLegConditions(def: StrategyDefinition, ctx: ValidationContext, add
       if (seen.has(e.instrumentId)) continue;
       seen.add(e.instrumentId);
       const info = ctx.instruments.get(e.instrumentId);
-      if (info) checkTradable(info, account, path, `${info.symbol} in the condition of "${o.legLabel}"`, add);
+      if (info)
+        checkTradable(
+          info,
+          account,
+          path,
+          `${info.symbol} in the condition of "${o.legLabel}"`,
+          add,
+        );
     }
   });
   // Each leg that may fire on its own needs an Exit leg for its instrument.

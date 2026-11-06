@@ -69,6 +69,8 @@ export interface BacktestTradeRow {
   netPnl: string;
   returnPct: string | null;
   legs: BacktestResult['trades'][number]['legs'];
+  /** Why the cycle exited; absent on runs from before v1.2. */
+  exitReason?: BacktestResult['trades'][number]['exitReason'];
 }
 
 const summaryColumns = {
@@ -218,11 +220,14 @@ export async function listBacktestTrades(
       netPnl: backtestTrades.netPnl,
       returnPct: backtestTrades.returnPct,
       legs: backtestTrades.legs,
+      exitReason: backtestTrades.exitReason,
     })
     .from(backtestTrades)
     .where(eq(backtestTrades.runId, runId))
     .orderBy(backtestTrades.cycle);
-  return rows as BacktestTradeRow[];
+  return rows.map(({ exitReason, ...r }) =>
+    exitReason ? { ...r, exitReason } : r,
+  ) as BacktestTradeRow[];
 }
 
 async function getRunStatus(tx: Transaction, runId: string) {
@@ -400,6 +405,7 @@ export async function completeRun(
         netPnl: t.netPnl,
         returnPct: t.returnPct,
         legs: t.legs,
+        exitReason: t.exitReason ?? null,
       })),
     );
   }
@@ -456,5 +462,7 @@ export async function instrumentRefs(
     })
     .from(instruments)
     .where(inArray(instruments.id, [...ids]));
-  return new Map(rows.map((r) => [r.id, { symbol: r.symbol, assetClass: r.assetClass, lotSize: r.lotSize }]));
+  return new Map(
+    rows.map((r) => [r.id, { symbol: r.symbol, assetClass: r.assetClass, lotSize: r.lotSize }]),
+  );
 }

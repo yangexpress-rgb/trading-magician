@@ -60,7 +60,8 @@ export function universeMembers(
   selection: Selection,
   builtin: (id: 'sp500') => readonly string[],
 ): string[] {
-  const ids = selection.universe.type === 'list' ? selection.universe.instrumentIds : builtin('sp500');
+  const ids =
+    selection.universe.type === 'list' ? selection.universe.instrumentIds : builtin('sp500');
   return [...new Set(ids)];
 }
 
@@ -195,9 +196,15 @@ export function selectLegs(
   const rows: LegRow[] = def.entry.orders.map((o) => {
     const r = withContext(view, o.instrumentId);
     const own: Truth =
-      o.legCondition && hasComparisons(o.legCondition) ? evaluateCondition(o.legCondition, r) : true;
+      o.legCondition && hasComparisons(o.legCondition)
+        ? evaluateCondition(o.legCondition, r)
+        : true;
     const passed: Truth =
-      phase === false || own === false ? false : phase === undefined || own === undefined ? undefined : true;
+      phase === false || own === false
+        ? false
+        : phase === undefined || own === undefined
+          ? undefined
+          : true;
     const value =
       fire?.mode === 'bestByMetric' ? computeMetric(fire.metric, o.instrumentId, r) : undefined;
     return {
@@ -266,7 +273,9 @@ export function planSlots(input: {
   const wanted = new Set(input.candidates.map(slotKey));
   const heldKeys = new Set(input.held.map((h) => h.key));
   const rebalance = input.mode === 'selection' || input.scheduled;
-  const exit = rebalance ? input.held.filter((h) => h.open && !wanted.has(h.key)).map((h) => h.id) : [];
+  const exit = rebalance
+    ? input.held.filter((h) => h.open && !wanted.has(h.key)).map((h) => h.id)
+    : [];
   let enter: Slot[];
   if (input.halted) enter = [];
   else if (!rebalance) enter = input.held.length === 0 ? [...input.candidates] : [];
@@ -326,7 +335,8 @@ export function conditionTrees(def: StrategyDefinition): { tree: ConditionGroup;
     { tree: def.entry.condition, where: 'entry' },
     { tree: def.exit.condition, where: 'exit' },
   ];
-  for (const o of def.entry.orders) if (o.legCondition) out.push({ tree: o.legCondition, where: `leg:${o.id}` });
+  for (const o of def.entry.orders)
+    if (o.legCondition) out.push({ tree: o.legCondition, where: `leg:${o.id}` });
   if (def.entry.selection?.preFilter)
     out.push({ tree: def.entry.selection.preFilter, where: 'preFilter' });
   return out;
@@ -365,11 +375,16 @@ function definitionMetrics(def: StrategyDefinition): MetricRef[] {
  * function's window, so its whole history is loaded; metrics list the daily
  * series they read; "this instrument" expands to every member or leg.
  */
-export function definitionSeries(def: StrategyDefinition, members: readonly string[] = []): SeriesNeed[] {
+export function definitionSeries(
+  def: StrategyDefinition,
+  members: readonly string[] = [],
+): SeriesNeed[] {
   const contexts = contextInstruments(def, members);
   const out: SeriesNeed[] = [];
   const bindAll = (e: SeriesNeed): SeriesNeed[] =>
-    e.instrumentId === CONTEXT_INSTRUMENT_ID ? contexts.map((id) => ({ ...e, instrumentId: id })) : [e];
+    e.instrumentId === CONTEXT_INSTRUMENT_ID
+      ? contexts.map((id) => ({ ...e, instrumentId: id }))
+      : [e];
   const visit = (e: Expr, extra: number) => {
     switch (e.kind) {
       case 'constant':
@@ -396,9 +411,10 @@ export function definitionSeries(def: StrategyDefinition, members: readonly stri
         return;
     }
   };
-  for (const { tree } of conditionTrees(def)) for (const c of walkComparisons(tree)) {
-    for (const side of [c.left, c.right, c.upper]) if (side) visit(side, 0);
-  }
+  for (const { tree } of conditionTrees(def))
+    for (const c of walkComparisons(tree)) {
+      for (const side of [c.left, c.right, c.upper]) if (side) visit(side, 0);
+    }
   for (const o of [...def.entry.orders, ...def.exit.orders]) {
     if (o.limitPrice) visit(o.limitPrice, 0);
     if (o.stopPrice) visit(o.stopPrice, 0);
@@ -432,7 +448,7 @@ export const PAPER_UNIVERSE_LIMIT = 50;
 /**
  * Why a strategy can be back tested but not yet run on paper, or undefined.
  * Decision of 2026-11-06: S&P 500 Selection groups back test in this round
- * and run on paper once the worker caches bars (Design v1.2 D-v12-2).
+ * and run on paper once the worker caches bars (Design v1.2 N11).
  */
 export function paperRunBlocker(def: StrategyDefinition): string | undefined {
   if (def.entry.kind !== 'selection') return undefined;

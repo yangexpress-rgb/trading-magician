@@ -81,8 +81,7 @@ export function withContext(r: SeriesResolver, instrumentId: string): SeriesReso
     isStale: (expr) => r.isStale(bind(expr)),
     ...(r.position
       ? {
-          position: (id: string) =>
-            r.position?.(id === CONTEXT_INSTRUMENT_ID ? instrumentId : id),
+          position: (id: string) => r.position?.(id === CONTEXT_INSTRUMENT_ID ? instrumentId : id),
         }
       : {}),
   };

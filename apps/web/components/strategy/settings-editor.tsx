@@ -13,6 +13,7 @@ import { Card } from '@tm/ui';
 import { RISK_FIELDS, TRIGGER_LABELS } from '@/lib/strategy-text';
 import { useEditor } from './editor-context';
 import { MiniInput, MiniSelect, RowButton } from './fields';
+import { ScheduleField } from './slots-editor';
 
 const intOrNaN = (v: string) => (v === '' ? Number.NaN : Number(v));
 
@@ -105,6 +106,7 @@ export function ExecutionAndRisk({
           How legs are sent and what happens when one doesn&rsquo;t fill. Brokers rarely fill
           several instruments as one atomic order.
         </p>
+        <ScheduleField definition={definition} onChange={onChange} />
         <fieldset disabled={!editable} className="grid-fields-wide gap-3">
           <legend className="sr-only">Execution policy</legend>
           <MiniSelect

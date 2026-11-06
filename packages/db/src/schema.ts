@@ -974,6 +974,8 @@ export const backtestTrades = pgTable(
     returnPct: numeric('return_pct'),
     /** `BacktestTradeLeg[]`: each leg's side, quantity and average price. */
     legs: jsonb('legs').notNull(),
+    /** Why the cycle exited (v1.2): exit condition, time stop or rebalance. Null on older runs. */
+    exitReason: text('exit_reason'),
   },
   (t) => [
     foreignKey({
@@ -982,6 +984,10 @@ export const backtestTrades = pgTable(
     }).onDelete('cascade'),
     unique('backtest_trade_cycle_uq').on(t.runId, t.cycle),
     check('backtest_trade_status', sql`${t.status} in ('closed', 'open', 'aborted')`),
+    check(
+      'backtest_trade_exit_reason',
+      sql`${t.exitReason} is null or ${t.exitReason} in ('condition', 'time_stop', 'rebalance')`,
+    ),
   ],
 );
 

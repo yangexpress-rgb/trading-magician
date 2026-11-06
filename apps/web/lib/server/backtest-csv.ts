@@ -18,6 +18,7 @@ const HEADER = [
   'strategy_version',
   'engine_version',
   'data_versions',
+  'exit_reason',
 ];
 
 /**
@@ -50,6 +51,7 @@ export function tradesCsv(run: BacktestRunSummary, trades: readonly BacktestTrad
         l?.averagePrice ?? null,
         ...trade,
         ...provenance,
+        t.exitReason ?? null,
       ]);
     }
   }

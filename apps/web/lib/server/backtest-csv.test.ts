@@ -65,8 +65,8 @@ describe('back-test CSV', () => {
     const lines = tradesCsv(run, trades).trimEnd().split('\r\n');
     expect(lines).toHaveLength(4);
     expect(lines[1]).toBe(
-      '1,closed,2024-01-03T14:30:00.000Z,2024-01-05T14:30:00.000Z,Buy A,entry,DEMO-A,buy,10,100,10,1,9,0.9,3,engine@1,demo-history@1',
+      '1,closed,2024-01-03T14:30:00.000Z,2024-01-05T14:30:00.000Z,Buy A,entry,DEMO-A,buy,10,100,10,1,9,0.9,3,engine@1,demo-history@1,',
     );
-    expect(lines[3]).toBe('2,aborted,,,,,,,,,0,0,0,,3,engine@1,demo-history@1');
+    expect(lines[3]).toBe('2,aborted,,,,,,,,,0,0,0,,3,engine@1,demo-history@1,');
   });
 });

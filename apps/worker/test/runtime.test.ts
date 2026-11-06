@@ -793,7 +793,10 @@ describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', (
 
 describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, time stop', () => {
   const CONTEXT = '00000000-0000-0000-0000-000000000000';
-  const daily = (instrumentId: string, id: string) => ({ ...hourly(instrumentId, id), interval: '1d' as const });
+  const daily = (instrumentId: string, id: string) => ({
+    ...hourly(instrumentId, id),
+    interval: '1d' as const,
+  });
   const group = (id: string, children: StrategyDefinition['entry']['condition']['children']) => ({
     kind: 'group' as const,
     id,
@@ -850,9 +853,15 @@ describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, ti
       weighting: 'equal',
     };
     def.entry.orders = [
-      leg('each', { legLabel: 'Buy each', instrumentId: CONTEXT, quantity: { type: 'units', value: '20', rounding: 'down' } }),
+      leg('each', {
+        legLabel: 'Buy each',
+        instrumentId: CONTEXT,
+        quantity: { type: 'units', value: '20', rounding: 'down' },
+      }),
     ];
-    def.exit.orders = [leg('close-each', { legLabel: 'Close each', instrumentId: CONTEXT, side: 'close' })];
+    def.exit.orders = [
+      leg('close-each', { legLabel: 'Close each', instrumentId: CONTEXT, side: 'close' }),
+    ];
     const { runtimeId } = await startPaper('Selection', def);
     await pass();
     const o = await orders(runtimeId);
@@ -884,14 +893,18 @@ describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, ti
     };
     def.entry.orders = [leg('each', { instrumentId: CONTEXT })];
     def.exit.orders = [leg('close-each', { instrumentId: CONTEXT, side: 'close' })];
-    await expect(startPaper('S&P', def)).rejects.toThrow(/can be back tested, but not run on paper/);
+    await expect(startPaper('S&P', def)).rejects.toThrow(
+      /can be back tested, but not run on paper/,
+    );
   });
 
   it('evaluates Entry only after a month-end close', async () => {
     // Thursday 2026-10-29, mid-session: October's last trading day is Friday the 30th.
     clock = Date.parse('2026-10-29T15:31:00Z');
     const def = pairDefinition();
-    def.entry.condition = group('in-g', [{ ...above('in', demoA, '1'), left: daily(demoA, 'in-px') }]);
+    def.entry.condition = group('in-g', [
+      { ...above('in', demoA, '1'), left: daily(demoA, 'in-px') },
+    ]);
     def.exit.condition = never();
     def.schedule = { frequency: 'monthEnd' };
     const { runtimeId } = await startPaper('Month end', def);

@@ -1,8 +1,14 @@
 'use client';
 
-import type { BacktestOrder, PhaseConditionReport, StoredTruth } from '@tm/backtest';
-import type { BacktestRunDto } from '@tm/contracts';
-import type { Comparison } from '@tm/domain';
+import type {
+  BacktestOrder,
+  PhaseConditionReport,
+  SelectionLog,
+  SelectionRound,
+  StoredTruth,
+} from '@tm/backtest';
+import type { BacktestRunDto, BacktestTradeDto } from '@tm/contracts';
+import { getMetric, SCHEDULE_LABELS, type Comparison, type ScheduleFrequency } from '@tm/domain';
 import { Badge, Button, Card, cx, SelectField, Table, Td, Th } from '@tm/ui';
 import { useId, useState } from 'react';
 import {
@@ -60,6 +66,7 @@ export function PhaseReports({ run }: { run: BacktestRunDto }) {
           )}
           symbol={symbol}
           interval={run.inputs.interval}
+          slots={!!result.selections}
         />
       ))}
     </div>
@@ -72,12 +79,14 @@ function PhaseReport({
   orders,
   symbol,
   interval,
+  slots,
 }: {
   phase: 'entry' | 'exit';
   report: PhaseConditionReport;
   orders: BacktestOrder[];
   symbol: (id: string) => string | undefined;
   interval: Interval;
+  slots: boolean;
 }) {
   const id = useId();
   const title = phase === 'entry' ? 'Entry' : 'Exit';
@@ -95,7 +104,11 @@ function PhaseReport({
       >
         {title}
       </h3>
-      <p className="mb-4 text-sm">{summarizeConditions(phase, report)}</p>
+      <p className="mb-4 text-sm">
+        {slots && phase === 'entry' && report.evaluated === 0
+          ? 'There are no strategy-level Entry conditions: every scheduled evaluation ranked or checked the instruments on its own. See the rounds below.'
+          : summarizeConditions(phase, report)}
+      </p>
       <ConditionReport
         title={`${title} conditions`}
         report={report}
@@ -421,5 +434,177 @@ function OrderReport({
         </Table>
       )}
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Selection groups and per-leg conditions (v1.2 items 1 and 2)
+
+export const EXIT_REASON_LABELS: Record<NonNullable<BacktestTradeDto['exitReason']>, string> = {
+  condition: 'Exit condition',
+  time_stop: 'Time stop',
+  rebalance: 'Rebalance: no longer selected',
+};
+
+/** A metric's name with its parameters, e.g. "Return (lookback 6, skip 0)". */
+export function describeMetric(ref: SelectionLog['metric']): string {
+  if (!ref) return 'No ranking metric';
+  const spec = getMetric(ref.metric);
+  if (!spec) return ref.metric;
+  const params = spec.params
+    .filter((p) => p.kind !== 'instrument')
+    .map((p) => `${p.label.toLowerCase()} ${ref.params[p.name] ?? p.default}`);
+  return params.length > 0 ? `${spec.label} (${params.join(', ')})` : spec.label;
+}
+
+function metricText(ref: SelectionLog['metric'], value: string | null): string {
+  if (value === null) return '—';
+  const unit = ref ? getMetric(ref.metric)?.unit : undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  return unit === 'fraction' ? `${(n * 100).toFixed(2)}%` : n.toFixed(2);
+}
+
+const yesNo = (v: boolean | null) => (v === null ? 'Unknown' : v ? 'Yes' : 'No');
+
+/** Every round as CSV, one row per member, for checking a ranking by hand. */
+export function selectionCsv(log: SelectionLog): string {
+  const header = [
+    'time',
+    'period',
+    'gate',
+    'symbol',
+    'value',
+    'filter',
+    'rank',
+    'selected',
+    'excluded',
+  ];
+  const cell = (v: string | number | boolean | null | undefined) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    const safe = /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s) ? `'${s}` : s;
+    return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+  };
+  const lines = [header.join(',')];
+  for (const r of log.rounds) {
+    for (const [sym, value, filter, rank, selected, excluded] of r.rows) {
+      lines.push(
+        [
+          r.time,
+          r.period,
+          r.gate,
+          sym,
+          value,
+          filter,
+          rank,
+          selected,
+          excluded ? (log.exclusionLabels[excluded] ?? excluded) : null,
+        ]
+          .map(cell)
+          .join(','),
+      );
+    }
+  }
+  return lines.join('\r\n') + '\r\n';
+}
+
+export function SelectionRounds({ log, interval }: { log: SelectionLog; interval: Interval }) {
+  const id = useId();
+  const [index, setIndex] = useState(log.rounds.length - 1);
+  const round: SelectionRound | undefined = log.rounds[index];
+  const ranking = log.kind === 'ranking';
+  const schedule = SCHEDULE_LABELS[log.schedule as ScheduleFrequency] ?? log.schedule;
+
+  const download = () => {
+    const blob = new Blob([selectionCsv(log)], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = ranking ? 'selection-rounds.csv' : 'leg-rounds.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  if (log.rounds.length === 0) {
+    return <p className="text-sm text-ink-muted">No round was evaluated in this period.</p>;
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-sm">
+        {ranking
+          ? `Ranked by ${describeMetric(log.metric)}, ${log.direction === 'desc' ? 'highest first' : 'lowest first'}. `
+          : log.metric
+            ? `Of the legs whose conditions held, the one with the best ${describeMetric(log.metric)} entered. `
+            : 'Each leg whose own conditions held entered. '}
+        Evaluated: {schedule.toLowerCase()}. {log.rounds.length}{' '}
+        {log.rounds.length === 1 ? 'round' : 'rounds'} recorded.
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <SelectField
+          name={`${id}-round`}
+          label="Round"
+          value={String(index)}
+          onChange={(e) => setIndex(Number(e.target.value))}
+        >
+          {log.rounds
+            .map((r, i) => ({ r, i }))
+            .reverse()
+            .map(({ r, i }) => (
+              <option key={r.time} value={i}>
+                {formatMarketTime(r.time, interval)} ({r.period})
+              </option>
+            ))}
+        </SelectField>
+        <Button size="sm" variant="secondary" onClick={download}>
+          Download all rounds (CSV)
+        </Button>
+      </div>
+      {round && (
+        <>
+          <ul className="text-sm">
+            {round.gate !== undefined && (
+              <li>
+                Entry condition (gates the whole selection): <Truth value={round.gate} />
+              </li>
+            )}
+            <li>Entered: {round.entered.length > 0 ? round.entered.join(', ') : 'none'}</li>
+            <li>Exited: {round.exited.length > 0 ? round.exited.join(', ') : 'none'}</li>
+            {round.halted && (
+              <li className="text-danger">
+                New entries were held back by the daily loss limit or the drawdown limit.
+              </li>
+            )}
+          </ul>
+          <Table label={`Round of ${formatMarketTime(round.time, interval)}`}>
+            <thead>
+              <tr>
+                {ranking && <Th className="text-right">Rank</Th>}
+                <Th>{ranking ? 'Instrument' : 'Leg instrument'}</Th>
+                <Th className="text-right">{log.metric ? describeMetric(log.metric) : 'Value'}</Th>
+                <Th>{ranking ? 'Passes pre-filter' : 'Leg condition holds'}</Th>
+                <Th>Selected</Th>
+                {ranking && <Th>Left out because</Th>}
+              </tr>
+            </thead>
+            <tbody>
+              {round.rows.map(([sym, value, filter, rank, selected, excluded]) => (
+                <tr key={sym} className={cx(selected && 'font-medium')}>
+                  {ranking && <Td className="text-right tabular-nums">{rank ?? '—'}</Td>}
+                  <Td>{sym}</Td>
+                  <Td className="text-right tabular-nums">{metricText(log.metric, value)}</Td>
+                  <Td>{yesNo(filter)}</Td>
+                  <Td>{selected ? 'Yes' : 'No'}</Td>
+                  {ranking && (
+                    <Td className="text-xs">
+                      {excluded ? (log.exclusionLabels[excluded] ?? excluded) : ''}
+                    </Td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </>
+      )}
+    </div>
   );
 }

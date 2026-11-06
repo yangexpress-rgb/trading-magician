@@ -533,7 +533,8 @@ export function simulate({
             .filter((x) => x.state === 'exiting' && x !== c)
             .reduce((sum, x) => {
               let g = ZERO;
-              for (const [id, p] of x.positions) g = g.plus(p.quantity.abs().times(mark(id) ?? ZERO));
+              for (const [id, p] of x.positions)
+                g = g.plus(p.quantity.abs().times(mark(id) ?? ZERO));
               return sum.plus(g);
             }, ZERO);
     const sized = sizeOrder({
@@ -750,8 +751,7 @@ export function simulate({
     allLegs.push(s);
     return s;
   };
-  const exitLegsFor = (c: Cycle) =>
-    legOrderFor(c.def, 'exit').map((l) => legState(c, l, 'exit'));
+  const exitLegsFor = (c: Cycle) => legOrderFor(c.def, 'exit').map((l) => legState(c, l, 'exit'));
 
   function addEntryBatch(c: Cycle) {
     c.entries += 1;
@@ -903,7 +903,8 @@ export function simulate({
         r.selected && gate === true,
         r.excluded,
       ]);
-      for (const r of ranking.rows) if (r.excluded === 'no_value') excludedNoValue.add(r.instrumentId);
+      for (const r of ranking.rows)
+        if (r.excluded === 'no_value') excludedNoValue.add(r.instrumentId);
       if (gate === true)
         candidates = ranking.selected.map((instrumentId) => ({ legId: template.id, instrumentId }));
     } else {
@@ -1367,7 +1368,11 @@ export function simulate({
 
   function selectionLog(): SelectionLog {
     const ref =
-      mode === 'selection' ? def.entry.selection?.ranking : def.entry.fireMode?.mode === 'bestByMetric' ? def.entry.fireMode.metric : undefined;
+      mode === 'selection'
+        ? def.entry.selection?.ranking
+        : def.entry.fireMode?.mode === 'bestByMetric'
+          ? def.entry.fireMode.metric
+          : undefined;
     return {
       kind: mode === 'selection' ? 'ranking' : 'legs',
       metric: ref ? { metric: ref.metric, params: ref.params } : null,

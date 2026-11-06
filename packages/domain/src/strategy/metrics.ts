@@ -211,7 +211,9 @@ export const METRICS: readonly MetricSpec[] = [
     help: 'Sample standard deviation of daily returns over the window, annualised by √252. 0.20 is 20% a year.',
     category: 'price',
     unit: 'fraction',
-    params: [{ name: 'window', label: 'Window (bars)', kind: 'int', min: 2, max: 500, default: 60 }],
+    params: [
+      { name: 'window', label: 'Window (bars)', kind: 'int', min: 2, max: 500, default: 60 },
+    ],
     assetClasses: PRICE_CLASSES,
     requirements: (id, p) => [dailyClose(id, Number(p.window ?? 60))],
     compute: (id, p, r, barsBack) => {
@@ -279,7 +281,8 @@ export function checkMetricRef(ref: MetricRef): string[] {
     } else if (p.kind === 'instrument') {
       if (typeof v !== 'string' || !v) problems.push(`Choose the ${p.label.toLowerCase()}`);
     } else {
-      if (typeof v !== 'number' || !Number.isFinite(v)) problems.push(`${p.label} must be a number`);
+      if (typeof v !== 'number' || !Number.isFinite(v))
+        problems.push(`${p.label} must be a number`);
       else {
         if (p.kind === 'int' && !Number.isInteger(v))
           problems.push(`${p.label} must be a whole number`);

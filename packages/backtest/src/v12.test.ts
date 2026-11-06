@@ -15,10 +15,15 @@ import {
   type StatExpr,
   type StrategyDefinition,
 } from '@tm/domain';
-import Decimal from 'decimal.js';
+import type Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 import { simulate } from './engine';
-import { breakoutDonchian, meanReversionRsi2, spyBars, trendSma200 } from './fixtures/spy-strategies';
+import {
+  breakoutDonchian,
+  meanReversionRsi2,
+  spyBars,
+  trendSma200,
+} from './fixtures/spy-strategies';
 import { fingerprint, inputs, loaded } from './test-utils';
 import type { BacktestResult, InstrumentRef } from './index';
 
@@ -69,7 +74,11 @@ const all = (...children: Comparison[]): ConditionGroup => ({
   negate: false,
   children,
 });
-const leg = (id: string, instrumentId: string, partial: Partial<PlannedOrder> = {}): PlannedOrder => ({
+const leg = (
+  id: string,
+  instrumentId: string,
+  partial: Partial<PlannedOrder> = {},
+): PlannedOrder => ({
   id,
   legLabel: id,
   instrumentId,
@@ -133,7 +142,11 @@ function sectorFixture(schedule?: 'monthEnd'): StrategyDefinition {
     direction: 'desc',
     count: { type: 'fixed', value: 3 },
     preFilter: all(
-      cmp(market(CONTEXT_INSTRUMENT_ID), 'gt', indicator(CONTEXT_INSTRUMENT_ID, 'SMA', { period: 200 })),
+      cmp(
+        market(CONTEXT_INSTRUMENT_ID),
+        'gt',
+        indicator(CONTEXT_INSTRUMENT_ID, 'SMA', { period: 200 }),
+      ),
     ),
     weighting: 'equal',
   };
@@ -176,7 +189,10 @@ describe('item 1: Selection group, top 3 of 9 sector ETFs', () => {
     const def = sectorFixture('monthEnd');
     const v = validateStrategy(def, {
       instruments: new Map(
-        sectorIds.map((id, i) => [id, { symbol: SECTORS[i] as string, assetClass: 'etf', lotSize: '1', venue: 'ARCA' }]),
+        sectorIds.map((id, i) => [
+          id,
+          { symbol: SECTORS[i] as string, assetClass: 'etf', lotSize: '1', venue: 'ARCA' },
+        ]),
       ),
       accounts: new Map([
         [
@@ -213,7 +229,10 @@ describe('item 1: Selection group, top 3 of 9 sector ETFs', () => {
     const positions = replayPositions(r);
     let checked = 0;
     for (const round of rounds) {
-      const engine = round.rows.filter((row) => row[4]).map((row) => row[0]).sort();
+      const engine = round.rows
+        .filter((row) => row[4])
+        .map((row) => row[0])
+        .sort();
       expect(engine).toEqual(topThreeByHand(round.time));
       // Holdings once the next bar's fills are done are exactly the selection.
       const i = (sectorBars[0] as Bar[]).findIndex((b) => b.end === round.time);
@@ -278,7 +297,9 @@ describe('item 1: Selection group, top 3 of 9 sector ETFs', () => {
     expect(xlk?.[3]).toBeNull();
     expect(xlk?.[4]).toBe(false);
     expect(['no_value', 'filter_unknown']).toContain(xlk?.[5]);
-    expect(r.warnings.some((w) => w.code === 'selection_no_value' || w.code === 'stale_data')).toBe(true);
+    expect(r.warnings.some((w) => w.code === 'selection_no_value' || w.code === 'stale_data')).toBe(
+      true,
+    );
   });
 
   it('holds only the members that pass when fewer than N pass, and cash when none do', () => {
@@ -298,7 +319,15 @@ describe('item 1: Selection group, top 3 of 9 sector ETFs', () => {
     const def = sectorFixture('monthEnd');
     def.exit.condition.children = [
       cmp(
-        { kind: 'position', id: nid('p'), instrumentId: CONTEXT_INSTRUMENT_ID, field: 'gain_pct', interval: '1d', adjustment: 'split_and_dividend', session: 'regular' },
+        {
+          kind: 'position',
+          id: nid('p'),
+          instrumentId: CONTEXT_INSTRUMENT_ID,
+          field: 'gain_pct',
+          interval: '1d',
+          adjustment: 'split_and_dividend',
+          session: 'regular',
+        },
         'lt',
         constant('-3'),
       ),
@@ -382,7 +411,9 @@ function dualMomentum(schedule: 'monthEnd' | undefined = 'monthEnd'): StrategyDe
 const run3 = (def: StrategyDefinition) =>
   simulate({
     definition: def,
-    instruments: new Map(RISK3.map(([id, s]) => [id, { symbol: s, assetClass: 'etf', lotSize: '1' }])),
+    instruments: new Map(
+      RISK3.map(([id, s]) => [id, { symbol: s, assetClass: 'etf', lotSize: '1' }]),
+    ),
     inputs: inputs('2023-01-03', '2025-06-30'),
     data: loaded(threeAssetBars()),
   });
@@ -410,7 +441,9 @@ describe('item 2: per-leg conditions, SPY / EFA / AGG', () => {
       const next = spyBarsList[i + 2]?.start;
       const held = [...(positions.get(next ?? '') ?? new Map())].filter(([, q]) => q !== 0);
       // Whatever was held has been sold by the next open.
-      const after = [...positions.entries()].filter(([t]) => t <= (spyBarsList[i + 1]?.start ?? '')).at(-1)?.[1];
+      const after = [...positions.entries()]
+        .filter(([t]) => t <= (spyBarsList[i + 1]?.start ?? ''))
+        .at(-1)?.[1];
       expect([...(after ?? new Map()).values()].every((q) => q === 0)).toBe(true);
       void held;
       emptyChecked += 1;
@@ -431,7 +464,10 @@ describe('item 2: per-leg conditions, SPY / EFA / AGG', () => {
     def.entry.orders = RISK3.map(([id, s]) =>
       leg(`buy-${s}`, id, { quantity: { type: 'pct_equity', value: '30', rounding: 'down' } }),
     );
-    def.entry.fireMode = { mode: 'bestByMetric', metric: { metric: 'return', params: { lookbackMonths: '12' } } };
+    def.entry.fireMode = {
+      mode: 'bestByMetric',
+      metric: { metric: 'return', params: { lookbackMonths: '12' } },
+    };
     def.exit.orders = RISK3.map(([id, s]) => leg(`sell-${s}`, id, { side: 'close' }));
     def.schedule = { frequency: 'monthEnd' };
     const r = run3(def);
@@ -439,7 +475,9 @@ describe('item 2: per-leg conditions, SPY / EFA / AGG', () => {
       const selected = round.rows.filter((row) => row[4]);
       expect(selected.length).toBeLessThanOrEqual(1);
       if (selected[0]) {
-        const best = Math.max(...round.rows.filter((row) => row[1] !== null).map((row) => Number(row[1])));
+        const best = Math.max(
+          ...round.rows.filter((row) => row[1] !== null).map((row) => Number(row[1])),
+        );
         expect(Number(selected[0][1])).toBe(best);
       }
     }
@@ -479,7 +517,13 @@ function pairBars(): Record<string, Bar[]> {
   const pep = ko.map((b, i) => {
     spread = 20 + (spread - 20) * 0.92 + (rand() - 0.5) * 1.2 + (i % 97 === 50 ? -9 : 0);
     const shift = (x: Decimal) => x.div(4).plus(spread).toDecimalPlaces(2);
-    return { ...b, open: shift(b.open), high: shift(b.high), low: shift(b.low), close: shift(b.close) };
+    return {
+      ...b,
+      open: shift(b.open),
+      high: shift(b.high),
+      low: shift(b.low),
+      close: shift(b.close),
+    };
   });
   const koScaled = ko.map((b) => {
     const q = (x: Decimal) => x.div(4).toDecimalPlaces(2);
@@ -494,12 +538,20 @@ const spreadExpr = (): Expr => ({
   op: 'sub',
   args: [market(PEP), market(KO)],
 });
-const z60 = (): StatExpr => ({ kind: 'stat', id: nid('z'), fn: 'ZSCORE', input: spreadExpr(), period: 60 });
+const z60 = (): StatExpr => ({
+  kind: 'stat',
+  id: nid('z'),
+  fn: 'ZSCORE',
+  input: spreadExpr(),
+  period: 60,
+});
 
 describe('item 3: z-score of the PEP − KO spread', () => {
   const def = baseDefinition();
   def.entry.condition.children = [cmp(z60(), 'lt', constant('-2'))];
-  def.entry.orders = [leg('buy-pep', PEP, { quantity: { type: 'units', value: '100', rounding: 'down' } })];
+  def.entry.orders = [
+    leg('buy-pep', PEP, { quantity: { type: 'units', value: '100', rounding: 'down' } }),
+  ];
   def.exit.condition.children = [cmp(z60(), 'gt', constant('0'))];
   def.exit.orders = [leg('sell-pep', PEP, { side: 'close' })];
   const data = pairBars();
@@ -549,12 +601,21 @@ describe('item 3: z-score of the PEP − KO spread', () => {
     for (const band of ['upper', 'middle', 'lower'] as const) {
       const fn = band === 'upper' ? 'BB_UPPER' : band === 'middle' ? 'BB_MIDDLE' : 'BB_LOWER';
       const d = baseDefinition();
-      const bb: StatExpr = { kind: 'stat', id: nid('b'), fn, input: market(spy), period: 20, multiplier: '2' };
+      const bb: StatExpr = {
+        kind: 'stat',
+        id: nid('b'),
+        fn,
+        input: market(spy),
+        period: 20,
+        multiplier: '2',
+      };
       const old = indicator(spy, 'BBANDS', { period: 20, stdDev: 2, band });
       // Entry when the generalised band equals the indicator: every bar with a value.
       d.entry.condition.children = [cmp(bb, 'eq', old)];
       d.entry.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
-      d.entry.orders = [leg('b', spy, { quantity: { type: 'units', value: '1', rounding: 'down' } })];
+      d.entry.orders = [
+        leg('b', spy, { quantity: { type: 'units', value: '1', rounding: 'down' } }),
+      ];
       d.exit.condition.children = [cmp(market(spy), 'lt', constant('0'))];
       d.exit.orders = [leg('s', spy, { side: 'close' })];
       const res = simulate({
@@ -580,7 +641,9 @@ describe('item 4: RSI(2) below 10, exit above SMA(5) or after 5 trading days', (
   const build = (withStop: boolean) => {
     const d = baseDefinition();
     d.entry.condition.children = [cmp(indicator(spy, 'RSI', { period: 2 }), 'lt', constant('10'))];
-    d.entry.orders = [leg('buy', spy, { quantity: { type: 'units', value: '10', rounding: 'down' } })];
+    d.entry.orders = [
+      leg('buy', spy, { quantity: { type: 'units', value: '10', rounding: 'down' } }),
+    ];
     // A price exit that rarely triggers quickly: close 3% above SMA(5).
     d.exit.condition.children = [
       cmp(market(spy), 'gt', {

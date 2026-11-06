@@ -118,13 +118,7 @@ export interface StatExpr {
   offset?: number | undefined;
 }
 export type Expr =
-  | ConstantExpr
-  | MarketExpr
-  | IndicatorExpr
-  | PositionExpr
-  | CalcExpr
-  | MetricExpr
-  | StatExpr;
+  ConstantExpr | MarketExpr | IndicatorExpr | PositionExpr | CalcExpr | MetricExpr | StatExpr;
 
 const offset = z.number().int().min(0).max(500).default(0);
 
@@ -474,7 +468,13 @@ export const exitPhaseSchema = phaseSchema.extend({
 });
 export type ExitPhase = z.infer<typeof exitPhaseSchema>;
 
-export const SCHEDULE_FREQUENCIES = ['daily', 'weekly', 'monthEnd', 'quarterEnd', 'yearEnd'] as const;
+export const SCHEDULE_FREQUENCIES = [
+  'daily',
+  'weekly',
+  'monthEnd',
+  'quarterEnd',
+  'yearEnd',
+] as const;
 export type ScheduleFrequency = (typeof SCHEDULE_FREQUENCIES)[number];
 /** When Entry and re-selection are evaluated; Exit rules run on every bar regardless. */
 export const scheduleSchema = z.object({ frequency: z.enum(SCHEDULE_FREQUENCIES) });

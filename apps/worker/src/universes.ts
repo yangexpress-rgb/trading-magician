@@ -36,7 +36,11 @@ export async function resolveBuiltinUniverse(options: {
   if (missing.length > 0) {
     await inTenant(async (tx) => {
       const routing = await loadRouting(tx);
-      const route = resolveRoute(routing.routes, { assetClass: 'stock', venue: 'US', dataType: 'quotes' });
+      const route = resolveRoute(routing.routes, {
+        assetClass: 'stock',
+        venue: 'US',
+        dataType: 'quotes',
+      });
       const feed = [route?.primaryFeedId, route?.fallbackFeedId, ...routing.feeds.keys()]
         .map((id) => (id ? routing.feeds.get(id) : undefined))
         .find((f) => {
@@ -47,11 +51,18 @@ export async function resolveBuiltinUniverse(options: {
       if (!feed || !provider?.listings) return;
       const credential =
         provider.needsCredential && feed.credentialRef
-          ? await openCredential(tx, { userId, id: feed.credentialRef, privateKey: options.privateKey })
+          ? await openCredential(tx, {
+              userId,
+              id: feed.credentialRef,
+              privateKey: options.privateKey,
+            })
           : undefined;
       const found = await provider.listings({ now: options.now, credential }, missing);
       for (const listing of found) {
-        known.set(listing.symbol, await registerInstrument(tx, { ...listing, provider: feed.provider }));
+        known.set(
+          listing.symbol,
+          await registerInstrument(tx, { ...listing, provider: feed.provider }),
+        );
       }
     });
   }

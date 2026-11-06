@@ -197,7 +197,10 @@ export function collectInstrumentUses(def: StrategyDefinition): InstrumentUse[] 
     [def.entry.condition, 'entry'],
     [def.exit.condition, 'exit'],
     [def.entry.selection?.preFilter, 'entry'],
-    ...def.entry.orders.map((o): [ConditionGroup | undefined, PhaseName] => [o.legCondition, 'entry']),
+    ...def.entry.orders.map((o): [ConditionGroup | undefined, PhaseName] => [
+      o.legCondition,
+      'entry',
+    ]),
   ];
   for (const [tree, phase] of trees) {
     if (!tree) continue;
@@ -218,7 +221,10 @@ export function collectInstrumentUses(def: StrategyDefinition): InstrumentUse[] 
     for (const id of selection.universe.instrumentIds)
       uses.push({ instrumentId: id, phase: 'entry', role: 'order' });
   }
-  const metricRefs = [selection?.ranking, def.entry.fireMode?.mode === 'bestByMetric' ? def.entry.fireMode.metric : undefined];
+  const metricRefs = [
+    selection?.ranking,
+    def.entry.fireMode?.mode === 'bestByMetric' ? def.entry.fireMode.metric : undefined,
+  ];
   for (const ref of metricRefs) {
     if (!ref) continue;
     for (const v of Object.values(ref.params))

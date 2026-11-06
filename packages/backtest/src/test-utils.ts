@@ -158,4 +158,3 @@ export function fingerprint(r: BacktestResult): string {
   const picked = Object.fromEntries(V11_FIELDS.map((k) => [k, r[k]]));
   return createHash('sha256').update(JSON.stringify(picked)).digest('hex').slice(0, 16);
 }
-

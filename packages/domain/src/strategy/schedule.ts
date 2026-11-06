@@ -93,8 +93,12 @@ export function tradingDaysHeld(openedAt: number, t: number): number {
   return n;
 }
 
-export function timeStopOf(def: StrategyDefinition): Extract<ExitRule, { kind: 'timeStop' }> | undefined {
-  return def.exit.rules?.find((r): r is Extract<ExitRule, { kind: 'timeStop' }> => r.kind === 'timeStop');
+export function timeStopOf(
+  def: StrategyDefinition,
+): Extract<ExitRule, { kind: 'timeStop' }> | undefined {
+  return def.exit.rules?.find(
+    (r): r is Extract<ExitRule, { kind: 'timeStop' }> => r.kind === 'timeStop',
+  );
 }
 
 /**

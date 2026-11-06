@@ -50,12 +50,18 @@ type SeriesExpr = MarketExpr | IndicatorExpr;
  * "this instrument" expanded to every universe member or leg (v1.2).
  * `members` are a Selection group's resolved universe.
  */
-export function seriesExprs(def: StrategyDefinition, members: readonly string[] = []): SeriesExpr[] {
+export function seriesExprs(
+  def: StrategyDefinition,
+  members: readonly string[] = [],
+): SeriesExpr[] {
   return definitionSeries(def, members);
 }
 
 /** Instruments a run trades or reads, "this instrument" resolved. */
-export function strategyInstruments(def: StrategyDefinition, members: readonly string[] = []): string[] {
+export function strategyInstruments(
+  def: StrategyDefinition,
+  members: readonly string[] = [],
+): string[] {
   const ids = new Set<string>([
     ...seriesExprs(def, members).map((e) => e.instrumentId),
     ...[...def.entry.orders, ...def.exit.orders].map((o) => o.instrumentId),
