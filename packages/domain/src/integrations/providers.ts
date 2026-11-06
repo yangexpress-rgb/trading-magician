@@ -19,8 +19,14 @@ export interface ProviderInfo {
    * (fundamentals, ADR 0031), which have no routes.
    */
   offers: readonly ('market_data' | 'broker' | 'fundamentals')[];
-  /** Asset classes it can price or trade (US stocks and ETFs for now). */
+  /** Asset classes it can price or trade (US stocks and ETFs, and indices to watch). */
   assetClasses: readonly string[];
+  /**
+   * What a price feed is routed for when it is added (ADR 0038): bars and
+   * live prices unless it says otherwise. CBOE's index history has daily
+   * bars only, so it gets a bars route alone (v1.2 item 5).
+   */
+  dataTypes?: readonly ('bars' | 'quotes')[];
   /** 'demo' covers only the invented DEMO instruments; 'us' covers real US companies and venues. */
   coverage: 'demo' | 'us';
   /** Empty for providers that need no sign-in, like the built-in demo. */
@@ -69,6 +75,15 @@ export const PROVIDERS = {
       },
     ],
   },
+  cboe: {
+    id: 'cboe',
+    name: 'CBOE index history (daily)',
+    offers: ['market_data'],
+    assetClasses: ['index'],
+    coverage: 'us',
+    dataTypes: ['bars'],
+    credentialFields: [],
+  },
   sec: {
     id: 'sec',
     name: 'SEC EDGAR',
@@ -115,6 +130,13 @@ export function isFundamentalsProvider(id: string): id is ProviderId {
 /** Whether a provider gives prices, so its feeds can be routed. */
 export function isMarketDataProvider(id: string): id is ProviderId {
   return isProviderId(id) && (PROVIDERS[id].offers as readonly string[]).includes('market_data');
+}
+
+/** The data a price feed is routed for as soon as it is added. */
+export function providerDataTypes(id: string): readonly ('bars' | 'quotes')[] {
+  if (!isProviderId(id)) return [];
+  const info: ProviderInfo = PROVIDERS[id];
+  return info.dataTypes ?? ['bars', 'quotes'];
 }
 
 export const FUNDAMENTALS_PROVIDER_IDS = PROVIDER_IDS.filter(isFundamentalsProvider);

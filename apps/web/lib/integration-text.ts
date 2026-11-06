@@ -24,6 +24,7 @@ export const ASSET_CLASS_LABELS: Record<string, string> = {
   future: 'Futures',
   forex: 'Forex',
   crypto: 'Crypto',
+  index: 'Indices (watch only)',
 };
 
 export const DATA_TYPE_LABELS = { quotes: 'Live prices', trades: 'Trades', bars: 'Bars' } as const;

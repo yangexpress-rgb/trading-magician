@@ -112,6 +112,7 @@ export async function getPriceChart(tx: Transaction, id: string): Promise<PriceC
         displayName: instruments.displayName,
         assetClass: instruments.assetClass,
         venue: instruments.venue,
+        kind: instruments.kind,
       },
     })
     .from(priceCharts)

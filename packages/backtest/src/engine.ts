@@ -37,6 +37,7 @@ import Decimal from 'decimal.js';
 import {
   seriesExprs,
   seriesKey,
+  watchOnlyInstruments,
   strategyInstruments,
   type InstrumentRef,
   type LoadedData,
@@ -232,7 +233,8 @@ export function simulate({
   /** v1.2 features in use: results then say why each cycle exited. */
   const v12 = mode !== 'none' || frequency !== 'daily' || (def.exit.rules?.length ?? 0) > 0;
   for (const w of data.warnings) warnings.add(`data:${w}`, w);
-  const view = new MarketView(data.series);
+  const watchOnly = watchOnlyInstruments(instruments);
+  const view = new MarketView(data.series, watchOnly);
   const ex = def.execution;
   const risk = def.risk;
   const slippageBps = new Decimal(inputs.slippageBps);
@@ -264,6 +266,8 @@ export function simulate({
   // The clock: every execution bar end inside the requested dates.
   const stepSet = new Set<number>();
   for (const id of usedInstruments) {
+    // An index is only watched: its bars never set the clock (v1.2 item 5).
+    if (watchOnly.has(id)) continue;
     for (const bar of data.series.get(execKey(id)) ?? []) {
       const day = nyDate(bar.start);
       if (day >= inputs.from && day <= inputs.to) stepSet.add(Date.parse(bar.end));

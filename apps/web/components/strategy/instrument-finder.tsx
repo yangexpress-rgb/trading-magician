@@ -1,7 +1,8 @@
 'use client';
 
 import type { InstrumentOptionDto } from '@tm/contracts';
-import { Alert, Button, Card, TextField } from '@tm/ui';
+import { INDEX_BADGE, isIndicatorOnlyClass } from '@tm/domain';
+import { Alert, Badge, Button, Card, TextField } from '@tm/ui';
 import Link from 'next/link';
 import { useState } from 'react';
 import { ASSET_CLASS_LABELS } from '@/lib/integration-text';
@@ -39,20 +40,26 @@ export function InstrumentFinder({
   return (
     <Card>
       <h2 id="instruments-heading" className="text-lg font-semibold">
-        US stocks and ETFs
+        US stocks, ETFs and indices
       </h2>
       <p className="mb-3 text-sm text-ink-muted">
-        A strategy can use any US stock or ETF your data feed can find. Feeds are set up in{' '}
+        A strategy can use any US stock or ETF your data feed can find. Indices such as the VIX
+        (search &ldquo;VIX&rdquo;) can be watched in conditions but not traded; their daily history
+        comes from the CBOE feed. Feeds are set up in{' '}
         <Link href="/settings/data-feeds">Settings › Data feeds</Link>.
       </p>
       {real.length > 0 && (
-        <ul aria-label="Your US stocks and ETFs" className="mb-3 flex flex-wrap gap-2 text-sm">
+        <ul
+          aria-label="Your US stocks, ETFs and indices"
+          className="mb-3 flex flex-wrap gap-2 text-sm"
+        >
           {real.map((i) => (
             <li key={i.id} className="rounded border border-line px-2 py-1">
               <span className="font-medium">{i.symbol}</span>{' '}
               <span className="text-ink-muted">
                 {i.displayName} · {ASSET_CLASS_LABELS[i.assetClass] ?? i.assetClass} · {i.venue}
               </span>
+              {isIndicatorOnlyClass(i.assetClass) && <IndexBadge />}
             </li>
           ))}
         </ul>
@@ -93,5 +100,14 @@ export function InstrumentFinder({
         />
       )}
     </Card>
+  );
+}
+
+/** Marks an indicator-only instrument wherever it appears (v1.2 item 5). */
+export function IndexBadge() {
+  return (
+    <Badge tone="warn" className="ml-1">
+      {INDEX_BADGE}
+    </Badge>
   );
 }

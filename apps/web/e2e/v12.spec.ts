@@ -88,7 +88,7 @@ test('per-leg conditions, a z-score and a registry metric in the builder', async
   const left = legConditions.getByRole('group', { name: 'Left side', exact: true });
   await left
     .getByLabel('Type', { exact: true })
-    .selectOption({ label: 'Statistic (std. dev., z-score, Bollinger)' });
+    .selectOption({ label: 'Statistic (std. dev., z-score, Bollinger, BandWidth)' });
   await expect(left.getByLabel('Function')).toHaveValue('ZSCORE');
   await left.getByLabel('Period (bars)').fill('60');
   await expect(left.getByLabel('Instrument').first()).toBeVisible();

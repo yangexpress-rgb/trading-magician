@@ -545,3 +545,74 @@ describe('position values', () => {
     expect(errors).toContain('cross_on_position');
   });
 });
+
+describe('indicator-only instruments (v1.2 item 5)', () => {
+  const VIX = '00000000-0000-4000-8000-000000000f1c';
+  const withVix = () => {
+    const ctx = context();
+    const instruments = new Map(ctx.instruments);
+    instruments.set(VIX, { symbol: 'VIX', assetClass: 'index', lotSize: '1', venue: 'CBOE' });
+    return { ...ctx, instruments };
+  };
+
+  it('lets a condition read the VIX close on daily bars', () => {
+    const r = check((d) => {
+      d.entry.condition.children = [
+        comparison('vix', market('vix-close', { instrumentId: VIX }), 'gt', constant('20')),
+      ];
+    }, withVix());
+    expect(r.errors).toEqual([]);
+  });
+
+  it('refuses the VIX as a leg, saying why', () => {
+    const r = check((d) => {
+      d.entry.orders[0]!.instrumentId = VIX;
+      for (const o of d.exit.orders) o.instrumentId = VIX;
+    }, withVix());
+    expect(new Set(r.errors)).toEqual(new Set(['instrument_not_tradable']));
+    expect(r.raw.errors[0]?.message).toMatch(
+      /VIX is an index: it can be watched in conditions but not traded/,
+    );
+  });
+
+  it('refuses the VIX in a Selection-group universe', () => {
+    const r = check((d) => {
+      d.entry.kind = 'selection';
+      d.entry.selection = {
+        universe: { type: 'list', instrumentIds: [STOCK_A, VIX] },
+        ranking: { metric: 'return', params: {} },
+        direction: 'desc',
+        count: { type: 'fixed', value: 1 },
+        weighting: 'equal',
+      };
+      d.entry.orders[0]!.instrumentId = CONTEXT_INSTRUMENT_ID;
+      for (const o of d.exit.orders) o.instrumentId = CONTEXT_INSTRUMENT_ID;
+    }, withVix());
+    expect(r.errors).toContain('instrument_not_tradable');
+  });
+
+  it('asks for daily bars and the close, as CBOE has nothing else', () => {
+    const hourly = check((d) => {
+      d.entry.condition.children = [
+        comparison(
+          'vix',
+          market('vix-close', { instrumentId: VIX, interval: '1h' }),
+          'gt',
+          constant('20'),
+        ),
+      ];
+    }, withVix());
+    expect(hourly.errors).toEqual(['index_daily_only']);
+    const live = check((d) => {
+      d.entry.condition.children = [
+        comparison(
+          'vix',
+          market('vix-last', { instrumentId: VIX, field: 'last' }),
+          'gt',
+          constant('20'),
+        ),
+      ];
+    }, withVix());
+    expect(live.errors).toEqual(['index_daily_only']);
+  });
+});

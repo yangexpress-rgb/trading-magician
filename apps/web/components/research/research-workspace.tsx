@@ -6,6 +6,8 @@ import {
   CHART_RANGES,
   chartIntervalAllowed,
   defaultChartInterval,
+  INDEX_BADGE,
+  isIndicatorOnlyClass,
   type ChartInterval,
   type ChartRange,
 } from '@tm/domain';
@@ -34,6 +36,10 @@ const GIVE_UP_MS = 45_000;
 
 /** Every stock or ETF opens on its latest session: 5-minute bars, as a line. */
 const OPENING_VIEW = { range: '1d', interval: '5m', style: 'line' } as const;
+/** An index has daily bars only (CBOE end-of-day, v1.2 item 5): it opens on 5 years of them. */
+const INDEX_VIEW = { range: '5y', interval: '1d', style: 'line' } as const;
+const viewFor = (i: InstrumentOptionDto | undefined) =>
+  i && isIndicatorOnlyClass(i.assetClass) ? INDEX_VIEW : OPENING_VIEW;
 
 export interface ResearchSelection {
   instrumentId: string | null;
@@ -69,6 +75,8 @@ export function ResearchWorkspace({
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const selected = instruments.find((i) => i.id === sel.instrumentId) ?? null;
+  /** An index: daily bars only, no company behind it (v1.2 item 5). */
+  const dailyOnly = !!selected && isIndicatorOnlyClass(selected.assetClass);
 
   const update = useCallback(
     (patch: Partial<ResearchSelection>) => {
@@ -97,6 +105,12 @@ export function ResearchWorkspace({
   );
 
   useEffect(() => () => clearTimeout(timer.current), []);
+
+  // A bookmarked intraday view of an index: show its daily bars instead.
+  useEffect(() => {
+    if (dailyOnly && (sel.interval !== '1d' || sel.range === '1d'))
+      update({ range: sel.range === '1d' ? INDEX_VIEW.range : sel.range, interval: '1d' });
+  }, [dailyOnly, sel.interval, sel.range, update]);
 
   useEffect(() => {
     clearTimeout(timer.current);
@@ -149,7 +163,9 @@ export function ResearchWorkspace({
         <StockPicker
           instruments={instruments}
           selectedId={sel.instrumentId}
-          onSelect={(instrumentId) => update({ instrumentId, ...OPENING_VIEW })}
+          onSelect={(instrumentId) =>
+            update({ instrumentId, ...viewFor(instruments.find((i) => i.id === instrumentId)) })
+          }
           canSearchMarket={canSearchMarket}
           onAdded={(found) => {
             setInstruments((cur) =>
@@ -157,7 +173,7 @@ export function ResearchWorkspace({
                 ? cur
                 : [...cur, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
             );
-            update({ instrumentId: found.id, ...OPENING_VIEW });
+            update({ instrumentId: found.id, ...viewFor(found) });
           }}
         />
       </aside>
@@ -184,6 +200,7 @@ export function ResearchWorkspace({
                     >
                       <span className="font-semibold">{selected.symbol}</span>
                       <span className="truncate text-ink-muted">{selected.displayName}</span>
+                      {dailyOnly && <Badge tone="warn">{INDEX_BADGE}</Badge>}
                     </h2>
                     <p className="text-xs text-ink-muted">
                       {ASSET_CLASS_LABELS[selected.assetClass] ?? selected.assetClass} ·{' '}
@@ -215,6 +232,8 @@ export function ResearchWorkspace({
                       value: r,
                       label: RANGE_LABELS[r],
                       title: RANGE_NAMES[r],
+                      // One daily bar is not a chart.
+                      disabled: dailyOnly && r === '1d',
                     }))}
                     onChange={(range) => update({ range })}
                   />
@@ -224,8 +243,13 @@ export function ResearchWorkspace({
                     options={CHART_INTERVALS.map((i) => ({
                       value: i,
                       label: INTERVAL_LABELS[i],
-                      disabled: !chartIntervalAllowed(sel.range, i),
-                      title: chartIntervalAllowed(sel.range, i) ? undefined : INTERVAL_LIMITS[i],
+                      disabled: !chartIntervalAllowed(sel.range, i) || (dailyOnly && i !== '1d'),
+                      title:
+                        dailyOnly && i !== '1d'
+                          ? 'CBOE gives index history as daily bars only'
+                          : chartIntervalAllowed(sel.range, i)
+                            ? undefined
+                            : INTERVAL_LIMITS[i],
                     }))}
                     onChange={(interval) => update({ interval })}
                   />
@@ -282,7 +306,7 @@ export function ResearchWorkspace({
             )}
           </Card>
         </section>
-        {selected && (
+        {selected && !dailyOnly && (
           <CompanyPanel
             instrument={selected}
             price={summary && showing?.instrument.id === selected.id ? summary.last : null}

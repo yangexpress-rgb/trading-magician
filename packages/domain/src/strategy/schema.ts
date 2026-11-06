@@ -102,9 +102,17 @@ export interface MetricExpr {
 /**
  * A statistical function over any expression, evaluated bar by bar over its
  * own history (v1.2 item 3): standard deviation, z-score and Bollinger bands
- * of a price, a calculated spread or another indicator.
+ * of a price, a calculated spread or another indicator, and the Bollinger
+ * BandWidth (v1.2 item 5).
  */
-export const STAT_FUNCTIONS = ['STDDEV', 'ZSCORE', 'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER'] as const;
+export const STAT_FUNCTIONS = [
+  'STDDEV',
+  'ZSCORE',
+  'BB_UPPER',
+  'BB_MIDDLE',
+  'BB_LOWER',
+  'BANDWIDTH',
+] as const;
 export type StatFunction = (typeof STAT_FUNCTIONS)[number];
 export interface StatExpr {
   kind: 'stat';
@@ -112,7 +120,7 @@ export interface StatExpr {
   fn: StatFunction;
   input: Expr;
   period: number;
-  /** Band width in standard deviations, for the Bollinger functions. */
+  /** Band width in standard deviations, for the Bollinger functions and BandWidth. */
   multiplier?: string | undefined;
   /** Bars back from the current one, as on market values. */
   offset?: number | undefined;

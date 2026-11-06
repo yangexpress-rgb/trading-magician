@@ -203,6 +203,8 @@ export interface InstrumentOptionDto {
   displayName: string;
   assetClass: string;
   venue: string;
+  /** `indicator_only` for an index such as the VIX: watched, never traded (v1.2 item 5). */
+  kind?: 'tradable' | 'indicator_only' | undefined;
 }
 
 export interface InstrumentLookupDto {

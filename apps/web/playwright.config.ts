@@ -110,6 +110,7 @@ export default defineConfig({
         SEC_FAKE: 'true',
         // Custom REST feeds reach a made-up JSON API (ADR 0041).
         CUSTOM_REST_FAKE: 'true',
+        CBOE_FAKE: 'true',
         BILLING_FAKE: 'true',
         E2E_TEST: '1',
         // The tests run on the invented demo instruments and demo feed (ADR 0039).

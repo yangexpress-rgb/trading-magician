@@ -27,6 +27,11 @@ function lastEndingBy(bars: readonly Bar[], t: number, from: number): number {
  * A series is stale when a bar that other instruments have for the same
  * interval is missing: its latest value is then unknown, so conditions on it
  * cannot qualify, and `is stale` reports true.
+ *
+ * Indicator-only instruments (indices such as the VIX, v1.2 item 5) are
+ * joined differently: their latest bar ending at or before the current time
+ * is used, so a day the index published nothing reads the most recent close
+ * on or before it. Their own bars never make other series look stale.
  */
 export class MarketView implements SeriesResolver {
   private readonly pointers = new Map<string, number>();
@@ -35,9 +40,17 @@ export class MarketView implements SeriesResolver {
   private readonly indicators = new Map<string, IndicatorValues>();
   private now = Number.NEGATIVE_INFINITY;
 
-  constructor(private readonly series: ReadonlyMap<string, Bar[]>) {
+  private readonly watchOnly: ReadonlySet<string>;
+
+  constructor(
+    private readonly series: ReadonlyMap<string, Bar[]>,
+    /** Instrument ids of indicator-only instruments. */
+    watchOnly: ReadonlySet<string> = new Set(),
+  ) {
+    this.watchOnly = watchOnly;
     const ends = new Map<string, Set<number>>();
     for (const [key, bars] of series) {
+      if (this.watchOnly.has(key.split('|')[0] ?? '')) continue;
       const interval = key.split('|')[1] ?? '';
       const set = ends.get(interval) ?? new Set<number>();
       for (const b of bars) set.add(Date.parse(b.end));
@@ -80,6 +93,7 @@ export class MarketView implements SeriesResolver {
   }
 
   private staleKey(key: string, interval: string): boolean {
+    if (this.watchOnly.has(key.split('|')[0] ?? '')) return false;
     const i = this.pointers.get(key) ?? -1;
     const bar = i >= 0 ? this.series.get(key)?.[i] : undefined;
     const expected = this.expectedEnds.get(interval)?.[this.expectedPointers.get(interval) ?? -1];

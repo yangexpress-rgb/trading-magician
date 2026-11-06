@@ -48,7 +48,7 @@ test('connects an Alpaca feed and finds a US stock for a strategy', async ({ pag
   await expect(page.getByRole('status').filter({ hasText: 'Added ZTSTA' })).toContainText(
     'Test Alpha Inc. Common Stock',
   );
-  const yours = page.getByRole('list', { name: 'Your US stocks and ETFs' });
+  const yours = page.getByRole('list', { name: 'Your US stocks, ETFs and indices' });
   await expect(yours).toContainText('ZTSTA');
   await expect(yours).toContainText('NASDAQ');
 

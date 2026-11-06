@@ -33,6 +33,7 @@ describe('worker env', () => {
       BILLING_FAKE: false,
       SEC_FAKE: false,
       CUSTOM_REST_FAKE: false,
+      CBOE_FAKE: false,
       ALPACA_FAKE: false,
     });
   });

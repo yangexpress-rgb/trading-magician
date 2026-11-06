@@ -57,7 +57,8 @@ export interface MetricSpec {
 
 export type DailySeries = MarketExpr | IndicatorExpr;
 
-const PRICE_CLASSES = ['stock', 'etf'] as const;
+/** Price metrics read daily closes, which indices have too (v1.2 item 5). */
+const PRICE_CLASSES = ['stock', 'etf', 'index'] as const;
 
 /** The daily close series of an instrument, `offset` bars back. */
 export function dailyClose(instrumentId: string, offset = 0): MarketExpr {

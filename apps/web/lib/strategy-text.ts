@@ -130,7 +130,10 @@ export function describeExpr(expr: Expr, symbol: SymbolLookup): string {
       return `${spec?.label ?? expr.metric}(${params}) of ${instrumentText(expr.instrumentId, symbol)}`;
     }
     case 'stat': {
-      const mult = expr.multiplier && expr.fn.startsWith('BB_') ? `, ${expr.multiplier}` : '';
+      const mult =
+        expr.multiplier && (expr.fn.startsWith('BB_') || expr.fn === 'BANDWIDTH')
+          ? `, ${expr.multiplier}`
+          : '';
       const ago = expr.offset ? ` ${expr.offset} bars ago` : '';
       return `${expr.fn}(${describeExpr(expr.input, symbol)}, ${expr.period}${mult})${ago}`;
     }
