@@ -94,3 +94,11 @@ by about that ratio since the last count; a period known as dividends declared i
 dividends paid. Migration 0061 deletes the stored companies and observations so they are synced
 again with the fixed derivation (the data is public and is fetched again on the next back test,
 paper pass or screen; a run before and after may differ for companies that were affected).
+
+## Amendment (2026-11-07): a non-payer's dividend yield is 0%
+
+Yong chose that a company paying no dividend has a 0% yield, not an unknown one. The replay emits
+dividends per share (TTM) of 0 when a company's filings report earnings but neither dividends per
+share nor any cash dividends paid for a period ending in the 15 months before its latest earnings.
+A payer that reports cash dividends without a per-share figure stays unknown. Migration 0062
+re-syncs every company so the zeros are stored.

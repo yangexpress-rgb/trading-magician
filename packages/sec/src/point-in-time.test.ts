@@ -16,6 +16,7 @@ const UNITS: Record<string, string> = {
   EarningsPerShareDiluted: 'USD/shares',
   CommonStockDividendsPerShareDeclared: 'USD/shares',
   CommonStockDividendsPerShareCashPaid: 'USD/shares',
+  EarningsPerShareBasicAndDiluted: 'USD/shares',
   EntityCommonStockSharesOutstanding: 'shares',
 };
 
@@ -272,6 +273,49 @@ describe('point-in-time fundamentals from EDGAR (v1.2 item 6)', () => {
   });
 });
 
+describe('a company that pays no dividend (Yong, 2026-11-07)', () => {
+  const eps = (accn: string, filed: string, extra: F['facts'] = {}): F => ({
+    accn,
+    form: '10-Q',
+    filed,
+    facts: { EarningsPerShareDiluted: [[...(q24.q1 as [string, string]), 1]], ...extra },
+  });
+
+  it('has a dividend yield of 0: earnings reported, no dividends at all', () => {
+    const obs = pointInTimeObservations(companyFacts([eps('N-1', '2024-05-01')]));
+    expect(asOf(obs, 'dps_ttm', '2024-05-02T00:00:00Z')).toBe(0);
+  });
+
+  it('stays unknown when it pays cash dividends but reports no per-share figure', () => {
+    const obs = pointInTimeObservations(
+      companyFacts([
+        eps('P-1', '2024-05-01', {
+          PaymentsOfDividendsCommonStock: [[...(q24.q1 as [string, string]), 5_000_000]],
+        }),
+      ]),
+    );
+    expect(asOf(obs, 'dps_ttm', '2024-05-02T00:00:00Z')).toBeUndefined();
+  });
+
+  it("keeps a payer's dividends, and drops to 0 only once none were paid for 15 months", () => {
+    const obs = pointInTimeObservations(companyFacts(filings));
+    // The 10-K's 1.2 a year stands while it is recent.
+    expect(asOf(obs, 'dps_ttm', '2025-03-01T00:00:00Z')).toBe(1.2);
+    const later = pointInTimeObservations(
+      companyFacts([
+        ...filings,
+        {
+          accn: 'A-26Q2',
+          form: '10-Q',
+          filed: '2026-08-01',
+          facts: { EarningsPerShareDiluted: [['2026-04-01', '2026-06-30', 1]] },
+        },
+      ]),
+    );
+    expect(asOf(later, 'dps_ttm', '2026-08-02T00:00:00Z')).toBe(0);
+  });
+});
+
 describe('acceptance times', () => {
   it('reads EDGAR acceptance times as New York wall time', () => {
     const sub = {
@@ -326,7 +370,8 @@ describe('point-in-time fundamentals from the fake EDGAR', () => {
     // Accepted at 16:05 New York time on the filing date.
     expect(beta?.every((o) => /T2[01]:05:00\.000Z$/.test(o.availableFrom))).toBe(true);
     const alpha = await fetchPointInTime(client, 9_900_001);
-    expect(latestObservation(alpha, 'dps_ttm', at)).toBeUndefined();
+    // A non-payer's dividends per share are 0, so its yield is 0% (Yong, 2026-11-07).
+    expect(latestObservation(alpha, 'dps_ttm', at)?.value.toNumber()).toBe(0);
     expect(await fetchPointInTime(client, 1234)).toBeUndefined();
   });
 });

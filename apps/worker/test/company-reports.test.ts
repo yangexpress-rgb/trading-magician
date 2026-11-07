@@ -207,8 +207,8 @@ describe('company data feeds', () => {
     const a = rows.find((r) => r.symbol === 'ZTSTA')!;
     expect(a.marketCap).toBe(Math.round(a.last! * 250_000_000));
     expect(a.pe).toBeGreaterThan(0);
-    // Test Alpha pays no dividend; Test Beta declares one.
-    expect(a.dividendYieldPct).toBeNull();
+    // Test Alpha pays no dividend (a 0% yield, Yong 2026-11-07); Test Beta declares one.
+    expect(a.dividendYieldPct).toBe(0);
     const b = rows.find((r) => r.symbol === 'ZTSTB')!;
     expect(b.dividendYieldPct).toBeGreaterThan(0);
     expect(b.priceToBook).toBeGreaterThan(0);

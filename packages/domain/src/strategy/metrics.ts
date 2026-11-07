@@ -391,7 +391,7 @@ const FUNDAMENTAL_METRICS: readonly MetricSpec[] = [
   fundamentalMetric(
     'dividend_yield',
     'Dividend yield',
-    'Cash dividends declared per share over the last twelve months ÷ price per share. Unknown for a company whose filings report no dividends per share. 0.03 is 3%.',
+    'Cash dividends declared per share over the last twelve months ÷ price per share. 0 for a company whose filings show earnings but no dividends paid in the last 15 months; unknown for one that pays cash dividends without reporting a per-share figure. 0.03 is 3%.',
     'fraction',
     (f) => f.perShare('dps_ttm')?.div(f.price),
   ),

@@ -101,7 +101,8 @@ describe('point-in-time fundamentals sync', () => {
     expect(result.warnings).toEqual(['NOPE: no SEC filings, so its fundamentals are unknown']);
     const beta = result.byId.get('b');
     expect(latestObservation(beta, 'dps_ttm', nowMs)?.value.toNumber()).toBeGreaterThan(2.5);
-    expect(latestObservation(result.byId.get('a'), 'dps_ttm', nowMs)).toBeUndefined();
+    // A non-payer: dividends per share 0, so a 0% yield (Yong, 2026-11-07).
+    expect(latestObservation(result.byId.get('a'), 'dps_ttm', nowMs)?.value.toNumber()).toBe(0);
     expect(latestObservation(result.byId.get('a'), 'eps_ttm', nowMs)).toBeDefined();
   });
 
