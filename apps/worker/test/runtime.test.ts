@@ -438,7 +438,6 @@ describe('paper runtime: timing (§6.8)', () => {
       leg('sell', {
         legLabel: 'Sell A later',
         side: 'close',
-        timingOnly: true,
         timing: {
           mode: 'relative',
           amount: 5,
@@ -447,6 +446,7 @@ describe('paper runtime: timing (§6.8)', () => {
         },
       }),
     ];
+    def.execution.timingOnly = true;
     const { runtimeId } = await startPaper('Delayed exit', def);
     const placedAt = clock;
     await pass();
@@ -848,7 +848,6 @@ describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, ti
       ranking: { metric: 'return', params: { lookbackMonths: '1', skipMonths: '0' } },
       direction: 'desc',
       count: { type: 'fixed', value: 2 },
-      weighting: 'equal',
     };
     def.entry.orders = [
       leg('each', {
@@ -887,7 +886,6 @@ describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, ti
       ranking: { metric: 'return', params: {} },
       direction: 'desc',
       count: { type: 'fixed', value: 10 },
-      weighting: 'equal',
     };
     def.entry.orders = [leg('each', { instrumentId: CONTEXT })];
     def.exit.orders = [leg('close-each', { instrumentId: CONTEXT, side: 'close' })];
@@ -941,7 +939,6 @@ describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, ti
 describe('paper runtime: long and short entry groups (v1.2 item 8)', () => {
   const twoSided = (longEntry: StrategyDefinition['entry']['condition']) => {
     const def = createDefinition();
-    def.entry.direction = 'long';
     def.entry.condition = longEntry;
     def.entry.trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
     def.entry.orders = [leg('buy', { legLabel: 'Buy A' })];
@@ -952,7 +949,6 @@ describe('paper runtime: long and short entry groups (v1.2 item 8)', () => {
         id: 'short-1',
         label: 'Short A group',
         entry: {
-          direction: 'short',
           condition: always('sin'),
           trigger: { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 },
           orders: [leg('short', { legLabel: 'Short A', side: 'sell_short' })],
@@ -1002,21 +998,23 @@ describe('paper runtime: long and short entry groups (v1.2 item 8)', () => {
 });
 
 describe('paper runtime: risk sizing from ATR and the ATR stop (v1.2 item 9)', () => {
-  const riskAtr = (atrPeriod: number, value = '1') => ({
-    type: 'risk_atr' as const,
+  /** Risk a % of equity over the Entry's ATR distance (ADR 0049). */
+  const riskAtr = (value = '1') => ({
+    type: 'risk' as const,
     value,
     rounding: 'down' as const,
-    atrPeriod,
-    atrMultiple: '2',
+    amountIn: 'pct_equity' as const,
+    distanceFrom: 'atr' as const,
   });
 
   it('sizes the Entry from equity, risk % and ATR, and records how', async () => {
     clock = Date.parse('2026-11-04T15:31:00Z');
     const def = pairDefinition();
-    def.entry.orders = [leg('buy', { legLabel: 'Buy A', quantity: riskAtr(5) })];
+    def.entry.orders = [leg('buy', { legLabel: 'Buy A', quantity: riskAtr() })];
+    def.entry.risk = { atrPeriod: 5, atrMultiple: '2' };
     def.exit.orders = [leg('sell', { legLabel: 'Sell A', side: 'close' })];
     def.exit.condition = never();
-    def.exit.rules = [{ kind: 'atrStop', id: 'atr', atrPeriod: 5, atrMultiple: '2' }];
+    def.exit.rules = [{ kind: 'atrStop', id: 'atr' }];
     def.risk = { ...def.risk, maxOrderNotional: '1000000', maxStrategyExposure: '1000000' };
     const { runtimeId } = await startPaper('Risk ATR', def);
     await pass();
@@ -1051,7 +1049,8 @@ describe('paper runtime: risk sizing from ATR and the ATR stop (v1.2 item 9)', (
   it('places nothing when the risk budget buys less than one share, and says why', async () => {
     clock = Date.parse('2026-11-05T15:31:00Z');
     const def = pairDefinition();
-    def.entry.orders = [leg('buy', { legLabel: 'Buy A', quantity: riskAtr(5, '0.001') })];
+    def.entry.orders = [leg('buy', { legLabel: 'Buy A', quantity: riskAtr('0.001') })];
+    def.entry.risk = { atrPeriod: 5, atrMultiple: '2' };
     def.exit.orders = [leg('sell', { legLabel: 'Sell A', side: 'close' })];
     def.exit.condition = never();
     const { runtimeId } = await startPaper('Risk ATR, too small', def);

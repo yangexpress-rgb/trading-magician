@@ -322,13 +322,17 @@ describe('an options condition in a strategy (F5)', () => {
     expect(ranked.rows.find((row) => row[0] === 'SPY')?.[3]).toBe(2);
   });
 
-  it('picks the best leg by an options metric in fire mode', async () => {
+  it('picks the best leg by an options metric in a Selection group of these legs', async () => {
     const def = expectedMoveRule();
     def.entry.condition.children = [];
-    def.entry.fireMode = {
-      mode: 'bestByMetric',
-      metric: { metric: 'options.iv30', params: {} },
-    } as StrategyDefinition['entry']['fireMode'];
+    def.entry.kind = 'selection';
+    def.entry.selection = {
+      universe: { type: 'legs' },
+      ranking: { metric: 'options.iv30', params: {} },
+      direction: 'desc',
+      count: { type: 'fixed', value: 1 },
+    };
+    delete def.exit.trigger;
     const buy = def.entry.orders[0]!;
     def.entry.orders = [buy, { ...buy, id: 'buy-qqq', legLabel: 'Buy QQQ', instrumentId: qqq }];
     const sell = def.exit.orders[0]!;

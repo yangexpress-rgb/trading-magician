@@ -79,6 +79,8 @@ import {
   atrStopInstrument,
   atrStopLevel,
   atrStopOf,
+  atrStopDistance,
+  sizesFromAtr,
   riskSizingCap,
   stopCloseExpr,
   newRuntimeTriggerState,
@@ -91,6 +93,7 @@ import {
   nyDate,
   planCycle,
   planEntry,
+  rearmEntryTrigger,
   quoteAgeSec,
   sizeOrder,
   walkExpressions,
@@ -709,6 +712,8 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   let entryEventId: string | undefined;
   const newCycleIds: string[] = [];
   const rebalanceExits = new Set<string>();
+  /** Cycles a timed leg opened that got their Entry trigger this pass. */
+  const triggeredLater = new Set<string>();
 
   const openCycle = async (
     cycle: ReturnType<typeof newCycleState>,
@@ -770,6 +775,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   if (mode === 'none') {
     // Entry: a new cycle, another batch, or nothing (§6.9).
     entryTruth = newData && entryDue ? { truth: evaluate('entry') } : undefined;
+    const severalGroups = (def.groups?.length ?? 0) > 0;
     const entry = planEntry({
       definition: def,
       state: state.trigger,
@@ -777,6 +783,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       now: t,
       entryTruth,
       halted: entryHalted,
+      severalGroups,
     });
     state.trigger = entry.state;
     // The trigger event is written after its cycle, so both can point at each other.
@@ -790,6 +797,15 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     } else if (entry.decision.kind === 'add_batch') {
       const target = cycles.find((c) => c.id === (entry.decision as { cycleId: string }).cycleId);
       if (target) target.cycle = { ...target.cycle, entryBatches: target.cycle.entryBatches + 1 };
+    } else if (entry.decision.kind === 'trigger_cycle') {
+      // A cycle a timed leg opened on its own now has its Entry trigger too, as
+      // in the back test (ADR 0049): legs waiting for "Entry triggered" can go.
+      const target = cycles.find((c) => c.id === (entry.decision as { cycleId: string }).cycleId);
+      if (target) {
+        target.cycle = { ...target.cycle, entryTriggeredAt: t };
+        target.entryTriggerEventId = entryEventId ?? null;
+        triggeredLater.add(target.id);
+      }
     }
     // Further entry groups (v1.2 item 8), in order: one enters only while no
     // cycle of any group is open, so a position is never flipped.
@@ -805,6 +821,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         now: t,
         entryTruth: truth,
         halted: entryHalted,
+        severalGroups: true,
       });
       state.groupTriggers = { ...state.groupTriggers, [g.id]: planned.state };
       if (!truth) continue;
@@ -869,7 +886,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       id: entryEventId,
       userId: work.userId,
       runtimeId: work.id,
-      cycleId: newCycleIds[0],
+      cycleId: newCycleIds[0] ?? [...triggeredLater][0],
       phase: 'entry',
       dataTime: new Date(dataTime),
       evaluatedAt: now,
@@ -903,7 +920,8 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         : undefined;
     // ATR stop (v1.2 item 9): the ATR is fixed when Entry is decided; a daily
     // close beyond entry ∓ multiple × that ATR exits, by OR with the condition.
-    const atrRule = atrStopOf(cycleDef);
+    // The stop's distance is the Entry's risk distance unless it has its own (ADR 0049).
+    const atrRule = atrStopOf(cycleDef) ? atrStopDistance(cycleDef) : undefined;
     const atrInstrument = atrStopInstrument(cycleDef);
     if (atrRule && atrInstrument && !c.cycle.atrAtEntry) {
       const atr = evaluateExpr(atrExpr(atrInstrument, atrRule.atrPeriod), view);
@@ -1028,11 +1046,22 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     let realizedPnl: string | undefined;
     if (plan.cycle.status === 'closed') realizedPnl = c.cash.toDecimalPlaces(2).toString();
     await saveCycle(tx, c.id, plan.cycle, {
+      ...(triggeredLater.has(c.id) && c.entryTriggerEventId
+        ? { entryTriggerEventId: c.entryTriggerEventId }
+        : {}),
       ...(exitEventId && plan.notes.includes('exit_triggered')
         ? { exitTriggerEventId: exitEventId }
         : {}),
       ...(realizedPnl !== undefined ? { realizedPnl } : {}),
     });
+    // A closed or aborted cycle re-arms its Entry trigger (ADR 0049), as in the
+    // back test: "once per cycle" then fires again for the next cycle.
+    if (!c.cycle.slot && (plan.notes.includes('closed') || plan.notes.includes('aborted'))) {
+      if (c.cycle.group) {
+        const g = state.groupTriggers?.[c.cycle.group];
+        if (g) rearmEntryTrigger(g.entryTrigger);
+      } else rearmEntryTrigger(state.trigger.entryTrigger);
+    }
     for (const note of plan.notes) {
       if (
         note === 'closed' ||
@@ -1124,7 +1153,9 @@ async function placeLeg(
   if ((order.limitPrice && !limit) || (order.stopPrice && !stop)) return skip(plan, leg);
 
   // Risk-based sizing (v1.2 item 9): ATR of the daily bars now, capped to the limits.
-  const atrPeriod = order.quantity.type === 'risk_atr' ? order.quantity.atrPeriod : undefined;
+  // The Entry's one risk distance (ADR 0049).
+  const riskDistance = sizesFromAtr(order) ? def.entry.risk : undefined;
+  const atrPeriod = riskDistance?.atrPeriod;
   const sized = sizeOrder({
     order,
     referencePrice: quote.last,
@@ -1135,6 +1166,7 @@ async function placeLeg(
     ...(atrPeriod
       ? {
           atr: evaluateExpr(atrExpr(order.instrumentId, atrPeriod), input.view),
+          distance: riskDistance,
           cap: riskSizingCap(def.risk, input.equity, input.gross),
         }
       : {}),

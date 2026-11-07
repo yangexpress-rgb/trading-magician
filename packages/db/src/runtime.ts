@@ -550,7 +550,12 @@ export async function saveCycle(
   tx: Transaction,
   cycleId: string,
   cycle: CycleState,
-  extra: { exitTriggerEventId?: string; realizedPnl?: string; closedAt?: Date } = {},
+  extra: {
+    entryTriggerEventId?: string;
+    exitTriggerEventId?: string;
+    realizedPnl?: string;
+    closedAt?: Date;
+  } = {},
 ) {
   const { status, ...state } = cycle;
   await tx
@@ -561,6 +566,7 @@ export async function saveCycle(
       positionOpenedAt:
         cycle.positionOpenedAt === undefined ? null : new Date(cycle.positionOpenedAt),
       exitTriggeredAt: cycle.exitTriggeredAt === undefined ? null : new Date(cycle.exitTriggeredAt),
+      ...(extra.entryTriggerEventId ? { entryTriggerEventId: extra.entryTriggerEventId } : {}),
       ...(extra.exitTriggerEventId ? { exitTriggerEventId: extra.exitTriggerEventId } : {}),
       ...(extra.realizedPnl !== undefined ? { realizedPnl: extra.realizedPnl } : {}),
       ...(isFinished(status) ? { closedAt: extra.closedAt ?? new Date() } : { closedAt: null }),
