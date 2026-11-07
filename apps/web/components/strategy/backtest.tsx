@@ -29,6 +29,8 @@ import {
   sizingText,
   atrStopText,
   thin,
+  DIRECTION_WORDS,
+  tradeDirection,
 } from '@/lib/backtest-text';
 import { ADJUSTMENT_LABELS, SIDE_LABELS } from '@/lib/strategy-text';
 
@@ -525,7 +527,7 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                         <div className="text-xs text-ink-muted">{TRADE_STATUS[t.status]}</div>
                       </Td>
                       <Td>
-                        <div>{tradeDirection(t) === 'short' ? 'Short' : 'Long'}</div>
+                        <div>{DIRECTION_WORDS[tradeDirection(t)]}</div>
                         {t.group && <div className="text-xs text-ink-muted">{t.group}</div>}
                       </Td>
                       <Td className="whitespace-nowrap">
@@ -648,14 +650,4 @@ function Charts({ run }: { run: BacktestRunDto }) {
       />
     </div>
   );
-}
-
-/**
- * A trade's direction (v1.2 item 8): as the back test recorded it, else from
- * its Entry legs (a short sale opens a short), for runs from before item 8.
- */
-export function tradeDirection(t: BacktestTradeDto): 'long' | 'short' {
-  if (t.direction) return t.direction;
-  const entries = t.legs.filter((l) => l.phase === 'entry');
-  return entries.length > 0 && entries.every((l) => l.side === 'sell_short') ? 'short' : 'long';
 }

@@ -428,6 +428,13 @@
       "when": 1794046158820,
       "tag": "0060_account_purge_custom_feeds",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1794047661625,
+      "tag": "0061_refresh_fundamentals",
+      "breakpoints": true
     }
   ]
 }

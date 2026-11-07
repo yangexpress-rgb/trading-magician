@@ -25,7 +25,17 @@ describe('HIGHEST / LOWEST window (v1.2 item 7)', () => {
     for (const name of ['HIGHEST', 'LOWEST']) {
       const spec = getIndicator(name);
       expect(spec?.builderOffset).toBe(1);
-      expect(spec?.help).toMatch(/Bars ago 1 \(the default\) the current bar is left out/);
+      expect(spec?.help?.({ period: 20 }, 1)).toMatch(/current bar is left out/);
+    }
+    // The help names the expression's own period and Bars ago, not a fixed example.
+    const lowest = getIndicator('LOWEST')!.help!;
+    expect(lowest({ period: 20 }, 1)).toContain('Lowest value(20)');
+    expect(lowest({ period: 20 }, 1)).toContain('previous 20 bars');
+    expect(lowest({ period: 7 }, 1)).toContain('previous 7 bars');
+    expect(getIndicator('HIGHEST')!.help!({ period: 10 }, 1)).toContain('Highest value(10)');
+    expect(getIndicator('HIGHEST')!.help!({ period: 10 }, 0)).toMatch(/can never be true/);
+    for (const name of ['HIGHEST', 'LOWEST']) {
+      expect(getIndicator(name)?.help?.({ period: 5 }, 3)).toContain('ending 3 bars before');
     }
     expect(getIndicator('SMA')?.builderOffset).toBeUndefined();
   });

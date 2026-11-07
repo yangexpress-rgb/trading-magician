@@ -66,9 +66,9 @@ test('Highest starts one bar back, with help on which bars count', async ({ page
   );
   await page.goto(`/strategy-lab/${s.id}`);
   const entry = page.getByRole('region', { name: 'Entry conditions' });
-  // The saved rule reads one bar back, and says why.
+  // The saved rule reads one bar back, and says why, with its own period.
   await expect(
-    entry.getByText(/With Bars ago 1 \(the default\) the current bar is left out/),
+    entry.getByText(/Highest value\(20\) of high" means a close above the previous 20 bars'/),
   ).toBeVisible();
   // Picking Highest anew on the left side also starts at Bars ago 1.
   await entry.getByLabel('Type', { exact: true }).first().selectOption('indicator');
@@ -171,6 +171,36 @@ test('a long and a short entry group: built, validated, back tested with directi
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/entry-groups.png`, fullPage: true });
   const a11y = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(a11y.violations).toEqual([]);
+});
+
+test('an entry group can be removed again', async ({ page, baseURL }) => {
+  test.setTimeout(120_000);
+  await signUpAndVerify(page, uniqueEmail('remove-group'));
+  const s = await createStrategyWithRules(page, baseURL!, 'Removable group', (ids, account) =>
+    longBreakout(ids['DEMO-A']!, account),
+  );
+  await page.goto(`/strategy-lab/${s.id}`);
+  await page.getByRole('button', { name: 'Add an entry group' }).click();
+  const g2 = page.getByRole('region', { name: 'Entry group 2: Group 2' });
+  await expect(g2).toBeVisible();
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await expect(page.locator('#save-state')).toHaveText('All changes saved');
+
+  // Confirmed on the page, never in a browser dialog (which some browsers block).
+  page.on('dialog', () => {
+    throw new Error('Remove group must not open a browser dialog');
+  });
+  await g2.getByRole('button', { name: 'Remove group' }).click();
+  await g2.getByRole('button', { name: 'Keep it' }).click();
+  await expect(g2).toBeVisible();
+  await g2.getByRole('button', { name: 'Remove group' }).click();
+  await g2.getByRole('button', { name: 'Yes, remove' }).click();
+  await expect(g2).toHaveCount(0);
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await expect(page.locator('#save-state')).toHaveText('All changes saved');
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Add an entry group' })).toBeVisible();
+  await expect(page.getByRole('region', { name: /^Entry group 2/ })).toHaveCount(0);
 });
 
 test('risk % of equity sized from ATR, with an ATR stop, explained per trade', async ({

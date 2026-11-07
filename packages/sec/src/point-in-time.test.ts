@@ -15,6 +15,7 @@ interface F {
 const UNITS: Record<string, string> = {
   EarningsPerShareDiluted: 'USD/shares',
   CommonStockDividendsPerShareDeclared: 'USD/shares',
+  CommonStockDividendsPerShareCashPaid: 'USD/shares',
   EntityCommonStockSharesOutstanding: 'shares',
 };
 
@@ -200,12 +201,74 @@ describe('point-in-time fundamentals from EDGAR (v1.2 item 6)', () => {
               [...(q25.q2 as [string, string]), 0.6],
               [...(q24.q2 as [string, string]), 0.55],
             ],
+            // The cover page shows the doubled share count.
+            EntityCommonStockSharesOutstanding: [[undefined, '2025-07-20', 2000]],
           },
         },
       ]),
     );
     // Q2 2025 0.6, Q1 2025 −0.25, Q4 2024 0.65, Q3 2024 0.6, all on today's basis.
     expect(asOf(split, 'eps_ttm', '2025-08-10T00:00:00Z')).toBeCloseTo(0.6 - 0.25 + 0.65 + 0.6, 9);
+  });
+
+  it('takes no split from a whole-ratio change the share count does not show', () => {
+    const notSplit = pointInTimeObservations(
+      companyFacts([
+        ...filings.slice(0, 5),
+        {
+          accn: 'A-25Q2',
+          form: '10-Q',
+          filed: '2025-08-01',
+          facts: {
+            EarningsPerShareDiluted: [
+              [...(q25.q2 as [string, string]), 1.2],
+              [...(q24.q2 as [string, string]), 0.55],
+            ],
+            EntityCommonStockSharesOutstanding: [[undefined, '2025-07-20', 1010]],
+          },
+        },
+      ]),
+    );
+    // The restated quarter replaces the old one; nothing else is rescaled.
+    expect(asOf(notSplit, 'eps_ttm', '2025-08-10T00:00:00Z')).toBeCloseTo(1.2 - 0.5 + 1.3 + 1.2, 9);
+  });
+
+  it('never mistakes dividends paid against dividends declared for a split', () => {
+    // Declared each quarter when it is announced; one 10-Q reports only what was paid,
+    // which for that quarter was half (the next dividend was declared, not yet paid).
+    const div = (accn: string, filed: string, tag: string, rows: [string, string, number][]) => ({
+      accn,
+      form: '10-Q',
+      filed,
+      facts: {
+        [tag]: rows,
+        EntityCommonStockSharesOutstanding: [[undefined, filed, 1000]] as [
+          undefined,
+          string,
+          number,
+        ][],
+      },
+    });
+    const D = 'CommonStockDividendsPerShareDeclared';
+    const P = 'CommonStockDividendsPerShareCashPaid';
+    const obs = pointInTimeObservations(
+      companyFacts([
+        div('D-0', '2024-02-20', D, [['2023-10-01', '2023-12-31', 0.66]]),
+        div('D-1', '2024-05-01', D, [[...(q24.q1 as [string, string]), 0.66]]),
+        div('D-2', '2024-08-01', D, [[...(q24.q2 as [string, string]), 0.66]]),
+        div('D-3', '2024-11-01', P, [
+          [...(q24.q3 as [string, string]), 0.66],
+          [...(q24.q2 as [string, string]), 0.33],
+        ]),
+        div('D-5', '2025-05-01', D, [
+          [...(q25.q1 as [string, string]), 0.66],
+          [...(q24.q1 as [string, string]), 0.66],
+        ]),
+      ]),
+    );
+    // Four quarters of 0.66: the paid figure neither rescales nor replaces the declared ones.
+    expect(asOf(obs, 'dps_ttm', '2024-11-10T00:00:00Z')).toBeCloseTo(2.64, 9);
+    expect(asOf(obs, 'dps_ttm', '2025-05-10T00:00:00Z')).toBeCloseTo(2.64, 9);
   });
 });
 

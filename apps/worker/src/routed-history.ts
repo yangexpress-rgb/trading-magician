@@ -22,6 +22,8 @@ export function createRoutedHistory(options: {
   now: () => Date;
   providers: ProviderRegistry;
   privateKey: CredentialKey | undefined;
+  /** Wait out feeds' rate limits (back tests over many instruments). */
+  patient?: boolean;
   /** Told which feed answers each instrument, e.g. to name the source on a chart. */
   onFeed?: (instrumentId: string, feed: { id: string; name: string; provider: string }) => void;
 }): HistoricalDataProvider {
@@ -76,6 +78,7 @@ export function createRoutedHistory(options: {
             feed: { id: feed.id, config: feed.config },
             userId: options.userId,
             inTenant: options.inTenant,
+            patient: options.patient ?? false,
           });
         }
       }

@@ -132,9 +132,11 @@ describe('back-test worker', () => {
       await processNextRun({ db: t.app.db, provider: broken, workerId: 'w1', logger: quiet }),
     ).toBe('failed');
     const failed = await asUser((tx) => getBacktest(tx, run.id));
-    expect(failed.error).toBe(
-      'The back test could not be completed. Try again, or change the dates.',
+    // It names the instrument but never repeats an unexpected error's text (v1.2 review).
+    expect(failed.error).toMatch(
+      /^Bars for DEMO-\w+ could not be loaded: the data feed failed unexpectedly$/,
     );
+    expect(failed.error).not.toMatch(/hunter2|10\.0\.0\.5/);
   });
 
   it('stops at the next checkpoint when the run is canceled', async () => {

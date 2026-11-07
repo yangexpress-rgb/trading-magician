@@ -2,6 +2,7 @@ import { UnsupportedBarRequestError } from '@tm/domain';
 import { describe, expect, it } from 'vitest';
 import { cboeProvider } from './cboe';
 import { fakeCboeFetch, fakeVixHistory } from './cboe-fake';
+import type { Fetch } from './cboe';
 
 const now = () => new Date('2026-11-06T22:00:00Z');
 const request = (patch: Record<string, unknown> = {}) => ({
@@ -62,4 +63,60 @@ describe('CBOE index history feed (v1.2 item 5)', () => {
     expect(lines[0]).toBe('DATE,OPEN,HIGH,LOW,CLOSE');
     expect(lines[1]).toMatch(/^01\/02\/1990,/);
   });
+
+  it("falls back to FRED's VIXCLS when CBOE is down, with flat bars and a warning", async () => {
+    const fake = fakeCboeFetch(now);
+    const urls: string[] = [];
+    const cboeDown: Fetch = (url, init) => {
+      urls.push(url);
+      return url.includes('cboe.com')
+        ? Promise.resolve(new Response('no', { status: 503 }))
+        : fake(url, init);
+    };
+    const series = await cboeProvider({ fetch: cboeDown }).history({ now }).getBars(request());
+    expect(urls).toEqual([
+      'https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv',
+      'https://fred.stlouisfed.org/graph/fredgraph.csv?id=VIXCLS',
+    ]);
+    expect(series.bars.length).toBeGreaterThan(650);
+    const last = series.bars.at(-1)!;
+    expect([last.open, last.high, last.low].map(String)).toEqual(Array(3).fill(String(last.close)));
+    expect(series.dataVersion).toMatch(/^fred-/);
+    expect(series.warnings.join(' ')).toMatch(/comes from FRED \(VIXCLS\): closes only/);
+  }, 30_000);
+
+  it('reads both URLs from configuration', async () => {
+    const urls: string[] = [];
+    const down: Fetch = async (url) => {
+      urls.push(url);
+      return new Response('no', { status: 500 });
+    };
+    const provider = cboeProvider({
+      fetch: down,
+      historyUrl: 'https://mirror.example/cboe/',
+      fredUrl: 'https://mirror.example/fred.csv',
+    });
+    await expect(provider.history({ now }).getBars(request())).rejects.toThrow(
+      /CBOE answered 500 for VIX, and its FRED copy \(VIXCLS\) could not be loaded either/,
+    );
+    expect(urls).toEqual([
+      'https://mirror.example/cboe/VIX_History.csv',
+      'https://mirror.example/fred.csv?id=VIXCLS',
+    ]);
+  });
+
+  it('says how many impossible rows it left out, and credits Cboe', async () => {
+    const good = fakeVixHistory('2026-11-06');
+    const bad = good.replace(
+      /\n(\d\d\/\d\d\/2025),([\d.]+),([\d.]+),([\d.]+),([\d.]+)\n/,
+      '\n$1,$2,1.00,$4,$5\n',
+    );
+    expect(bad).not.toBe(good);
+    const fetch: Fetch = async () => new Response(bad, { status: 200 });
+    const series = await cboeProvider({ fetch }).history({ now }).getBars(request());
+    expect(series.warnings.join(' ')).toMatch(
+      /1 row of the VIX file was left out as malformed or impossible/,
+    );
+    expect(series.warnings[0]).toMatch(/Source: Cboe Global Markets/);
+  }, 30_000);
 });

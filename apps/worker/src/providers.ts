@@ -28,6 +28,11 @@ export interface ProviderContext {
   /** The tenant, for providers that keep a cache and request counts in the database. */
   userId?: string | undefined;
   inTenant?: (<T>(fn: (tx: Transaction) => Promise<T>) => Promise<T>) | undefined;
+  /**
+   * Wait out a provider's rate limit instead of failing: back tests that read
+   * hundreds of series set it; paper runtimes and charts do not.
+   */
+  patient?: boolean | undefined;
 }
 
 /** What a provider found for a symbol, before it is registered. */

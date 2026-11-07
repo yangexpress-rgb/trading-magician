@@ -12,7 +12,7 @@ import {
   type StrategyDefinition,
 } from '@tm/domain';
 import { Button } from '@tm/ui';
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { EditorContext, useEditor } from './editor-context';
 import { MiniInput } from './fields';
 
@@ -165,6 +165,9 @@ export function GroupHeader({
   onChange: (next: (d: StrategyDefinition) => StrategyDefinition) => void;
 }) {
   const { editable, issueAt } = useEditor();
+  // Asked on the page, not in a browser dialog: some browsers and embedded
+  // views block window.confirm, which left the button doing nothing.
+  const [confirming, setConfirming] = useState(false);
   const group = definition.groups?.[index];
   if (!group) return null;
   return (
@@ -186,17 +189,32 @@ export function GroupHeader({
           }
         />
       </div>
-      {editable && (
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            if (window.confirm(`Remove the entry group "${group.label}", with its Entry and Exit?`))
-              onChange((d) => removeGroup(d, group.id));
-          }}
-        >
+      {editable && !confirming && (
+        <Button variant="secondary" size="sm" onClick={() => setConfirming(true)}>
           Remove group
         </Button>
+      )}
+      {editable && confirming && (
+        <div
+          role="group"
+          aria-label="Confirm removal"
+          className="flex flex-wrap items-center gap-2"
+        >
+          <span className="text-sm">Remove “{group.label}” with its Entry and Exit?</span>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => {
+              setConfirming(false);
+              onChange((d) => removeGroup(d, group.id));
+            }}
+          >
+            Yes, remove
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setConfirming(false)}>
+            Keep it
+          </Button>
+        </div>
       )}
     </div>
   );

@@ -91,3 +91,5 @@ Send no invite until every line is ticked.
 - [ ] Full test suite passes on the production build
 - [ ] Invites capped at 20 (`invites:list` shows at most 20 minted)
 - [ ] Stripe in test mode (the apps refuse a live key; check Variables)
+- [ ] Cboe display terms for the VIX reviewed for a paid service, or the data licensed; then set
+      `reviewed: true` in `CBOE_DISPLAY_TERMS` (`packages/domain/src/market/indices.ts`, ADR 0042)

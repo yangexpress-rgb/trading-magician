@@ -53,8 +53,11 @@ export interface IndicatorSpec {
    * picked (v1.2 item 7). Absent means 0. Saved expressions keep their own.
    */
   builderOffset?: number;
-  /** Builder help text: which bars the value covers. */
-  help?: string;
+  /**
+   * Builder help text: which bars the value covers, worded with the
+   * expression's own period and "Bars ago" (resolved params).
+   */
+  help?: (params: Record<string, number | string>, offset: number) => string;
 }
 
 const period = (def: number, max = 1000): IndicatorParamSpec => ({
@@ -65,6 +68,32 @@ const period = (def: number, max = 1000): IndicatorParamSpec => ({
   max,
   default: def,
 });
+
+/** Help for Highest/Lowest value, with the expression's own period and Bars ago (v1.2 item 7). */
+function extremeHelp(
+  which: 'highest' | 'lowest',
+  params: Record<string, number | string>,
+  offset: number,
+): string {
+  const n = Number(params.period) || 20;
+  const label = which === 'highest' ? 'Highest value' : 'Lowest value';
+  const [field, side, word, never] =
+    which === 'highest'
+      ? ['high', 'above', 'breakout', 'never below']
+      : ['low', 'below', 'breakdown', 'never above'];
+  const bars = n === 1 ? 'bar' : `${n} bars`;
+  const intro = `The ${which} value over ${n === 1 ? 'the 1 bar' : `the ${n} bars`} ending ${offset} ${offset === 1 ? 'bar' : 'bars'} before the bar being checked.`;
+  if (offset === 0)
+    return (
+      `${intro} The window includes the current bar, whose ${field} is ${never} its own close, ` +
+      `so "close is ${side} ${label}(${n}) of ${field}" can never be true. Set Bars ago to 1 for a ${word}.`
+    );
+  const previous = offset === 1 ? `the previous ${bars}` : `the ${bars} ending ${offset} bars back`;
+  return (
+    `${intro} The current bar is left out, so "close is ${side} ${label}(${n}) of ${field}" ` +
+    `means a close ${side} ${previous}' ${which} ${field}${offset === 1 ? `: a ${word}` : ''}.`
+  );
+}
 
 export const INDICATORS: readonly IndicatorSpec[] = [
   {
@@ -127,11 +156,7 @@ export const INDICATORS: readonly IndicatorSpec[] = [
     defaultField: 'high',
     lookback: (p) => Number(p.period),
     builderOffset: 1,
-    help:
-      'The highest value over the Period bars ending "Bars ago" bars before the bar being checked. ' +
-      'With Bars ago 1 (the default) the current bar is left out, so "close is above Highest value(20) of high" ' +
-      "means a close above the previous 20 bars' highest high: a breakout. With Bars ago 0 the window includes " +
-      'the current bar, whose high is never below its own close, so that rule can never be true.',
+    help: (p, offset) => extremeHelp('highest', p, offset),
   },
   {
     name: 'LOWEST',
@@ -140,11 +165,7 @@ export const INDICATORS: readonly IndicatorSpec[] = [
     defaultField: 'low',
     lookback: (p) => Number(p.period),
     builderOffset: 1,
-    help:
-      'The lowest value over the Period bars ending "Bars ago" bars before the bar being checked. ' +
-      'With Bars ago 1 (the default) the current bar is left out, so "close is below Lowest value(10) of low" ' +
-      "means a close below the previous 10 bars' lowest low. With Bars ago 0 the window includes the current " +
-      'bar, whose low is never above its own close, so that rule can never be true.',
+    help: (p, offset) => extremeHelp('lowest', p, offset),
   },
   {
     name: 'ROC',

@@ -1,0 +1,1549 @@
+# Automated trading planning and execution app
+
+## Functional and application design — version 1.2
+
+**Document date:** November 6, 2026 (v1.1: November 5, 2026; v1.0: October 4, 2026)  
+**Purpose:** Build-ready specification for Claude Code, brought in line with what was built  
+**Version status:** v1.2 adds the P0 builder capabilities of the v1.2 change list (items 1 to 4: Selection groups and a shared metric registry, per-leg conditions, statistical functions on expressions, calendar schedules and the time stop), and custom REST (JSON) market-data feeds (rows N17 to N24, asked for separately). P1 (items 5 and 6) and P2 (items 7 to 10) are not in this revision yet. Everything v1.1 recorded is kept unless a v1.2 row says otherwise. Open points from building P0 are listed in `v1.2-deviations.md`.
+
+**How to read v1.2:** text from v1.0 is kept unless a change-log row supersedes it. Passages added or changed in v1.1 are marked **[v1.1 Cn]**, where Cn is the change-log row in §2.1; passages added in v1.2 are marked **[v1.2 Nn]**, where Nn is the row in §2.2. A row's _Basis_ says whether Yong approved or asked for it, or whether it was a build decision recorded in an ADR inside a plan Yong approved (rows marked _confirm_ are the ones worth a second look).
+
+---
+
+## 1. Product vision
+
+Build a user-friendly web application in which an individual trader can research markets, define multi-asset strategies, test them, activate them against live data, route resulting orders to paper or real brokerage accounts, and review performance.
+
+The product has four integrated work areas:
+
+1. **Quantitative Research** — screen, rank, calculate, and compare assets using criteria and formulas. This is intentionally deferred from the first build. **[v1.1 C26]** Its first tools (price charts, a stock screener and company financials) are now built; formulas, ranking and saved screens remain deferred.
+2. **Strategy Lab** — define Entry and Exit conditions, multi-asset planned orders, timing, backtests, and strategy lifecycle.
+3. **Orders** — display and manage orders generated from strategies, including their relationship to Entry and Exit planned orders.
+4. **Performance** — measure trading results by strategy, account, asset, and time period.
+
+A fifth area, **Settings**, manages the user profile, market-data feeds, trading platforms, and accounts.
+
+### Core product principle
+
+A strategy is not constrained to one asset. Any condition can compare expressions based on different assets, and one Entry or Exit plan can contain orders for multiple assets.
+
+Example:
+
+```text
+Entry condition: SMA(30, PEP) < SMA(30, KO)
+Entry orders:    Buy/long PEP + sell/short KO
+Exit condition:  Spread or risk condition becomes true
+Exit orders:     Close PEP leg + close KO leg
+```
+
+---
+
+## 2. Versioning and change control
+
+This document is **v1.2**. Its §2.2 lists what changed since v1.1; the v1.1 notes below are kept as written.
+
+v1.1: v1.0 recorded the decisions validated through the prototype discussion; v1.1 adds the decisions made while building Phases 0 to 6 and the features added after them (October 4 to November 5, 2026). It stays a v1.x revision because every change is a clarification, a chosen default or a backward-compatible addition: the strategy model, execution model and data architecture are unchanged in kind.
+
+Future revisions should use semantic document versioning:
+
+- **v1.1, v1.2:** clarifications, UX improvements, new acceptance criteria, or backward-compatible additions.
+- **v2.0:** material changes to the strategy model, execution model, data architecture, or product scope.
+
+Each revision should add a change-log row and retain prior decisions unless explicitly superseded.
+
+| Version | Date       | Summary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1.0     | 2026-10-04 | Initial build baseline                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 1.1     | 2026-11-05 | Decisions made while building Phases 0 to 6, Quantitative Research's first tools, position values in Exit rules, Exit orders pre-filled from Entry, copying strategies, layout changes, and hosting on Yong's Mac. Rows C1 to C40 below.                                                                                                                                                                                                                                                                                                                                                                       |
+| 1.2     | 2026-11-06 | Invite-code audit (D6 fixed), admin page, demo data removed from deployments, routes grouped under price feeds, custom REST feeds, new legs on the Alpaca paper account, and P0 of the v1.2 change list: shared metric registry, Selection groups (universe ranking with top N), per-leg conditions with a best-by-metric fire mode, STDDEV, ZSCORE and Bollinger bands on any expression, calendar schedules and an "Exit after N trading days held" time stop. Rows N1 to N16 in §2.2. Custom REST (JSON) market-data feeds: rows N17 to N24. Other changes since v1.1: N25 to N29. N13 is an open decision. |
+
+### 2.1 v1.1 change log
+
+_Basis_ key: **Approved** = Yong approved this default or plan on the date shown. **Asked** = Yong asked for this feature. **Build** = a design choice made while building, recorded in the ADR named, inside a phase plan Yong approved; marked _confirm_ where v1.0 said something different and Yong has not looked at that point on its own.
+
+| #   | Section                 | Change in v1.1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Basis                                                                    |
+| --- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| C1  | §3.1, §6.4, §13.5       | Instruments offered are US stocks and ETFs only (plus generic DEMO instruments). The schema keeps the other asset classes.                                                                                                                                                                                                                                                                                                                                                                                                                                   | Approved 2026-10-04 (Q3)                                                 |
+| C2  | §4.2                    | Authentication is self-hosted Better Auth in the app's Postgres, email and password only (12 characters minimum, email verification before the first session, 7-day sessions, reset signs out everywhere). Passwordless and social sign-in are later options.                                                                                                                                                                                                                                                                                                | Approved 2026-10-04 (Q2); ADR 0004                                       |
+| C3  | §4.3, §20 #4            | Plans: Free (3 saved, 1 active, 10 back tests a day, demo account only) and Pro (25 saved, 5 active, 100 a day, 5 accounts including Alpaca paper, $20 a month placeholder). Plan catalog lives in the database. Stripe Billing in test mode with hosted Checkout and portal.                                                                                                                                                                                                                                                                                | Approved 2026-10-05; ADRs 0022, 0023                                     |
+| C4  | §4.3                    | Failed payment: 7-day grace with notices on days 0, 3 and 6, then Free; strategies over the new limits pause (never stop, never auto-resume). Downgrades take effect at period end.                                                                                                                                                                                                                                                                                                                                                                          | Approved 2026-10-05; ADR 0024                                            |
+| C5  | §16.4, §18 P6           | Launch is invite-only, up to 20 people, by single-use invite code. The risk notice shows on sign-up and every signed-in page; Terms and Privacy are labelled placeholders until legal review.                                                                                                                                                                                                                                                                                                                                                                | Approved 2026-10-05; ADR 0026                                            |
+| C6  | §20 #14                 | Data retention: kept while the account exists; purged 30 days after deletion, audit and order records kept without personal details. Implemented 2026-11-05 (D1 fixed, PR #60, ADR 0033).                                                                                                                                                                                                                                                                                                                                                                    | Approved 2026-10-05                                                      |
+| C7  | §5.1                    | Desktop layout uses the full screen width (no content cap), form rows wrap instead of shrinking, base font is 17px at 1680px and wider. Strategy editor colour-codes Entry (green), Exit (rose), conditions (blue) and orders (amber), always beside a text label.                                                                                                                                                                                                                                                                                           | Asked 2026-10-07                                                         |
+| C8  | §6.1, §15.1             | New strategy dialog can start from a copy of any strategy (archived included); a strategy page has "Make a copy". Deleting is a soft delete.                                                                                                                                                                                                                                                                                                                                                                                                                 | Asked 2026-11-02 (copy); Build, ADR 0006 (soft delete)                   |
+| C9  | §6.2                    | Rules cannot change while a strategy is actively executing (name, description and tags can). After a strategy has run once, every rule change publishes a new immutable version at once.                                                                                                                                                                                                                                                                                                                                                                     | Build, ADR 0006                                                          |
+| C10 | §6.4                    | New expression kind, _position_: entry price, gain %, unrealized P&L and quantity of the current cycle, marked at the close of the chosen bar interval. Allowed only in Exit conditions and Exit order prices. Trailing stops are not covered.                                                                                                                                                                                                                                                                                                               | Asked 2026-11-02; ADR 0027                                               |
+| C11 | §6.4                    | Market and indicator expressions take a bar offset (0 = latest completed bar). Calculations add min and max. Indicator catalog: SMA, EMA, RSI, ATR, Bollinger bands, highest, lowest, rate of change. Bar intervals include 5 minutes.                                                                                                                                                                                                                                                                                                                       | Build, ADR 0006, 0007, 0029                                              |
+| C12 | §6.6                    | Exit orders are pre-filled as the opposite of Entry (Buy to Sell, Sell short to Buy to cover, same shares; cash, % or risk-sized legs become Close) and follow Entry until an Exit leg is edited. "Match Entry orders" re-fills them.                                                                                                                                                                                                                                                                                                                        | Asked 2026-11-02; ADR 0028                                               |
+| C13 | §6.7, §20 #7–8          | Multi-leg default: submit concurrently; a leg not filled within 60 s cancels the remaining legs and the imbalance is flagged. Exit waits for the full Entry fill; after the timeout the filled part stays open and Exit sizes to what is held.                                                                                                                                                                                                                                                                                                               | Approved 2026-10-04 (Q5) and 2026-10-04 Phase 3                          |
+| C14 | §6.8, §20 #10           | Market closed: queue to the next regular session, NYSE holiday calendar and early closes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Approved 2026-10-04 (Q6)                                                 |
+| C15 | §6.9, §20 #9            | Default one open cycle per strategy, no pyramiding; a new cycle starts after the previous one exits. Pyramiding (with a cap) and independent cycles remain selectable.                                                                                                                                                                                                                                                                                                                                                                                       | Approved 2026-10-04 (Phase 3)                                            |
+| C16 | §8.6, §20 #11           | Paper risk defaults: $10,000 per order, $25,000 strategy exposure, 10 active orders, $1,000 daily loss, 5% price collar, 60 s stale data. These five are required before activation; max open positions and drawdown are optional. No leverage: exposure may not exceed strategy equity.                                                                                                                                                                                                                                                                     | Approved 2026-10-04 (Q4)                                                 |
+| C17 | §8.5, §8.6              | Automatic pauses: 3 rejected or failed orders in a row, prices stale 60 s past the threshold, broker silent 60 s. Reconciliation every 60 s. A mismatch or repeated rejects is resolved by a person; resolving never resumes anything.                                                                                                                                                                                                                                                                                                                       | Approved 2026-10-04 (Phase 3); ADR 0014                                  |
+| C18 | §7, §20 #1, #5, #6, #12 | Back test defaults: generated demo history for DEMO instruments (real instruments through the person's bars route); daily bars by default, hourly or 5-minute optional; at most 5 years daily or 1 year hourly; market at next open; limits and stops when traded through; 5 bps slippage; no commission; 10% of bar volume per fill; 1% a year borrow. A back test is not required to start on paper (a missing or stale one is a warning to acknowledge).                                                                                                  | Approved 2026-10-04 (Phase 2)                                            |
+| C19 | §7.3                    | Results add a "What happened" section: per-condition counts and a bar-by-bar log of values, and for every planned leg whether and why it filled, was skipped, canceled or rejected.                                                                                                                                                                                                                                                                                                                                                                          | Build, added 2026-10-07                                                  |
+| C20 | §20 #2, §18 P3          | First paper broker is a built-in simulated broker; Alpaca paper is the first real broker (paper only). Live broker remains a Phase 7 decision.                                                                                                                                                                                                                                                                                                                                                                                                               | Approved 2026-10-04 (Phase 3), 2026-10-04 (Phase 4)                      |
+| C21 | §9.2, §20 #1            | First real data provider is Alpaca (free IEX feed for prices and bars, same key as its paper broker). A simulated DEMO live feed follows NYSE hours. Adding a real feed creates its routes automatically. Failover returns to the primary after 5 minutes healthy.                                                                                                                                                                                                                                                                                           | Approved 2026-10-04 (Phase 4); auto-routes Build 2026-10-06              |
+| C22 | §9.2                    | Second kind of feed: _company data feeds_ (fundamentals). First provider SEC EDGAR (free, contact email stored like a key). Listed in their own section of Settings › Data feeds, health-checked, no routes, not behind the live-data plan limit.                                                                                                                                                                                                                                                                                                            | Asked 2026-11-05; ADR 0031                                               |
+| C23 | §9.2, §9.3, §16.1       | Credentials are sealed in Postgres (AES-256-GCM per secret, wrapped by an RSA key whose private half only the worker holds). Connection is by pasting a paper API key into a write-only form; OAuth later.                                                                                                                                                                                                                                                                                                                                                   | Approved 2026-10-04 (Phase 4); ADR 0015                                  |
+| C24 | §9.1, §16.3, §20 #13    | Notifications are in-app only. Each kind can be muted except risk pauses, reconciliation mismatches, disconnects and billing notices.                                                                                                                                                                                                                                                                                                                                                                                                                        | Approved 2026-10-04 (Phase 3, Phase 4)                                   |
+| C25 | §10, §10.2              | Performance method: FIFO lots per strategy runtime, account and instrument; one trade = one strategy cycle; accounts show daily time-weighted return, strategies show dollars and return on peak capital; marks from the routed feed, stale flagged; fees as reported; USD only; broker differences over $1.00 or any quantity flagged, broker authoritative. Valued every 5 minutes, final at the 4 pm close.                                                                                                                                               | Approved 2026-10-05; ADRs 0019–0021                                      |
+| C26 | §11, §3.2               | Quantitative Research is partly built: stock and ETF picker with search by ticker or company name; line or candle price chart with volume over 1D to 5Y (1D on 5-minute bars by default); stock screener over the S&P 500 (default) or all US stocks and ETFs with 20 price columns, sector, filters, presets and CSV; company section with profile, five years of financials and filings; screener company columns (market cap, P/E, revenue, growth, net income, margin, EPS). Formulas, saved screens, ranking and sending to Strategy Lab are not built. | Asked 2026-11-03 to 2026-11-05; ADRs 0029–0031                           |
+| C27 | §12.1                   | Job queues are Postgres tables claimed with `FOR UPDATE SKIP LOCKED` and leases, not Redis. Live updates are server-sent events fed by Postgres `LISTEN/NOTIFY`.                                                                                                                                                                                                                                                                                                                                                                                             | Build, ADRs 0009, 0013 (Postgres queue was in the approved Phase 2 plan) |
+| C28 | §12.1                   | No object storage for back tests: results live in Postgres and CSV exports are generated on request. Object storage is used only for nightly backups (Cloudflare R2).                                                                                                                                                                                                                                                                                                                                                                                        | Build, ADRs 0009, 0025 — _confirm_                                       |
+| C29 | §12.1                   | Design system is hand-written accessible primitives on Tailwind CSS v4 tokens, with SVG charts; no third-party component or table library.                                                                                                                                                                                                                                                                                                                                                                                                                   | Build, ADR 0005 — _confirm_                                              |
+| C30 | §12.1                   | Observability: JSON logs with redaction, Sentry error reports over its HTTP API, `/api/health/system` uptime check with a worker heartbeat. No distributed tracing or metrics pipeline yet.                                                                                                                                                                                                                                                                                                                                                                  | Approved 2026-10-05 (monitoring default); ADR 0025                       |
+| C31 | §12.1                   | Hosting: Railway (staging and production) is documented in `docs/deploy.md`, but the app currently runs locally on Yong's Mac with Docker Desktop; changes reach it through `update-trading-magician.sh` after each merge.                                                                                                                                                                                                                                                                                                                                   | Approved 2026-10-05 (Railway); Yong chose local hosting 2026-10-06       |
+| C32 | §8.5, §14.4             | Broker updates come from polling the broker (order list and fill activities by cursor) plus reconciliation, not from broker streams or webhooks; `POST /webhooks/brokers/{provider}` is not built.                                                                                                                                                                                                                                                                                                                                                           | Build, ADR 0017 — _confirm_                                              |
+| C33 | §8.1, §8.3, §15.2       | Stop offers "cancel working orders" and "close positions" as two separate choices, both off. Kill switch pauses only; cancel-all is separately confirmed; release resumes nothing. Closing a position by hand is allowed only once the strategy is stopped.                                                                                                                                                                                                                                                                                                  | Build, ADR 0013 (inside the approved Phase 3 plan)                       |
+| C34 | §13                     | Data model as built (table names in §13.6). Strategy definitions are one validated JSON document per immutable version rather than relational tables for groups, nodes, expressions, orders and timing.                                                                                                                                                                                                                                                                                                                                                      | Approved 2026-10-04 (Phase 0/1 proposal §4.4); ADR 0006                  |
+| C35 | §14                     | API lives under `/api/v1` and adds endpoints listed in §14.5. Profile updates go through a server action rather than `PATCH /profile`.                                                                                                                                                                                                                                                                                                                                                                                                                       | Build, ADRs 0006, 0013, 0029–0031                                        |
+| C36 | §16.1                   | Defense in depth for tenancy: three database roles, row-level security on every tenant table, composite same-tenant foreign keys; append-only audit, order intents, events and fills enforced by triggers.                                                                                                                                                                                                                                                                                                                                                   | Build, ADRs 0003, 0010                                                   |
+| C37 | §16.1                   | Rate limits: 120 changes a minute per person, 20 back-test starts a minute, 30 order-placing calls a minute, shared through Postgres; sign-in 10, sign-up 5, reset 3 a minute.                                                                                                                                                                                                                                                                                                                                                                               | Build, ADRs 0004, 0025, 0026                                             |
+| C38 | §17.4                   | Adapter tests run against fakes transcribed from each provider's API reference (Alpaca, Stripe, SEC EDGAR) rather than recorded sandbox traffic; a manual check with a real key confirms each.                                                                                                                                                                                                                                                                                                                                                               | Build, ADRs 0017, 0023, 0031 — _confirm_                                 |
+| C39 | §2, §21                 | Standing workflow: one PR per change, merged automatically when checks pass; the Mac copy is updated after each merge.                                                                                                                                                                                                                                                                                                                                                                                                                                       | Asked 2026-11-03                                                         |
+| C40 | §20                     | Status of every open decision is recorded in §20 (all but #3, #15 and the live broker are decided).                                                                                                                                                                                                                                                                                                                                                                                                                                                          | —                                                                        |
+
+Deviations that look like unintended gaps or bugs are not decisions and are not written into this document. They are listed in `v1.1-deviations.md` beside this file, each with a recommendation to fix in code or to accept into a later v1.x.
+
+### 2.2 v1.2 change log
+
+v1.2 is built from the "Trading App v1.2 Change List" design brief, in its priority order. This revision covers **P0, items 1 to 4** (N1 to N16), the custom REST market-data feeds (N17 to N24), the other changes made since v1.1 was written (N25 to N29), P1 item 5, the VIX as a watch-only index on a CBOE feed with BandWidth (N30 to N33, started at Yong's go-ahead on 2026-11-06), P1 item 6, point-in-time fundamentals as strategy metrics (N34 to N39), and P2 (items 7 to 10) from N40, started at Yong's go-ahead on 2026-11-07. Nothing in the brief's "explicitly not now" list is built. Live trading is unchanged: everything below runs in back tests and on paper.
+
+_Basis_ key, in addition to §2.1: **Brief n** = specified by item n of the v1.2 change list, which Yong asked to be built as written (2026-11-06). **Decided** = Yong chose this on a decision card on the date shown. **Build** = a choice made while building where the brief leaves room; _confirm_ marks the ones worth a second look, and _deviation_ marks where the build differs from the brief's wording, with the reason.
+
+| #   | Section                        | Change in v1.2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Basis                                                                                                                                                                  |
+| --- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| N1  | §6.4, §11, §13.2               | **Shared metric registry.** One definition per metric serves conditions (new expression kind _metric_), Selection-group ranking and the fire mode of per-leg conditions. Price metrics: _Return_ = close(today) / close(N bars ago) − 1 on daily bars, lookback 1, 3, 6 or 12 months at 21 trading bars a month, optional skip of the most recent month (12-1); _Return vs. benchmark_ = own Return minus the benchmark's over the same window, benchmark chosen from the strategy's instruments (SPY by default when present); _Moving-average distance_ = close / SMA(period) − 1; _Volatility_ = sample standard deviation of daily simple returns over the window × √252; _RSI_ = the existing RSI indicator on daily closes. Values are fractions (0.12 is 12%). Each metric lists the asset classes it can be computed for, and the metric picker shows only those. Too little history gives no value (null), never 0.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Brief 1, principles 3 and 4                                                                                                                                            |
+| N2  | §6.6, §13.2                    | **Selection groups.** Entry gains `kind` = `fixed` (absent on every v1.1 strategy) or `selection`. A Selection group has a universe (built-in S&P 500, today's member list, or the person's own list of up to 600 instruments), a ranking metric with its parameters, a direction (highest or lowest first), a count (fixed N, or a percentage of the universe rounded down, at least 1), an optional pre-filter, and equal weighting. It has exactly one Entry leg, which trades "each selected instrument"; that leg's sizing is split equally across the N selections. Exit legs close "each selected instrument".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Brief 1                                                                                                                                                                |
+| N3  | §6.9                           | **Selection semantics.** At each evaluation every member's metric and pre-filter are computed as of that bar's close. Members failing the pre-filter, with an unknown pre-filter, or without a metric value are left out with the reason recorded. Ties break by symbol, A to Z. Selected members not held are entered, held members no longer selected are exited (reason _rebalance_), held members still selected are kept. Fewer passing members than N: only those are held. None: cash.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Brief 1                                                                                                                                                                |
+| N4  | §6.4, §6.9                     | **The strategy-level Entry condition gates a Selection group** (a regime filter such as "SPY above its 200-day average"). When it is false or unknown at an evaluation, nothing is selected, so holdings are exited at that rebalance. An empty Entry condition means "rebalance on every scheduled date".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Build — _confirm_                                                                                                                                                      |
+| N5  | §6.4, §6.6                     | **Per-leg conditions.** Each Entry leg can carry its own condition. "This leg's instrument" inside it means the leg's instrument, and other instruments can still be named. A leg fires only when the strategy's Entry condition (if any) and its own condition both hold; legs without one behave as in v1.1. Fire mode `allPassing` (default) or `bestByMetric`: when several legs qualify on the same bar only the one with the highest value of a registry metric fires, ties by symbol. Validation checks each leg condition and that the instruments it reads are tradable on the leg's account, and nothing more.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Brief 2                                                                                                                                                                |
+| N6  | §6.9                           | **Per-leg exits.** On a daily schedule per-leg conditions are entry-only, as the brief asks: legs fire only when the strategy holds nothing, and a held leg exits on the Exit conditions or exit rules. On a calendar schedule each scheduled evaluation re-selects legs the way a Selection group does, so a held leg whose condition no longer holds exits at that date (reason _rebalance_). The brief allows this for scheduled re-evaluation if flagged; this row is the flag.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Build — _confirm_ (flag asked for by Brief 2)                                                                                                                          |
+| N7  | §6.5, §6.7, §6.9               | **One cycle per instrument.** With a Selection group or per-leg conditions each selected instrument or leg runs its own Entry-to-Exit cycle. Validation requires re-entry "one cycle at a time", concurrent submission, and immediate or phase-relative timing on those legs. Trigger options (fire mode, cooldown, confirmation bars) do not apply and are hidden in the builder: each scheduled evaluation is checked on its own.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Build — _confirm_                                                                                                                                                      |
+| N8  | §6.4                           | **Statistical functions on any expression.** New expression kind _statistic_: `STDDEV(x, n)`, `ZSCORE(x, n)`, `BB_UPPER/BB_MIDDLE/BB_LOWER(x, n, multiplier)`, where x is any expression (a price, a calculation such as close(PEP) − close(KO), or another indicator) evaluated bar by bar over its own history in the shared evaluator. STDDEV and ZSCORE use the sample standard deviation (n − 1); ZSCORE = (x − SMA(x, n)) / STDDEV(x, n), unknown when the deviation is 0 or history is short. Period 2 to 500, optional bars-ago offset. Not allowed on position values.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Brief 3                                                                                                                                                                |
+| N9  | §6.4                           | **Bollinger functions keep the population standard deviation.** `BB_*` on an expression divide by n, as the existing BBANDS indicator does, so BBANDS on a price and `BB_*` on the same price give identical values (the brief's regression check). The brief defines upper and lower with the sample STDDEV; the two cannot both hold.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Build — _deviation, confirm_                                                                                                                                           |
+| N10 | §6.5, §13.2                    | **Calendar schedule.** `schedule.frequency` = `daily` (absent on every v1.1 strategy) or `weekly`, `monthEnd`, `quarterEnd`, `yearEnd`: the last NYSE trading day of the week (Monday to Friday), month, quarter or year, from the exchange calendar the app already uses for market hours, in back tests and on paper alike. A scheduled date is evaluated once, at the first evaluation after that day's close; orders fill at the next open in back tests (the existing convention). The schedule gates Entry and re-selection only; Exit conditions, exit rules and risk limits run every bar. The builder's help text says so.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Brief 4                                                                                                                                                                |
+| N11 | §6.9, §13.2                    | **Time stop.** New Exit rule list, combined with the Exit condition by OR (first to trigger wins). "Exit after N trading days held", N from 1 to 2,520, counts the trading days from the day of the first Entry fill to the latest close, that day included, and fires at a close once the count reaches N. With daily bars and fills at the next open, a 5-day stop holds through exactly five bars. On intraday bars it still counts trading days, not bars.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Brief 4; intraday counting Build — _confirm_                                                                                                                           |
+| N12 | §7.3                           | **Back-test results.** A "Selection rounds" (or "Leg rounds") section shows each evaluation's ranking table: rank, metric value, pre-filter result, selected, and why a member was left out, plus what entered and exited and whether the Entry condition gated it; every round downloads as CSV. Scheduled rounds and rounds that traded are kept, up to 400 per run (a warning says when more were dropped). Each trade shows why it exited (Exit condition, time stop, rebalance), also in the trades CSV as `exit_reason` (migration 0052).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Brief 1 (ranking table to check by hand); Build                                                                                                                        |
+| N13 | §8.1                           | **Open decision, awaiting Yong's confirmation: S&P 500 Selection groups back test only for now.** As built: paper runs take list universes of up to 50 instruments; Start refuses an S&P 500 group (or a longer list) with a message saying why, and validation warns while editing. A decision card picked "Back test now, paper later" on 2026-11-06, but Yong has not confirmed the limit itself (2026-11-06 18:50Z), so it is not settled; see O17.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | **Open** — awaiting Yong                                                                                                                                               |
+| N14 | §7.2                           | **S&P 500 members in back tests** are today's 503 members (the list the screener ships), used for the whole test period, so companies that left the index are missing. Results carry a survivorship-bias warning. Members not yet known to the app are registered from the data feed's asset list; any it can't find are named in a warning.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Build — _confirm_                                                                                                                                                      |
+| N15 | §17.1, §17.4                   | **Backward compatibility.** Every new field is optional, so v1.1 definitions parse, hash and run exactly as before. Back-test results of the three SPY strategies (Trend SMA200, Mean Reversion RSI-2, Breakout Donchian 20/10) and of a two-leg strategy were pinned as regression fixtures before any v1.2 code and are unchanged after it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Brief principle 5; Asked 2026-11-06                                                                                                                                    |
+| N16 | §16.1, §16.2                   | **Invite codes are audited (v1.1 deviation D6 fixed).** Minting and releasing invite codes, from the command line or the admin page, writes an `operator.invites_minted` / `operator.invite_released` audit event with the count and note, never the code itself.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Approved 2026-11-05 (Yong's review of v1.1 D6); PR #61, ADR 0034, migration 0049                                                                                       |
+| N17 | §9.2, §13                      | **Custom REST (JSON) provider.** A fourth market-data provider, "Custom REST (JSON)", lets a person describe any JSON price API in Settings › Data feeds › Add a feed, with no code change and no code per vendor: display name, `https://` base URL, sign-in (none, API key in a header, API key in a query parameter, bearer token), a daily-bars URL template and a latest-quote URL template with `{symbol}`, `{from}`, `{to}` (New York dates, YYYY-MM-DD) and `{apikey}`, JSON paths for the bar and quote fields, limits, and the asset classes it covers (US stocks and ETFs only). The description is stored on the feed (`data_feed_connection.config`, migration 0053); the key is not. One generic adapter reads every such feed (ADR 0041). This is what makes §9.2's "add, edit, test, activate, deactivate and remove a feed" true for providers beyond the built-in three.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Asked 2026-11-06                                                                                                                                                       |
+| N18 | §9.2, §16.1                    | **Keys and hosts.** The key or token goes through the sealed secret-entry flow of v1.1 C23, as a "Custom REST" stored key: sealed on the server when first sent, never returned, logged or kept in the browser, and replaced by •••• in every URL and error shown. It is sent only to the base URL's host: both templates must start with the base URL, and `{apikey}` is allowed only with query-parameter sign-in. The base URL must be https on port 443 with a public host name; localhost, local suffixes (.local, .internal, …), single-label names and every IP literal are refused, and the worker refuses again after DNS resolution if the name points at a loopback, private, link-local, shared, reserved or multicast address (IPv4 and IPv6). Redirects are not followed and answers over 5 MB are dropped.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Asked (https only, no localhost or private networks, sealed key); refusing public IP literals, other ports and redirects: Build — _confirm_                            |
+| N19 | §9.2, §15.4                    | **Test before saving.** "Test" fetches about a month of daily bars and the latest quote for one symbol the person types (SPY by default), on the server, maps them and shows the bar count, dates, the last five bars and the quote, or the exact failure ("Daily bars: host answered HTTP 401 (the key was refused or lacks access): …", "Bar 1: the answer has no “close” (it has …)"). Add feed stays disabled until a test of exactly the current settings and key has passed, and the server refuses a save without one (a test is good for an hour). Changing a saved feed's settings needs a new test; renaming it or changing its asset classes does not. A key typed for a feed that is then cancelled is deleted. Tests are limited to 10 a minute per person (migration 0054).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Asked; one-hour validity, deleting an abandoned key and the 10-a-minute limit: Build                                                                                   |
+| N20 | §9.2                           | **Response mapping.** Paths are keys joined by dots, `[]` once to mark the list of bars and `[n]` for one item: `data.bars[].close`, `[].c`, `results[0].price`. All six bar fields must sit in the same list. Bar timestamps are an ISO date or date-time (the provider's date label is used as written) or Unix seconds (their UTC date; a value that looks like milliseconds is refused with that reason). Numbers may be JSON numbers or numeric strings. Each bar is checked (prices above zero, high not below low) and the first bad value fails the answer with its place. Quote bid and ask are optional (they read the last price when absent), and a quote time path is added, also optional: without it a quote counts as fetched now, so the 60-second stale rule only sees failures, not delay.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Asked (nested paths, two timestamp forms); optional bid and ask and the added quote time: Build — _deviation, confirm_                                                 |
+| N21 | §9.2, §9.4                     | **Routing and runtime.** A custom feed joins routing like any price feed (ADR 0038): adding it creates routes where none exist, or becomes the backup of existing ones (so next to Alpaca it starts as Alpaca's backup and "Make primary" moves a route to it). While on it is checked every minute by fetching its health-check symbol's latest quote through its own limits; its quotes fail over after the existing 60-second stale rule and switch back after 5 minutes healthy, both audited and notified. It gives daily bars only and finds no instruments: symbol lookups, search and the screener still come from Alpaca. **Bars routes now fall back too, for every provider:** when the primary cannot give bars (unreachable, held back by its limit, or no such interval, such as hourly bars from a daily-only feed) the route's backup answers and the series names it and why, so a back test records what it used. Turning off a feed in use can move its routes to any fitting feed, not only one from the same provider.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Asked (routing, health checks, 60-second failover, audit and notify); bars fallback and the turn-off choice: Build — _confirm_                                         |
+| N22 | §9.2, §17                      | **Fetching, cache and limits.** Only the worker calls a custom feed; the browser never does. Answers are cached in the database and shared by every worker: bars per symbol and date range for 12 hours once the range has ended and 15 minutes while it reaches today, quotes for 15 seconds, deleted with the feed. Each request is counted in the database before it is sent; one over the limit is not sent and the caller sees "Held back: its limit of N requests a minute is used up". The person enters the provider's documented limit (requests a minute); the app's limit starts at 30 a minute, can be lowered, and can never be raised above the documented limit or 300. An optional daily limit counts by UTC day. The timeout is 1 to 10 seconds a request, 5 by default. Bars are used as the provider gives them: the app's split and dividend setting is not applied, and results say so.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Asked (server-side, cached in the database, timeout, conservative default rate limit not above the documented one); the numbers and the daily limit: Build — _confirm_ |
+| N23 | §4.2, §16.1                    | **Privacy and terms.** A custom feed, its settings, tests, cache, request counts and key are visible only to their owner (row-level security, as every table). The form says "You are responsible for your provider’s terms — most free tiers do not allow showing their data to other users." No licence checking.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Asked                                                                                                                                                                  |
+| N24 | §9.2                           | **Slower checks for small daily limits.** A custom feed with a daily limit under 3,000 requests is health-checked every 15 minutes (96 requests a day) instead of every minute, so the checks leave most of a small free tier for real requests. Its card says so. Every other feed, and a custom feed with no daily limit or a larger one, is still checked every minute; Test still checks at once. **Basis:** relaxes the one-minute rule, which used about 1,440 requests a day.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Yong chose (2026-11-06, O13)                                                                                                                                           |
+| N25 | §5, §16.1, §16.2               | **Admin page** at `/admin` for platform admins: Overview (system health), Users (lock and unlock access, which signs the person out and refuses sign-in while paper strategies keep running; reset a password), Invite codes (create, revoke, release) and the audit log. Admins are rows in `platform_admin`, granted only from the command line with the owner connection (`users:grant-admin`); the web app still runs as the app and auth roles, and admin actions go through audited `SECURITY DEFINER` functions.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Asked 2026-11-06; PR #67, ADR 0037, migration 0050                                                                                                                     |
+| N26 | §3.1, §9.2, §13.5              | **No demo instruments or demo feed in deployments.** The invented DEMO-* instruments and the demo price feed exist only when `DEMO_DATA=on`, which only the automated tests set. Seeding inserts nothing, a new workspace gets no data feed, and the demo provider is not offered. Migration 0051 removed them from existing databases, keeping them only for people with a strategy, order or position on one. The built-in simulated paper broker stays, renamed "Built-in paper broker" / "Paper account", and trades real US listings at the person's feed prices. Supersedes the DEMO parts of C1, C18 and C21.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Asked 2026-11-06; PR #70, ADR 0039, migration 0051. The brief's item 10 asks for more (O10).                                                                           |
+| N27 | §9.2, §15.4                    | **Routes belong to price feeds.** Settings › Data feeds lists each route under its primary price feed. Adding a price feed creates its bars and live-price routes, or becomes the backup where a route exists; removing a feed deletes its routes, refused only while a running strategy uses one. The separate "Add a route" form is gone.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Asked 2026-11-06; PR #69, ADR 0038                                                                                                                                     |
+| N28 | §6.6, §9.3                     | **New legs start on a real broker's paper account.** A new strategy and every leg added to it start on a broker's paper account (Alpaca paper) when one is connected, the default one first, and fall back to the built-in paper account only when there is none. Live accounts are never chosen. Existing legs are not changed. Supersedes "new strategies use the default account".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Asked 2026-11-06                                                                                                                                                       |
+| N29 | §6.10                          | **A shared Entry condition is optional when legs carry their own.** With per-leg conditions (or a Selection group), an empty strategy-level Entry condition is valid and means "no gate": each leg fires on its own condition. Without them, Entry still needs at least one condition, as before. Covered by validation, back-test and end-to-end regression tests with the SPY / EFA / AGG fixture and no gate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Brief 2 ("if any"); Asked 2026-11-06                                                                                                                                   |
+| N30 | §13.5, §6.4, §6.6              | **Indicator-only instruments.** An instrument is `tradable` or `indicator_only` (new column `instrument.kind`, migration 0056). Indices are indicator-only and have the new asset class `index`, so routing by asset class sends their bars to an index feed. Conditions, ranking metrics (the price metrics now list `index`) and calculated expressions may read one; no leg, Selection-group universe, order or broker account may trade it. It shows the badge "Index — not tradable" in Research, the instrument finder and the condition picker; a leg's picker and a Selection group's list leave it out. Validation: `instrument_not_tradable` names the index and the leg ("VIX is an index: it can be watched in conditions but not traded, so it can't be the instrument of …"), and `index_daily_only` asks for daily bars and the close. As with every validation problem, the draft saves and the error blocks back tests and Start.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Brief 5; ADR 0042                                                                                                                                                      |
+| N31 | §9.2, §11                      | **VIX from instrument search, and the CBOE feed.** Searching "VIX" (or "CBOE Volatility Index") registers the index itself, never a VIX-futures ETF, with no stock feed needed. New provider **CBOE index history (daily)**, free and keyless: CBOE's published `VIX_History.csv` (daily OHLC since 1990), downloaded by the worker and reused for six hours across tenants. Daily bars only, no live prices, so adding it creates one route, index bars (providers now declare which data they are routed for). Research opens an index on 5 years of daily bars, disables intraday bars and hides the company section.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Brief 5; ADR 0042                                                                                                                                                      |
+| N32 | §6.5, §7.2, §8                 | **Index bars line up with the US trading calendar.** Each CBOE value becomes a bar over that day's NYSE regular session; a value on a day the NYSE was closed is dropped with a warning. On a trading day CBOE has no value for, conditions read the most recent VIX close on or before that day (an indicator-only series never goes stale and never makes other series stale). Index series never set the back-test clock, need no execution series, and are not watched for live prices on paper. VIX settles at 16:15 New York time, a quarter hour after the stock close it is aligned with; the bars' warning says so.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Brief 5; timing note Build — _confirm_                                                                                                                                 |
+| N33 | §6.4                           | **BandWidth.** New statistic function `BANDWIDTH(x, n, multiplier)` = (upper band − lower band) / middle band, on any expression, through the item 3 machinery (population deviation, as the bands). Unknown when the middle band is 0. The volatility-squeeze rule the brief mentions also needs "lowest value of an expression over N bars", which LOWEST can't do yet (open point O18).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Brief 5                                                                                                                                                                |
+| N34 | §6.4, §7.2, §13.5              | **Point-in-time fundamentals.** Every value a company's filings support is stored as an observation (company, field, value, period end, available from, accession, form), visible from the filing's EDGAR acceptance time (read from the submissions file; 17:30 New York on the filing date when unknown), never from the period end. Values are as originally filed: a restatement is a new observation with its own later time, and nothing is overwritten. A bar evaluated at D reads the latest observation available at or before D, and none when its period ended more than 15 months before D. Built by replaying each company's 10-K and 10-Q filings in acceptance order: TTM = the fiscal year when one just ended, else the last four quarters (quarters from year-to-date figures where needed). The app's EDGAR display pipeline kept neither acceptance times nor as-filed history (it read calendar-year "frames"), so this item extends it, as the brief asks.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Brief 6; ADR 0043                                                                                                                                                      |
+| N35 | §6.4                           | **Fundamental metrics in the registry** (US stocks): P/E = price ÷ diluted EPS (TTM), unknown when EPS ≤ 0; earnings yield = EPS (TTM) ÷ price, negative for a loss; dividend yield = cash dividends declared per share (TTM) ÷ price, unknown for a company whose filings report no dividends per share (never approximated); price-to-book = market cap ÷ shareholders' equity (latest balance sheet), unknown when equity ≤ 0; EV/EBITDA = (market cap + debt + preferred + minority interest − cash) ÷ EBITDA (TTM), unknown when EBITDA ≤ 0; dividend-growth streak; and revenue, net income and EPS (TTM). Market cap = price × cover-page shares outstanding. Per-share figures and share counts are put on today's share basis by the ratio of traded to split-adjusted closes then and now, so a split after a filing changes nothing. Unknown values follow principle 4 (conditions false, excluded from rankings and screener filters), with one exception: O19.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Brief 6 — _confirm O19, O21, O23_                                                                                                                                      |
+| N36 | §6.4, §6.6                     | **Builder.** A new value type "Fundamental metric (company filings)" lists the fundamental metrics, compared with the usual operators against a fixed value or another metric. The price metrics keep "Metric (price-based)". The ranking and fire-mode pickers list both, grouped. Validation: a strategy using a fundamental metric needs an active company data feed (`missing_company_feed`: "Fundamental metrics read company filings: add an SEC EDGAR company data feed in Settings › Data feeds").                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Brief 6                                                                                                                                                                |
+| N37 | §7.2, §8                       | **Back tests and paper runs.** Before a run, the worker syncs the filings of the companies the strategy reads through the tenant's SEC EDGAR feed (a company is fetched again after a day) and hands them to the engine with the bars; back tests keep their lease while it loads. A paper pass that can't get filings leaves the metrics unknown (no trade on them) and logs it. Same evaluator in back test and paper (principle 1).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Brief 6 — _confirm O24_                                                                                                                                                |
+| N38 | §11.1                          | **Screener parity.** New columns dividend yield, price-to-book and EV/EBITDA, and the P/E column, are computed by the registry definitions over the same stored observations at the screen's last price, so a filter there matches what a strategy computes. P/E changes from the last calendar year's EPS to TTM from filings. A screen syncs companies for up to a minute and says how many are still loading; the columns fill in on later screens (O24). The screener has no price history, so it assumes no split since the latest filing (O20).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Brief 6 — _confirm O20_                                                                                                                                                |
+| N39 | §13.5, §16                     | **Storage.** Observations are public data, kept once for every tenant in `fundamental_company` and `fundamental_observation` (migration 0057), readable and writable only by the worker's login; a later sync adds rows and never changes one.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Brief 6                                                                                                                                                                |
+| N40 | §6.4, §6.10                    | **HIGHEST / LOWEST window made explicit (P2 item 7).** Confirmed by reading the code and a test: HIGHEST(high, 20) covered the 20 bars _ending on the bar being checked_, so "close is above HIGHEST(high, 20)" could never be true (a bar's high is never below its own close); that is why the SPY Donchian 20/10 made no trades. The window's end is the expression's existing **Bars ago** setting, which is the brief's `offset`: HIGHEST(field, period, offset) covers the `period` bars ending `offset` bars before the bar checked. For Highest and Lowest the builder now shows Bars ago next to Period (not under "More options"), starts it at **1** when either is picked, writes it in the rule text as `HIGHEST(20, offset 1)`, and explains which bars count, with the breakout example. **Migration:** none needed. Every saved expression already stores Bars ago (0 unless its owner set it), so existing strategies keep the current-bar window and back test exactly as before (regression test: the v1.1 Donchian still makes 0 trades); only a newly picked Highest/Lowest starts at 1. Validation warns `breakout_includes_current_bar` ("This can never be true… Set Highest value's \"Bars ago\" to 1…") on a close/open/high/low above HIGHEST(high) or below LOWEST(low) whose window includes the same bar. No separate `offset` parameter was added, because it would duplicate Bars ago and the two would add up.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Brief 7 — _see O25_                                                                                                                                                    |
+| N41 | §6.4, §6.9, §6.10, §7.3, §13.2 | **Long and short entry groups (P2 item 8).** The strategy's own Entry and Exit are group 1 and gain a **Direction** (long or short; older strategies read it from their Entry legs). "Add an entry group" adds up to three more, each with a name, a direction, its own Entry (conditions, trigger, legs) and its own Exit (conditions, exit rules, legs); an Exit belongs to the Entry beside it, as before. A new group starts in the opposite direction with group 1's legs mirrored. **Position rules:** one position at a time per strategy; groups are checked in order on each evaluation and one enters only while no position of any group is open (the first to qualify wins a tie); a signal while another group's position is open does nothing; nothing ever flips a position. **Validation:** a stated direction must match the Entry legs (`direction_side_mismatch`); several groups need Re-entry "One cycle at a time" (`groups_single_position`, set automatically when a group is added) and fixed legs (`groups_fixed_legs_only`); a short group on an account that can't short fails as any Sell short leg does (`short_selling_unsupported`), and so does an instrument the broker marks as not shortable (`not_shortable`; shortability is stored from Alpaca at lookup, migration 0058). **Back tests:** shorts make (entry − exit) × quantity less costs; an instrument whose shortability is unknown is allowed and the assumptions say so, as they say that margin and forced buy-ins are not modelled. Trades carry their direction and group; the trade list has a Direction column and "What happened" shows each group's conditions and orders. Paper runs follow the same rules.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Brief 8; ADR 0044 — _O26 confirmed 2026-11-07, see O27_                                                                                                                |
+| N42 | §6.6, §6.9, §7.3, §13.2        | **Risk-based sizing and an ATR stop (P2 item 9).** **Sizing:** a new Quantity type, _Risk % of equity, stop in ATRs_ (`risk_atr`, the brief's `riskBased`), with the risk % (the brief's `riskPercent`, up to 100), an ATR period (1–500 daily bars) and a stop distance in ATRs (`atrMultiple`); the builder starts them at 1%, 20 and 2. At entry: quantity = floor((equity × risk % ÷ 100) ÷ (ATR × multiple)) in whole lots (the app's rounding for every sizing type), using equity to the cent and the ATR to 4 decimals exactly as the trade list shows them, so the hand check matches. ATR is Wilder's average true range of the instrument's daily bars as of the bar Entry is decided on (back tests read it on the run's fill price basis). No ATR (too little history) or a quantity of 0 places nothing: the back test warns how often and why ("no ATR" or "rounds to 0") and a paper cycle records the reason. The quantity is then lowered to fit the tightest of buying power, the maximum order size and the maximum exposure, and says which; it never overrides a limit. Risk sizing is for Entry legs (`risk_atr_entry_only`), except that a Close leg pre-filled from it simply closes what is held. **ATR stop:** a new Exit rule, _Stop N ATRs from the entry price_ (`atrStop` {`atrPeriod`, `atrMultiple`}), one per Exit (`duplicate_atr_stop`), combined with the Exit conditions by OR like the time stop. The level is fixed once, at entry: entry price − multiple × ATR at entry for a long, + for a short. It is close-based: a daily close beyond the level exits at the next bar, labelled **ATR stop** (`exit_reason` `atr_stop`). It watches the first Entry leg's instrument and closes every leg (a warning says so when Entry trades several instruments). **Not trailing** in this round. **Results:** each trade carries its sizing (method, equity, risk %, ATR period and value at entry, multiple, stop distance, quantity before and after any cap, and the cap) and its stop (ATR at entry, entry price, level); the trade list has a Sizing column with the working and shows the stop under the exit, and the trades CSV adds the same columns (migration 0059). Paper runs size and stop the same way. Fixed-quantity strategies are unchanged (regression test). | Brief 9; ADR 0045 — _see O28; O29, O30 confirmed 2026-11-07_                                                                                                           |
+| N43 | §9.2, §6.10, §10.2             | **Demo instruments removed (P2 item 10).** Most of this shipped before the brief reached it (ADR 0039, migration 0051, 2026-11-06): real databases have no demo instruments or demo feed, the seed and sign-up create none, the demo feed can't be added, and the only demo row left on the Mac was deleted with Yong's approval. Yong chose (2026-11-07, decision card) to finish it for deployments and keep the demo set as **test-only data**. Now: (1) **No way to seed them into a real database.** `DEMO_DATA=on` is ignored on Railway and on any app not served from localhost, so the seed, sign-up and feed paths can't create them however the server is configured; instrument lookups already refuse the DEMO venue. (2) **References: blocked and listed.** A demo instrument still used by someone's strategy, orders or positions can't be deleted (their history depends on it). `pnpm --filter @tm/db demo:check` lists each one with the account and strategy names, and `demo:remove-unused` deletes the ones nothing uses any more. (3) **Explicit invalid state.** A strategy on a demo instrument validates with "This strategy references a removed instrument (DEMO-A)… Replace it with real stocks or ETFs" (`removed_instrument`); a leg whose instrument is gone says it "references a removed instrument". It still opens and can be edited. (4) **Asset filter from the instrument store.** The Performance tab's Asset class filter offered a fixed list (stocks, ETFs, options, futures, forex, crypto); it now offers only the classes of instruments the person has traded, read from the instrument store. Research search and the Strategy Lab pickers already list only instruments in the store.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Brief 10; ADR 0046 — _see O31_                                                                                                                                         |
+| N44 | §7.2, §7.3, §9.2               | **Back tests say why bars failed, and wait out rate limits (review 2026-11-07).** A back test whose bars can't be loaded names the instrument and the feed's own reason ("Bars for SPY could not be loaded: Alpaca is over its request limit for this key"), never a key; any other failure adds its scrubbed reason to the generic message. Back tests (only) wait out Alpaca's request limit, using its Retry-After or reset time, up to 8 tries, so an S&P 500 Selection group (500+ series at 200 requests a minute) runs instead of failing in seconds. A Selection group member whose bars fail is left out with a warning naming it; any other instrument's failure stops the run.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Yong's review 2026-11-07                                                                                                                                               |
+| N45 | §9.2, §13.5                    | **VIX sources, checks and terms (review 2026-11-07).** The CBOE folder is configuration (`CBOE_HISTORY_URL`). When CBOE is unreachable or its file doesn't parse, the VIX comes from FRED's VIXCLS (`FRED_CSV_URL`): closes only, so flat bars, with a warning and a `fred-` data version. Rows with an impossible candle (high below open, close or low; low above open or close) are refused, counted and reported. `CBOE_DISPLAY_TERMS` flags that Cboe's display terms are not yet reviewed for a paid service or redistribution; every VIX series carries "Source: Cboe Global Markets", and the launch gate lists the review.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Yong's review 2026-11-07; ADR 0042                                                                                                                                     |
+| N46 | §6.4, §11.1                    | **Stock splits in filings are confirmed by the share count (review 2026-11-07).** A per-share value restated by a whole ratio counts as a split only when it is the same tag as before and the cover page's share count moved by about the same ratio; a period known as dividends declared is never replaced by dividends paid. Before, a quarter's dividends paid differing 2× or 3× from dividends declared was taken for a split and rescaled earlier figures, which gave screener dividend yields such as 158%. Migration 0061 drops the stored observations so every company is synced again with the fixed derivation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Yong's review 2026-11-07; ADR 0043                                                                                                                                     |
+| N47 | §6.4, §6.10, §7.3              | **Builder and results fixes (review 2026-11-07).** Highest/Lowest help is worded with the expression's own Period and Bars ago. Remove group asks on the page (Yes, remove / Keep it) instead of a browser dialog that some browsers block. A trade whose Entry legs both buy and sell short (a pair) shows Direction "Long and short" in the trade list and CSV, whatever its group's direction.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Yong's review 2026-11-07                                                                                                                                               |
+
+Open points from building P0 (unfinished parts of the brief, and questions) are in `v1.2-deviations.md` beside this file. Open points from the custom feeds (N17 to N23) are O12 to O16 in the same file, from P1 item 5 (N30 to N33) O18, and from P1 item 6 (N34 to N39) O19 to O24, from P2 items 7 and 8 (N40, N41) O25 to O27, from P2 item 9 (N42) O28 to O30, and from P2 item 10 (N43) O31.
+
+---
+
+## 3. Scope
+
+### 3.1 Version 1 production scope
+
+- Responsive web application with optimized desktop UI. **[v1.1 C7]** Desktop pages use the full screen width.
+- User registration, authentication, profile, subscription, and account isolation.
+- Browser-based strategy library with server persistence.
+- Multi-asset Entry and Exit condition builder.
+- Multi-asset Entry and Exit planned orders.
+- Planned-order timing: immediate, exact date/time, or relative delay.
+- On-demand backtesting for each strategy.
+- Strategy lifecycle: Created, Under testing, Actively executing, Off.
+- Live strategy monitoring when actively executing.
+- Entry-first, then Exit execution lifecycle.
+- Paper-trading and real-account connection framework.
+- Order generation, routing, tracking, reconciliation, and audit trail.
+- Performance reporting.
+- Configurable data feeds and broker/platform accounts. **[v1.1 C21, C22]** Price feeds (DEMO, Alpaca) and company data feeds (SEC EDGAR).
+- Subscription billing and plan entitlements.
+- **[v1.1 C1]** Instrument coverage for v1: US stocks and ETFs listed on NYSE, Nasdaq, NYSE Arca, NYSE American and Cboe BZX, plus generic DEMO instruments.
+- **[v1.1 C26]** Quantitative Research: price charts, stock screener and company financials.
+
+### 3.2 Deferred scope
+
+- Full Quantitative Research workbench. **[v1.1 C26]** Still deferred: custom formulas, ranking, saved screens, multi-asset comparison, and sending assets or expressions to Strategy Lab.
+- Options strategy visualization and advanced Greeks analytics.
+- Futures roll automation.
+- Portfolio optimization and machine-learning model training.
+- Social strategy sharing or marketplace.
+- Mobile-native applications.
+
+The architecture must leave clear extension points for these capabilities.
+
+### 3.3 Explicit non-goals for the prototype
+
+The existing prototype is a UX-validation sandbox. It does not connect to live market data, submit real broker orders, guarantee persistence, or calculate production-grade performance. Production must not reuse simulated execution logic as if it were broker-ready.
+
+---
+
+## 4. Users, tenancy, and subscriptions
+
+### 4.1 User model
+
+Each user has a private tenant boundary containing:
+
+- Profile and preferences.
+- Strategies and strategy versions.
+- Backtest runs and results.
+- Data-feed configurations.
+- Trading-platform connections and accounts.
+- Orders, fills, positions, and performance.
+- Subscription and entitlement state.
+- Audit events.
+
+No user may read or mutate another user's records. Enforce tenant isolation in both application authorization and database policies.
+
+### 4.2 Authentication
+
+Support email/password or passwordless authentication initially, with optional social sign-in later. Required flows:
+
+- Sign up and verify email.
+- Sign in and sign out.
+- Reset authentication credentials.
+- Manage active sessions.
+- Delete account after confirmation and retention handling.
+
+**[v1.1 C2]** Implemented with self-hosted Better Auth, email and password (12 characters minimum). Email must be verified before a session is issued. Sessions last 7 days and refresh daily; users can sign out one or all other devices. Resetting a password revokes all sessions. Deleting an account needs the password and a typed confirmation. Passwordless and social sign-in are later options that need no schema change.
+
+**[v1.1 C5]** Sign-up is invite-only during the controlled launch: each person needs a single-use invite code (`pnpm --filter @tm/db invites:mint`). `SIGNUP_MODE=open` turns this off for development and tests.
+
+### 4.3 Subscription model
+
+Integrate a subscription provider such as Stripe Billing. Keep plan limits configurable rather than hard-coded. Entitlements may include:
+
+- Number of saved strategies.
+- Number of active strategies.
+- Backtest history or compute limits.
+- Live data access.
+- Paper-trading integrations.
+- Real-trading integrations.
+- Number of connected accounts.
+
+Billing webhooks are authoritative for subscription state. Webhook handlers must be signature-verified and idempotent. A billing failure must not silently leave real execution active; product policy must define a safe grace period and clear user notification.
+
+**[v1.1 C3, C4]** Plans and billing as built:
+
+| Plan | Saved strategies | Active strategies | Back tests | Accounts                  | Price                               |
+| ---- | ---------------- | ----------------- | ---------- | ------------------------- | ----------------------------------- |
+| Free | 3                | 1                 | 10 a day   | demo account only         | $0                                  |
+| Pro  | 25               | 5                 | 100 a day  | 5, including Alpaca paper | $20 a month (test-mode placeholder) |
+
+- The plan catalog is a database table; changing a limit takes effect without a release. Missing or malformed limits fall back to the most restrictive value. Real-trading integrations are held false by a database check until Phase 7.
+- Stripe Billing in test mode only: hosted Checkout and customer portal, so card details never reach the app. Webhooks are signature-checked, stored by event id, and the subscription is read back from Stripe, so replays and out-of-order events give the same result. The worker re-syncs each subscription hourly.
+- A failed payment starts a 7-day grace period with notices on days 0, 3 and 6. After it the workspace drops to Free. A downgrade or cancel takes effect at the end of the paid period.
+- When a plan shrinks, strategies over its limits are **paused** (newest first, and any on an outside broker account when the plan has none), with an audited reason and a notice. Nothing is stopped or liquidated, and nothing resumes on its own after an upgrade; a resume is checked against the current plan.
+
+---
+
+## 5. Information architecture
+
+Primary navigation, in order:
+
+1. Quantitative Research
+2. Strategy Lab
+3. Orders
+4. Performance
+5. Settings
+
+Settings appears directly beneath Performance.
+
+**[v1.1 C26]** Quantitative Research has two pages: the price chart (`/research`) and the Stock screener (`/research/screener`). Settings has the five §15.4 sections as separate pages. A Notifications page with an unread count sits in the header.
+
+### 5.1 Global UI principles
+
+- Optimize for desktop first, then tablet; provide a safe read-only or limited mobile layout.
+- Use progressive disclosure: common fields first, advanced execution settings behind expansion.
+- Display account mode everywhere it matters: **Paper** or **Live**.
+- Never rely on color alone for status; pair color with text and iconography.
+- Provide empty states that explain the next action.
+- Preserve unsaved edits or warn before navigation.
+- Show timestamps in the user's selected timezone; store them in UTC.
+- Use accessible labels, keyboard navigation, sufficient contrast, and visible focus states.
+- **[v1.1 C7]** Use the full screen width on desktop; form rows wrap fields onto a new row (minimum field widths) rather than shrinking until labels overlap; base text is 17px on screens 1680px and wider.
+- **[v1.1 C7]** In the strategy editor, Entry is tinted green, Exit rose, condition groups blue and order legs amber, always with a matching text heading.
+- **[v1.1 C5]** A risk notice ("paper trading only, simulated orders, not financial advice") appears in the footer of every signed-in page.
+
+### 5.2 Safety-oriented action placement
+
+The Start execution control belongs immediately after **Run back test** in the Back Test panel, not in a prominent global location. This reduces accidental activation and reinforces the intended sequence: define --> test --> review --> activate.
+
+For live accounts, Start execution requires a confirmation dialog that summarizes strategy, account, market, order legs, maximum exposure, and whether positions already exist. Paper execution may use a lighter confirmation. Stop execution must remain easy to reach.
+
+---
+
+**[v1.2 N25]** Platform admins also see **Admin** (`/admin`): system health, users (lock, unlock, password reset), invite codes and the audit log. Everyone else never sees it.
+
+## 6. Strategy Lab functional design
+
+### 6.1 Strategy library
+
+Users can:
+
+- Create a new strategy.
+- Save a strategy.
+- Save as a new strategy.
+- Open and switch among saved strategies.
+- Rename, duplicate, archive, and delete a strategy.
+- Search, sort, and filter by status, updated date, and asset.
+- See status, latest backtest, last activity, and account mode in the library.
+- **[v1.1 C8]** Start a new strategy as a copy of an existing one (archived ones included) from the New strategy dialog, or with "Make a copy" on a strategy's page. The copy takes the source's conditions, orders, timing and risk settings; back tests, versions and run history stay behind.
+
+Production persistence is server-side and per user. Browser-local persistence may be used only for drafts and recovery. **[v1.1 C8]** Deleting a strategy is a soft delete: it disappears everywhere, while its versions and history stay linked to past orders.
+
+### 6.2 Strategy identity and versioning
+
+A strategy has a stable identity and immutable published versions. Editing a Created or Under testing strategy updates a draft. Once a strategy has run actively, material edits create a new version so historical orders remain linked to the exact rules that produced them.
+
+**[v1.1 C9]** Rules: starting a strategy snapshots the draft as a new version unless it equals the current version. After a strategy has run once, any rule change publishes a new version at once. Rules cannot change while the strategy is actively executing; name, description and tags can. Every change carries the row version the client last saw, and a stale one is refused rather than overwritten.
+
+Minimum metadata:
+
+- Name and description.
+- Tags.
+- Owner.
+- Status.
+- Current version.
+- Base currency.
+- User timezone.
+- Created and updated timestamps.
+- Last backtest summary.
+- Assigned feed route and trading account.
+
+### 6.3 Strategy lifecycle
+
+Allowed business states:
+
+- **Created:** draft definition; not monitored.
+- **Under testing:** being backtested or paper-validated; not live unless explicitly run in paper mode.
+- **Actively executing:** runtime monitors data and may submit orders.
+- **Off:** monitoring and new order generation stopped.
+
+Recommended transitions:
+
+```text
+Created <--> Under testing
+Under testing --> Actively executing
+Actively executing --> Off
+Off --> Under testing
+Off --> Actively executing, after validation and confirmation
+```
+
+Runtime health is separate from business status: Starting, Monitoring, Waiting for entry, Entry pending, Position open, Waiting for exit, Exit pending, Paused, Error, Stopped.
+
+### 6.4 Condition builder
+
+Entry and Exit each contain a logical expression tree. A condition compares two independently configurable expressions:
+
+```text
+left expression  +  comparison operator  +  right expression
+```
+
+Each expression may be:
+
+- A fixed numeric value.
+- Raw market data for any instrument.
+- A technical indicator for any instrument.
+- A calculated expression composed from other expressions.
+- **[v1.1 C10]** A position value of the current cycle: entry price (average Entry fill), gain % (positive when winning, also for shorts), unrealized P&L, or quantity. The mark is the close of the latest completed bar at the expression's interval, in both the back test and the runtime. Position values are allowed only in Exit conditions and Exit order limit or stop prices, only for instruments an Entry leg trades, and not with crossing operators. With no Entry fill yet, a position value is unknown and its condition does not qualify.
+- Later: portfolio, account, or event values, and trailing stops (a high-water mark since entry).
+
+Minimum operators:
+
+- Numeric: `<`, `<=`, `>`, `>=`, `=`, `!=`.
+- Crossing: crosses above, crosses below.
+- Range: between, outside range.
+- State: is available, is stale.
+
+Conditions support nested AND/OR groups and NOT. The UI must make grouping visually unambiguous and allow users to add, remove, reorder, and duplicate conditions.
+
+A market expression minimally contains:
+
+- Asset type: stock, option, future, forex, crypto, or extensible type.
+- Instrument identifier and display symbol.
+- Venue where relevant.
+- Field: last, bid, ask, midpoint, open, high, low, close, volume, etc.
+- Indicator and parameters, such as SMA with period 30.
+- Bar interval and price adjustment convention.
+- Optional lookback and session rules.
+- **[v1.1 C11]** A bar offset: 0 is the latest completed bar, up to 500 bars back.
+
+**[v1.1 C11]** Calculations: add, subtract, multiply, divide, negate, absolute value, min and max. Indicator catalog: SMA, EMA (seeded with an SMA), RSI and ATR (Wilder smoothing), Bollinger bands (population standard deviation), highest, lowest, rate of change. Bar intervals include 5 minutes, 1 hour and 1 day. Back tests read quote fields (last, bid, ask, mid) from the bar close and VWAP from the typical price, and say so.
+
+**[v1.1 C1]** The instrument picker offers US stocks and ETFs (looked up by ticker or company name through the person's data feed) and the generic DEMO instruments.
+
+**Critical requirement:** each side selects its own instrument. The left and right sides must never inherit one global strategy symbol.
+
+**[v1.2 N1, N8, N9]** Two more expression kinds:
+
+- **Metric**: a metric from the shared registry (§13.2) with its parameters, for one instrument, read on daily bars. The same definition ranks Selection groups and chooses between legs, so "6-month return" means one thing everywhere.
+- **Statistic**: standard deviation, z-score or a Bollinger band of any other expression over N bars. The input can be an instrument's price, a calculated expression (for example the PEP − KO spread) or another indicator; the builder reuses the expression editor for it. STDDEV and ZSCORE use the sample standard deviation (n − 1), and the help text says so. Bollinger bands keep the population deviation so that they match the BBANDS indicator.
+
+**[v1.2 N2, N5]** Inside a Selection group's pre-filter, a per-leg condition and the conditions of a Selection group, the instrument picker offers "Each selected instrument" or "This leg's instrument": the member or leg being evaluated. **[v1.2 N4]** With a Selection group, the strategy-level Entry condition is a gate for the whole selection.
+
+**[v1.2 N30, N33]** A condition may read an **indicator-only** instrument such as the VIX (daily bars and the close only), and the statistic functions include **BandWidth**, (upper − lower) / middle of the Bollinger bands of any expression.
+
+**[v1.2 N41]** An Entry has a **Direction**, long or short, and a strategy may have up to three more **entry groups**, each with its own direction, Entry and Exit (for example a long breakout and a short breakdown). The strategy holds one position at a time and never flips it: a group enters only while no position is open.
+
+**[v1.2 N40]** **Highest value / Lowest value** cover the Period bars ending "Bars ago" bars before the bar being checked. The builder starts Bars ago at 1 for both, so "close is above HIGHEST(high, 20, offset 1)" is the textbook breakout over the 20 bars before; at 0 the window includes the current bar and the builder warns that such a breakout can never fire.
+
+**[v1.2 N35, N36]** **Fundamental metric (company filings)**: P/E, earnings yield, dividend yield, price-to-book, EV/EBITDA, dividend-growth streak, and revenue, net income and EPS over the last twelve months, as of each bar: only filings accepted by then count (N34). They need a company data feed, and rank in Selection groups like any metric.
+
+### 6.5 Trigger evaluation
+
+For each market-data event or scheduled evaluation:
+
+1. Resolve all expression dependencies.
+2. Verify data freshness and sufficient lookback.
+3. Calculate indicator values without lookahead.
+4. Evaluate leaf comparisons.
+5. Evaluate the Boolean expression tree.
+6. Apply trigger mode and debounce rules.
+7. Emit a durable trigger event if qualified.
+
+Trigger modes should include:
+
+- **On transition:** fire only when false becomes true. Default.
+- **While true:** repeat according to cooldown.
+- **Once per strategy cycle:** do not re-enter until the prior cycle exits.
+
+Configurable safeguards include cooldown, minimum confirmation bars, duplicate-signal suppression, market-hours policy, and stale-data rejection. **[v1.1]** Trigger events are recorded once per bar, so a retried pass never fires twice.
+
+**[v1.2 N10]** A strategy can have a **schedule** (one dropdown in the Execution settings): every bar (default), or the last trading day of each week, month, quarter or year. The schedule decides when Entry and re-selection are evaluated: once, after the close of the scheduled day. Exit conditions, exit rules and risk limits are still checked at every bar, because a risk exit must not wait for the next rebalance date.
+
+**[v1.2 N7]** With a Selection group or per-leg conditions, the trigger options of this section do not apply and are hidden.
+
+### 6.6 Planned orders
+
+Entry and Exit each support multiple planned-order rows. Every row independently defines:
+
+- Instrument and asset type.
+- Side or intent: buy, sell, sell short, buy to cover, close/reduce.
+- Quantity type: units, notional, percentage of equity, or risk-sized. **[v1.2 N42]** Also _risk % of equity, stop in ATRs_: quantity = floor(equity × risk % ÷ (ATR × multiple)) at entry, lowered to fit the risk limits, never raised past them.
+- Quantity value and rounding rules.
+- Order type: market, limit, stop, stop-limit, or supported broker type.
+- Limit/stop expression where applicable.
+- Time in force.
+- Trading account.
+- Extended-hours choice where supported.
+- Timing instruction.
+- Leg label and notes.
+
+A single plan may contain heterogeneous legs, such as long PEP and short KO. Validation occurs per leg and for the set as a whole.
+
+**[v1.1 C12]** Exit orders start as the opposite of the Entry orders. Each Entry leg gets an Exit leg on the same instrument and account: Buy becomes Sell and Sell short becomes Buy to cover, with the same share count. A leg sized by cash amount, % of equity or risk becomes a Close of that instrument. Pre-filled Exit legs are market, day, immediate, and follow the Entry leg's extended-hours choice. Exit keeps following Entry until any Exit leg is edited, added or removed; "Match Entry orders" re-fills it after a confirmation. This is an editor behaviour only: nothing is stored, and saved strategies keep their Exit legs.
+
+**[v1.1 C16]** Time in force: day, GTC, IOC, FOK. Rounding: down or nearest whole share; fractional shares are not offered.
+
+**[v1.2 N2]** Entry says what it trades: **fixed legs** (as before, each leg names its instrument) or a **Selection group**: rank a universe by a registry metric, keep the members that pass an optional pre-filter, and hold the top N (or top N percent), equally weighted. A Selection group has one Entry leg that trades "each selected instrument", sized as any leg is and split equally across the selections, and Exit legs that close it.
+
+**[v1.2 N5]** Each fixed Entry leg can have **its own conditions** ("+ Add a condition for this leg"). The leg fires when they and the Entry conditions hold. With two or more legs, "When several legs qualify" chooses between entering every qualifying leg and entering only the best one by a registry metric.
+
+**[v1.2 N28]** A new leg starts on a broker's paper account (Alpaca paper) when one is connected, otherwise on the built-in paper account.
+
+### 6.7 Multi-leg execution policy
+
+Because brokers may not guarantee atomic fills across assets, the strategy must declare an execution policy:
+
+- Submit concurrently.
+- Submit sequentially in a chosen order.
+- Submit next leg only after prior fill.
+- Abort or hedge if a leg rejects or remains unfilled beyond a timeout.
+
+The UI must not imply atomicity unless the connected broker and order type provide it. Partial fills and leg imbalance must be visible and handled explicitly.
+
+**[v1.1 C13]** Default: submit concurrently with a 60-second leg timeout; on a leg that rejects or is still unfilled, cancel the remaining legs and flag the imbalance. Other failure choices: flatten what filled, or leave it and alert.
+
+### 6.8 Planned-order timing
+
+Every planned order has one timing mode:
+
+1. **Immediate:** eligible when its Entry or Exit trigger qualifies.
+2. **Exact date/time:** eligible at a specified timestamp.
+3. **Relative delay:** eligible after an offset from a reference event.
+
+Relative delay fields:
+
+- Positive numeric amount.
+- Unit: seconds, minutes, hours, or days.
+- Reference event, initially:
+  - Entry trigger time.
+  - Entry order submitted.
+  - Entry order partially filled.
+  - Entry order fully filled.
+  - Position opened.
+  - Another named leg submitted or filled.
+
+Example: fire an Exit order five minutes after the Entry order is placed.
+
+Timing semantics:
+
+- Store exact timestamps in UTC and display in user timezone.
+- A date/time without an explicit timezone is invalid.
+- If both a phase condition and timing rule exist, both must qualify unless the user selects “timing only.”
+- If the app restarts, durable scheduled jobs must resume without duplicate submission.
+- If an order becomes eligible while a market is closed, apply the strategy's market-hours policy: queue, cancel, or submit if extended hours are supported.
+- Relative timing must reference a durable event ID, not only an in-memory timer.
+
+**[v1.1 C14]** Default market-hours policy: queue to the next regular NYSE session, using a rule-based NYSE calendar with holidays, weekend observance, 1 pm early closes and announced special closures.
+
+### 6.9 Entry-first, Exit-second lifecycle
+
+For each independent strategy cycle:
+
+```text
+Waiting for Entry
+--> Entry condition qualifies
+--> Create Entry orders from planned orders
+--> Validate and submit
+--> Track acknowledgments and fills
+--> Establish position/open-cycle state
+--> Begin Exit monitoring
+--> Exit condition and timing qualify
+--> Create Exit orders
+--> Submit and reconcile
+--> Close cycle and calculate performance
+```
+
+Exit monitoring must not submit Exit orders before the configured Entry milestone. The default milestone is full Entry fill; users may opt into partial-fill behavior.
+
+Re-entry policy is configurable: no re-entry until exit, pyramiding up to a cap, or multiple independent cycles. Default is one open cycle per strategy.
+
+**[v1.1 C13, C15]** Exit waits for the full Entry fill by default. If an Entry leg is only partly filled when the 60-second timeout ends, the rest is canceled, the filled part stays open, and Exit sizes to what is actually held. Pyramiding requires a cap.
+
+**[v1.2 N3, N6, N7]** With a Selection group or per-leg conditions, every selected instrument or leg runs its own cycle through this lifecycle. A Selection group rebalances at each evaluation: it enters newly selected members, exits held members that are no longer selected (once their Entry has filled), and keeps the rest without selling and buying back. Per-leg conditions are entry-only on an every-bar schedule and re-select on a calendar schedule.
+
+**[v1.2 N11]** The Exit phase gains **exit rules**, combined with the Exit conditions by OR. The first rule is the time stop, "Exit after N trading days held", counted from the day Entry first filled. **[v1.2 N42]** The second is the **ATR stop**: exit when a daily close crosses the entry price ∓ N × the ATR at entry, a level fixed when the position opens (not trailing).
+
+### 6.10 Validation before save or activation
+
+Block activation when any of the following is unresolved:
+
+- Invalid or missing instrument.
+- Unsupported indicator or insufficient parameters.
+- Missing data-feed coverage.
+- Missing or disconnected trading account.
+- Unsupported order type or asset class for the broker.
+- Invalid quantity, timestamp, or relative reference.
+- Exit order that can unintentionally increase exposure when “close” was intended.
+- Circular timing dependencies.
+- Missing risk limits.
+
+Warnings that may be acknowledged include extended-hours limitations, non-atomic multi-leg execution, estimated buying-power use, and stale backtest results.
+
+**[v1.1 C16]** Required risk limits are: max order notional, max strategy exposure, max active orders, daily loss limit and price collar. Other blocking checks added while building: an instrument's venue the account cannot trade (DEMO instruments only on the demo account, real ones only on real accounts), inactive accounts, short selling the account does not allow, an Exit that would sell without a long or cover without a short, an exact time in the past, and position values used outside Exit rules. Missing and out-of-date back tests are acknowledgeable warnings.
+
+---
+
+**[v1.2 N29]** An empty strategy-level Entry condition is valid when the Entry legs carry their own conditions (or Entry is a Selection group); otherwise Entry needs at least one condition.
+
+## 7. Back Test
+
+The former “Sample trigger check” is named **Back Test**. It belongs to the selected strategy and runs only when the user chooses **Run back test**.
+
+### 7.1 Inputs
+
+- Strategy version.
+- Date range.
+- Initial capital.
+- Data feed or historical dataset.
+- Bar or tick resolution.
+- Commission and fee model.
+- Slippage model.
+- Borrow availability and short-borrow cost, where relevant.
+- Session and timezone.
+- Corporate-action adjustment policy.
+
+**[v1.1 C18]** Defaults, each editable per run: generated demo history for DEMO instruments, and real instruments' bars through the person's bars route (Alpaca IEX); daily bars by default, hourly or 5-minute optional; at most 5 years daily or 1 year hourly per run; market orders fill at the next bar's open plus 5 bps slippage; limits and stops fill when a later bar trades through them; no commission (per-share commission with a minimum is available); at most 10% of a bar's volume per fill; 1% a year short-borrow cost charged at each close. No leverage. Resolution is bars only (no ticks). Runs are limited by plan (C3) and to 2 at a time.
+
+### 7.2 Engine requirements
+
+- Use the same rule definitions as live execution.
+- Prevent lookahead bias.
+- Align timestamps across multiple assets.
+- Define behavior for missing bars and stale prices.
+- Simulate multi-leg timing, partial fills, and order sequencing.
+- Record the exact strategy version, data version, assumptions, and engine version.
+- Run asynchronously and report queued, running, completed, failed, or canceled.
+
+### 7.3 Results
+
+Show at minimum:
+
+- Net and gross return.
+- Maximum drawdown.
+- Win rate.
+- Profit factor.
+- Sharpe-like risk-adjusted result, with methodology stated.
+- Number of strategy cycles and individual orders.
+- Exposure over time.
+- Equity curve.
+- Trade list with Entry and Exit linkage.
+- Per-leg contribution for multi-asset strategies.
+- Warnings about insufficient data or assumptions.
+
+Backtest results are estimates, not guarantees. The UI must display the input assumptions beside results.
+
+**[v1.1 C19]** A "What happened" section explains each run: for Entry and Exit, the rules as text, how many bars each condition was true, false or without data, the latest values compared, and a bar-by-bar log (up to 2,500 bars per phase); for every planned leg of every cycle, when it was decided, when it could first fill, and whether it filled, was skipped, canceled or rejected, with the figures behind it.
+
+**[v1.2 N12]** For Selection groups and per-leg conditions, results add the ranking table of every evaluation (value, pre-filter, rank, selected, reason left out), what entered and exited, and a CSV of all rounds. Each trade says why it exited.
+
+### 7.4 Activation gate
+
+The Start execution button appears immediately after Run back test. Before activation, show the latest backtest timestamp and whether the current draft differs from the tested version. A stale or mismatched backtest creates a warning; live activation policy may require a current successful test. **[v1.1 C18]** On paper a back test is not required; a missing or out-of-date one is a warning the person acknowledges.
+
+---
+
+## 8. Live execution and Orders
+
+### 8.1 Start and stop behavior
+
+**Start execution:** validate the strategy, confirm account mode, create a runtime instance, subscribe to required market data, and navigate or guide the user to Orders.
+
+**Stop execution:** stop generating new strategy orders. It must not silently cancel working orders or liquidate positions. Present separate, explicit options to cancel open orders or close positions.
+
+A global kill switch should pause all new submissions and optionally initiate a separately confirmed cancel-all action.
+
+**[v1.1 C33]** Stop offers two separate choices, both off by default: cancel working orders, and close positions. Engaging the kill switch pauses every running strategy and cancels nothing; cancel-all is a second, separately confirmed action; releasing the switch resumes nothing, and each strategy is resumed on purpose. Closing a position by hand creates a user-sourced market order and is allowed only once the strategy is stopped, because a running strategy's Exit rules own its positions. Starting a strategy links to Orders and highlights the new run.
+
+**[v1.2 N13 — open decision, awaiting Yong's confirmation]** As built, Start refuses a Selection group over the S&P 500, or over a list longer than 50 instruments, with a message that says why; both can still be back tested.
+
+### 8.2 Order conversion
+
+When a trigger and timing instruction qualify, the system converts each planned order into an immutable executable order intent. It records:
+
+- User, strategy, strategy version, and cycle.
+- Entry or Exit phase.
+- Planned-order source.
+- Trigger event and evaluated values.
+- Timing event or scheduled timestamp.
+- Account and instrument.
+- Requested order fields.
+- Risk-check result.
+- Idempotency key.
+
+The intent is then routed to the selected broker. Broker order IDs, acknowledgments, status updates, fills, fees, and rejection reasons are added without overwriting the original intent.
+
+### 8.3 Orders tab
+
+Provide views for:
+
+- All orders.
+- Working.
+- Filled.
+- Canceled or rejected.
+- Scheduled.
+- By strategy, cycle, account, phase, asset, and date.
+
+Each order row shows mode, strategy, Entry/Exit phase, instrument, side, quantity, order type, status, submitted/filled times, average fill price, and account. The detail panel shows the full event timeline and source rule.
+
+### 8.4 Canonical order states
+
+```text
+Planned --> Scheduled --> Pending risk check --> Ready
+--> Submitted --> Acknowledged --> Partially filled --> Filled
+```
+
+Terminal alternatives: Canceled, Rejected, Expired, Failed. Status mapping from each broker must normalize into this model while preserving the raw broker status.
+
+### 8.5 Idempotency and reconciliation
+
+- Every generated order gets a deterministic idempotency key.
+- Retries must not submit a duplicate order.
+- Broker updates may arrive out of order and must be safely replayable.
+- Polling reconciliation supplements broker streaming or webhooks.
+- A periodic account reconciliation compares app orders, broker orders, fills, and positions.
+- Mismatches create visible incidents and pause affected strategy execution when safety is uncertain.
+
+**[v1.1 C17]** Reconciliation runs every 60 seconds, and at once when the broker reports an order the app does not know. Updates it finds are applied and audited as healed; missing orders, differing positions and unknown orders open a mismatch incident and pause the affected strategies. One incident is kept open per kind, runtime and account. Data incidents resolve themselves; mismatches and repeated rejects are resolved by a person from the Orders banner, and resolving never resumes a strategy.
+
+**[v1.1 C32]** Broker updates are read by polling (Alpaca's order list and fill activities, by cursor) plus this reconciliation. Broker streaming and broker webhooks are not used yet.
+
+### 8.6 Risk controls
+
+Required before real trading:
+
+- Maximum order notional.
+- Maximum strategy and account exposure.
+- Maximum open positions and active orders.
+- Per-symbol and asset-class limits.
+- Daily loss and drawdown limits.
+- Price collars and fat-finger checks.
+- Duplicate-order prevention.
+- Short-sale and buying-power checks.
+- Data-staleness threshold.
+- Trading-hours rules.
+- Automatic pause after repeated rejects, feed loss, or reconciliation mismatch.
+
+Risk checks run immediately before submission, not only when the strategy is saved.
+
+**[v1.1 C16, C17]** Paper defaults: $10,000 max order, $25,000 max strategy exposure, 10 active orders, $1,000 daily loss, 5% price collar, 60 s stale data. The pre-trade check runs, in order: stale data, active orders, and for orders that open or add risk, order size, strategy exposure, buying power (no leverage), daily loss, drawdown and open positions; then the price collar. Closing orders skip the exposure checks. The same function runs in the back test and in paper execution, and every check's limit and value are stored on the order intent. Automatic pauses: 3 rejected or failed orders in a row since the last resume, prices stale for 60 s past the threshold, the broker not answering for 60 s, a reconciliation mismatch, daily loss or drawdown hit.
+
+---
+
+## 9. Settings
+
+### 9.1 Profile
+
+Keep the first version simple but extensible:
+
+- Display name.
+- Email.
+- Timezone.
+- Base currency.
+- Locale and date/number format.
+- Notification preferences.
+- Subscription and billing link.
+
+**[v1.1 C24]** Notifications are in-app only. Each kind can be muted, except risk pauses, reconciliation mismatches, disconnects and billing notices, which always show. Profile shows a live example of the chosen date and number format. Base currency is USD only for now (C25).
+
+### 9.2 Data-feed setup
+
+Show all configured feeds with:
+
+- User-defined name.
+- Provider.
+- Supported asset classes and venues.
+- API or connection method, without exposing secrets.
+- Real-time or delayed status.
+- Active/inactive toggle.
+- Connection health and last successful update.
+- Entitlement status.
+- Routing priority or primary designation.
+
+Users can add, edit, test, activate, deactivate, and remove a feed. Multiple feeds may be active. Routing rules select the source by asset class, venue, and data type; one deterministic primary and optional fallback should be defined for each route.
+
+An add-feed flow captures provider, credential reference through a secure secret-entry flow, environment, entitlements, and routing. Never store API secrets in browser storage or application logs.
+
+**[v1.1 C21]** Providers: the built-in DEMO feed (simulated live prices on NYSE hours and generated history for DEMO instruments) and Alpaca (free IEX real-time prices, daily, hourly and 5-minute bars, one exchange). Adding a real feed, or turning one back on, makes it the primary for bars and live prices of each asset class it covers wherever no route exists. DEMO routes are pinned to venue DEMO, so real feeds never serve demo instruments and the demo feed never serves real ones. Each active feed is checked at least every minute and when Test is pressed; raw provider errors are logged, never shown. A primary with no quote or one older than 60 s fails over to the fallback; after 5 minutes healthy it switches back; both switches are audited and notified.
+
+**[v1.1 C22]** Company data feeds are a second kind of feed, for company financials. The first provider is SEC EDGAR: free, no key, every US company that files 10-K and 10-Q reports. Its only credential is a contact email, sealed like an API key, sent only to the SEC in its User-Agent, and requests are kept under the SEC's 10 a second. Company data feeds have their own section and Add button in Settings › Data feeds, are health-checked like price feeds, never get routes, and are not behind the plan's live-data limit. Gaps: no business description or CEO, no ETFs, sparse data for foreign issuers filing 20-F.
+
+**[v1.2 N17–N23]** A fourth provider, **Custom REST (JSON)**, makes any JSON price API a feed without a code change. The person describes it: an https base URL on a public host, its sign-in (none, a key in a header or a query parameter, or a bearer token, sealed like every other key and sent only to that host), a daily-bars URL and a latest-quote URL with `{symbol}`, `{from}`, `{to}` and `{apikey}`, JSON paths for the open, high, low, close, volume and date of each bar and for the quote's last price (bid, ask and time optional), and its limits (the provider's documented requests a minute, the app's share of it, starting at 30, an optional daily limit and a timeout). Test fetches one symbol, SPY by default, and shows the bars and quote it read or exactly why it could not; the feed can be saved only after a test of those settings passes. Saved, it is routed, checked every minute (every 15 minutes when its daily limit is under 3,000, N24), and failed over like any price feed, and its routes go back to the other feeds when it is removed. It gives daily bars only. Everything is fetched by the worker and cached in the database; nothing is fetched from the browser. The form reminds the person that they are responsible for their provider's terms. Options, fundamentals, streaming and file-based feeds are not covered. See ADR 0041.
+
+**[v1.2 N26, N27]** Deployments have no demo feed or demo instruments (tests only). Routes are listed under their primary price feed and are created and removed with it.
+
+**[v1.2 N31, N32]** **CBOE index history (daily)** is a free, keyless price feed for indices (the VIX). It is routed for index bars only: no live prices and no intraday bars. Its bars line up with NYSE sessions; a day CBOE publishes nothing reads the most recent close on or before it.
+
+### 9.3 Trading platforms and accounts
+
+Show multiple platforms and accounts, including paper accounts. Each entry displays:
+
+- Platform/provider.
+- Account nickname and masked broker identifier.
+- Paper or Live mode.
+- Supported asset classes and order types.
+- Connection health.
+- Active/inactive status.
+- Default-account designation.
+- Last synchronization time.
+
+Users can add a platform, select among supported providers, connect or reconnect, discover eligible accounts, choose defaults, test the connection, disable routing, and remove the connection.
+
+Use OAuth or provider-approved token flows where available. Encrypt credentials using a managed secrets service. Never reveal stored credential values after capture.
+
+**[v1.1 C23]** Connection is by pasting a paper API key and secret into a write-only form; OAuth comes later. Secrets are sealed in Postgres: a fresh AES-256-GCM key per secret, wrapped with an RSA-OAEP public key; only the worker holds the private key, and the web app refuses to start if it has it. The database lets the web role write sealed columns but never read them. People see a label, provider, the last four characters and where it is used, and can replace a value in place or remove it once unused. A database check keeps every credential and account on paper. Moving the unwrap step into a cloud key service is a later step (see deviation D9).
+
+**[v1.1 C20]** Platforms: the built-in simulated paper broker (always present, cannot be removed) and Alpaca paper. Accounts are discovered from the key and matched on the provider's id. Capabilities (order types, time in force, sides, extended hours, short selling, and coverage of DEMO or real US instruments) drive validation. Platforms are checked every five minutes. A platform with order history cannot be removed, only turned off.
+
+### 9.4 Configuration rules
+
+- Deactivating a feed used by an active strategy requires replacement routing or strategy pause.
+- Disconnecting an account used by an active strategy requires confirmation and strategy pause.
+- Switching a primary feed creates an audit event.
+- Changing a default account does not retroactively change existing strategies unless the user chooses migration.
+
+**[v1.1]** Turning off a feed, platform or account that running or paused strategies use is refused until the person chooses: move the routes to another fitting feed, or pause those strategies with a reason naming what was turned off. A feed still used by routes, or a route a strategy is pinned to, cannot be deleted. Moving strategies to a new default account leaves running ones alone and counts them.
+
+---
+
+## 10. Performance
+
+Performance is based on reconciled fills and account data, not merely app-submitted orders.
+
+### 10.1 Views and filters
+
+- Portfolio overview.
+- By strategy and strategy version.
+- By account.
+- By asset or asset class.
+- By time period.
+- Paper versus Live.
+
+### 10.2 Metrics
+
+- Realized and unrealized profit/loss.
+- Gross and net profit/loss after fees.
+- Return and equity curve.
+- Drawdown.
+- Win/loss rate.
+- Average gain and loss.
+- Profit factor.
+- Exposure and turnover.
+- Per-leg contribution for multi-asset trades.
+- Open positions and strategy-cycle status.
+
+Define calculation methodology and base-currency conversion. Broker statements remain authoritative where app calculations differ; discrepancies must be flagged.
+
+**[v1.1 C25]** Method (also explained in the app at `/performance/methodology`):
+
+- Fills are matched first in, first out within a book: one strategy runtime, account and instrument. One trade is one strategy cycle, with each leg's contribution inside it.
+- Every account is valued every 5 minutes at the last price from the tenant's routed feed; a mark older than 60 s is stale and counted. The first valuation at or after the 4:00 pm New York close is final and cannot change.
+- Accounts show a daily time-weighted return on equity, with Sharpe annualised over 252 sessions at a zero risk-free rate (not shown under 20 sessions). Filtered views (strategy, version, instrument, asset class) show P&L in dollars, drawdown in dollars, and return on peak capital.
+- Fees are as the broker reports them per fill (none on paper today). USD only, labelled; conversion comes with the first non-USD account.
+- At each close both sides' positions are snapshotted; any quantity difference, or equity more than $1.00 apart, is flagged with an always-shown notice, and the broker's equity is shown as the figure that counts. Positions the app cannot explain appear under "Outside the app".
+- The demo account starts at $100,000. Deposits and withdrawals at a real broker are not tracked yet and show as equity differences.
+
+---
+
+## 11. Quantitative Research — first tools built, workbench deferred
+
+Reserve a navigation route, permissions, and data interfaces for a future research module. Planned capabilities:
+
+- Define a universe across stocks, options, futures, and other assets.
+- Filter and sort by market fields, fundamentals, indicators, and formulas.
+- Compare multiple assets.
+- Save screens and formula definitions.
+- Send selected assets or expressions into Strategy Lab.
+- Export results.
+
+Do not build the full workbench in the first production milestone, but avoid a strategy schema that assumes a single asset or only OHLCV data.
+
+### 11.1 Built in v1.1 **[v1.1 C26]**
+
+**Stock picker and price chart** (`/research`).
+
+- One search box finds stocks and ETFs by ticker or company name: it filters the instruments the person already has and, through their Alpaca feed, searches every active US equity (list cached 6 hours). Without a real feed, it says how to add one.
+- Ranges 1D, 1W, 1M, 3M, 6M, 1Y and 5Y. 1D is the latest session with bars. 5-minute bars for 1D and 1W, hourly for 1D to 3M, daily from 1W up. The page and every picked stock open on 1D, 5-minute bars, line; a bookmarked address keeps its own choice.
+- A line or candle price pane above a volume pane; hollow rising and filled falling candles; crosshair by pointer or arrow keys with a readout and the same values in a table. The answering feed is named under the chart.
+- Demo 5-minute bars are derived from the hourly bars by a seeded Brownian bridge, so they always add up and never change; back tests can use them too.
+
+**Stock screener** (`/research/screener`).
+
+- Stock group: S&P 500 (default, opens with every member listed and no filters) or all US stocks and ETFs on NYSE, Nasdaq, NYSE Arca, NYSE American and Cboe BZX (about 11,000; no OTC). The demo feed screens the DEMO instruments.
+- The S&P 500 member list with GICS sectors ships with the app and is refreshed by `pnpm --filter @tm/domain sp500:update`; the screen shows its date.
+- 20 price columns (last, today's change, open, high, low, volume, dollar volume, yesterday's close and change, gap, range, 5-day and 1-month change, 1-month high and low and distance from each, average and relative volume) plus Sector. Min and max filters and sorting on every column, text, type and exchange filters, ready-made screens (gainers, losers, most active, unusual volume, gaps, 1-month highs), column picker, CSV download, 100 or 1,000 rows a page, and everything kept in the address. A symbol opens its chart.
+- A batch the feed cannot answer is left blank with a warning rather than failing the screen.
+
+**Company financials** (with a company data feed, C22).
+
+- Under the chart: profile (industry, headquarters, incorporation, fiscal year end, exchanges, filer category, website, former names), five fiscal years from 10-K filings (revenue, gross profit, operating income, net income, diluted EPS, dividends, shares, cash flow, capital spending, cash, assets, liabilities, debt, equity), recent filings with links, and valuation worked out from the last price (market cap, P/E, P/S, P/B, margins, ROE, debt to equity, free cash flow, dividend yield).
+- Screener columns: market cap, P/E, revenue, revenue growth, net income, net margin and diluted EPS for the latest calendar year most companies have reported. Figures are as filed; P/E uses the last fiscal year's EPS.
+- **[v1.2 N38]** P/E (trailing twelve months), dividend yield, price-to-book and EV/EBITDA come from the metric registry over point-in-time filings, the same definitions strategies use.
+
+**Still deferred:** options, futures and other assets in the universe; custom formulas and ranking; saved screens; multi-asset comparison; sending assets or expressions to Strategy Lab.
+
+---
+
+## 12. Recommended production architecture
+
+### 12.1 Recommended stack
+
+Use a TypeScript-first modular monolith initially, with worker processes separated from the web runtime:
+
+- **Web UI:** Next.js with React and TypeScript.
+- **Design system:** accessible component library plus utility CSS; use a grid/table library suitable for dense order data.
+- **API:** typed REST or tRPC-style application API. Keep external webhooks as explicit REST endpoints.
+- **Database:** PostgreSQL.
+- **ORM/migrations:** Prisma or Drizzle; select one and use it consistently.
+- **Queue and scheduler:** Redis-backed durable job queue or managed equivalent.
+- **Streaming:** WebSocket or Server-Sent Events for order and runtime updates.
+- **Object storage:** backtest exports and large reports.
+- **Authentication:** managed auth or audited framework integration.
+- **Billing:** Stripe Billing or equivalent.
+- **Hosting:** web service plus always-on worker service; do not rely only on short-lived serverless functions for live strategy monitoring.
+- **Observability:** structured logs, metrics, traces, error tracking, and alerts.
+
+The exact vendors can change. Preserve provider interfaces so market data, brokers, authentication, billing, queueing, and storage are replaceable.
+
+**[v1.1 C27–C31] As built:**
+
+| Concern             | v1.1 choice                                                                                                                                                                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository          | pnpm workspaces and Turborepo: `apps/web` (Next.js), `apps/worker` (Node), shared `packages/*`; `@tm/domain` is pure TypeScript shared by Strategy Lab, back tests and runtime                                                                                               |
+| Database and ORM    | PostgreSQL 16 with Drizzle and hand-reviewed SQL migrations                                                                                                                                                                                                                  |
+| Queue and scheduler | Postgres tables claimed by `SECURITY DEFINER` functions with `FOR UPDATE SKIP LOCKED` and leases (back tests, runtimes, feed and broker checks, lookups, charts, screens, company reports, valuations, billing syncs); durable `scheduled_action` rows for timing. No Redis. |
+| Streaming           | Server-sent events from the web app, fed by `pg_notify('tm_execution', user_id)`; tabs also refresh every 30 s                                                                                                                                                               |
+| Object storage      | Not used by the app; back-test results are JSON in Postgres and CSV is generated on request. Nightly backups go to Cloudflare R2.                                                                                                                                            |
+| Design system       | Hand-written accessible primitives in `packages/ui` on Tailwind CSS v4 tokens (light and dark), SVG charts, nonce-based CSP with no third-party origins                                                                                                                      |
+| Auth                | Better Auth, self-hosted (C2)                                                                                                                                                                                                                                                |
+| Billing             | Stripe Billing over its REST API, test mode only (C3)                                                                                                                                                                                                                        |
+| Observability       | pino JSON logs with redaction, Sentry over its HTTP API, `/api/health/system` with a worker heartbeat (C30)                                                                                                                                                                  |
+| Hosting             | Railway staging and production documented (`docs/deploy.md`); currently run locally on Yong's Mac (C31)                                                                                                                                                                      |
+
+Provider interfaces in `@tm/domain`: `HistoricalDataProvider`, `LiveQuoteProvider`, `BrokerAdapter`, `Mailer`, and the company-data client; adapters are `@tm/market-data` (demo), `@tm/broker` (simulated), `@tm/alpaca`, `@tm/sec` and `@tm/billing`, each with a contract suite or a fake for tests.
+
+### 12.2 Logical components
+
+```text
+Web client
+  --> Application API
+      --> Auth and entitlement service
+      --> Strategy service
+      --> Backtest service --> worker queue
+      --> Execution service --> runtime workers
+      --> Order service --> broker adapters
+      --> Market-data service --> feed adapters
+      --> Performance service
+      --> Settings/integration service
+      --> Audit service
+  --> PostgreSQL
+  --> Redis/queue
+  --> Object storage
+```
+
+### 12.3 Separation of concerns
+
+- The **rule engine** evaluates normalized data and strategy definitions.
+- **Feed adapters** translate provider data into a canonical market-data model.
+- **Broker adapters** translate canonical order intents into provider calls and normalize updates.
+- The **execution orchestrator** owns strategy-cycle state and timing.
+- The **risk engine** approves or rejects each outbound order.
+- The **order ledger** is the durable source of truth for app-side order history.
+- The **performance engine** consumes reconciled fills and positions.
+
+Backtest and live execution should share rule semantics but use separate clocks and data sources.
+
+### 12.4 Reliability model
+
+- Durable state survives worker restart.
+- Exactly-once broker submission is approximated through idempotency and reconciliation; do not claim impossible distributed exactly-once guarantees.
+- Use leases or locks so one runtime worker owns a strategy instance at a time.
+- Persist state transitions before external side effects where practical.
+- Apply transactional outbox/inbox patterns for critical events.
+- All handlers must tolerate replay.
+- Degraded feed, broker, or database health must fail safe by pausing new submissions.
+
+**[v1.1 C27]** A runtime pass is one tenant transaction: lock the paper broker, advance it, send cancels, submit ready intents, sync broker updates, reload, plan. If anything fails, the whole pass rolls back and the next pass repeats it. Every leg becomes an immutable intent whose idempotency key (`tm1-` plus 32 hex characters) comes from runtime, cycle, phase, leg and attempt and is sent as the broker's client order id. Live trading is off by a compile-time constant and by database checks on every mode column; there is no setting that turns it on.
+
+---
+
+## 13. Core data model
+
+Use UUIDs and include `user_id`, timestamps, and version fields where applicable.
+
+### 13.1 Identity and billing
+
+- **User** — identity, profile, timezone, base currency.
+- **Subscription** — provider customer/subscription IDs, plan, status, period.
+- **Entitlement** — resolved feature and limit values.
+
+### 13.2 Strategy definition
+
+- **Strategy** — stable identity, name, status, active version.
+- **StrategyVersion** — immutable definition snapshot and schema version.
+- **ConditionGroup** — Entry or Exit Boolean group with AND/OR/NOT.
+- **ConditionNode** — comparison or nested group.
+- **Expression** — constant, market field, indicator, or calculation.
+- **PlannedOrder** — phase, instrument, side, sizing, order fields.
+- **TimingRule** — immediate, exact, or relative semantics.
+- **RiskProfile** — strategy-level limits and controls.
+
+**[v1.2 N1–N11]** The definition document (§13.6) gains optional fields, all absent on v1.1 strategies: `entry.kind` (`fixed` | `selection`), `entry.selection` {`universe` (`builtin` `sp500` | `list` of instrument ids), `ranking` {`metric`, `params`}, `direction` (`desc` | `asc`), `count` (`fixed` N | `percent`), `preFilter` (condition group), `weighting` (`equal`)}, `entry.fireMode` (`allPassing` | `bestByMetric` {metric}), `entry.orders[].legCondition` (condition group), `exit.rules[]` (`timeStop` {`barsHeld`}), `schedule.frequency`, and the expression kinds `metric` {`metric`, `params`, `instrumentId`} and `stat` {`fn`, `input`, `period`, `multiplier`, `offset`}. "Each selected instrument" / "this leg's instrument" is stored as the nil UUID. The metric registry lives in `packages/domain/src/strategy/metrics.ts` and is the only implementation of each metric (ADR 0040).
+
+### 13.3 Runtime and testing
+
+- **BacktestRun** — inputs, status, engine/data versions, summary.
+- **BacktestTrade** — simulated cycle, legs, fills, and P/L.
+- **StrategyRuntime** — active strategy version, worker lease, health.
+- **StrategyCycle** — Entry-to-Exit lifecycle instance.
+- **TriggerEvent** — input values, expression result, timestamp.
+- **ScheduledAction** — durable timing event and execution status.
+
+### 13.4 Integrations and trading
+
+- **DataFeedConnection** — provider, credential reference, health, active state.
+- **DataRoute** — asset/venue/data type to primary and fallback feed.
+- **BrokerConnection** — provider, credential reference, environment.
+- **TradingAccount** — masked external ID, mode, currency, capabilities.
+- **OrderIntent** — immutable app request derived from a planned order.
+- **BrokerOrder** — normalized and raw provider identity/status.
+- **Fill** — quantity, price, fee, timestamp.
+- **PositionSnapshot** — reconciled account position.
+- **PerformanceSnapshot** — calculated metrics by scope and time.
+- **AuditEvent** — actor, action, resource, before/after references, context.
+
+### 13.5 Instrument identity
+
+Do not use ticker alone as a key. Use a canonical instrument record that can represent:
+
+- Symbol and venue.
+- Asset class.
+- Currency.
+- Provider-specific identifiers.
+- Option expiration, strike, right, and multiplier.
+- Futures root, contract month, expiration, and multiplier.
+
+**[v1.2 N30]** `instrument.kind` is `tradable` or `indicator_only`; indices have asset class `index` and are always indicator-only (a check constraint keeps the two in step). An indicator-only instrument can be read but never traded.
+
+**[v1.2 N34, N39]** Company fundamentals are point-in-time observations per company (SEC CIK), field, accession and acceptance time, shared by every tenant and readable only by the worker.
+
+### 13.6 As built **[v1.1 C34]**
+
+| v1.0 entity                                                                      | v1.1 table or form                                                                                                                                                                        |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User, Subscription, Entitlement                                                  | `user` (Better Auth) and `profile`; `subscription`; `plan` catalog plus `entitlement` (plan and overrides); `billing_event`; `invite`                                                     |
+| Strategy, StrategyVersion                                                        | `strategy` (draft definition, projected fields), `strategy_version` (immutable), `strategy_instrument` (library filter index), `strategy_status_change`                                   |
+| ConditionGroup, ConditionNode, Expression, PlannedOrder, TimingRule, RiskProfile | Parts of one validated `StrategyDefinition` JSON document (schema version 1) per version                                                                                                  |
+| BacktestRun, BacktestTrade                                                       | `backtest_run`, `backtest_trade`                                                                                                                                                          |
+| StrategyRuntime, StrategyCycle, TriggerEvent, ScheduledAction                    | `strategy_runtime`, `strategy_cycle`, `trigger_event`, `scheduled_action`; plus `execution_control` (kill switch) and `execution_incident`                                                |
+| DataFeedConnection, DataRoute                                                    | `data_feed_connection` (price and company data feeds), `data_route`                                                                                                                       |
+| BrokerConnection, TradingAccount                                                 | `broker_connection`, `trading_account`; secrets in `credential`                                                                                                                           |
+| OrderIntent, BrokerOrder, Fill                                                   | `order_intent` (append-only), `broker_order`, `order_event` (append-only timeline), `fill` (append-only)                                                                                  |
+| PositionSnapshot, PerformanceSnapshot                                            | `position_snapshot` (app and broker sides); `account_valuation` and `book_valuation` (one row per session; final after the close). Trades and metrics are computed on read from fills.    |
+| AuditEvent                                                                       | `audit_event` (append-only)                                                                                                                                                               |
+| Not in v1.0                                                                      | `notification`; `instrument_lookup`; `price_chart`, `stock_screen`, `company_report` (short-lived caches); `api_rate_limit`; `service_heartbeat`; the simulated broker's own state tables |
+
+Every tenant table has row-level security forced on and composite same-tenant foreign keys (C36).
+
+---
+
+## 14. API surface
+
+The following is a minimum logical API; endpoint names may adapt to the selected framework.
+
+### 14.1 Strategies
+
+```text
+GET    /strategies
+POST   /strategies
+GET    /strategies/{id}
+PATCH  /strategies/{id}
+POST   /strategies/{id}/versions
+POST   /strategies/{id}/duplicate
+POST   /strategies/{id}/validate
+POST   /strategies/{id}/start
+POST   /strategies/{id}/stop
+DELETE /strategies/{id}
+```
+
+### 14.2 Backtests
+
+```text
+POST   /strategies/{id}/backtests
+GET    /backtests/{runId}
+POST   /backtests/{runId}/cancel
+GET    /backtests/{runId}/trades
+GET    /backtests/{runId}/export
+```
+
+### 14.3 Orders and performance
+
+```text
+GET    /orders
+GET    /orders/{id}
+POST   /orders/{id}/cancel
+GET    /positions
+GET    /performance/summary
+GET    /performance/timeseries
+GET    /performance/trades
+```
+
+Manual cancel or close actions require permissions and confirmation. They must be distinguished from strategy-generated actions.
+
+### 14.4 Integrations and settings
+
+```text
+GET/POST/PATCH/DELETE /data-feeds
+POST /data-feeds/{id}/test
+GET/POST/PATCH/DELETE /data-routes
+GET/POST/PATCH/DELETE /brokers
+POST /brokers/{id}/connect
+POST /brokers/{id}/test
+GET  /brokers/{id}/accounts
+PATCH /profile
+GET   /subscription
+POST  /billing/checkout-session
+POST  /webhooks/billing
+POST  /webhooks/brokers/{provider}
+```
+
+All mutating APIs require authorization, tenant scoping, validation, rate limits, idempotency where relevant, and audit logging.
+
+### 14.5 As built **[v1.1 C35]**
+
+All routes are under `/api/v1`. Added beyond §14.1–14.4:
+
+```text
+GET    /strategies/{id}/versions/{versionNo}
+GET    /strategies/{id}/backtests
+POST   /orders/cancel-all
+GET    /orders/stream                      (server-sent events)
+POST   /positions/close
+GET    /execution
+POST   /execution/kill-switch
+POST   /execution/runtimes/{id}/resume
+POST   /execution/incidents/{id}/resolve
+GET/POST /credentials, PATCH/DELETE /credentials/{id}, POST /credentials/{id}/rotate
+POST   /data-feeds/{id}/active, /brokers/{id}/active
+PATCH  /trading-accounts/{id}
+POST /instrument-lookups, GET /instrument-lookups/{id}
+POST /research/price-charts, /research/stock-screens, /research/company-reports; GET each /{id}; GET /research/stock-screens/{id}/rows
+GET    /notifications, POST /notifications/read, GET/PUT /notifications/preferences
+GET    /plans, /entitlement
+POST   /billing/portal-session
+GET    /api/health, /api/health/system
+```
+
+Not built as named: `PATCH /profile` (a server action saves the profile) and `POST /webhooks/brokers/{provider}` (C32). Errors share one body, `{ error: { code, message, issues?, details? } }`; plan limits answer `403 plan_limit`; mutating requests must carry the app's own Origin and the row version last seen.
+
+---
+
+## 15. Screen-level UX specification
+
+### 15.1 Strategy Lab layout
+
+**Library panel**
+
+- Search and filters.
+- Strategy list with status and latest activity.
+- New, duplicate, rename, archive, delete.
+
+**Strategy header**
+
+- Name, version, status, save state.
+- Data route, account, Paper/Live badge.
+- Validation warnings.
+
+**Main editor**
+
+- Entry conditions.
+- Entry planned orders.
+- Exit conditions.
+- Exit planned orders.
+- Risk and execution settings.
+
+**Back Test panel**
+
+- Inputs and Run back test.
+- Latest results and current-version match.
+- Start/Stop execution immediately after the run control.
+
+Use a reusable expression-row component on both sides of each comparison. Planned-order rows must remain readable when several legs are added; support row expansion for advanced fields.
+
+**[v1.1 C7, C8, C12]** The library has a New strategy dialog (blank or a copy), and filters for text, status, asset, updated date and archived, with sort by name or date. The editor colour-codes Entry, Exit, conditions and orders, stacks the two sides of each condition, and shows "Match Entry orders" when Exit has diverged from Entry. Each strategy has a version history page.
+
+### 15.2 Orders layout
+
+- Summary counts by state.
+- Filters and saved views.
+- Dense order table.
+- Detail drawer with event timeline.
+- Strategy/cycle links.
+- Clear Paper/Live label.
+- Reconciliation or incident banner.
+
+When Start execution succeeds, guide the user to this tab and highlight the new runtime. Do not require a manual “process next feed update” action in production.
+
+**[v1.1 C33]** Views: all, working, filled, canceled or rejected, scheduled, with counts; filters by strategy, run, cycle, phase, instrument, account and dates in the viewer's time zone, kept in the address so a view can be bookmarked. A positions table with manual close (stopped strategies only), the kill switch, and a banner for paused strategies and open incidents with a Resolve action.
+
+### 15.3 Performance layout
+
+- Date, account, strategy, and mode filters.
+- KPI cards.
+- Equity and drawdown charts.
+- Strategy and asset contribution.
+- Trade/cycle table.
+- Data-quality and reconciliation notes.
+
+**[v1.1 C25]** Filters: dates (NYSE sessions, inclusive), account, strategy, version, asset class, mode (Live is empty until live trading). A link to the methodology page, the broker's equity shown as the figure that counts, and an "Outside the app" section.
+
+### 15.4 Settings layout
+
+Subsections or tabs:
+
+1. Profile.
+2. Data feeds.
+3. Trading platforms and accounts.
+4. Subscription and billing.
+5. Notifications and security.
+
+Data feeds and accounts use list cards or tables with health, active state, test action, and add action. Secret fields are write-only.
+
+**[v1.1 C22, C23]** Data feeds has two sections, Price feeds (with the routes table) and Company data feeds. Trading platforms and accounts lists platforms with their discovered accounts. Notifications and security holds sessions, stored API keys, notification preferences and account deletion. Subscription and billing shows the plan, usage against each limit, and Checkout or portal buttons.
+
+---
+
+## 16. Security, privacy, and operational controls
+
+### 16.1 Security requirements
+
+- TLS in transit and managed encryption at rest.
+- Credentials stored only through a managed secrets mechanism.
+- Strict tenant isolation and least-privilege service access.
+- CSRF protection where applicable.
+- Content Security Policy and secure cookies.
+- Input validation and output encoding.
+- Rate limits on authentication, backtests, and execution APIs.
+- Dependency and container scanning.
+- Signed, verified webhooks.
+- Administrative actions protected by strong authentication and audit.
+- Production and sandbox credentials separated.
+
+**[v1.1 C36, C37, C23]** As built: three database roles (owner for migrations, `tm_app` under row-level security, `tm_auth` for auth tables only) plus `tm_secrets`, held only by the worker's login, for reading sealed credentials. CSRF defence is SameSite=Lax cookies plus an Origin check on every mutating request. Rate limits are shared through Postgres (C37). CI runs `pnpm audit --prod`, Gitleaks over the repository and its history, and Trivy over the runtime image and deploy files. Stripe keys must be test keys; the Alpaca client refuses any host but the paper endpoint. `docs/security-review.md` lists what protects each boundary and which risks are accepted for the invite-only test.
+
+### 16.2 Auditability
+
+Capture user and system actions for:
+
+- Strategy create/edit/version/status changes.
+- Backtest starts and result provenance.
+- Feed and broker connection changes.
+- Start/stop execution.
+- Trigger evaluations that generate orders.
+- Risk approvals and rejections.
+- Order submission, cancellation, and reconciliation.
+- Billing/entitlement changes affecting execution.
+
+Audit records are append-only and redact secrets. **[v1.1]** Also audited: invite use (`account.invited`), plan and subscription changes, feed failovers and switch-backs, credential saves (by key fingerprint, never value), incidents, automatic pauses and resumes.
+
+**[v1.2 N16, N25]** Minting and releasing invite codes is audited with the count and note, never the code. Admin actions (lock, unlock, password reset, invite codes) are audited too.
+
+### 16.3 Notifications
+
+At minimum support in-app notifications for strategy start/stop, trigger, order rejection, partial fill, full fill, disconnect, stale data, risk pause, and reconciliation mismatch. Email or push channels can be added via user preferences. **[v1.1 C24]** Also notified: feed down, failover and switch-back, plan changes and grace reminders, and closing-time broker differences. Each notification has a dedupe key and a link to where to look. Email and push are not built.
+
+### 16.4 Compliance posture
+
+The app should clearly state that it is a user-directed trading tool and that backtests do not guarantee results. Before public launch or real-money execution, obtain legal review for brokerage API terms, market-data licensing, disclosures, record retention, regional availability, and whether any planned advisory or automation features create regulatory obligations. **[v1.1 C5]** The notice is on sign-up, in every signed-in page's footer and at the top of the placeholder Terms; Terms and Privacy say plainly that no lawyer has reviewed them.
+
+---
+
+## 17. Non-functional requirements
+
+### 17.1 Correctness and consistency
+
+- Monetary values use decimal arithmetic, never binary floating point.
+- Quantities and prices obey instrument precision and tick size.
+- All external events retain provider timestamp, receipt timestamp, and source.
+- Strategy definitions use a versioned schema with migration support.
+- Calculations are deterministic for identical versioned inputs. **[v1.1]** Decimals travel as strings and use decimal.js and Postgres `numeric`; research chart prices are plain numbers because they are only drawn. Back-test results carry an engine version, bumped whenever simulation semantics change.
+
+### 17.2 Performance targets
+
+Establish service-level objectives after selecting providers and asset coverage. Initial engineering targets:
+
+- Normal UI reads feel interactive under ordinary broadband conditions.
+- Order and runtime status updates stream without manual refresh.
+- Trigger-to-order latency is measured end to end and visible operationally.
+- Backtests run asynchronously and do not block interactive traffic.
+
+Do not promise high-frequency or ultra-low-latency trading. This design targets retail/prosumer automated strategy workflows.
+
+**[v1.1]** Load target (approved 2026-10-05): 20 users with 5 active strategies each and 10 back tests at once; pages p95 under 1 s; orders placed within 5 s of their trigger. A k6 script and queries are in `load/`; the test has not yet been run against a deployment (deviation D9).
+
+### 17.3 Availability and recovery
+
+- Automated database backups with tested restoration.
+- Queue and worker restart recovery.
+- Health checks for feeds, brokers, schedulers, and runtime workers.
+- Runbooks for feed loss, broker outage, webhook backlog, and reconciliation mismatch.
+- Defined recovery-point and recovery-time objectives before real-money launch.
+
+**[v1.1]** Backups (approved 2026-10-05): nightly `pg_dump` to Cloudflare R2 at 07:30 UTC, kept 30 days, with `restore-check.sh` as a monthly runbook step. Runbooks in `docs/runbooks`: incidents, backups and restore, key rotation, billing webhooks, a stuck worker, feed or broker trouble. Recovery objectives are not yet defined (deviation D9).
+
+### 17.4 Testing
+
+Required automated coverage:
+
+- Unit tests for expressions, indicators, Boolean grouping, timing, sizing, and risk rules.
+- Property-based tests for order-state transitions and numeric edge cases.
+- Integration tests for database, queues, webhooks, and adapter contracts.
+- Recorded sandbox tests against each feed and broker adapter.
+- End-to-end tests for sign-up, subscription, save, backtest, paper start, Entry, Exit, Orders, and Performance.
+- Failure-injection tests for disconnects, duplicate events, restarts, partial fills, and out-of-order updates.
+
+Paper trading must pass a sustained validation period before live trading is enabled.
+
+**[v1.1 C38]** Adapters for Alpaca, Stripe and SEC EDGAR are tested against fakes whose responses are transcribed from each provider's API reference and checked field by field against fixtures. The broker contract suite runs plainly and with injected duplicates, reordering, lost replies and disconnects. Accessibility (axe, WCAG 2 A/AA) runs on every page in the end-to-end tests, and a layout test checks that no editor dropdown clips its value at 1440, 1728 and 1920 px. A manual check with a real key confirms each provider (D10).
+
+---
+
+## 18. Delivery plan for Claude Code
+
+**[v1.1] Status on 2026-11-05.** Phases 0 to 6 are built and merged (PRs #1 to #35, with #30 for deployment), then follow-ups #36 to #49 (automatic routes, full-width layout, editor colours and "What happened", copying strategies, position values, Exit pre-fill, Quantitative Research tools, company data). `main` holds the whole project since PR #50. Phase 7 has not started. The requirement-by-requirement record is `docs/traceability.md` in the repository.
+
+### Phase 0 — repository and foundation
+
+- Monorepo or clearly separated web and worker packages.
+- TypeScript strict mode, linting, formatting, tests, CI.
+- Environment configuration with schema validation.
+- PostgreSQL migrations and seed data limited to generic demo records.
+- Authentication and tenant isolation.
+- Basic design system and navigation.
+
+### Phase 1 — validated Strategy Lab
+
+- Strategy library with server persistence.
+- Multi-asset expression tree.
+- Multi-leg Entry and Exit planned orders.
+- Timing rules.
+- Strategy validation and immutable version snapshots.
+- Created, Under testing, Actively executing, Off states.
+
+### Phase 2 — backtesting
+
+- Historical-data adapter contract.
+- Durable jobs and run status.
+- Shared rule engine.
+- Results, trade list, provenance, and charts.
+- Start execution placement and activation gate.
+
+### Phase 3 — paper execution
+
+- Canonical order model.
+- One paper-broker adapter first.
+- Runtime orchestration and timing scheduler.
+- Orders tab with live updates.
+- Entry-first/Exit-second lifecycle.
+- Reconciliation, risk controls, and audit.
+
+### Phase 4 — settings and integrations
+
+- Feed list, routes, health, and secure connection flow.
+- Broker platform and multi-account management.
+- Capability discovery and validation.
+- User profile and notifications.
+
+### Phase 5 — performance
+
+- Reconciled fills and positions.
+- Core metrics and charts.
+- Strategy, account, asset, date, and Paper/Live filters.
+
+### Phase 6 — subscriptions and deployment
+
+- Billing checkout, webhooks, plans, and entitlements.
+- Production infrastructure, observability, backups, and runbooks.
+- Security review and load testing.
+- Controlled multi-user launch.
+
+### Phase 7 — real trading
+
+- Add one real-broker adapter only after paper acceptance.
+- Live-mode confirmations and stricter risk limits.
+- Legal and market-data review.
+- Gradual access rollout and incident response readiness.
+
+**[v1.1]** Before Phase 7 also: the §8.6 limits that are not yet built (deviation D4), recovery objectives, a run of the load test, and the hosting decision (C31).
+
+---
+
+## 19. Acceptance criteria for v1
+
+**[v1.1]** Every criterion in §19.1 to §19.8 is marked Done in `docs/traceability.md`, with the tests that cover it. Acceptance tests use DEMO-A and DEMO-B in place of PEP and KO, because seed data is generic (§21).
+
+### 19.1 Strategy library
+
+- A signed-in user can create, save, reopen, rename, duplicate, archive, and delete multiple strategies.
+- Strategies persist across sessions and devices.
+- A user cannot access another user's strategy through UI or API.
+- An actively used strategy retains the exact immutable version that generated each order.
+
+### 19.2 Multi-asset rules
+
+- A condition can compare an indicator for PEP with an indicator for KO.
+- Either expression can instead be a fixed value.
+- Nested AND/OR/NOT logic saves, reloads, validates, and evaluates consistently.
+- Different assets may use different fields, intervals, and indicator parameters.
+
+### 19.3 Multi-asset planned orders
+
+- One Entry plan can long one asset and short another.
+- Each leg independently stores instrument, account, side, quantity, type, and timing.
+- Unsupported broker capabilities block activation with a useful message.
+- Partial-fill and one-leg-failure scenarios are represented and auditable.
+
+### 19.4 Timing
+
+- An order can be immediate, scheduled for an exact zoned date/time, or delayed from a durable reference event.
+- “Five minutes after Entry order submitted” survives an application restart.
+- A retry cannot generate a duplicate broker order.
+- Market-closed handling follows the saved strategy policy.
+
+### 19.5 Back Test
+
+- Back Test runs only on user request.
+- The result identifies strategy version, data range, assumptions, and engine version.
+- Multi-asset timestamps align without lookahead.
+- Results show overall and per-leg outcomes.
+- The UI warns if the strategy changed after the latest test.
+
+### 19.6 Execution and Orders
+
+- Start execution is located after Run back test and requires mode-appropriate confirmation.
+- Active paper strategies consume feed events automatically.
+- Entry planned orders become order intents only after Entry qualification.
+- Exit evaluation and orders follow the configured Entry milestone.
+- Orders show source strategy, version, cycle, phase, trigger, and broker timeline.
+- Stop prevents new strategy-generated orders without silently canceling or liquidating.
+
+### 19.7 Settings
+
+- A user can view, add, test, activate, deactivate, and remove data-feed configurations.
+- Active feed routes identify primary and fallback sources.
+- A user can connect multiple platforms and accounts, including paper accounts.
+- Secrets are never returned to the browser after secure capture.
+- Disconnecting an in-use integration safely pauses or reroutes affected strategies.
+
+### 19.8 Multi-user subscription
+
+- Users can sign up, subscribe, and access features allowed by their plan.
+- Billing webhook replay does not duplicate state changes.
+- Plan limits are enforced server-side.
+- Subscription changes do not create unsafe, silent execution behavior.
+
+---
+
+## 20. Decisions still required before implementation
+
+Claude Code should scaffold interfaces and safe defaults, but not invent business policy for these items:
+
+1. First market-data provider and covered asset classes.
+2. First paper broker and first live broker.
+3. Geographic launch region and supported exchanges.
+4. Subscription plans and limits.
+5. Default data resolution and maximum backtest range.
+6. Fill model, fees, slippage, and short-borrow assumptions.
+7. Multi-leg default: concurrent or sequential.
+8. Partial-fill behavior and timeout.
+9. Re-entry and pyramiding defaults.
+10. Market-hours and holiday-calendar policy.
+11. Risk limits for paper and live accounts.
+12. Whether a successful recent backtest is mandatory for activation.
+13. Notification channels.
+14. Data retention and deletion policy.
+15. Legal disclosures and live-trading eligibility.
+
+Until these decisions are made, default to paper-only execution, no automatic live-account enablement, one open cycle per strategy, on-transition triggers, full Entry fill before Exit monitoring, and conservative risk limits.
+
+### 20.1 Status in v1.1 **[v1.1 C40]**
+
+| #   | Decision                                           | Status                                                                                             |
+| --- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 1   | First market-data provider                         | Decided: Alpaca IEX for prices and bars; DEMO feed built in; SEC EDGAR for company data (C21, C22) |
+| 2   | First paper broker and first live broker           | Paper decided: simulated broker and Alpaca paper (C20). Live broker open (Phase 7)                 |
+| 3   | Geographic launch region and exchanges             | Partly: US stocks and ETFs on the main US exchanges (C1); launch region open                       |
+| 4   | Subscription plans and limits                      | Decided (C3)                                                                                       |
+| 5   | Default data resolution and maximum backtest range | Decided (C18)                                                                                      |
+| 6   | Fill model, fees, slippage, short borrow           | Decided (C18)                                                                                      |
+| 7   | Multi-leg default                                  | Decided: concurrent (C13)                                                                          |
+| 8   | Partial-fill behaviour and timeout                 | Decided: 60 s, full Entry fill before Exit (C13)                                                   |
+| 9   | Re-entry and pyramiding defaults                   | Decided: one open cycle (C15)                                                                      |
+| 10  | Market hours and holiday calendar                  | Decided: queue, NYSE (C14)                                                                         |
+| 11  | Risk limits for paper and live                     | Paper decided (C16); live open                                                                     |
+| 12  | Recent back test mandatory for activation          | Decided for paper: no, warning only (C18); live open                                               |
+| 13  | Notification channels                              | Decided: in-app only for now (C24)                                                                 |
+| 14  | Data retention and deletion                        | Decided (C6) and implemented (PR #60); legal review open                                           |
+| 15  | Legal disclosures and live-trading eligibility     | Open: placeholder pages and risk notice only (C5)                                                  |
+
+---
+
+## 21. Instructions for Claude Code
+
+Use this document as the product and functional baseline. Build incrementally and do not jump directly to real-money execution.
+
+### Initial implementation prompt
+
+```text
+Create a production-oriented TypeScript web application from the attached
+Automated Trading Planning and Execution App Design v1.0.
+
+Start with Phase 0 and Phase 1 only. Use a modular architecture with a Next.js
+web application, PostgreSQL, a typed database layer, strict tenant isolation,
+and automated tests. Keep market-data, broker, billing, authentication, queue,
+and storage providers behind interfaces.
+
+Implement:
+- authentication-ready user and tenant boundaries;
+- the five-tab navigation;
+- a server-persisted strategy library;
+- immutable strategy versions;
+- a nested multi-asset Entry/Exit condition builder where each expression picks
+  its own instrument;
+- multi-asset planned-order sets for Entry and Exit;
+- immediate, exact date/time, and relative timing rules;
+- Created, Under testing, Actively executing, and Off states;
+- validation and generic paper-only demo adapters.
+
+Do not submit real orders. Do not place credentials in code, sample data, logs,
+or browser storage. Use generic demo instruments only in seed data. Add database
+migrations, unit and end-to-end tests, a README, architecture decisions, and a
+traceability checklist mapping completed requirements to Design v1.0 sections.
+
+Before coding, propose the repository structure, selected libraries, schema,
+security boundaries, and milestone plan. Identify decisions that require product
+confirmation instead of guessing them. Then implement one milestone at a time,
+run tests, and report remaining gaps.
+```
+
+### Engineering rules
+
+- Do not collapse a strategy to one symbol.
+- Do not represent nested logic as display text only; store a validated expression tree.
+- Do not put secrets in `.env` examples beyond blank variable names.
+- Do not equate strategy status with runtime health.
+- Do not submit a broker order without durable intent, risk check, and idempotency.
+- Do not calculate performance from unconfirmed assumptions when reconciled fills are available.
+- Do not enable live trading as part of the first implementation milestone.
+- Keep schema and APIs versioned.
+- Keep an implementation traceability matrix against this document.
+
+**[v1.1 C39] Working agreement since 2026-11-03.** Each change is its own pull request. When its checks pass it is merged without waiting for Yong, and the local copy on Yong's Mac is then updated (`update-trading-magician.sh <branch>`, which backs up the database, migrates and restarts) and Yong is told it is ready. Each feature that changes a design choice gets an ADR in `docs/adr` and a row in `docs/traceability.md`.
+
+---
+
+## 22. Assumptions made in v1.0
+
+- The first product audience is individual traders, with one private workspace per user.
+- The primary experience is desktop web.
+- The first execution milestone is paper trading.
+- Live execution requires a later controlled rollout.
+- A user may connect multiple feeds, brokers, and accounts.
+- Multiple feeds can be active, but routing chooses one deterministic primary source for each data need.
+- Exact times are stored in UTC and displayed in the user's timezone.
+- One open strategy cycle is the default.
+- Entry is considered established after full fill unless configured otherwise.
+- Stopping a strategy does not automatically cancel orders or close positions.
+- Multi-leg orders are not assumed atomic.
+- Quantitative Research is deferred but supported by the architecture.
+
+These assumptions should be reviewed during the next feedback cycle. Any change should be recorded in v1.1 or, if structurally significant, v2.0.
+
+**[v1.1 review]** All twelve assumptions still hold. Two are narrowed: the audience is a small invited group (C5), and the primary experience is desktop web at full screen width (C7). "Quantitative Research is deferred" is now "partly built" (C26).
+
+---
+
+## 23. Definition of done for the first usable production release
+
+The first usable release is complete when a subscriber can securely sign in, create and persist multiple multi-asset strategies, run reproducible backtests, configure a market-data source and paper account, activate a tested strategy, observe automatic Entry and Exit order generation with timing rules, inspect the full order lifecycle, and review performance — all with tenant isolation, auditability, risk controls, recovery from restart, and no dependency on manual feed-step buttons.
+
+**[v1.1]** Every part of this is built on paper. What stands between it and a first usable production release: a hosted deployment (C31), the deviations marked _fix_ in `v1.1-deviations.md`, and the manual checks with real Alpaca and SEC EDGAR keys.

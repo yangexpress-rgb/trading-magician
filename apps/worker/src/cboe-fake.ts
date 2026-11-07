@@ -62,13 +62,26 @@ export function fakeVixHistory(to: string): string {
   return `${rows.join('\n')}\n`;
 }
 
-/** A fetch that answers CBOE's VIX history URL with the fake file. */
+/** The fake VIX history as FRED writes VIXCLS: closes only, a blank on holidays. */
+export function fakeVixclsHistory(to: string): string {
+  const rows = ['observation_date,VIXCLS'];
+  for (const line of fakeVixHistory(to).trim().split('\n').slice(1)) {
+    const [d = '', , , , close = ''] = line.split(',');
+    rows.push(`${d.slice(6, 10)}-${d.slice(0, 2)}-${d.slice(3, 5)},${close}`);
+  }
+  return `${rows.join('\n')}\n`;
+}
+
+/**
+ * A fetch that answers CBOE's VIX history URL with the fake file, and FRED's
+ * VIXCLS download with the same closes.
+ */
 export function fakeCboeFetch(now: () => Date): Fetch {
   return async (url) => {
-    if (!url.endsWith('/VIX_History.csv')) return new Response('Not found', { status: 404 });
-    return new Response(fakeVixHistory(nyDate(now())), {
-      status: 200,
-      headers: { 'content-type': 'text/csv' },
-    });
+    const csv = (body: string) =>
+      new Response(body, { status: 200, headers: { 'content-type': 'text/csv' } });
+    if (url.endsWith('/VIX_History.csv')) return csv(fakeVixHistory(nyDate(now())));
+    if (/[?&]id=VIXCLS(&|$)/.test(url)) return csv(fakeVixclsHistory(nyDate(now())));
+    return new Response('Not found', { status: 404 });
   };
 }

@@ -2,6 +2,8 @@ import type { BacktestMetrics } from '@tm/backtest';
 import { describe, expect, it } from 'vitest';
 import {
   describeRun,
+  DIRECTION_WORDS,
+  tradeDirection,
   formatMarketTime,
   formatPct,
   formatSignedMoney,
@@ -120,5 +122,24 @@ describe('risk sizing and ATR stop text (v1.2 item 9)', () => {
     expect(atrStopText({ ...stop, direction: 'short', level: '408.2468' })).toBe(
       'Stop 408.2468 = entry 400 + 2 × ATR 4.1234',
     );
+  });
+});
+
+describe('tradeDirection', () => {
+  const leg = (phase: string, side: string) => ({ phase, side });
+  it('calls a pair long and short, whatever its group says', () => {
+    expect(
+      tradeDirection({
+        direction: 'long',
+        legs: [leg('entry', 'buy'), leg('entry', 'sell_short'), leg('exit', 'sell')],
+      }),
+    ).toBe('long_short');
+    expect(DIRECTION_WORDS.long_short).toBe('Long and short');
+  });
+  it('reads all-short and all-long Entry legs, and the record without fills', () => {
+    expect(tradeDirection({ legs: [leg('entry', 'sell_short')] })).toBe('short');
+    expect(tradeDirection({ direction: 'short', legs: [leg('entry', 'buy')] })).toBe('long');
+    expect(tradeDirection({ direction: 'short', legs: [] })).toBe('short');
+    expect(tradeDirection({ legs: [] })).toBe('long');
   });
 });
