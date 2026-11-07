@@ -634,11 +634,11 @@ export function optionMetricField(id: string): OptionSignalField | undefined {
 
 /**
  * Whether a metric can rank a Selection group or pick the best leg in fire
- * mode. Options metrics can't yet (brief §6: Phase 2).
+ * mode: every registry metric, options metrics included since Phase 2 of the
+ * options brief (§10 item 10). A member without a value ranks as unknown.
  */
 export function isRankingMetric(id: string): boolean {
-  const m = getMetric(id);
-  return m !== undefined && m.category !== 'options';
+  return getMetric(id) !== undefined;
 }
 
 const BY_ID = new Map(METRICS.map((m) => [m.id, m]));

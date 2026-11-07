@@ -26,9 +26,10 @@ import {
   walkExpressions,
 } from './tree';
 import { CONTEXT_INSTRUMENT_ID } from './evaluate';
-import { checkMetricRef, getMetric, isRankingMetric, metricReferences } from './metrics';
+import { checkMetricRef, getMetric, metricReferences } from './metrics';
 import {
   hasComparisons,
+  listMembers,
   optionInstruments,
   paperRunBlocker,
   slotModeOf,
@@ -758,7 +759,9 @@ function checkOptions(def: StrategyDefinition, ctx: ValidationContext, add: Add)
     return;
   }
   const universe = ctx.options.universe;
-  for (const id of optionInstruments(def)) {
+  // A list universe ranked by an options metric needs each member recorded; the
+  // built-in S&P 500 is ranked over the members that are, the rest as unknown.
+  for (const id of optionInstruments(def, listMembers(def))) {
     if (id === CONTEXT_INSTRUMENT_ID || universe.has(id)) continue;
     const info = ctx.instruments.get(id);
     // Asset classes the recording can't cover are reported as metric_unsupported.
@@ -897,13 +900,6 @@ function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Ad
   const ranking = getMetric(sel.ranking.metric);
   for (const problem of checkMetricRef(sel.ranking))
     add('error', 'invalid_metric', problem, ['entry', 'selection', 'ranking']);
-  if (ranking && !isRankingMetric(ranking.id))
-    add(
-      'error',
-      'metric_not_rankable',
-      `${ranking.label} is an options metric: options metrics work in conditions, not rankings, for now`,
-      ['entry', 'selection', 'ranking'],
-    );
   for (const id of metricReferences(sel.ranking)) {
     if (!ctx.instruments.has(id))
       add('error', 'unknown_instrument', 'Choose a valid benchmark', [
@@ -1014,13 +1010,6 @@ function checkLegConditions(def: StrategyDefinition, ctx: ValidationContext, add
     for (const problem of checkMetricRef(fire.metric))
       add('error', 'invalid_metric', problem, ['entry', 'fireMode', 'metric']);
     const spec = getMetric(fire.metric.metric);
-    if (spec && !isRankingMetric(spec.id))
-      add(
-        'error',
-        'metric_not_rankable',
-        `${spec.label} is an options metric: options metrics work in conditions, not to pick the best leg, for now`,
-        ['entry', 'fireMode', 'metric'],
-      );
     def.entry.orders.forEach((o, i) => {
       const info = ctx.instruments.get(o.instrumentId);
       if (spec && info && !spec.assetClasses.includes(info.assetClass))

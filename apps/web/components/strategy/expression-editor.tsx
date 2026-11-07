@@ -817,8 +817,8 @@ export function MetricRefFields({
   error?: string | undefined;
   label?: string;
   /**
-   * Only one category's metrics; price-based and fundamental, grouped, when
-   * absent (ranking and fire mode, which don't take options metrics yet).
+   * Only one category's metrics; every category, grouped, when absent
+   * (ranking and fire mode).
    */
   category?: MetricCategoryFilter | undefined;
   onChange: (ref: MetricRef) => void;
@@ -829,7 +829,11 @@ export function MetricRefFields({
     category ? categoryOf(m.id) === category : isRankingMetric(m.id),
   );
   const groups = [
-    { label: 'Price-based', metrics: offered.filter((m) => !isFundamentalMetric(m.id)) },
+    { label: 'Price-based', metrics: offered.filter((m) => categoryOf(m.id) === 'price') },
+    {
+      label: 'Options (daily recording)',
+      metrics: offered.filter((m) => categoryOf(m.id) === 'options'),
+    },
     {
       label: 'Fundamental (company filings)',
       metrics: offered.filter((m) => isFundamentalMetric(m.id)),
