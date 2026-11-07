@@ -18,6 +18,7 @@ const UNITS: Record<string, string> = {
   CommonStockDividendsPerShareCashPaid: 'USD/shares',
   EarningsPerShareBasicAndDiluted: 'USD/shares',
   EntityCommonStockSharesOutstanding: 'shares',
+  CommonStockSharesOutstanding: 'shares',
 };
 
 function companyFacts(filings: F[]): SecCompanyFacts {
@@ -313,6 +314,162 @@ describe('a company that pays no dividend (Yong, 2026-11-07)', () => {
       ]),
     );
     expect(asOf(later, 'dps_ttm', '2026-08-02T00:00:00Z')).toBe(0);
+  });
+});
+
+describe('gaps in what companies tag (S&P 500 re-test, 2026-11-07)', () => {
+  const tenQ = (accn: string, filed: string, facts: F['facts']): F => ({
+    accn,
+    form: '10-Q',
+    filed,
+    facts,
+  });
+  const span = (p: string[]) => p as [string, string];
+  const div = 'CommonStockDividendsPerShareDeclared';
+
+  it('fills a fiscal Q4 dividend only the untagged annual report covers (GD, TRV)', () => {
+    // Dividends tagged in 10-Qs only: Q4 2024 is never reported.
+    const obs = pointInTimeObservations(
+      companyFacts([
+        tenQ('D-24Q3', '2024-10-20', {
+          [div]: [
+            [...span(q24.q3), 1.42],
+            [...span(q24.m9), 4.26],
+          ],
+        }),
+        tenQ('D-25Q1', '2025-04-20', { [div]: [[...span(q25.q1), 1.5]] }),
+        tenQ('D-25Q2', '2025-07-20', {
+          [div]: [
+            [...span(q25.q2), 1.5],
+            [...span(q25.h1), 3],
+          ],
+        }),
+        tenQ('D-25Q3', '2025-10-20', {
+          [div]: [
+            [...span(q25.q3), 1.5],
+            [...span(q25.m9), 4.5],
+          ],
+        }),
+      ]),
+    );
+    // Q4 2024 takes Q3 2024's 1.42: 1.42 + 3 × 1.5.
+    expect(asOf(obs, 'dps_ttm', '2025-10-21T00:00:00Z')).toBeCloseTo(5.92);
+  });
+
+  it('never guesses a missing quarter of earnings', () => {
+    const obs = pointInTimeObservations(
+      companyFacts([
+        tenQ('E-24Q3', '2024-10-20', { EarningsPerShareDiluted: [[...span(q24.q3), 1]] }),
+        tenQ('E-25Q1', '2025-04-20', { EarningsPerShareDiluted: [[...span(q25.q1), 1]] }),
+        tenQ('E-25Q2', '2025-07-20', { EarningsPerShareDiluted: [[...span(q25.q2), 1]] }),
+        tenQ('E-25Q3', '2025-10-20', { EarningsPerShareDiluted: [[...span(q25.q3), 1]] }),
+      ]),
+    );
+    expect(asOf(obs, 'eps_ttm', '2025-10-21T00:00:00Z')).toBeUndefined();
+  });
+
+  it('adds up dividends tagged by payment date, counting a re-dated repeat once (DIS)', () => {
+    const paid = 'CommonStockDividendsPerShareCashPaid';
+    const obs = pointInTimeObservations(
+      companyFacts([
+        tenQ('P-1', '2025-02-05', {
+          [paid]: [
+            [undefined, '2024-01-10', 0.3],
+            [undefined, '2024-07-25', 0.45],
+          ],
+        }),
+        // The annual report dates the same payments a few days later.
+        {
+          accn: 'P-2',
+          form: '10-K',
+          filed: '2025-03-01',
+          facts: {
+            [paid]: [
+              [undefined, '2024-07-31', 0.45],
+              [undefined, '2025-01-16', 0.5],
+            ],
+          },
+        },
+        tenQ('P-3', '2025-08-06', { [paid]: [[undefined, '2025-07-23', 0.5]] }),
+      ]),
+    );
+    expect(asOf(obs, 'dps_ttm', '2025-02-06T00:00:00Z')).toBe(0.75);
+    expect(asOf(obs, 'dps_ttm', '2025-03-02T00:00:00Z')).toBe(0.95);
+    expect(asOf(obs, 'dps_ttm', '2025-08-07T00:00:00Z')).toBe(1);
+  });
+
+  it('never steps back to an older period a later filing still allows (DIS)', () => {
+    const paid = 'CommonStockDividendsPerShareCashPaid';
+    const obs = pointInTimeObservations(
+      companyFacts([
+        {
+          accn: 'S-1',
+          form: '10-K',
+          filed: '2020-11-20',
+          facts: { [paid]: [[...span(Q(2019).fy), 3.52]] },
+        },
+        tenQ('S-2', '2025-08-06', {
+          [paid]: [
+            [undefined, '2025-01-16', 0.5],
+            [undefined, '2025-07-23', 0.5],
+          ],
+        }),
+        // A later filing repeating the old year must not bring back 3.52.
+        {
+          accn: 'S-3',
+          form: '10-K',
+          filed: '2025-11-13',
+          facts: { [paid]: [[...span(Q(2019).fy), 3.52]] },
+        },
+      ]),
+    );
+    expect(asOf(obs, 'dps_ttm', '2025-11-14T00:00:00Z')).toBe(1);
+  });
+
+  it("takes the balance sheet's share count when the cover page gives none (EL)", () => {
+    const obs = pointInTimeObservations(
+      companyFacts([
+        tenQ('L-1', '2025-05-01', {
+          CommonStockSharesOutstanding: [[undefined, '2025-03-31', 360]],
+        }),
+      ]),
+    );
+    expect(asOf(obs, 'shares', '2025-05-02T00:00:00Z')).toBe(360);
+  });
+
+  it('works out EPS from net income and the share count when quarters tag no EPS (GD)', () => {
+    const ni = 'NetIncomeLoss';
+    const shares = 'EntityCommonStockSharesOutstanding';
+    const obs = pointInTimeObservations(
+      companyFacts([
+        {
+          accn: 'G-24K',
+          form: '10-K',
+          filed: '2025-02-07',
+          facts: {
+            EarningsPerShareDiluted: [[...span(q24.fy), 13.63]],
+            [ni]: [
+              [...span(q24.q1), 800],
+              [...span(q24.h1), 1700],
+              [...span(q24.m9), 2700],
+              [...span(q24.fy), 3782],
+            ],
+            [shares]: [[undefined, '2025-01-20', 275]],
+          },
+        },
+        tenQ('G-25Q1', '2025-04-23', {
+          [ni]: [[...span(q25.q1), 1000]],
+          [shares]: [[undefined, '2025-04-15', 270]],
+        }),
+        tenQ('G-25Q2', '2025-07-23', {
+          [ni]: [[...span(q25.h1), 2000]],
+          [shares]: [[undefined, '2025-07-15', 270]],
+        }),
+      ]),
+    );
+    expect(asOf(obs, 'eps_ttm', '2025-02-08T00:00:00Z')).toBe(13.63);
+    // Net income TTM to June 2025: 1000 (Q3 2024) + 1082 (Q4) + 2000 = 4082, over 270 shares.
+    expect(asOf(obs, 'eps_ttm', '2025-07-24T00:00:00Z')).toBeCloseTo(4082 / 270);
   });
 });
 

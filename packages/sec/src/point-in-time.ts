@@ -99,6 +99,8 @@ const CONCEPTS = {
     instant: true,
     taxonomy: 'dei',
   },
+  /** The balance sheet's share count, for filers whose cover page gives none (EL). */
+  balanceSheetShares: { tags: ['CommonStockSharesOutstanding'], unit: 'shares', instant: true },
 } as const satisfies Record<string, Concept>;
 type ConceptName = keyof typeof CONCEPTS;
 
@@ -244,6 +246,7 @@ function quartersOf(known: Iterable<Known>): Map<string, number> {
  */
 export function trailingTwelveMonths(
   known: Iterable<Known>,
+  options: { fillOneQuarter?: boolean } = {},
 ): { value: number; periodEnd: string } | undefined {
   const all = [...known];
   const quarters = quartersOf(all);
@@ -256,14 +259,59 @@ export function trailingTwelveMonths(
   const qEnds = [...quarters.keys()].sort();
   let total = 0;
   let end = latest;
+  const near = (target: string) => qEnds.find((e) => Math.abs(days(e, target)) <= 12);
+  const back = (date: string) => new Date(Date.parse(date) - 91 * DAY).toISOString().slice(0, 10);
+  let filled = false;
   for (let n = 0; n < 4; n++) {
     const target = end;
-    const hit = qEnds.find((e) => Math.abs(days(e, target)) <= 12);
-    if (hit === undefined) return undefined;
-    total += quarters.get(hit) as number;
-    end = new Date(Date.parse(hit) - 91 * DAY).toISOString().slice(0, 10);
+    const hit = near(target);
+    if (hit !== undefined) {
+      total += quarters.get(hit) as number;
+      end = back(hit);
+      continue;
+    }
+    // One missing quarter (usually a fiscal Q4 that only the untagged annual
+    // report covers) takes the quarter before it: dividends hold steady
+    // between raises. Only for dividends; earnings are never guessed.
+    const before = options.fillOneQuarter && !filled && n > 0 ? near(back(target)) : undefined;
+    if (before === undefined) return undefined;
+    filled = true;
+    total += quarters.get(before) as number;
+    end = back(target);
   }
   return { value: total, periodEnd: latest };
+}
+
+/** Same dividend reported twice with slightly different dates (record vs payment date). */
+const SAME_PAYMENT_DAYS = 25;
+/** A year of payments: shorter than 365 so last year's payment on about the same date drops out. */
+const PAYMENT_YEAR_DAYS = 350;
+
+/**
+ * Dividends per share over the last year from payments tagged by date only
+ * (no period), as some semiannual payers file them: the payments in the
+ * 350 days up to the latest one, under the latest one's tag, a repeat of the
+ * same amount within 25 days counted once.
+ */
+export function paymentsTwelveMonths(
+  known: Iterable<Known>,
+): { value: number; periodEnd: string } | undefined {
+  const dated = [...known].filter((k) => !k.start).sort((a, b) => a.end.localeCompare(b.end));
+  const latest = dated.at(-1);
+  if (!latest) return undefined;
+  // One tag only: a declaration date and a payment date of the same dividend are not two dividends.
+  const payments = dated.filter((k) => k.tag === latest.tag);
+  const counted: Known[] = [];
+  for (const p of payments) {
+    if (days(p.end, latest.end) >= PAYMENT_YEAR_DAYS) continue;
+    const prev = counted.at(-1);
+    if (prev && prev.value === p.value && days(prev.end, p.end) <= SAME_PAYMENT_DAYS) {
+      counted[counted.length - 1] = p;
+      continue;
+    }
+    counted.push(p);
+  }
+  return { value: counted.reduce((a, k) => a + k.value, 0), periodEnd: latest.end };
 }
 
 function latestInstant(known: Iterable<Known>): Known | undefined {
@@ -293,6 +341,9 @@ function dividendStreak(
   }
   return streak;
 }
+
+/** How long after a period's end the cover page share count may be dated to stand in for its EPS. */
+const EPS_SHARES_DAYS = 120;
 
 /** Days a dividend fact stays evidence of a payer, as `FUNDAMENTAL_MAX_AGE_DAYS`. */
 const DIVIDEND_EVIDENCE_DAYS = 456;
@@ -375,14 +426,18 @@ export function pointInTimeObservations(
   const known = new Map<ConceptName, Map<string, Known>>();
   const annualDividends: { end: string; current: number; prior: number | undefined }[] = [];
   const out: FundamentalObservation[] = [];
-  const last = new Map<FundamentalField, string>();
+  const last = new Map<FundamentalField, { v: string; periodEnd: string }>();
 
   const emit = (filing: Filing, field: FundamentalField, value: number, periodEnd: string) => {
     if (!Number.isFinite(value)) return;
     const v = String(Number(value.toPrecision(12)));
-    const sig = `${v}|${periodEnd}`;
-    if (last.get(field) === sig) return;
-    last.set(field, sig);
+    // Never step back to an older period: a later filing that still yields an
+    // older figure (DIS's 2020 dividends) would otherwise replace a newer one.
+    const prev = last.get(field);
+    if (prev && (prev.periodEnd > periodEnd || (prev.periodEnd === periodEnd && prev.v === v))) {
+      return;
+    }
+    last.set(field, { v, periodEnd });
     out.push({
       field,
       value: v,
@@ -411,7 +466,9 @@ export function pointInTimeObservations(
       } else {
         for (const f of list) {
           const isInstant = (CONCEPTS[name] as Concept).instant === true;
-          if (isInstant ? f.start !== undefined : f.start === undefined) continue;
+          // Dividends per share may come as dated payments without a period (DIS).
+          const datedPayment = name === 'dps' && f.start === undefined;
+          if (isInstant ? f.start !== undefined : f.start === undefined && !datedPayment) continue;
           // A period known under a preferred tag (dividends declared) keeps it over a
           // later filing's fallback tag (dividends paid), which measures something else.
           const had = map.get(key(f));
@@ -433,14 +490,44 @@ export function pointInTimeObservations(
     };
 
     for (const [field, name] of [
-      ['eps_ttm', 'eps'],
       ['revenue_ttm', 'revenue'],
       ['net_income_ttm', 'netIncome'],
-      ['dps_ttm', 'dps'],
     ] as const) {
       const t = ttm(name);
       if (t) emit(filing, field, t.value, t.periodEnd);
     }
+    // Shares: the cover page's count, or the balance sheet's when the cover
+    // page has none from the last four months before it.
+    const cover = instant('shares');
+    const sheet = instant('balanceSheetShares');
+    const shares =
+      sheet && (!cover || days(cover.end, sheet.end) > EPS_SHARES_DAYS) ? sheet : cover;
+    const eps = ttm('eps');
+    const ni = ttm('netIncome');
+    if (
+      ni &&
+      shares &&
+      shares.value > 0 &&
+      (!eps || ni.periodEnd > eps.periodEnd) &&
+      days(ni.periodEnd, shares.end) >= 0 &&
+      days(ni.periodEnd, shares.end) <= EPS_SHARES_DAYS
+    ) {
+      // Quarters whose EPS isn't tagged (GD's 10-Qs): net income over the
+      // cover page's share count, until a filing tags the period's EPS.
+      emit(filing, 'eps_ttm', ni.value / shares.value, ni.periodEnd);
+    } else if (eps) {
+      emit(filing, 'eps_ttm', eps.value, eps.periodEnd);
+    }
+    const dpsKnown = [...(known.get('dps')?.values() ?? [])];
+    const byPeriod = trailingTwelveMonths(dpsKnown, { fillOneQuarter: true });
+    const byPayment = paymentsTwelveMonths(dpsKnown);
+    const dps =
+      byPeriod && byPayment
+        ? byPayment.periodEnd > byPeriod.periodEnd
+          ? byPayment
+          : byPeriod
+        : (byPeriod ?? byPayment);
+    if (dps) emit(filing, 'dps_ttm', dps.value, dps.periodEnd);
     const none = paysNoDividend(known);
     if (none) emit(filing, 'dps_ttm', 0, none);
     const oi = ttm('operatingIncome');
@@ -448,9 +535,9 @@ export function pointInTimeObservations(
     if (oi && da && oi.periodEnd === da.periodEnd) {
       emit(filing, 'ebitda_ttm', oi.value + da.value, oi.periodEnd);
     }
+    if (shares) emit(filing, 'shares', shares.value, shares.end);
     for (const [field, name] of [
       ['equity', 'equity'],
-      ['shares', 'shares'],
       ['cash', 'cash'],
       ['preferred', 'preferred'],
       ['minority_interest', 'minority'],

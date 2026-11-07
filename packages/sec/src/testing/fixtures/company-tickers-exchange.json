@@ -4,6 +4,7 @@
     [320193, "Apple Inc.", "AAPL", "Nasdaq"],
     [1067983, "BERKSHIRE HATHAWAY INC", "BRK-B", "NYSE"],
     [1652044, "Alphabet Inc.", "GOOGL", "Nasdaq"],
-    [1652044, "Alphabet Inc.", "GOOG", "Nasdaq"]
+    [1652044, "Alphabet Inc.", "GOOG", "Nasdaq"],
+    [1754301, "Fox Corp", "FOX", "Nasdaq"]
   ]
 }

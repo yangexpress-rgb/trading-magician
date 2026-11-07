@@ -442,6 +442,13 @@
       "when": 1794066332253,
       "tag": "0062_zero_dividend_resync",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1794066392253,
+      "tag": "0063_sec_gaps_resync",
+      "breakpoints": true
     }
   ]
 }

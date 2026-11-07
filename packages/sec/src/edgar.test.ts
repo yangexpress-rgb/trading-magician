@@ -81,6 +81,13 @@ describe('reading EDGAR', () => {
     expect(normalizeTicker(' brk-a ')).toBe('BRK.A');
   });
 
+  it("gives a share class EDGAR's list leaves out its sibling's company (FOXA, NWSA)", async () => {
+    const tickers = await fetchTickers(client(answer(tickersFixture)));
+    expect(tickers.get('FOXA')).toMatchObject({ cik: '1754301', ticker: 'FOXA' });
+    expect(tickers.get('BRK.A')?.cik).toBe('1067983');
+    expect(tickers.get('NWSA')).toBeUndefined();
+  });
+
   it('takes annual 10-K values per fiscal year, the latest filing winning', () => {
     const years = fiscalYears(factsFixture as unknown as SecCompanyFacts);
     expect(years.map((y) => [y.fiscalYear, y.end])).toEqual([
