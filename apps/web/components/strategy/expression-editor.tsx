@@ -437,6 +437,8 @@ function SeriesFields({
               name: next.name,
               params: resolveIndicatorParams(next, {}),
               field: next.defaultField ?? 'close',
+              // v1.2 item 7: Highest/Lowest start one bar back (prior-bar breakout).
+              offset: next.builderOffset ?? 0,
             });
           }}
         >
@@ -518,25 +520,45 @@ function SeriesFields({
       {expr.kind === 'indicator' && err('params') && (
         <p className="col-span-full text-xs font-medium text-danger">{err('params')}</p>
       )}
+      {expr.kind === 'indicator' && spec?.builderOffset !== undefined && (
+        <MiniInput
+          id={id('offset')}
+          label="Bars ago"
+          type="number"
+          min={0}
+          max={500}
+          step={1}
+          value={String(expr.offset)}
+          error={err('offset')}
+          onChange={(e) =>
+            onChange({ ...expr, offset: e.target.value === '' ? 0 : Number(e.target.value) })
+          }
+        />
+      )}
+      {expr.kind === 'indicator' && spec?.help && (
+        <p className="col-span-full text-xs text-ink-muted">{spec.help}</p>
+      )}
 
       <details className="col-span-full">
         <summary className="cursor-pointer text-xs font-medium text-ink-muted">
           More options
         </summary>
         <div className="mt-2 grid-fields-wide gap-2">
-          <MiniInput
-            id={id('offset')}
-            label="Bars ago"
-            type="number"
-            min={0}
-            max={500}
-            step={1}
-            value={String(expr.offset)}
-            error={err('offset')}
-            onChange={(e) =>
-              onChange({ ...expr, offset: e.target.value === '' ? 0 : Number(e.target.value) })
-            }
-          />
+          {spec?.builderOffset === undefined && (
+            <MiniInput
+              id={id('offset')}
+              label="Bars ago"
+              type="number"
+              min={0}
+              max={500}
+              step={1}
+              value={String(expr.offset)}
+              error={err('offset')}
+              onChange={(e) =>
+                onChange({ ...expr, offset: e.target.value === '' ? 0 : Number(e.target.value) })
+              }
+            />
+          )}
           <MiniSelect
             id={id('adjustment')}
             label="Price adjustment"
