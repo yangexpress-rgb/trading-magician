@@ -252,8 +252,8 @@ Each is an editable input or a single constant.
 
 ## Design v1.2 changes (2026-11-06 to 2026-11-07)
 
-The v1.2 design (`docs/design/design-doc-v1.2.md`) numbers its changes N1 to N84 and its open
-points O1 to O60 (`docs/design/v1.2-deviations.md`). ADRs 0034 and 0037 to 0049 cite them.
+The v1.2 design (`docs/design/design-doc-v1.2.md`) numbers its changes N1 to N85 and its open
+points O1 to O61 (`docs/design/v1.2-deviations.md`). ADRs 0034 and 0037 to 0050 cite them.
 Each row maps a change to its decision record, code and tests.
 
 | Change | Summary                                                                         | Decision record                          | Code                                                                                                                                                                                                             | Tests                                                                                                             |
@@ -342,3 +342,4 @@ Each row maps a change to its decision record, code and tests.
 | N82    | Maximum instruments held                                                        | ADR 0049                                 | `packages/domain/src/strategy/schema.ts` (`maxInstrumentsHeld`), `packages/domain/src/execution/risk.ts`                                                                                                         | domain `risk.test.ts`                                                                                             |
 | N83    | Entry groups behind a summary row                                               | ADR 0049                                 | `apps/web/app/(app)/strategy-lab/[id]/strategy-editor.tsx`                                                                                                                                                       | e2e `v12-p2.spec.ts`                                                                                              |
 | N84    | Strategy schema 2, migrated on read                                             | ADR 0049                                 | `packages/domain/src/strategy/migrate-v1.ts`, `schema.ts` (`parseDefinition`), `packages/db/src/migration-report.ts`                                                                                             | domain `migrate-v1.test.ts`, `schema.test.ts`, backtest `corpus.test.ts`, db `test/strategies.test.ts`            |
+| N85    | Options key falls back to the admin's Alpaca feed                               | ADR 0050                                 | `apps/worker/src/options/app-key.ts`, `main.ts`, `packages/db/src/options.ts` (`adminAlpacaFeeds`), migration 0066                                                                                               | worker `test/options-app-key.test.ts`                                                                             |
