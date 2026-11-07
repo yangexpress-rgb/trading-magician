@@ -58,6 +58,17 @@ const CONCEPTS = {
     unit: 'USD/shares',
     perShare: true,
   },
+  /** Cash dividends paid (cash flow statement): tells a non-payer from a payer that tags no DPS. */
+  dividendsPaid: {
+    tags: [
+      'PaymentsOfDividendsCommonStock',
+      'PaymentsOfDividends',
+      'DividendsCommonStockCash',
+      'DividendsCommonStock',
+      'DividendsCash',
+    ],
+    unit: 'USD',
+  },
   equity: { tags: ['StockholdersEquity'], unit: 'USD', instant: true },
   cash: {
     tags: [
@@ -283,6 +294,33 @@ function dividendStreak(
   return streak;
 }
 
+/** Days a dividend fact stays evidence of a payer, as `FUNDAMENTAL_MAX_AGE_DAYS`. */
+const DIVIDEND_EVIDENCE_DAYS = 456;
+
+/**
+ * The period end at which a company is known to pay no dividend (Yong,
+ * 2026-11-07: a non-payer's yield is 0%, not unknown): its filings report
+ * earnings for that period, and neither dividends per share nor any cash
+ * dividends paid for a period ending in the 15 months before it. A payer
+ * that reports cash dividends but no per-share figure stays unknown.
+ */
+function paysNoDividend(known: ReadonlyMap<ConceptName, Map<string, Known>>): string | undefined {
+  const earnings = [
+    ...(known.get('eps')?.values() ?? []),
+    ...(known.get('netIncome')?.values() ?? []),
+  ];
+  const latest = earnings.reduce<string | undefined>(
+    (a, k) => (!a || k.end > a ? k.end : a),
+    undefined,
+  );
+  if (!latest) return undefined;
+  const recent = (k: Known) => days(k.end, latest) <= DIVIDEND_EVIDENCE_DAYS;
+  const dps = [...(known.get('dps')?.values() ?? [])];
+  const paid = [...(known.get('dividendsPaid')?.values() ?? [])];
+  if (dps.some(recent) || paid.some((k) => recent(k) && k.value !== 0)) return undefined;
+  return latest;
+}
+
 /**
  * A stock split this filing shows, as the ratio old per-share ÷ new (2 for a
  * 2-for-1). A per-share value restated by a whole ratio is a split only when
@@ -403,6 +441,8 @@ export function pointInTimeObservations(
       const t = ttm(name);
       if (t) emit(filing, field, t.value, t.periodEnd);
     }
+    const none = paysNoDividend(known);
+    if (none) emit(filing, 'dps_ttm', 0, none);
     const oi = ttm('operatingIncome');
     const da = ttm('depreciation');
     if (oi && da && oi.periodEnd === da.periodEnd) {

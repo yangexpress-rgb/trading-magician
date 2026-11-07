@@ -179,7 +179,7 @@ test('dividend yield > 3%: saved, shown, back tested, and matched by the screene
   // Back tested: it buys ZTSTB, which yields about 5%.
   expect((await backtest(page, baseURL!, strategy.id)).trades.length).toBeGreaterThan(0);
 
-  // The stock the screener left out never qualifies: no dividend, so the yield is unknown.
+  // The stock the screener left out never qualifies: it pays no dividend, so its yield is 0%.
   const none = await createStrategyWithRules(page, baseURL!, 'No yield', rules(alpha, 'ZTSTA'));
   expect((await backtest(page, baseURL!, none.id)).trades).toEqual([]);
 });

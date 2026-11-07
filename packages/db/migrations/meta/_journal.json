@@ -435,6 +435,13 @@
       "when": 1794047661625,
       "tag": "0061_refresh_fundamentals",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1794066332253,
+      "tag": "0062_zero_dividend_resync",
+      "breakpoints": true
     }
   ]
 }
