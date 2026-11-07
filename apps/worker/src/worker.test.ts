@@ -35,6 +35,9 @@ describe('worker env', () => {
       CUSTOM_REST_FAKE: false,
       CBOE_FAKE: false,
       ALPACA_FAKE: false,
+      CBOE_OPTIONS_FAKE: false,
+      OPTIONS_RECORDING: 'on',
+      OPTIONS_HISTORY_DAYS: 400,
     });
   });
 

@@ -10,6 +10,7 @@ import {
 import {
   computeMetric,
   isFundamentalMetric,
+  isOptionsMetric,
   metricExprRef,
   metricReferences,
   metricRequirements,
@@ -471,6 +472,33 @@ export function usesFundamentals(def: StrategyDefinition): boolean {
   return (
     definitionExpressions(def).some((e) => e.kind === 'metric' && isFundamentalMetric(e.metric)) ||
     definitionMetrics(def).some((r) => isFundamentalMetric(r.metric))
+  );
+}
+
+/**
+ * Underlyings whose end-of-day options signals a definition reads (options
+ * data brief v2 §5.3), "this instrument" expanded to every member or leg.
+ * Options metrics are conditions only in Phase 1, so rankings don't count.
+ */
+export function optionInstruments(
+  def: StrategyDefinition,
+  members: readonly string[] = [],
+): string[] {
+  const contexts = contextInstruments(def, members);
+  const ids = new Set<string>();
+  for (const e of definitionExpressions(def)) {
+    if (e.kind !== 'metric' || !isOptionsMetric(e.metric)) continue;
+    if (e.instrumentId === CONTEXT_INSTRUMENT_ID) for (const c of contexts) ids.add(c);
+    else ids.add(e.instrumentId);
+  }
+  return [...ids];
+}
+
+/** Whether a definition uses any options metric (it then needs the options feed). */
+export function usesOptions(def: StrategyDefinition): boolean {
+  return (
+    definitionExpressions(def).some((e) => e.kind === 'metric' && isOptionsMetric(e.metric)) ||
+    definitionMetrics(def).some((r) => isOptionsMetric(r.metric))
   );
 }
 

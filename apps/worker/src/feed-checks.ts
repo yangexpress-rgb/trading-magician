@@ -11,6 +11,7 @@ import {
 import type { Logger } from 'pino';
 import { runCustomFeedTests } from './custom-feed-tests';
 import type { Transport } from './custom-rest-transport';
+import type { OptionsFeedProvider } from './options/feed';
 import { withTimeout, type FundamentalsRegistry, type ProviderRegistry } from './providers';
 
 /**
@@ -32,6 +33,8 @@ export interface FeedCheckOptions {
   providers: ProviderRegistry;
   /** Company data feeds are checked the same way (ADR 0031). */
   fundamentals?: FundamentalsRegistry | undefined;
+  /** And options feeds, from the global recording's status (ADR 0047). */
+  options?: Partial<Record<string, OptionsFeedProvider>> | undefined;
   privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'info' | 'warn'>;
   now?: () => Date;
@@ -51,7 +54,10 @@ export async function runFeedChecks(options: FeedCheckOptions): Promise<number> 
       const feed = await loadFeedToCheck(tx, feedId);
       if (!feed) return;
       const now = (options.now ?? (() => new Date()))();
-      const provider = options.providers[feed.provider] ?? options.fundamentals?.[feed.provider];
+      const provider =
+        options.providers[feed.provider] ??
+        options.fundamentals?.[feed.provider] ??
+        options.options?.[feed.provider];
       let result: FeedCheckResult;
       if (!provider) {
         result = { ok: false, entitlement: 'unknown', error: 'This provider is not available yet' };

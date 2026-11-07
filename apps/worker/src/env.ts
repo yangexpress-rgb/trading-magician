@@ -81,6 +81,24 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
       CBOE_HISTORY_URL: z.string().url().startsWith('https://').optional(),
       /** FRED's CSV download, the VIX fallback (VIXCLS); FRED's own when unset. */
       FRED_CSV_URL: z.string().url().startsWith('https://').optional(),
+      /** CBOE's delayed options quotes folder (ADR 0047); the public CDN when unset. */
+      CBOE_OPTIONS_URL: z.string().url().startsWith('https://').optional(),
+      /** Tests only: CBOE's options files come from an in-process fake (ADR 0047). */
+      CBOE_OPTIONS_FAKE: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((v) => v === 'true'),
+      /** Records option chains daily (ADR 0047); 'off' stops the recording and rebuild. */
+      OPTIONS_RECORDING: z.enum(['on', 'off']).default('on'),
+      /** Days of options history kept (brief §3.5). */
+      OPTIONS_HISTORY_DAYS: z.coerce.number().int().min(5).max(3650).default(400),
+      /**
+       * The app's own Alpaca paper key for options data (ADR 0047): the
+       * underlying's daily close and the history rebuild from option bars. The
+       * recording is shared by every tenant, so it can't use anyone's own key.
+       */
+      OPTIONS_ALPACA_KEY_ID: z.string().min(8).max(100).optional(),
+      OPTIONS_ALPACA_SECRET_KEY: z.string().min(8).max(200).optional(),
       /** Tests only: CBOE's index history comes from an in-process fake (v1.2 item 5). */
       CBOE_FAKE: z
         .enum(['true', 'false'])
@@ -113,6 +131,12 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
   }
   if (env.NODE_ENV === 'production' && env.CUSTOM_REST_FAKE && !source.E2E_TEST) {
     throw new Error('CUSTOM_REST_FAKE is for tests only');
+  }
+  if (env.NODE_ENV === 'production' && env.CBOE_OPTIONS_FAKE && !source.E2E_TEST) {
+    throw new Error('CBOE_OPTIONS_FAKE is for tests only');
+  }
+  if (!env.OPTIONS_ALPACA_KEY_ID !== !env.OPTIONS_ALPACA_SECRET_KEY) {
+    throw new Error('Set both OPTIONS_ALPACA_KEY_ID and OPTIONS_ALPACA_SECRET_KEY, or neither');
   }
   if (env.NODE_ENV === 'production' && env.CBOE_FAKE && !source.E2E_TEST) {
     throw new Error('CBOE_FAKE is for tests only');

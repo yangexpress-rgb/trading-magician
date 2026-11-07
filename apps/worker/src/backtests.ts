@@ -1,6 +1,7 @@
 import {
   BarLoadError,
   loadData,
+  optionsBeforeFirstDate,
   planSeries,
   simulate,
   watchOnlyInstruments,
@@ -12,6 +13,7 @@ import {
   completeRun,
   failRun,
   finishCanceled,
+  loadOptionSignals,
   loadRunWork,
   renewLease,
   withTenant,
@@ -21,6 +23,7 @@ import {
 import {
   fundamentalInstruments,
   listMembers,
+  optionInstruments,
   UnsupportedBarRequestError,
   type HistoricalDataProvider,
 } from '@tm/domain';
@@ -147,6 +150,21 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
       );
       data.fundamentals = loaded.byId;
       data.warnings.push(...loaded.warnings);
+    }
+    // End-of-day options signals (options data brief v2 §5.3), read point in time by the engine.
+    const underlyings = optionInstruments(work.definition, members);
+    if (underlyings.length > 0) {
+      data.options = await loadOptionSignals(db, underlyings);
+      for (const id of underlyings) {
+        // A Selection member without options data just reads unknown; a named underlying fails.
+        if (members.includes(id)) continue;
+        const problem = optionsBeforeFirstDate(
+          instruments.get(id)?.symbol ?? 'this instrument',
+          data.options.get(id),
+          work.inputs.to,
+        );
+        if (problem) throw new UnsupportedBarRequestError(problem);
+      }
     }
     const lease = await inTenant((tx) => renewLease(tx, runId, workerId, leaseSeconds));
     if (!lease) return 'lost';

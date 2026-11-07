@@ -12,6 +12,8 @@ import {
   formatDateTime,
   FUNDAMENTALS_PROVIDER_IDS,
   isFundamentalsProvider,
+  isOptionsProvider,
+  OPTIONS_PROVIDER_IDS,
   MARKET_DATA_PROVIDER_IDS,
   PROVIDERS,
   type DisplayPreferences,
@@ -41,14 +43,15 @@ import {
   type CustomKeyState,
 } from './custom-feed-fields';
 
-/** Price feeds are routed; company data feeds (ADR 0031) are not. */
-type FeedKind = 'prices' | 'company';
+/** Price feeds are routed; company data (ADR 0031) and options data (ADR 0047) feeds are not. */
+type FeedKind = 'prices' | 'company' | 'options';
 const PROVIDERS_FOR: Record<FeedKind, readonly string[]> = {
   prices: MARKET_DATA_PROVIDER_IDS,
   company: FUNDAMENTALS_PROVIDER_IDS,
+  options: OPTIONS_PROVIDER_IDS,
 };
 const kindOf = (provider: string): FeedKind =>
-  isFundamentalsProvider(provider) ? 'company' : 'prices';
+  isFundamentalsProvider(provider) ? 'company' : isOptionsProvider(provider) ? 'options' : 'prices';
 
 const message = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
 
@@ -138,12 +141,14 @@ export function FeedsView({
 
   const priceFeeds = data?.feeds.filter((f) => kindOf(f.provider) === 'prices') ?? [];
   const companyFeeds = data?.feeds.filter((f) => kindOf(f.provider) === 'company') ?? [];
+  const optionsFeeds = data?.feeds.filter((f) => kindOf(f.provider) === 'options') ?? [];
   // Company pages and the screener use the oldest company data feed that is on.
   const companyInUse = companyFeeds.find((f) => f.isActive)?.id;
 
   const renderFeed = (f: FeedDto) => {
     const health = HEALTH_LABELS[f.health];
     const company = kindOf(f.provider) === 'company';
+    const options = kindOf(f.provider) === 'options';
     return (
       <li key={f.id} aria-label={f.name} className="rounded-lg border border-line bg-surface p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -152,12 +157,15 @@ export function FeedsView({
             <p className="mt-1 flex flex-wrap items-center gap-2">
               <Badge tone="neutral">{providerName(f.provider)}</Badge>
               {company && <Badge tone="info">Company data</Badge>}
+              {options && <Badge tone="info">Options data</Badge>}
               <Badge tone={f.isActive ? 'ok' : 'neutral'}>{f.isActive ? 'On' : 'Off'}</Badge>
               <Badge tone={f.checking ? 'info' : health.tone}>
                 {f.checking ? 'Testing…' : health.label}
               </Badge>
               {company ? (
                 <span>Updated as companies file</span>
+              ) : options ? (
+                <span>Delayed · recorded once a day after the close</span>
               ) : (
                 <>
                   <span>{f.isRealtime ? 'Real-time' : 'Delayed'}</span>
@@ -168,7 +176,9 @@ export function FeedsView({
             <p className="mt-1 text-ink-muted">
               {company
                 ? 'Company profiles, five years of annual financials and recent filings for US-listed companies'
-                : f.assetClasses.map((a) => ASSET_CLASS_LABELS[a] ?? a).join(', ')}
+                : options
+                  ? 'End-of-day options signals (expected move, IV30, IV rank, skew, gamma exposure) for the recorded US stocks and ETFs, worked out by the app'
+                  : f.assetClasses.map((a) => ASSET_CLASS_LABELS[a] ?? a).join(', ')}
               {f.credential ? ` · ${company ? 'Uses' : 'Signs in with'} ${f.credential.label}` : ''}
             </p>
             {f.config && (
@@ -234,7 +244,7 @@ export function FeedsView({
             </Button>
           </div>
         </div>
-        {!company && data && (
+        {!company && !options && data && (
           <FeedRoutes
             feed={f}
             routes={data.routes}
@@ -299,6 +309,35 @@ export function FeedsView({
         {companyFeeds.length > 0 && (
           <ul aria-label="Company data feeds" className="space-y-3">
             {companyFeeds.map((f) => renderFeed(f))}
+          </ul>
+        )}
+      </section>
+
+      <section aria-labelledby="options-feeds-heading" className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 id="options-feeds-heading" className="text-lg font-semibold">
+            Options data feeds
+          </h2>
+          <Button onClick={() => setAdding('options')}>Add an options data feed</Button>
+        </div>
+        <p className="text-sm text-ink-muted">
+          Where the options signals in strategy conditions come from: expected move, implied
+          volatility, IV rank, skew, term structure, put/call ratios and gamma exposure, worked out
+          by the app from CBOE’s delayed option chains, once a day after the close. The chains are
+          recorded for everyone; this feed turns them on for your strategies. Options are never
+          traded and no chain is shown.
+        </p>
+        {data && optionsFeeds.length === 0 && (
+          <div className="rounded-lg border border-dashed border-line p-4 text-sm">
+            <p className="font-medium">No options data feed yet</p>
+            <p className="mt-1 text-ink-muted">
+              Add CBOE delayed options (daily): it is free and needs no sign-up.
+            </p>
+          </div>
+        )}
+        {optionsFeeds.length > 0 && (
+          <ul aria-label="Options data feeds" className="space-y-3">
+            {optionsFeeds.map((f) => renderFeed(f))}
           </ul>
         )}
       </section>
@@ -558,8 +597,8 @@ function FeedDialog({
     customTest.reset();
     const p = feed?.provider ?? choices.find((id) => id !== 'demo') ?? choices[0] ?? 'alpaca';
     setProvider(p);
-    // A company data feed is usually the only one of its kind, so it starts named after its provider.
-    setName(feed?.name ?? (kind === 'company' ? PROVIDERS[p as keyof typeof PROVIDERS].name : ''));
+    // A company or options data feed is usually the only one of its kind: it starts named after its provider.
+    setName(feed?.name ?? (kind !== 'prices' ? PROVIDERS[p as keyof typeof PROVIDERS].name : ''));
     setAssetClasses(feed?.assetClasses ?? [...PROVIDERS[p as keyof typeof PROVIDERS].assetClasses]);
     setCredentialId(feed?.credential?.id ?? '');
     setNewKey({});
@@ -699,17 +738,27 @@ function FeedDialog({
       open={open}
       size={custom ? 'lg' : 'md'}
       onClose={close}
-      title={feed ? `Edit ${feed.name}` : company ? 'Add a company data feed' : 'Add a data feed'}
+      title={
+        feed
+          ? `Edit ${feed.name}`
+          : company
+            ? 'Add a company data feed'
+            : kind === 'options'
+              ? 'Add an options data feed'
+              : 'Add a data feed'
+      }
       description={
         feed
           ? undefined
-          : company
-            ? 'Company profiles and reported financials from public filings. It is tested as soon as you save it.'
-            : custom
-              ? 'Any JSON price API, described here: no code change per provider. Test it with a symbol before saving; the app fetches it on the server, never from your browser.'
-              : provider === 'cboe'
-                ? 'CBOE’s free daily history of the VIX, for conditions that watch it. Daily bars only, no live prices, and indices are never traded. It is tested as soon as you save it.'
-                : 'It is tested as soon as you save it.'
+          : kind === 'options'
+            ? 'End-of-day options signals the app works out from CBOE’s delayed option chains, for strategy conditions. It is tested as soon as you save it.'
+            : company
+              ? 'Company profiles and reported financials from public filings. It is tested as soon as you save it.'
+              : custom
+                ? 'Any JSON price API, described here: no code change per provider. Test it with a symbol before saving; the app fetches it on the server, never from your browser.'
+                : provider === 'cboe'
+                  ? 'CBOE’s free daily history of the VIX, for conditions that watch it. Daily bars only, no live prices, and indices are never traded. It is tested as soon as you save it.'
+                  : 'It is tested as soon as you save it.'
       }
     >
       <form onSubmit={(e) => void save(e)} className="space-y-3" autoComplete="off">
@@ -747,7 +796,7 @@ function FeedDialog({
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        {!company && (
+        {!company && kind !== 'options' && (
           <fieldset>
             <legend className="text-sm font-medium">Asset classes</legend>
             <div className="mt-1 flex gap-4">

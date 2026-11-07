@@ -26,8 +26,15 @@ import {
   walkExpressions,
 } from './tree';
 import { CONTEXT_INSTRUMENT_ID } from './evaluate';
-import { checkMetricRef, getMetric, metricReferences } from './metrics';
-import { hasComparisons, paperRunBlocker, slotModeOf, usesFundamentals } from './selection';
+import { checkMetricRef, getMetric, isRankingMetric, metricReferences } from './metrics';
+import {
+  hasComparisons,
+  optionInstruments,
+  paperRunBlocker,
+  slotModeOf,
+  usesFundamentals,
+  usesOptions,
+} from './selection';
 import type { MetricRef } from './schema';
 
 /**
@@ -87,6 +94,11 @@ export interface ValidationContext {
   /** Whether an active company data feed (SEC EDGAR) is on, for fundamental metrics (v1.2 item 6). */
   hasCompanyFeed?: boolean;
   /**
+   * The options recording (options data brief v2 §5.3): whether the tenant's
+   * options feed is on, and the underlyings recorded for everyone.
+   */
+  options?: { feedOn: boolean; universe: ReadonlySet<string> };
+  /**
    * Demo instruments are removed (v1.2 item 10): true wherever demo data is
    * off. A strategy still using one is invalid, naming it, instead of failing
    * later for want of data.
@@ -138,6 +150,7 @@ export function validateStrategy(
   checkExecution(def, add);
   checkRisk(def, ctx, add);
   checkFundamentals(def, ctx, add);
+  checkOptions(def, ctx, add);
   checkRemovedInstruments(def, ctx, add);
 
   for (const p of checkTiming(def)) {
@@ -728,6 +741,37 @@ function checkFundamentals(def: StrategyDefinition, ctx: ValidationContext, add:
   );
 }
 
+/**
+ * Options metrics read the end-of-day options recording (options data brief
+ * v2 §5.3): they need the options feed on and each underlying they read in
+ * the recorded universe. The message names whichever piece is missing.
+ */
+function checkOptions(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
+  if (!usesOptions(def)) return;
+  if (!ctx.options?.feedOn) {
+    add(
+      'error',
+      'missing_options_feed',
+      'Options metrics read the daily options recording: add the "CBOE delayed options (daily)" feed in Settings › Data feeds',
+      ['entry'],
+    );
+    return;
+  }
+  const universe = ctx.options.universe;
+  for (const id of optionInstruments(def)) {
+    if (id === CONTEXT_INSTRUMENT_ID || universe.has(id)) continue;
+    const info = ctx.instruments.get(id);
+    // Asset classes the recording can't cover are reported as metric_unsupported.
+    if (info && info.assetClass !== 'stock' && info.assetClass !== 'etf') continue;
+    add(
+      'error',
+      'missing_options_feed',
+      `${info?.symbol ?? 'An instrument'} isn't in the options recording yet: save the strategy to add it, and its options data starts from the next recorded session`,
+      ['entry'],
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Selection groups and per-leg conditions (v1.2 items 1 and 2)
 // ---------------------------------------------------------------------------
@@ -853,6 +897,13 @@ function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Ad
   const ranking = getMetric(sel.ranking.metric);
   for (const problem of checkMetricRef(sel.ranking))
     add('error', 'invalid_metric', problem, ['entry', 'selection', 'ranking']);
+  if (ranking && !isRankingMetric(ranking.id))
+    add(
+      'error',
+      'metric_not_rankable',
+      `${ranking.label} is an options metric: options metrics work in conditions, not rankings, for now`,
+      ['entry', 'selection', 'ranking'],
+    );
   for (const id of metricReferences(sel.ranking)) {
     if (!ctx.instruments.has(id))
       add('error', 'unknown_instrument', 'Choose a valid benchmark', [
@@ -963,6 +1014,13 @@ function checkLegConditions(def: StrategyDefinition, ctx: ValidationContext, add
     for (const problem of checkMetricRef(fire.metric))
       add('error', 'invalid_metric', problem, ['entry', 'fireMode', 'metric']);
     const spec = getMetric(fire.metric.metric);
+    if (spec && !isRankingMetric(spec.id))
+      add(
+        'error',
+        'metric_not_rankable',
+        `${spec.label} is an options metric: options metrics work in conditions, not to pick the best leg, for now`,
+        ['entry', 'fireMode', 'metric'],
+      );
     def.entry.orders.forEach((o, i) => {
       const info = ctx.instruments.get(o.instrumentId);
       if (spec && info && !spec.assetClasses.includes(info.assetClass))

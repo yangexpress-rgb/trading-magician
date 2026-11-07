@@ -1,6 +1,13 @@
 import Decimal from 'decimal.js';
-import { computeMetric, metricExprRef, populationStdDev, sampleStdDev } from './metrics';
+import {
+  computeMetric,
+  metricExprRef,
+  populationStdDev,
+  sampleStdDev,
+  type OptionPoint,
+} from './metrics';
 import type { FundamentalField, FundamentalPoint } from '../market/point-in-time';
+import type { OptionSignalField } from '../options/signals';
 import type {
   Comparison,
   ConditionNode,
@@ -62,6 +69,17 @@ export interface SeriesResolver {
   ): FundamentalPoint | undefined;
   /** A series' value at an instant: its latest bar ending at or before it. */
   valueAt?(expr: SeriesExpr, timeMs: number): Decimal | undefined;
+  /**
+   * An underlying's end-of-day options signal as known at the bar `barsBack`
+   * bars ago (options data brief v2 §5.3): the latest one published by then,
+   * no more than 5 trading days old. Resolvers without options data leave it
+   * out, and options metrics are unknown.
+   */
+  option?(
+    instrumentId: string,
+    field: OptionSignalField,
+    barsBack: number,
+  ): OptionPoint | undefined;
 }
 
 /** The bar series a position expression is marked against: its interval's close. */
@@ -100,6 +118,12 @@ export function withContext(r: SeriesResolver, instrumentId: string): SeriesReso
         }
       : {}),
     ...(r.valueAt ? { valueAt: (expr: SeriesExpr, t: number) => r.valueAt?.(bind(expr), t) } : {}),
+    ...(r.option
+      ? {
+          option: (id: string, field: OptionSignalField, barsBack: number) =>
+            r.option?.(bindId(id), field, barsBack),
+        }
+      : {}),
     ...(r.position
       ? {
           position: (id: string) => r.position?.(id === CONTEXT_INSTRUMENT_ID ? instrumentId : id),
@@ -123,6 +147,12 @@ export function withPositions(
         }
       : {}),
     ...(r.valueAt ? { valueAt: (expr: SeriesExpr, t: number) => r.valueAt?.(expr, t) } : {}),
+    ...(r.option
+      ? {
+          option: (id: string, field: OptionSignalField, barsBack: number) =>
+            r.option?.(id, field, barsBack),
+        }
+      : {}),
     position,
   };
 }

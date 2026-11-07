@@ -57,6 +57,7 @@ import { quoteFill, stopReached, volumeCap, type Direction } from './fills';
 import { ConditionRecorder, whyNotFired } from './explain';
 import { describeAssumptions, type BacktestInputs } from './inputs';
 import { MarketView } from './market';
+import { describeCoverage, optionsCoverage } from './options-coverage';
 import { computeMetrics } from './metrics';
 import {
   ENGINE_VERSION,
@@ -259,7 +260,7 @@ export function simulate({
   const v12 = mode !== 'none' || frequency !== 'daily' || (def.exit.rules?.length ?? 0) > 0;
   for (const w of data.warnings) warnings.add(`data:${w}`, w);
   const watchOnly = watchOnlyInstruments(instruments);
-  const view = new MarketView(data.series, watchOnly, data.fundamentals);
+  const view = new MarketView(data.series, watchOnly, data.fundamentals, data.options);
   const ex = def.execution;
   const risk = def.risk;
   const slippageBps = new Decimal(inputs.slippageBps);
@@ -300,6 +301,10 @@ export function simulate({
   }
   const steps = [...stepSet].sort((a, b) => a - b);
   if (steps.length === 0) warnings.add('no_bars', 'There are no bars in the selected dates');
+  // Options metrics read end-of-day signals: say how many bars had one (options brief v2 §5.3).
+  if (data.options && steps.length > 0)
+    for (const c of optionsCoverage(steps, data.options, symbol))
+      warnings.add(`options_coverage:${c.instrumentId}`, describeCoverage(c));
 
   let cash = initial;
   const portfolio = new Map<string, Decimal>();

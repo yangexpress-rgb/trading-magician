@@ -59,6 +59,14 @@ export function comparisonsOf(node: ConditionNode): Comparison[] {
 /** The data a comparison saw on one bar, e.g. "101.2 vs 100" or "101 (was 99) vs 100 (was 100)". */
 export function describeValues(c: Comparison, check: ConditionCheck | undefined): string {
   if (!check) return '—';
+  const values = comparedValues(c, check);
+  // Options metrics read an end-of-day signal: say which day's (options brief v2 §5.3).
+  return check.optionsAsOf?.length
+    ? `${values} (options as of ${check.optionsAsOf.join(', ')})`
+    : values;
+}
+
+function comparedValues(c: Comparison, check: ConditionCheck): string {
   const v = formatValue;
   switch (c.operator) {
     case 'is_available':

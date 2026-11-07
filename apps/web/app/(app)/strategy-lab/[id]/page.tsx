@@ -2,6 +2,7 @@ import {
   eq,
   getStrategy,
   listTenantInstruments,
+  optionUnderlyingOptions,
   preferredLegAccountId,
   schema,
   StrategyError,
@@ -31,6 +32,7 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
   const loaded = await withTenant(appDb(), tenant, async (tx) => ({
     strategy: await getStrategy(tx, id),
     instruments: await listTenantInstruments(tx),
+    optionUnderlyings: await optionUnderlyingOptions(tx),
     accounts: await tx
       .select({
         id: schema.tradingAccounts.id,
@@ -45,7 +47,8 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
     if (e instanceof StrategyError && e.code === 'not_found') notFound();
     throw e;
   });
-  const { strategy, instruments } = loaded;
+  // Recorded options underlyings (options brief v2 §6) are offered only by the options picker.
+  const { strategy, instruments, optionUnderlyings } = loaded;
   // New legs start on the Alpaca paper account when there is one (pickLegAccount).
   const accounts = loaded.accounts.map((a) => ({
     ...a,
@@ -83,6 +86,11 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
             initialDefinition={strategy.definition}
             initialRowVersion={strategy.rowVersion}
             instruments={instruments}
+            optionUnderlyings={optionUnderlyings.map((u) => ({
+              id: u.id,
+              symbol: u.symbol,
+              latestAsOf: u.latestAsOf,
+            }))}
             accounts={accounts}
             timeZone={profile.timezone}
             baseCurrency={profile.baseCurrency}

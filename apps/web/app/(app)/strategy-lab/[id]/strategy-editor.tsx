@@ -23,6 +23,7 @@ import {
   type AccountOption,
   type EditorContextValue,
   type InstrumentOption,
+  type OptionUnderlying,
 } from '@/components/strategy/editor-context';
 import { InstrumentFinder } from '@/components/strategy/instrument-finder';
 import { BackTestPanel, useValidation, ValidationPanel } from '@/components/strategy/lifecycle';
@@ -45,6 +46,8 @@ interface Props {
   initialDefinition: StrategyDefinition;
   initialRowVersion: number;
   instruments: InstrumentOption[];
+  /** Underlyings with options signals, for the options metric picker (brief v2 §6). */
+  optionUnderlyings?: OptionUnderlying[];
   accounts: AccountOption[];
   timeZone: string;
   baseCurrency: string;
@@ -71,6 +74,8 @@ function structuralIssues(def: StrategyDefinition): Map<string, string> {
   return map;
 }
 
+const NO_UNDERLYINGS: OptionUnderlying[] = [];
+
 export function StrategyEditor({
   strategyId,
   strategyName,
@@ -78,6 +83,7 @@ export function StrategyEditor({
   initialDefinition,
   initialRowVersion,
   instruments: initialInstruments,
+  optionUnderlyings = NO_UNDERLYINGS,
   accounts,
   timeZone,
   baseCurrency,
@@ -163,8 +169,19 @@ export function StrategyEditor({
       editable,
       slotMode,
       universeClasses,
+      optionUnderlyings,
     }),
-    [instruments, accounts, timeZone, baseCurrency, issues, editable, slotMode, universeClasses],
+    [
+      instruments,
+      accounts,
+      timeZone,
+      baseCurrency,
+      issues,
+      editable,
+      slotMode,
+      universeClasses,
+      optionUnderlyings,
+    ],
   );
 
   const stateText =

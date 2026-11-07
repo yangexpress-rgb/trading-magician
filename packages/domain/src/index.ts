@@ -23,3 +23,4 @@ export * from './integrations/routing';
 export * from './integrations/custom-rest';
 export * from './performance';
 export * from './billing/plans';
+export * from './options';

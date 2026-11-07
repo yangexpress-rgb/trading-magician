@@ -35,6 +35,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { activeFundamentalsFeed } from './company-reports';
+import { activeOptionsFeed, addOptionUnderlyings, listOptionUniverse } from './options';
 import { demoDataEnabled } from './demo';
 import { recordAudit } from './audit';
 import { preferredLegAccountId } from './leg-accounts';
@@ -447,6 +448,10 @@ export async function loadValidationContext(
     ),
     hasFeed: (assetClass, dataType) => routes.has(`${assetClass}:${dataType}`),
     hasCompanyFeed: (await activeFundamentalsFeed(tx)) !== undefined,
+    options: {
+      feedOn: (await activeOptionsFeed(tx)) !== undefined,
+      universe: new Set((await listOptionUniverse(tx)).map((u) => u.underlyingId)),
+    },
     demoInstrumentsRemoved: !demoDataEnabled(),
     now,
   };
@@ -541,6 +546,9 @@ async function rebuildInstrumentIndex(
       role: u.role,
     })),
   );
+  // The auto-add rule (options data brief v2 §2): a US stock or ETF in a strategy
+  // joins the options universe, so its recording and history rebuild start.
+  await addOptionUnderlyings(tx, [...known]);
 }
 
 async function insertVersion(

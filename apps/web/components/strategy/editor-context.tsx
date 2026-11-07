@@ -13,6 +13,13 @@ export interface InstrumentOption {
   kind?: 'tradable' | 'indicator_only' | undefined;
 }
 
+/** An underlying in the options recording, with the as-of date of its latest signal. */
+export interface OptionUnderlying {
+  id: string;
+  symbol: string;
+  latestAsOf: string | null;
+}
+
 export interface AccountOption {
   id: string;
   nickname: string;
@@ -38,6 +45,8 @@ export interface EditorContextValue {
   slotMode: SlotMode;
   /** Asset classes of the instruments a Selection group can hold, for the metric picker. */
   universeClasses: readonly string[];
+  /** Underlyings in the options recording (options brief v2 §6); none outside the editor page. */
+  optionUnderlyings?: readonly OptionUnderlying[];
 }
 
 export const EditorContext = createContext<EditorContextValue | null>(null);

@@ -16,6 +16,7 @@ import {
   type HistoricalDataProvider,
   type IndicatorExpr,
   type MarketExpr,
+  type OptionSignal,
   type PriceAdjustment,
   type Session,
   type StrategyDefinition,
@@ -49,6 +50,8 @@ export interface LoadedData {
   warnings: string[];
   /** Point-in-time company filings by instrument id (v1.2 item 6), when the strategy reads any. */
   fundamentals?: Map<string, FundamentalObservation[]>;
+  /** End-of-day options signals by underlying id (options brief v2 §5.3), when the strategy reads any. */
+  options?: Map<string, OptionSignal[]>;
 }
 
 type SeriesExpr = MarketExpr | IndicatorExpr;

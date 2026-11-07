@@ -93,3 +93,8 @@ Send no invite until every line is ticked.
 - [ ] Stripe in test mode (the apps refuse a live key; check Variables)
 - [ ] Cboe display terms for the VIX reviewed for a paid service, or the data licensed; then set
       `reviewed: true` in `CBOE_DISPLAY_TERMS` (`packages/domain/src/market/indices.ts`, ADR 0042)
+- [ ] Cboe's terms for the delayed options chains reviewed for a paid service (derived values are
+      shown as strategy inputs; no chain is shown); then set `reviewed: true` in
+      `CBOE_OPTIONS_DISPLAY_TERMS` (`packages/domain/src/options/cboe.ts`, ADR 0047)
+- [ ] Alpaca's terms checked for showing other users the options history rebuilt from the app's
+      own key (ADR 0047, design v1.2 open point O36)

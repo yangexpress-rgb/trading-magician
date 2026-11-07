@@ -1851,3 +1851,190 @@ export const fundamentalObservations = pgTable(
     index('fundamental_observation_lookup_idx').on(t.cik, t.availableFrom),
   ],
 );
+
+/**
+ * Options data (options data brief v2 §2–§3, ADR 0047): option chains are
+ * condition inputs only. An underlying stays a stock or ETF instrument and its
+ * options data hangs off it. All of it is public market data kept once for
+ * every tenant; only the worker (tm_secrets) writes it. People never see a
+ * chain (CBOE's terms, brief §8): the app login reads the universe and the
+ * derived signals alone.
+ */
+export const optionUniverse = pgTable(
+  'option_universe',
+  {
+    underlyingId: uuid('underlying_id')
+      .primaryKey()
+      .references(() => instruments.id),
+    addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+    active: boolean('active').notNull().default(true),
+    /** 'seed' (the starting list) or 'strategy' (added to a strategy, the auto-add rule). */
+    addedBy: text('added_by').notNull(),
+    /** The latest trading day whose snapshot was stored. */
+    lastSnapshotDate: date('last_snapshot_date', { mode: 'string' }),
+    /** The latest trading day whose signal row was derived. */
+    lastSignalDate: date('last_signal_date', { mode: 'string' }),
+    lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+    /** The trading day being recorded and how many fetches it has had (one retry, brief §5.1). */
+    attemptDate: date('attempt_date', { mode: 'string' }),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    /** Why the last fetch failed, short and secret-free; null after a success. */
+    lastError: text('last_error'),
+    /** Rows of the last stored file left out as malformed or impossible. */
+    lastSkipped: integer('last_skipped'),
+    /** The history rebuild: pending, running, done, waiting (no Alpaca key or no bars) or failed. */
+    rebuildStatus: text('rebuild_status').notNull().default('pending'),
+    rebuildNote: text('rebuild_note'),
+    rebuiltAt: timestamp('rebuilt_at', { withTimezone: true }),
+  },
+  (t) => [
+    check('option_universe_added_by', sql`${t.addedBy} in ('seed', 'strategy')`),
+    check(
+      'option_universe_rebuild_status',
+      sql`${t.rebuildStatus} in ('pending', 'running', 'done', 'waiting', 'failed')`,
+    ),
+  ],
+);
+
+/** One row per listed option contract; it never holds prices (brief §3.1). */
+export const optionContracts = pgTable(
+  'option_contract',
+  {
+    id: id(),
+    underlyingId: uuid('underlying_id')
+      .notNull()
+      .references(() => instruments.id),
+    expiry: date('expiry', { mode: 'string' }).notNull(),
+    strike: numeric('strike', { mode: 'string' }).notNull(),
+    right: optionRight('right').notNull(),
+    occSymbol: text('occ_symbol').unique('option_contract_occ_uq'),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('option_contract_uq').on(t.underlyingId, t.expiry, t.strike, t.right),
+    check('option_contract_strike_positive', sql`${t.strike} > 0`),
+  ],
+);
+
+/**
+ * One row per contract per trading day (brief §3.2): the source's quote and
+ * reported greeks as given, and the app's own IV, delta and gamma from the
+ * mid. The underlying is repeated from the contract so a day's chain is read
+ * and replaced by one index.
+ */
+export const optionChainSnapshots = pgTable(
+  'option_chain_snapshot',
+  {
+    id: id(),
+    contractId: uuid('contract_id')
+      .notNull()
+      .references(() => optionContracts.id),
+    underlyingId: uuid('underlying_id')
+      .notNull()
+      .references(() => instruments.id),
+    asOfDate: date('as_of_date', { mode: 'string' }).notNull(),
+    underlyingClose: numeric('underlying_close', { mode: 'string' }),
+    bid: numeric('bid', { mode: 'string' }),
+    ask: numeric('ask', { mode: 'string' }),
+    last: numeric('last', { mode: 'string' }),
+    volume: integer('volume'),
+    openInterest: integer('open_interest'),
+    iv: numeric('iv', { mode: 'string' }),
+    delta: numeric('delta', { mode: 'string' }),
+    gamma: numeric('gamma', { mode: 'string' }),
+    vega: numeric('vega', { mode: 'string' }),
+    theta: numeric('theta', { mode: 'string' }),
+    rho: numeric('rho', { mode: 'string' }),
+    theo: numeric('theo', { mode: 'string' }),
+    ivCalc: numeric('iv_calc', { mode: 'string' }),
+    deltaCalc: numeric('delta_calc', { mode: 'string' }),
+    gammaCalc: numeric('gamma_calc', { mode: 'string' }),
+    source: text('source').notNull(),
+    feed: text('feed').notNull(),
+    fileTimestamp: timestamp('file_timestamp', { withTimezone: true }).notNull(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
+    dataVersion: text('data_version').notNull(),
+  },
+  (t) => [
+    unique('option_chain_snapshot_uq').on(t.contractId, t.asOfDate),
+    index('option_chain_snapshot_day_idx').on(t.underlyingId, t.asOfDate),
+    check('option_chain_snapshot_feed', sql`${t.feed} in ('cboe', 'opra')`),
+  ],
+);
+
+const signalValue = (name: string) => numeric(name, { mode: 'string' });
+
+/** The derived signals, one row per underlying per day (brief §3.3). */
+export const optionDailySignals = pgTable(
+  'option_daily_signal',
+  {
+    id: id(),
+    underlyingId: uuid('underlying_id')
+      .notNull()
+      .references(() => instruments.id),
+    asOfDate: date('as_of_date', { mode: 'string' }).notNull(),
+    iv30: signalValue('iv30'),
+    atmIv: signalValue('atm_iv'),
+    expectedMove1dPct: signalValue('expected_move_1d_pct'),
+    expectedMove1dUsd: signalValue('expected_move_1d_usd'),
+    expectedMove5dPct: signalValue('expected_move_5d_pct'),
+    expectedMove5dUsd: signalValue('expected_move_5d_usd'),
+    straddleMovePct: signalValue('straddle_move_pct'),
+    ivRank252d: signalValue('iv_rank_252d'),
+    ivPercentile252d: signalValue('iv_percentile_252d'),
+    ivRvRatio: signalValue('iv_rv_ratio'),
+    skew30d: signalValue('skew_30d'),
+    termStructure: signalValue('term_structure'),
+    putCallVolume: signalValue('put_call_volume'),
+    putCallOi: signalValue('put_call_oi'),
+    netGex: signalValue('net_gex'),
+    callGex: signalValue('call_gex'),
+    putGex: signalValue('put_gex'),
+    callWall: signalValue('call_wall'),
+    putWall: signalValue('put_wall'),
+    maxPain: signalValue('max_pain'),
+    ivHistoryDays: integer('iv_history_days').notNull().default(0),
+    /** The inputs the day was computed with, for checking by hand. */
+    underlyingClose: signalValue('underlying_close'),
+    riskFreeRate: signalValue('risk_free_rate'),
+    dividendYield: signalValue('dividend_yield'),
+    source: text('source').notNull(),
+    feed: text('feed').notNull(),
+    computedAt: timestamp('computed_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    unique('option_daily_signal_uq').on(t.underlyingId, t.asOfDate),
+    check('option_daily_signal_source', sql`${t.source} in ('recorded', 'rebuilt')`),
+    check('option_daily_signal_feed', sql`${t.feed} in ('cboe', 'opra', 'alpaca_bars')`),
+  ],
+);
+
+/** Per-expiry values behind the term-structure and skew charts (brief §3.4). */
+export const optionExpirySignals = pgTable(
+  'option_expiry_signal',
+  {
+    underlyingId: uuid('underlying_id')
+      .notNull()
+      .references(() => instruments.id),
+    asOfDate: date('as_of_date', { mode: 'string' }).notNull(),
+    expiry: date('expiry', { mode: 'string' }).notNull(),
+    daysToExpiry: integer('days_to_expiry').notNull(),
+    atmIv: signalValue('atm_iv'),
+    putIv25d: signalValue('put_iv_25d'),
+    callIv25d: signalValue('call_iv_25d'),
+    putVolume: integer('put_volume'),
+    callVolume: integer('call_volume'),
+    putOi: integer('put_oi'),
+    callOi: integer('call_oi'),
+    source: text('source').notNull(),
+    computedAt: timestamp('computed_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    primaryKey({
+      name: 'option_expiry_signal_pk',
+      columns: [t.underlyingId, t.asOfDate, t.expiry],
+    }),
+    check('option_expiry_signal_source', sql`${t.source} in ('recorded', 'rebuilt')`),
+  ],
+);

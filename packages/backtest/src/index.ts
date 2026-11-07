@@ -5,3 +5,4 @@ export * from './inputs';
 export * from './market';
 export * from './metrics';
 export * from './results';
+export * from './options-coverage';
