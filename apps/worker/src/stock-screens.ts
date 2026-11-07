@@ -16,6 +16,8 @@ import {
 import {
   BrokerUnavailableError,
   fundamentalSnapshot,
+  latestObservation,
+  marketCapOf,
   providerCoversVenue,
   resolveRoute,
   screenFundamentals,
@@ -242,7 +244,7 @@ async function companyFacts(
       'The company figures',
     );
     warnings.push(
-      `Market cap, revenue and earnings are for calendar ${year}, from ${company.name}; market cap is the last price times the year's diluted shares. P/E (trailing twelve months), dividend yield, price-to-book and EV/EBITDA use the latest filings, as strategies do.`,
+      `Market cap, revenue and earnings are for calendar ${year}, from ${company.name}; market cap is the last price times the shares outstanding on the latest filing's cover page (else the year's diluted shares). P/E (trailing twelve months), dividend yield, price-to-book and EV/EBITDA use the latest filings, as strategies do.`,
     );
     return facts;
   } catch (error) {
@@ -307,6 +309,10 @@ function filingMetrics(
     dividendYieldPct: value('dividend_yield', 100),
     priceToBook: value('price_to_book'),
     evEbitda: value('ev_ebitda'),
+    // As the registry's market cap: last price × the latest cover-page shares outstanding.
+    marketCap: observations
+      ? marketCapOf(last, latestObservation(observations, 'shares', asOfMs)?.value.toNumber())
+      : null,
   };
 }
 
