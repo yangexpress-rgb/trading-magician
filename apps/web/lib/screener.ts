@@ -145,7 +145,7 @@ export const NUMBER_COLUMNS: readonly NumberColumnSpec[] = [
   {
     key: 'marketCap',
     label: 'Market cap',
-    hint: 'Last price times the diluted shares of the latest calendar year’s filings',
+    hint: 'Last price times the shares outstanding on the latest filing’s cover page',
     format: 'money',
     shown: true,
     company: true,
