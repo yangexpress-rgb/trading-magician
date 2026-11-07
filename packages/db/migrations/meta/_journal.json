@@ -470,6 +470,13 @@
       "when": 1794094001895,
       "tag": "0066_options_admin_key",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1794094689171,
+      "tag": "0067_strategy_library",
+      "breakpoints": true
     }
   ]
 }

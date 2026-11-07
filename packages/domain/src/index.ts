@@ -24,3 +24,4 @@ export * from './integrations/custom-rest';
 export * from './performance';
 export * from './billing/plans';
 export * from './options';
+export * from './library';

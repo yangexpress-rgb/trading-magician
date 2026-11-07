@@ -7,3 +7,4 @@ export * from './strategies';
 export * from './performance';
 export * from './billing';
 export * from './research';
+export * from './library';

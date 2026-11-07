@@ -2,6 +2,7 @@ import {
   AdminIcon,
   ChartIcon,
   LabIcon,
+  LibraryIcon,
   ModeBadge,
   OrdersIcon,
   ResearchIcon,
@@ -13,9 +14,13 @@ import { NavLink } from './nav-link';
 import { NotificationsLink } from './notifications-link';
 import { SignOutButton } from './sign-out-button';
 
-/** Primary navigation, in the order fixed by Design v1.0 §5. */
+/**
+ * Primary navigation, in the order fixed by Design v1.0 §5, with the Strategy
+ * Library beside Research and Strategy Lab (ADR 0051).
+ */
 export const PRIMARY_NAV = [
   { href: '/research', label: 'Quantitative Research', icon: <ResearchIcon /> },
+  { href: '/library', label: 'Strategy Library', icon: <LibraryIcon /> },
   { href: '/strategy-lab', label: 'Strategy Lab', icon: <LabIcon /> },
   { href: '/orders', label: 'Orders', icon: <OrdersIcon /> },
   { href: '/performance', label: 'Performance', icon: <ChartIcon /> },

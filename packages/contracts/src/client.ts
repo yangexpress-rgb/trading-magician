@@ -71,6 +71,16 @@ import type {
   PositionListDto,
 } from './orders';
 import type {
+  ConventionListDto,
+  EditLibraryEntryRequest,
+  LibraryEntryDto,
+  LibraryListDto,
+  ListLibraryQuery,
+  NextNumberDto,
+  RegisteredLibraryEntryDto,
+  RegisterLibraryEntryRequest,
+} from './library';
+import type {
   CreateStrategyRequest,
   ListStrategiesQuery,
   PublishVersionDto,
@@ -123,6 +133,27 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
     return qs ? `?${qs}` : '';
   };
   return {
+    library: {
+      list: (q: ListLibraryQuery = {}) => call<LibraryListDto>('GET', `/library${query(q)}`),
+      get: (number: string) => call<LibraryEntryDto>('GET', `/library/${enc(number)}`),
+      conventions: () => call<ConventionListDto>('GET', '/library/conventions'),
+      nextNumber: (q: { recordType?: string; timeframe: string; asset: string }) =>
+        call<NextNumberDto>('GET', `/library/next-number${query(q)}`),
+      register: (body: RegisterLibraryEntryRequest) =>
+        call<RegisteredLibraryEntryDto>('POST', '/library', body),
+      update: (number: string, body: EditLibraryEntryRequest) =>
+        call<{ registrationNumber: string; rowVersion: number; changedFields: string[] }>(
+          'PATCH',
+          `/library/${enc(number)}`,
+          body,
+        ),
+      retire: (number: string, body: { reason: string; rowVersion: number }) =>
+        call<{ registrationNumber: string; rowVersion: number }>(
+          'POST',
+          `/library/${enc(number)}/retire`,
+          body,
+        ),
+    },
     strategies: {
       list: (q: ListStrategiesQuery = {}) => call<StrategyListDto>('GET', `/strategies${query(q)}`),
       get: (id: string) => call<StrategyDetailDto>('GET', `/strategies/${enc(id)}`),

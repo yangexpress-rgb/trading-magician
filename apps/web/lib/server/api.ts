@@ -9,6 +9,7 @@ import {
 import {
   CredentialError,
   IntegrationError,
+  LibraryError,
   OrderError,
   PlanLimitError,
   SealError,
@@ -225,6 +226,13 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       if (error instanceof SealError) {
         // A misconfigured key; the message names no secret.
         return errorResponse('unavailable', 'Secure credential storage is not set up correctly');
+      }
+      if (error instanceof LibraryError) {
+        return errorResponse(
+          error.code,
+          error.message,
+          error.issues ? { issues: error.issues } : {},
+        );
       }
       if (error instanceof StrategyError) {
         return errorResponse(error.code, error.message, {
