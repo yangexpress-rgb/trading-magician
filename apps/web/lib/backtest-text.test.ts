@@ -6,6 +6,8 @@ import {
   formatPct,
   formatSignedMoney,
   linePath,
+  atrStopText,
+  sizingText,
   metricTiles,
   thin,
 } from './backtest-text';
@@ -83,5 +85,40 @@ describe('back-test text', () => {
     expect(t).toHaveLength(100);
     expect(t[0]).toBe(0);
     expect(t.at(-1)).toBe(1999);
+  });
+});
+
+describe('risk sizing and ATR stop text (v1.2 item 9)', () => {
+  const sizing = {
+    method: 'risk_atr' as const,
+    equity: '100000',
+    riskPct: '1',
+    atrPeriod: 20,
+    atr: '4.1234',
+    atrMultiple: '2',
+    stopDistance: '8.2468',
+    riskQuantity: '121',
+    quantity: '121',
+  };
+
+  it('shows each step, so the quantity checks by hand', () => {
+    expect(sizingText(sizing)).toEqual([
+      'Risk 1% of $100,000.00 equity = $1,000.00',
+      'Stop distance 8.2468 = 2 × ATR(20) 4.1234',
+      '$1,000.00 ÷ 8.2468 = 121 shares',
+    ]);
+    expect(sizingText({ ...sizing, quantity: '25', cappedBy: 'max_order_size' })[3]).toBe(
+      'Capped at 25 by the maximum order size',
+    );
+  });
+
+  it('shows the fixed stop level for longs and shorts', () => {
+    const stop = { atr: '4.1234', atrMultiple: '2', entryPrice: '400', level: '391.7532' };
+    expect(atrStopText({ ...stop, direction: 'long' })).toBe(
+      'Stop 391.7532 = entry 400 − 2 × ATR 4.1234',
+    );
+    expect(atrStopText({ ...stop, direction: 'short', level: '408.2468' })).toBe(
+      'Stop 408.2468 = entry 400 + 2 × ATR 4.1234',
+    );
   });
 });

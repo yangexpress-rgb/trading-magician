@@ -1,9 +1,12 @@
+import { atr as atrSeries } from '@tm/domain';
+import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 import { simulate } from './engine';
 import {
   breakoutDonchian,
   breakoutDonchianPriorBars,
   longShortBreakout,
+  riskAtrTrend,
   SPY,
   spyBars,
 } from './fixtures/spy-strategies';
@@ -145,5 +148,107 @@ describe('item 8: long and short entry groups in one strategy', () => {
     expect(r.trades.length).toBeGreaterThan(0);
     expect(r.trades.every((t) => t.direction === undefined)).toBe(true);
     expect(r.groupConditions).toBeUndefined();
+  });
+});
+
+describe('item 9: risk-based sizing and the ATR stop', () => {
+  const bars = spyBars();
+  const run = (def = riskAtrTrend()) =>
+    simulate({
+      definition: def,
+      instruments: INSTRUMENTS,
+      inputs: inputs('2023-11-01', '2025-06-30'),
+      data: loaded({ [SPY]: bars }),
+    });
+
+  it('sizes each entry from equity, risk % and ATR at entry, checkable by hand', () => {
+    const r = run();
+    const sized = r.trades.filter((t) => t.sizing);
+    expect(sized.length).toBeGreaterThanOrEqual(3);
+    for (const t of [sized[0]!, sized[Math.floor(sized.length / 2)]!, sized.at(-1)!]) {
+      const s = t.sizing!;
+      // quantity = floor((equity × risk% ÷ 100) ÷ (ATR × multiple)), from the figures shown.
+      const byHand = Math.floor(
+        (Number(s.equity) * Number(s.riskPct)) / 100 / (Number(s.atr) * Number(s.atrMultiple)),
+      );
+      expect(Number(s.riskQuantity)).toBe(byHand);
+      expect(s.cappedBy).toBeUndefined();
+      expect(Number(s.quantity)).toBe(byHand);
+      expect(t.legs.find((l) => l.phase === 'entry')?.quantity).toBe(s.quantity);
+      // The ATR is ATR(20) of the daily bars up to the bar Entry was decided on.
+      const fill = bars.findIndex((b) => b.start === t.entryTime);
+      const atr = atrSeries(bars.slice(0, fill), 20).at(-1)!;
+      expect(Number(s.atr)).toBeCloseTo(atr.toNumber(), 4);
+      expect(s.stopDistance).toBe(new Decimal(s.atr).times(2).toString());
+    }
+  });
+
+  it('exits on the ATR stop when a close falls more than 2 × entry ATR, with no Exit condition', () => {
+    // The SPY-like walk into the first entry, then a slide of 1.5% a day.
+    const head = spyBars(300);
+    const rows: Row[] = head.map((b) => [
+      b.open.toNumber(),
+      b.high.toNumber(),
+      b.low.toNumber(),
+      b.close.toNumber(),
+      b.volume.toNumber(),
+    ]);
+    let px = rows.at(-1)![3];
+    for (let i = 0; i < 15; i++) {
+      const next = Math.round(px * 0.985 * 100) / 100;
+      rows.push([px, px + 0.2, next - 0.2, next, 60_000_000]);
+      px = next;
+    }
+    const slide = dailyBars('2023-01-03', rows);
+    const def = riskAtrTrend();
+    def.exit.condition.children = [];
+    const r = simulate({
+      definition: def,
+      instruments: INSTRUMENTS,
+      inputs: inputs('2023-11-01', '2025-06-30'),
+      data: loaded({ [SPY]: slide }),
+    });
+    const stopped = r.trades.filter((t) => t.exitReason === 'atr_stop');
+    expect(stopped).toHaveLength(1);
+    const t = stopped[0]!;
+    const level = Number(t.atrStop!.level);
+    expect(level).toBeCloseTo(Number(t.atrStop!.entryPrice) - 2 * Number(t.atrStop!.atr), 3);
+    expect(t.atrStop!.atr).toBe(t.sizing!.atr);
+    // Decided on the close before the exit fill: that close is below the level, no earlier one was.
+    const fill = slide.findIndex((b) => b.start === t.exitTime);
+    expect(slide[fill - 1]!.close.toNumber()).toBeLessThan(level);
+    const entry = slide.findIndex((b) => b.start === t.entryTime);
+    for (const b of slide.slice(entry, fill - 1))
+      expect(b.close.toNumber()).toBeGreaterThanOrEqual(level);
+    // No Exit condition fired: the conditions report never fired.
+    expect(r.conditions?.exit.fired).toBe(0);
+  });
+
+  it('caps a risk-sized order at the maximum order size instead of breaking it', () => {
+    const def = riskAtrTrend();
+    def.risk.maxOrderNotional = '10000';
+    const t = run(def).trades.find((x) => x.sizing)!;
+    expect(t.sizing!.cappedBy).toBe('max_order_size');
+    const entry = t.legs.find((l) => l.phase === 'entry')!;
+    expect(Number(entry.quantity)).toBeLessThan(Number(t.sizing!.riskQuantity));
+  });
+
+  it('skips the entry, saying why, while the ATR has too little history', () => {
+    const def = riskAtrTrend();
+    def.entry.orders[0]!.quantity.atrPeriod = 400;
+    def.exit.rules = [];
+    // ATR(400) needs 401 daily bars: none of the bars up to mid-2024 have that much history.
+    const r = simulate({
+      definition: def,
+      instruments: INSTRUMENTS,
+      inputs: inputs('2023-11-01', '2024-06-28'),
+      data: loaded({ [SPY]: bars }),
+    });
+    const skipped = r.orders?.filter((o) => o.reason === 'no_atr') ?? [];
+    expect(skipped.length).toBeGreaterThan(0);
+    expect(r.fills).toEqual([]);
+    expect(r.warnings.map((w) => w.message)).toContain(
+      'Some risk-sized entries were skipped because the ATR had too little history',
+    );
   });
 });

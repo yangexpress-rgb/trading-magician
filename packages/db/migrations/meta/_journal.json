@@ -414,6 +414,13 @@
       "when": 1794024980723,
       "tag": "0058_shortable_and_trade_direction",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794025899483,
+      "tag": "0059_trade_risk_sizing",
+      "breakpoints": true
     }
   ]
 }

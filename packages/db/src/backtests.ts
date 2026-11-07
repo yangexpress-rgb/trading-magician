@@ -74,6 +74,9 @@ export interface BacktestTradeRow {
   /** Two-sided strategies (v1.2 item 8). */
   direction?: 'long' | 'short';
   group?: string;
+  /** Risk-based sizing and ATR stop (v1.2 item 9). */
+  sizing?: BacktestResult['trades'][number]['sizing'];
+  atrStop?: BacktestResult['trades'][number]['atrStop'];
 }
 
 const summaryColumns = {
@@ -226,15 +229,19 @@ export async function listBacktestTrades(
       exitReason: backtestTrades.exitReason,
       direction: backtestTrades.direction,
       entryGroup: backtestTrades.entryGroup,
+      sizing: backtestTrades.sizing,
+      atrStop: backtestTrades.atrStop,
     })
     .from(backtestTrades)
     .where(eq(backtestTrades.runId, runId))
     .orderBy(backtestTrades.cycle);
-  return rows.map(({ exitReason, direction, entryGroup, ...r }) => ({
+  return rows.map(({ exitReason, direction, entryGroup, sizing, atrStop, ...r }) => ({
     ...r,
     ...(exitReason ? { exitReason } : {}),
     ...(direction ? { direction } : {}),
     ...(entryGroup ? { group: entryGroup } : {}),
+    ...(sizing ? { sizing } : {}),
+    ...(atrStop ? { atrStop } : {}),
   })) as BacktestTradeRow[];
 }
 
@@ -415,6 +422,8 @@ export async function completeRun(
         exitReason: t.exitReason ?? null,
         direction: t.direction ?? null,
         entryGroup: t.group ?? null,
+        sizing: t.sizing ?? null,
+        atrStop: t.atrStop ?? null,
       })),
     );
   }

@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { nextTradingDay, nyDate, regularSession } from '../market/calendar';
 import type { Truth } from '../strategy/evaluate';
+import type { RiskSizing } from '../strategy/risk-exits';
 import type { PhaseEvent, PhaseName, PlannedOrder, StrategyDefinition } from '../strategy/schema';
 import { extendedHoursEligible } from '../strategy/extended-hours';
 import { relativeDelaySeconds } from '../strategy/timing';
@@ -59,9 +60,16 @@ export interface CycleState {
   /** The universe member or leg this cycle holds (v1.2 Selection groups and per-leg conditions). */
   slot?: StrategySlot | undefined;
   /** Why the current Exit round started, when not the Exit condition (v1.2). */
-  exitReason?: 'rebalance' | 'time_stop' | undefined;
+  exitReason?: 'rebalance' | 'time_stop' | 'atr_stop' | undefined;
   /** The entry group that opened it (v1.2 item 8); absent for the strategy's own Entry. */
   group?: string | undefined;
+  /** ATR stop (v1.2 item 9): the ATR when Entry was decided, fixing the stop level. */
+  atrAtEntry?: string | undefined;
+  /**
+   * Risk-based sizing per Entry leg id (v1.2 item 9): how the quantity was
+   * worked out, or why nothing was placed (`no_atr`, `zero_quantity`).
+   */
+  sizing?: Record<string, Partial<RiskSizing> & { skipped?: string }> | undefined;
 }
 
 export const legKey = (phase: LegPhase, legId: string, attempt: number) =>
@@ -106,7 +114,7 @@ export interface CycleInput {
   /** Truth of the Exit condition on data that is new since the last pass. */
   exitTruth?: { truth: Truth } | undefined;
   /** Exit now because a rebalance no longer selects this slot (v1.2 items 1, 2). */
-  forceExit?: 'rebalance' | undefined;
+  forceExit?: 'rebalance' | 'atr_stop' | undefined;
 }
 
 export interface CyclePlan {

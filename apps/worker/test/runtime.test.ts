@@ -1002,3 +1002,67 @@ describe('paper runtime: long and short entry groups (v1.2 item 8)', () => {
     await stopAll();
   });
 });
+
+describe('paper runtime: risk sizing from ATR and the ATR stop (v1.2 item 9)', () => {
+  const riskAtr = (atrPeriod: number, value = '1') => ({
+    type: 'risk_atr' as const,
+    value,
+    rounding: 'down' as const,
+    atrPeriod,
+    atrMultiple: '2',
+  });
+
+  it('sizes the Entry from equity, risk % and ATR, and records how', async () => {
+    clock = Date.parse('2026-11-04T15:31:00Z');
+    const def = pairDefinition();
+    def.entry.orders = [leg('buy', { legLabel: 'Buy A', quantity: riskAtr(5) })];
+    def.exit.orders = [leg('sell', { legLabel: 'Sell A', side: 'close' })];
+    def.exit.condition = never();
+    def.exit.rules = [{ kind: 'atrStop', id: 'atr', atrPeriod: 5, atrMultiple: '2' }];
+    def.risk = { ...def.risk, maxOrderNotional: '1000000', maxStrategyExposure: '1000000' };
+    const { runtimeId } = await startPaper('Risk ATR', def);
+    await pass();
+    const [o] = await orders(runtimeId);
+    const [c] = await cycles(runtimeId);
+    const state = c!.state as {
+      atrAtEntry?: string;
+      sizing?: Record<
+        string,
+        {
+          quantity: string;
+          stopDistance: string;
+          equity: string;
+          riskPct: string;
+          atr: string;
+          cappedBy?: string;
+        }
+      >;
+    };
+    const s = state.sizing?.buy;
+    expect(s).toBeDefined();
+    expect(state.atrAtEntry).toBeDefined();
+    // quantity = floor(equity × 1% ÷ (ATR × 2)), unless a limit capped it.
+    const byRisk = Math.floor((Number(s!.equity) * 0.01) / (Number(s!.atr) * 2));
+    expect(Number(s!.stopDistance)).toBeCloseTo(Number(s!.atr) * 2, 8);
+    expect(o!.quantity).toBe(s!.quantity);
+    if (!s!.cappedBy) expect(Number(o!.quantity)).toBe(byRisk);
+    else expect(Number(o!.quantity)).toBeLessThan(byRisk);
+    await stopAll();
+  });
+
+  it('places nothing when the risk budget buys less than one share, and says why', async () => {
+    clock = Date.parse('2026-11-05T15:31:00Z');
+    const def = pairDefinition();
+    def.entry.orders = [leg('buy', { legLabel: 'Buy A', quantity: riskAtr(5, '0.001') })];
+    def.exit.orders = [leg('sell', { legLabel: 'Sell A', side: 'close' })];
+    def.exit.condition = never();
+    const { runtimeId } = await startPaper('Risk ATR, too small', def);
+    await pass();
+    expect(await orders(runtimeId)).toHaveLength(0);
+    const [c] = await cycles(runtimeId);
+    expect(
+      (c!.state as { sizing?: Record<string, { skipped?: string }> }).sizing?.buy?.skipped,
+    ).toBe('zero_quantity');
+    await stopAll();
+  });
+});

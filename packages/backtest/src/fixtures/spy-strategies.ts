@@ -154,6 +154,28 @@ export function longShortBreakout(): StrategyDefinition {
   return def;
 }
 
+/**
+ * Design v1.2 item 9: long SPY while the close is above its 50-day average,
+ * risking 1% of equity with the stop 2 × ATR(20) away, and an ATR stop at
+ * entry − 2 × ATR(20) beside the normal exit (close below the average).
+ */
+export function riskAtrTrend(): StrategyDefinition {
+  const def = build(
+    cmp(market(), 'crosses_above', indicator('SMA', { period: 50 })),
+    cmp(market(), 'crosses_below', indicator('SMA', { period: 50 })),
+  );
+  def.entry.orders = [
+    {
+      ...order('buy-spy', 'buy'),
+      quantity: { type: 'risk_atr', value: '1', rounding: 'down', atrPeriod: 20, atrMultiple: '2' },
+    },
+  ];
+  def.exit.rules = [{ kind: 'atrStop', id: 'atr-stop', atrPeriod: 20, atrMultiple: '2' }];
+  // Room for a full-size position: the cap test lowers it again.
+  def.risk = { ...def.risk, maxOrderNotional: '95000', maxStrategyExposure: '95000' };
+  return def;
+}
+
 /** A deterministic SPY-like random walk: ~2.5 years of daily bars from 2023-01-03. */
 export function spyBars(count = 640, seed = 7): Bar[] {
   let s = seed;

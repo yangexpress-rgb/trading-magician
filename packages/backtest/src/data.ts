@@ -8,6 +8,7 @@ import {
   isIndicatorOnlyClass,
   referencedInstruments,
   resolveIndicatorParams,
+  riskSeries,
   type Bar,
   type BarInterval,
   type FundamentalObservation,
@@ -131,7 +132,8 @@ export function planSeries(
     if (!existing || existing.bars < bars) plans.set(key, { spec, bars });
   };
   const instruments = new Set<string>();
-  for (const e of seriesExprs(def, members)) {
+  // ATR sizing and ATR stops read daily bars on the fill price basis (v1.2 item 9).
+  for (const e of [...seriesExprs(def, members), ...riskSeries(def, inputs.adjustment)]) {
     instruments.add(e.instrumentId);
     need(
       {
