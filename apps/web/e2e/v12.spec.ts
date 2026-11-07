@@ -101,6 +101,7 @@ test('per-leg conditions, a z-score and a registry metric in the builder', async
     .getByLabel('Type', { exact: true })
     .selectOption({ label: 'Metric (price-based, shared registry)' });
   await expect(right.getByLabel('Metric')).toHaveValue('return');
+  await expect(right.getByLabel('Metric').locator('option', { hasText: 'RSI' })).toHaveCount(1);
 
   // "Only the best ones" is a Selection group of these legs (ADR 0049).
   await page.getByLabel('When several legs qualify').selectOption('best');

@@ -6,7 +6,7 @@ import {
   CONTEXT_INSTRUMENT_ID,
   getIndicator,
   getMetric,
-  INDICATORS,
+  BUILDER_INDICATORS,
   isFundamentalMetric,
   isOptionsMetric,
   isRankingMetric,
@@ -132,7 +132,7 @@ export function newExpr(kind: Kind, instrumentId: string, from?: Expr): Expr {
     case 'market':
       return { kind, id: randomId(), field: 'close', ...seriesDefaults(instrument) };
     case 'indicator': {
-      const spec = INDICATORS[0];
+      const spec = BUILDER_INDICATORS[0];
       if (!spec) throw new Error('The indicator catalog is empty');
       return {
         kind,
@@ -469,8 +469,14 @@ function SeriesFields({
             });
           }}
         >
-          {!spec && <option value={expr.name}>{expr.name} (unsupported)</option>}
-          {INDICATORS.map((i) => (
+          {/* RSI and Bollinger bands are metrics and statistics now (ADR 0049); a saved
+              one the migration kept as an indicator still shows, but isn't offered. */}
+          {!BUILDER_INDICATORS.some((i) => i.name === expr.name) && (
+            <option value={expr.name}>
+              {spec ? `${spec.label} (${spec.name}), kept as saved` : `${expr.name} (unsupported)`}
+            </option>
+          )}
+          {BUILDER_INDICATORS.map((i) => (
             <option key={i.name} value={i.name}>
               {i.label} ({i.name})
             </option>
