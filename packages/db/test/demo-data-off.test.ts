@@ -71,9 +71,7 @@ beforeAll(async () => {
       quantity: { type: 'units', value: '1', rounding: 'down' },
       orderType: 'market',
       timeInForce: 'day',
-      extendedHours: false,
       timing: { mode: 'immediate' },
-      timingOnly: false,
     },
   ];
   await as(keeper, (tx) => createStrategy(tx, keeper, { name: 'On DEMO-A', definition: def }));

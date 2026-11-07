@@ -71,7 +71,7 @@ const definition = (period: number, policy: 'concurrent' | 'sequential' | 'after
   def.execution.legTimeoutSec = 3 * 86_400;
   def.execution.reentry = { mode: 'pyramid', cap: 2 };
   def.entry.trigger.mode = 'while_true';
-  def.entry.trigger.cooldownSec = 86_400;
+  def.entry.trigger.cooldownBars = 1;
   return def;
 };
 

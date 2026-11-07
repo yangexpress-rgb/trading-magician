@@ -102,9 +102,7 @@ function expectedMoveRule(): StrategyDefinition {
     quantity: { type: 'units' as const, value: '1', rounding: 'down' as const },
     orderType: 'market' as const,
     timeInForce: 'day' as const,
-    extendedHours: false,
     timing: { mode: 'immediate' as const },
-    timingOnly: false,
   };
   def.entry.orders = [{ id: 'buy', legLabel: 'Buy SPY', side: 'buy', ...leg }];
   def.exit.orders = [{ id: 'sell', legLabel: 'Sell SPY', side: 'close', ...leg }];

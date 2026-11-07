@@ -119,9 +119,7 @@ const leg = (id: string, partial: Partial<PlannedOrder>): PlannedOrder => ({
   quantity: { type: 'units', value: '10', rounding: 'down' },
   orderType: 'market',
   timeInForce: 'day',
-  extendedHours: false,
   timing: { mode: 'immediate' },
-  timingOnly: false,
   ...partial,
 });
 
@@ -146,9 +144,9 @@ const never = (): StrategyDefinition['exit']['condition'] => ({
 function pairDefinition(): StrategyDefinition {
   const def = createDefinition();
   def.entry.condition = always('in');
-  def.entry.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+  def.entry.trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
   def.exit.condition = always('out');
-  def.exit.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+  def.exit.trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
   def.entry.orders = [
     leg('long', { legLabel: 'Long A' }),
     leg('short', { legLabel: 'Short B', instrumentId: demoB, side: 'sell_short' }),
@@ -359,7 +357,7 @@ describe('paper runtime: position values in Exit rules', () => {
     clock = T0 + 2 * 86_400_000; // Thursday
     const def = createDefinition();
     def.entry.condition = always('pin');
-    def.entry.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+    def.entry.trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
     def.entry.orders = [leg('buy', { legLabel: 'Buy A' })];
     const pos = (id: string, field: 'entry_price' | 'gain_pct') => ({
       kind: 'position' as const,
@@ -945,7 +943,7 @@ describe('paper runtime: long and short entry groups (v1.2 item 8)', () => {
     const def = createDefinition();
     def.entry.direction = 'long';
     def.entry.condition = longEntry;
-    def.entry.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+    def.entry.trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
     def.entry.orders = [leg('buy', { legLabel: 'Buy A' })];
     def.exit.condition = never();
     def.exit.orders = [leg('sell', { legLabel: 'Sell A', side: 'close' })];
@@ -956,12 +954,12 @@ describe('paper runtime: long and short entry groups (v1.2 item 8)', () => {
         entry: {
           direction: 'short',
           condition: always('sin'),
-          trigger: { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 },
+          trigger: { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 },
           orders: [leg('short', { legLabel: 'Short A', side: 'sell_short' })],
         },
         exit: {
           condition: always('sout'),
-          trigger: { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 },
+          trigger: { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 },
           orders: [leg('cover', { legLabel: 'Cover A', side: 'close' })],
         },
       },

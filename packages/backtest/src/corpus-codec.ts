@@ -48,7 +48,10 @@ export function behaviour(r: BacktestResult): string {
   };
   const picked = {
     ...r,
-    conditions: { entry: strip(r.conditions.entry), exit: strip(r.conditions.exit) },
+    conditions: r.conditions && {
+      entry: strip(r.conditions.entry),
+      exit: strip(r.conditions.exit),
+    },
     groupConditions: r.groupConditions?.map((g) => ({
       ...g,
       entry: strip(g.entry),

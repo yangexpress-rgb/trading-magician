@@ -30,7 +30,7 @@ const close = (id: string, instrumentId: string) => ({
   id,
   ...series(instrumentId),
 });
-const trigger = { mode: 'on_transition', cooldownSec: 0, confirmationBars: 0 };
+const trigger = { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 };
 
 /** Long a 20-day breakout of DEMO-A, out below the 10-day low. */
 const longBreakout = (a: string, accountId: string) => ({

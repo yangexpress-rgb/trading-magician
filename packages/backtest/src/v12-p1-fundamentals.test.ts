@@ -149,9 +149,7 @@ const leg = (id: string, partial: Partial<PlannedOrder> = {}): PlannedOrder => (
   quantity: { type: 'pct_equity', value: '90', rounding: 'down' },
   orderType: 'market',
   timeInForce: 'day',
-  extendedHours: false,
   timing: { mode: 'immediate' },
-  timingOnly: false,
   ...partial,
 });
 
@@ -175,7 +173,6 @@ function fixture(): StrategyDefinition {
       cmp(metric('dividend_yield'), 'gt', '0.03'),
       cmp(metric('earnings_yield'), 'gt', '0'),
     ),
-    weighting: 'equal',
   };
   def.entry.orders = [leg('buy-each')];
   def.exit.orders = [leg('close-each', { side: 'close' })];

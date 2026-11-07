@@ -119,12 +119,12 @@ export function checkPreTradeRisk(input: RiskCheckInput): RiskCheckResult {
       return done();
     if (risk.dailyLossLimit && !check('risk_daily_loss', !input.dailyLossHit)) return done();
     if (risk.maxDrawdownPct && !check('risk_drawdown', !input.drawdownHit)) return done();
-    if (risk.maxOpenPositions !== undefined && !input.instrumentHeld) {
+    if (risk.maxInstrumentsHeld !== undefined && !input.instrumentHeld) {
       if (
         !check(
           'risk_open_positions',
-          input.openPositions < risk.maxOpenPositions,
-          String(risk.maxOpenPositions),
+          input.openPositions < risk.maxInstrumentsHeld,
+          String(risk.maxInstrumentsHeld),
           String(input.openPositions),
         )
       )

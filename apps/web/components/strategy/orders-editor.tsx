@@ -105,9 +105,7 @@ export function OrdersEditor({
       quantity: { type: 'units', value: '1', rounding: 'down' },
       orderType: 'market',
       timeInForce: 'day',
-      extendedHours: false,
       timing: { mode: 'immediate' },
-      timingOnly: false,
     };
     setOrders([...orders, leg], legOrder ? [...legOrder, leg.id] : undefined);
   };

@@ -108,7 +108,7 @@ test('dividend yield > 3%: saved, shown, back tested, and matched by the screene
   const early = await createStrategyWithRules(page, baseURL!, 'Too early', (ids, accountId) => ({
     entry: {
       condition: dividendYieldAbove3(ids['DEMO-A']!),
-      trigger: { mode: 'on_transition', cooldownSec: 0, confirmationBars: 0 },
+      trigger: { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 },
       orders: [leg('buy', 'Buy DEMO-A', ids['DEMO-A']!, accountId, 'buy')],
     },
   }));
@@ -132,7 +132,7 @@ test('dividend yield > 3%: saved, shown, back tested, and matched by the screene
 
   // The same rule as a strategy: buy ZTSTB while its dividend yield is above 3%.
   // Entry fires while the condition holds (it already does on the first bar).
-  const trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+  const trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
   const rules =
     (id: string, symbol: string) => (_ids: Record<string, string>, accountId: string) => ({
       entry: {

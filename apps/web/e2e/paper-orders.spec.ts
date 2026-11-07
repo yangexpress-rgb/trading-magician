@@ -16,7 +16,7 @@ const comparison = (id: string, instrumentId: string, operator: 'gt' | 'lt') => 
   left: { kind: 'market', id: `${id}-px`, ...series(instrumentId) },
   right: { kind: 'constant', id: `${id}-k`, value: '1' },
 });
-const whileTrue = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+const whileTrue = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
 
 /** Enters at once (price above 1) and never exits (price below 1); Exit would close `symbol`. */
 function enterOnly(

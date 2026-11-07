@@ -9,7 +9,7 @@ import { timeStopReached } from '../strategy/schedule';
 import type { Slot as StrategySlot } from '../strategy/selection';
 import type { OrderState } from './order-state';
 import type { Direction } from './sizing';
-import { initialTriggerState, stepTrigger, type TriggerState } from './trigger';
+import { exitFiresDirectly, initialTriggerState, stepTrigger, type TriggerState } from './trigger';
 
 /**
  * The Entry-first, Exit-second cycle (Design v1.0 §6.7–6.9) as a pure planner.
@@ -174,19 +174,18 @@ export function legOrderFor(def: StrategyDefinition, phase: PhaseName): PlannedO
 }
 
 /**
- * Whether a leg is sent as an extended-hours order (§6.8). A leg that asks for
- * extended hours always is. Under the "extended hours if supported" policy, a
- * leg placed outside the regular session is too, when its account trades
- * extended hours and the order is one brokers take there: a day limit order.
- * Anything else waits for the regular session, as under "queue".
+ * Whether a leg is sent as an extended-hours order (§6.8). The strategy's
+ * market-hours policy is the one switch (ADR 0049): under "extended hours if
+ * supported", a leg placed outside the regular session is, when its account
+ * trades extended hours and the order is one brokers take there: a day limit
+ * order. Anything else waits for the regular session, as under "queue".
  */
 export function sendsExtendedHours(
-  order: Pick<PlannedOrder, 'extendedHours' | 'orderType' | 'timeInForce'>,
+  order: Pick<PlannedOrder, 'orderType' | 'timeInForce'>,
   policy: StrategyDefinition['execution']['marketHoursPolicy'],
   regularSessionOpen: boolean,
   accountExtendedHours: boolean,
 ): boolean {
-  if (order.extendedHours) return true;
   return (
     policy === 'extended_if_supported' &&
     !regularSessionOpen &&
@@ -290,7 +289,7 @@ export function planCycle(input: CycleInput): CyclePlan {
     triggeredAt: number | undefined,
   ): { at: number; reference: LegReference } | undefined => {
     const t = s.order.timing;
-    const needsTrigger = t.mode === 'immediate' || !s.order.timingOnly;
+    const needsTrigger = t.mode === 'immediate' || !def.execution.timingOnly;
     if (needsTrigger && triggeredAt === undefined) return undefined;
     if (t.mode === 'immediate')
       return { at: triggeredAt ?? now, reference: { kind: 'trigger', phase: s.phase } };
@@ -422,8 +421,13 @@ export function planCycle(input: CycleInput): CyclePlan {
   settleEntry();
 
   // 4. Exit: watch the condition once the position is open, then place Exit legs.
+  // A slot's Exit has no trigger: it exits on any bar its condition is true (ADR 0049).
   if (cycle.status === 'open' && input.exitTruth) {
-    if (stepTrigger(cycle.exitTrigger, input.exitTruth.truth, now, def.exit.trigger)) {
+    const exitTrigger = def.exit.trigger;
+    const fires = exitTrigger
+      ? stepTrigger(cycle.exitTrigger, input.exitTruth.truth, now, exitTrigger)
+      : exitFiresDirectly(input.exitTruth.truth);
+    if (fires) {
       cycle.status = 'exit_working';
       cycle.exitTriggeredAt = now;
       plan.notes.push('exit_triggered');
@@ -496,7 +500,7 @@ export function planCycle(input: CycleInput): CyclePlan {
 }
 
 // ---------------------------------------------------------------------------
-// Entry at the runtime level: whether a trigger starts a new cycle (§6.9).
+// Entry: the one decision both engines make on each evaluation (§6.9, ADR 0049).
 // ---------------------------------------------------------------------------
 
 export interface RuntimeTriggerState {
@@ -511,36 +515,58 @@ export const newRuntimeTriggerState = (): RuntimeTriggerState => ({
 });
 
 export interface EntryInput {
+  /** The strategy, or the entry group's definition. */
   definition: StrategyDefinition;
   state: RuntimeTriggerState;
-  /** Active cycles, oldest first. */
+  /** Active cycles of the whole strategy (every entry group), oldest first. */
   active: readonly { id: string; cycle: CycleState }[];
   now: number;
   /** Truth of the Entry condition on new data, if there is any. */
   entryTruth?: { truth: Truth } | undefined;
   /** New entries are halted (daily loss, drawdown, kill switch or pause). */
   halted: boolean;
+  /** The strategy has several entry groups: one position at a time, never flipped (v1.2 item 8). */
+  severalGroups?: boolean | undefined;
 }
 
 export type EntryDecision =
   | { kind: 'none' }
   | { kind: 'new_cycle'; triggered: boolean }
-  | { kind: 'add_batch'; cycleId: string };
+  | { kind: 'add_batch'; cycleId: string }
+  /** A cycle a timed leg opened without the condition now has its Entry trigger too. */
+  | { kind: 'trigger_cycle'; cycleId: string };
 
+/**
+ * Whether this evaluation starts a cycle, adds a pyramid batch, triggers a
+ * cycle a timed leg opened, or does nothing. It is the single entry path of
+ * a strategy without slots, in the back test and on paper alike: the Entry
+ * trigger first, then a timing-only exact Entry leg that is due (§6.8), which
+ * opens a cycle by itself when "Allow timed entries without conditions" is on.
+ */
 export function planEntry(input: EntryInput): {
   state: RuntimeTriggerState;
   decision: EntryDecision;
+  /** Whether the Entry trigger fired on this evaluation (it may still do nothing). */
+  fired: boolean;
 } {
   const { definition: def, active, now } = input;
   const state = structuredClone(input.state);
   let decision: EntryDecision = { kind: 'none' };
-  const fires = input.entryTruth
+  const fired = input.entryTruth
     ? stepTrigger(state.entryTrigger, input.entryTruth.truth, now, def.entry.trigger)
     : false;
-  if (fires && !input.halted) {
+  if (fired && !input.halted) {
     const mode = def.execution.reentry.mode;
     const current = active.at(-1);
-    if (active.length === 0 || mode === 'independent_cycles') {
+    if (input.severalGroups) {
+      if (active.length === 0) decision = { kind: 'new_cycle', triggered: true };
+    } else if (
+      current &&
+      current.cycle.entryTriggeredAt === undefined &&
+      current.cycle.status === 'entry_working'
+    ) {
+      decision = { kind: 'trigger_cycle', cycleId: current.id };
+    } else if (active.length === 0 || mode === 'independent_cycles') {
       decision = { kind: 'new_cycle', triggered: true };
     } else if (
       mode === 'pyramid' &&
@@ -551,10 +577,14 @@ export function planEntry(input: EntryInput): {
       decision = { kind: 'add_batch', cycleId: current.id };
     }
   }
-  if (decision.kind === 'none' && active.length === 0 && !input.halted) {
+  if (
+    decision.kind === 'none' &&
+    active.length === 0 &&
+    !input.halted &&
+    def.execution.timingOnly
+  ) {
     const due = def.entry.orders.find(
       (o) =>
-        o.timingOnly &&
         o.timing.mode === 'exact' &&
         !state.exactUsed.includes(o.id) &&
         now >= Date.parse(o.timing.at),
@@ -564,5 +594,5 @@ export function planEntry(input: EntryInput): {
       decision = { kind: 'new_cycle', triggered: false };
     }
   }
-  return { state, decision };
+  return { state, decision, fired };
 }

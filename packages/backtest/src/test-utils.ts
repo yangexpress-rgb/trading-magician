@@ -112,9 +112,7 @@ export function leg(id: string, partial: Partial<PlannedOrder> = {}): PlannedOrd
     quantity: { type: 'units', value: '10', rounding: 'down' },
     orderType: 'market',
     timeInForce: 'day',
-    extendedHours: false,
     timing: { mode: 'immediate' },
-    timingOnly: false,
     ...partial,
   };
 }

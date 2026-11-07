@@ -602,9 +602,7 @@ function trend(): StrategyDefinition {
     quantity: { type: 'units' as const, value: '10', rounding: 'down' as const },
     orderType: 'market' as const,
     timeInForce: 'day' as const,
-    extendedHours: false,
     timing: { mode: 'immediate' as const },
-    timingOnly: false,
   };
   def.entry.orders = [{ id: 'buy', legLabel: 'Buy', side: 'buy', ...leg }];
   def.exit.orders = [{ id: 'sell', legLabel: 'Sell', side: 'close', ...leg }];

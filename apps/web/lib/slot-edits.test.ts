@@ -24,9 +24,7 @@ function fixed(): StrategyDefinition {
       quantity: { type: 'units', value: '10', rounding: 'down' },
       orderType: 'market',
       timeInForce: 'day',
-      extendedHours: false,
       timing: { mode: 'immediate' },
-      timingOnly: false,
     },
   ];
   return def;

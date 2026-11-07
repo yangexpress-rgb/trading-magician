@@ -77,7 +77,7 @@ test('VIX: added from search, watched by conditions, charted, never traded', asy
     .toBe('found');
 
   // The brief's fixture: buy when VIX closes above its upper band, exit below the middle.
-  const trigger = { mode: 'on_transition', cooldownSec: 0, confirmationBars: 0 };
+  const trigger = { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 };
   const strategy = await createStrategyWithRules(page, baseURL!, 'VIX bands', (ids, accountId) => ({
     entry: {
       condition: group('eg', {

@@ -121,9 +121,7 @@ const leg = (id: string, partial: Partial<PlannedOrder>): PlannedOrder => ({
   quantity: { type: 'units', value: '10', rounding: 'down' },
   orderType: 'market',
   timeInForce: 'day',
-  extendedHours: false,
   timing: { mode: 'immediate' },
-  timingOnly: false,
   ...partial,
 });
 
@@ -132,9 +130,9 @@ async function startBuyer(name: string) {
   return asUser(async (tx) => {
     const def = createDefinition();
     def.entry.condition = group('in', 'gt');
-    def.entry.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+    def.entry.trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
     def.exit.condition = group('out', 'lt');
-    def.exit.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+    def.exit.trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
     def.entry.orders = [leg('buy', { legLabel: 'Buy A' })];
     def.exit.orders = [leg('sell', { legLabel: 'Sell A', side: 'close' })];
     let s = await createStrategy(tx, userId, { name, definition: def });

@@ -186,7 +186,7 @@ export function evaluateExpr(expr: Expr, r: SeriesResolver, barsBack = 0): Decim
     case 'position':
       return positionValue(expr, r, barsBack);
     case 'metric':
-      return computeMetric(metricExprRef(expr), expr.instrumentId, r, barsBack);
+      return computeMetric(metricExprRef(expr), expr.instrumentId, r, barsBack + (expr.offset ?? 0));
     case 'stat':
       return statValue(expr, r, barsBack);
     case 'calc': {

@@ -1,3 +1,4 @@
+import { migrateV1 } from './migrate-v1';
 import {
   STRATEGY_SCHEMA_VERSION,
   strategyDefinitionSchema,
@@ -29,7 +30,10 @@ export class UnsupportedSchemaVersionError extends Error {
 type Migration = (input: Record<string, unknown>) => Record<string, unknown>;
 
 /** schemaVersion N → N+1. Stored versions are never rewritten; they are migrated on read. */
-const MIGRATIONS: Record<number, Migration> = {};
+const MIGRATIONS: Record<number, Migration> = {
+  // The Strategy Lab simplification (ADR 0049).
+  1: (doc) => migrateV1(doc).doc,
+};
 
 /** Parses a stored or submitted definition, migrating older schema versions first. */
 export function parseDefinition(input: unknown): StrategyDefinition {

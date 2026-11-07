@@ -319,7 +319,7 @@ export const RISK_FIELDS: {
   { key: 'maxActiveOrders', label: 'Maximum active orders', unit: 'count' },
   { key: 'dailyLossLimit', label: 'Daily loss limit', unit: 'money' },
   { key: 'priceCollarPct', label: 'Price collar', unit: 'pct' },
-  { key: 'maxOpenPositions', label: 'Maximum open positions', unit: 'count' },
+  { key: 'maxInstrumentsHeld', label: 'Maximum instruments held', unit: 'count' },
   { key: 'maxDrawdownPct', label: 'Maximum drawdown', unit: 'pct' },
 ];
 

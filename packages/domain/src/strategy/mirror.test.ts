@@ -54,7 +54,6 @@ describe('mirrorEntryOrders', () => {
       accountId: OTHER_ACCOUNT,
       extendedHours: true,
       timing: { mode: 'immediate' },
-      timingOnly: false,
     });
     expect(exit).not.toHaveProperty('limitPrice');
     expect(exit).not.toHaveProperty('notes');

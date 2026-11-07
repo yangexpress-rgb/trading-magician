@@ -47,9 +47,7 @@ function mirrorContent(entry: readonly PlannedOrder[]): Mirrored[] {
       quantity: { ...e.quantity },
       orderType: 'market',
       timeInForce: 'day',
-      extendedHours: e.extendedHours,
       timing: { mode: 'immediate' },
-      timingOnly: false,
     });
   }
   // Labels must be unique across both phases.
@@ -74,28 +72,12 @@ export function mirrorEntryOrders(
   return mirrorContent(entry).map((o) => ({ id: ids(), ...o }));
 }
 
-function canonical(value: unknown): string {
-  return JSON.stringify(value, (_key, v: unknown) =>
-    v && typeof v === 'object' && !Array.isArray(v)
-      ? Object.fromEntries(
-          Object.entries(v as Record<string, unknown>)
-            .filter(([, x]) => x !== undefined)
-            .sort(([a], [b]) => a.localeCompare(b)),
-        )
-      : v,
-  );
-}
-
 /**
- * True while the Exit legs are still exactly what Entry would pre-fill, or
- * there are none. Leg ids don't count, everything else does: once the user
- * changes any Exit field, adds or removes an Exit leg, Exit stops following.
+ * Whether the Exit legs are generated from Entry: the visible "Mirror Entry
+ * legs" switch on the Exit card (ADR 0049). On, every Entry edit regenerates
+ * them; off, they are hand-built and Entry edits leave them alone.
  */
-export function exitFollowsEntry(def: StrategyDefinition): boolean {
-  if (def.exit.orders.length === 0) return true;
-  const strip = (orders: readonly PlannedOrder[]) => orders.map(({ id: _id, ...rest }) => rest);
-  return canonical(strip(def.exit.orders)) === canonical(mirrorContent(def.entry.orders));
-}
+export const mirrorsEntry = (exit: { mirrorEntry?: boolean | undefined }) => exit.mirrorEntry === true;
 
 /**
  * Re-fill Exit legs from Entry, reusing the existing Exit leg ids in order so
@@ -130,9 +112,8 @@ export function refillExitOrders(
 }
 
 /**
- * Apply an edit that changed Entry orders. If Exit still followed Entry before
- * the edit, Exit is re-filled to match the new Entry; otherwise the user has
- * made Exit their own and it is left alone.
+ * Apply an edit that changed Entry orders: with "Mirror Entry legs" on, Exit
+ * is regenerated from the new Entry; off, Exit is left alone.
  */
 export function syncExitWithEntry(
   before: StrategyDefinition,
@@ -140,6 +121,6 @@ export function syncExitWithEntry(
   ids: IdFactory = randomId,
 ): StrategyDefinition {
   if (before.entry.orders === after.entry.orders) return after;
-  if (!exitFollowsEntry(before)) return after;
+  if (!mirrorsEntry(after.exit)) return after;
   return refillExitOrders(after, ids);
 }

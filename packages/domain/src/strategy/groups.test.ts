@@ -33,7 +33,7 @@ function twoSided(): StrategyDefinition {
           negate: false,
           children: [comparison('s-entry', market('sm1'), 'lt', constant('90'))],
         },
-        trigger: { mode: 'on_transition', cooldownSec: 0, confirmationBars: 0 },
+        trigger: { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 },
         orders: [order('short-a', { side: 'sell_short', legLabel: 'Short A' })],
       },
       exit: {
@@ -44,7 +44,7 @@ function twoSided(): StrategyDefinition {
           negate: false,
           children: [comparison('s-exit', market('sm2'), 'gt', constant('100'))],
         },
-        trigger: { mode: 'on_transition', cooldownSec: 0, confirmationBars: 0 },
+        trigger: { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 },
         orders: [order('cover-a', { side: 'buy_to_cover', legLabel: 'Cover A' })],
       },
     },

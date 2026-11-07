@@ -76,9 +76,7 @@ const order = (legId: string, side: PlannedOrder['side']): PlannedOrder => ({
       : { type: 'units', value: '1', rounding: 'down' },
   orderType: 'market',
   timeInForce: 'day',
-  extendedHours: false,
   timing: { mode: 'immediate' },
-  timingOnly: false,
 });
 
 function build(entry: Comparison, exit: Comparison): StrategyDefinition {
@@ -136,7 +134,6 @@ export function longShortBreakout(): StrategyDefinition {
     cmp(market(), 'gt', indicator('HIGHEST', { period: 20 }, 'high', 1)),
     cmp(market(), 'lt', indicator('LOWEST', { period: 10 }, 'low', 1)),
   );
-  def.entry.direction = 'long';
   const short = build(
     cmp(market(), 'lt', indicator('LOWEST', { period: 20 }, 'low', 1)),
     cmp(market(), 'gt', indicator('HIGHEST', { period: 10 }, 'high', 1)),
@@ -147,7 +144,7 @@ export function longShortBreakout(): StrategyDefinition {
     {
       id: 'short-group',
       label: 'Short breakdown',
-      entry: { ...short.entry, direction: 'short', orders: [shortLeg] },
+      entry: { ...short.entry, orders: [shortLeg] },
       exit: { ...short.exit, orders: [{ ...order('cover-spy', 'close'), legLabel: 'Cover SPY' }] },
     },
   ];
@@ -167,10 +164,18 @@ export function riskAtrTrend(): StrategyDefinition {
   def.entry.orders = [
     {
       ...order('buy-spy', 'buy'),
-      quantity: { type: 'risk_atr', value: '1', rounding: 'down', atrPeriod: 20, atrMultiple: '2' },
+      quantity: {
+        type: 'risk',
+        value: '1',
+        rounding: 'down',
+        amountIn: 'pct_equity',
+        distanceFrom: 'atr',
+      },
     },
   ];
-  def.exit.rules = [{ kind: 'atrStop', id: 'atr-stop', atrPeriod: 20, atrMultiple: '2' }];
+  // One risk distance (ADR 0049): sizing and the ATR stop both read it.
+  def.entry.risk = { atrPeriod: 20, atrMultiple: '2' };
+  def.exit.rules = [{ kind: 'atrStop', id: 'atr-stop' }];
   // Room for a full-size position: the cap test lowers it again.
   def.risk = { ...def.risk, maxOrderNotional: '95000', maxStrategyExposure: '95000' };
   return def;

@@ -72,9 +72,7 @@ const leg = (id: string, partial: Partial<PlannedOrder> = {}): PlannedOrder => (
   quantity: { type: 'pct_equity', value: '90', rounding: 'down' },
   orderType: 'market',
   timeInForce: 'day',
-  extendedHours: false,
   timing: { mode: 'immediate' },
-  timingOnly: false,
   ...partial,
 });
 
@@ -267,7 +265,7 @@ describe('item 5: BANDWIDTH through the statistic machinery', () => {
     def.entry.condition.children = [
       cmp(diff, 'lt', { kind: 'constant', id: nid('c'), value: '0.000000001' }),
     ];
-    def.entry.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+    def.entry.trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
     def.exit.condition.children = [
       cmp(close(SPY), 'lt', { kind: 'constant', id: nid('c'), value: '0' }),
     ];

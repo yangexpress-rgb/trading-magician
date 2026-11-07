@@ -251,7 +251,6 @@ describe('orders and accounts', () => {
       orderTypes: ['market'],
       timeInForce: ['day'],
       shortSelling: false,
-      extendedHours: false,
       assetClasses: ['etf'],
     };
     const accounts = new Map([

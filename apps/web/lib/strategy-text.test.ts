@@ -101,9 +101,7 @@ describe('strategy text', () => {
     quantity: { type: 'units', value: '100', rounding: 'down' },
     orderType: 'market',
     timeInForce: 'day',
-    extendedHours: false,
     timing: { mode: 'immediate' },
-    timingOnly: false,
     ...patch,
   });
 

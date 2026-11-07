@@ -153,8 +153,6 @@ describe('planned orders', () => {
     expect(plannedOrderSchema.parse(rest)).toMatchObject({
       timing: { mode: 'immediate' },
       timeInForce: 'day',
-      extendedHours: false,
-      timingOnly: false,
     });
   });
 

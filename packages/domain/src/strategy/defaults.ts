@@ -42,12 +42,12 @@ export function createDefinition(ids: IdFactory = randomId): StrategyDefinition 
     schemaVersion: STRATEGY_SCHEMA_VERSION,
     entry: {
       condition: emptyGroup(ids),
-      trigger: { mode: 'on_transition', cooldownSec: 0, confirmationBars: 0 },
+      trigger: { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 },
       orders: [],
     },
     exit: {
       condition: emptyGroup(ids),
-      trigger: { mode: 'on_transition', cooldownSec: 0, confirmationBars: 0 },
+      trigger: { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 },
       orders: [],
     },
     execution: structuredClone(DEFAULT_EXECUTION),

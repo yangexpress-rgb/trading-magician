@@ -226,16 +226,14 @@ describe('routing per account', () => {
       quantity: { type: 'units', value: '3', rounding: 'down' },
       orderType: 'market',
       timeInForce: 'day',
-      extendedHours: false,
       timing: { mode: 'immediate' },
-      timingOnly: false,
     });
     const def = createDefinition();
     def.entry.condition = condition('in', 'gt');
-    def.entry.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+    def.entry.trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
     def.entry.orders = [leg('Buy ZTSTA', 'buy')];
     def.exit.condition = condition('out', 'lt');
-    def.exit.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+    def.exit.trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
     def.exit.orders = [leg('Sell ZTSTA', 'close')];
 
     const strategy = await as(async (tx) => {
@@ -432,9 +430,7 @@ describe('market-hours policy', () => {
         ],
       },
       timeInForce: 'day',
-      extendedHours: false,
       timing: { mode: 'immediate' },
-      timingOnly: false,
     });
     const group = (id: string, operator: 'gt' | 'lt') => ({
       kind: 'group' as const,
@@ -454,7 +450,7 @@ describe('market-hours policy', () => {
     const def = createDefinition();
     def.execution.marketHoursPolicy = 'extended_if_supported';
     def.entry.condition = group('in', 'gt');
-    def.entry.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+    def.entry.trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
     def.entry.orders = [leg('Buy early', 'buy')];
     def.exit.condition = group('out', 'lt');
     def.exit.orders = [leg('Sell early', 'sell')];

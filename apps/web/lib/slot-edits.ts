@@ -56,8 +56,6 @@ export function toSelectionGroup(
       side: 'buy',
       orderType: 'market',
       timeInForce: 'day',
-      extendedHours: false,
-      timingOnly: false,
     }),
     instrumentId: CONTEXT_INSTRUMENT_ID,
     quantity,

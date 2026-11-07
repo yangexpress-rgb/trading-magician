@@ -22,10 +22,12 @@ export interface SizingInput {
   position: Decimal;
   /** Smallest tradable quantity step (1 for whole shares). */
   lotSize: Decimal;
-  /** `risk_atr` only (v1.2 item 9): ATR(atrPeriod) of the instrument's daily bars now. */
+  /** `risk` from the ATR only: ATR(period) of the instrument's daily bars now. */
   atr?: Decimal | undefined;
+  /** `risk` from the ATR only: the Entry's risk distance (ADR 0049). */
+  distance?: { atrPeriod: number; atrMultiple: string } | undefined;
   /**
-   * `risk_atr` only: the most this order may be worth under the strategy's
+   * `risk` from the ATR only: the most this order may be worth under the strategy's
    * and account's limits, and which limit that is. Risk sizing narrows a
    * position; it never overrides a limit, so the quantity is capped to it.
    */
@@ -38,7 +40,7 @@ export type SizingResult =
       quantity: Decimal;
       direction: Direction;
       closing: boolean;
-      /** `risk_atr`: how the quantity was worked out. */
+      /** `risk` from the ATR: how the quantity was worked out. */
       sizing?: RiskSizing;
     }
   | { ok: false; code: SizingSkip; sizing?: RiskSizing };
@@ -57,6 +59,7 @@ export function sizeOrder({
   position: pos,
   lotSize,
   atr,
+  distance,
   cap,
 }: SizingInput): SizingResult {
   if (ref.lte(0)) return { ok: false, code: 'no_price' };
@@ -72,19 +75,33 @@ export function sizeOrder({
     case 'pct_equity':
       qty = equity.times(v).div(100).div(ref);
       break;
-    case 'risk_sized': {
+    case 'risk': {
+      // One risk quantity (ADR 0049): an amount in dollars or % of equity, over
+      // the distance to the stop (the stop price, or the Entry's ATR distance).
+      if ((order.quantity.distanceFrom ?? 'stop_price') === 'atr') {
+        // A Close leg pre-filled from a risk-sized Entry closes what is held.
+        if (order.side === 'close') {
+          qty = pos.abs();
+          break;
+        }
+        return sizeByAtr({
+          order,
+          referencePrice: ref,
+          equity,
+          position: pos,
+          lotSize,
+          atr,
+          distance,
+          cap,
+        });
+      }
       const perUnitRisk = stopPrice ? ref.minus(stopPrice).abs() : ZERO;
       if (perUnitRisk.isZero()) return { ok: false, code: 'no_stop_distance' };
-      qty = v.div(perUnitRisk);
+      const amount =
+        order.quantity.amountIn === 'pct_equity' ? equity.times(v).div(100) : v;
+      qty = amount.div(perUnitRisk);
       break;
     }
-    case 'risk_atr':
-      // A Close leg pre-filled from a risk-sized Entry closes what is held.
-      if (order.side === 'close') {
-        qty = pos.abs();
-        break;
-      }
-      return sizeByAtr({ order, referencePrice: ref, equity, position: pos, lotSize, atr, cap });
   }
   const lots = qty.div(lotSize);
   qty = (order.quantity.rounding === 'nearest' ? lots.round() : lots.floor()).times(lotSize);
@@ -125,8 +142,9 @@ export function sizeOrder({
 
 /**
  * v1.2 item 9: quantity = floor((equity × risk% ÷ 100) ÷ (ATR × multiple)),
- * in whole lots, capped to the limits in `cap`. No ATR (too little history)
- * or a quantity of 0 places nothing, and says why.
+ * or floor(dollars ÷ (ATR × multiple)), in whole lots, capped to the limits
+ * in `cap`. No ATR (too little history) or a quantity of 0 places nothing,
+ * and says why.
  */
 function sizeByAtr({
   order,
@@ -134,19 +152,22 @@ function sizeByAtr({
   equity,
   lotSize,
   atr,
+  distance: riskDistance,
   cap,
 }: SizingInput): SizingResult {
-  const multiple = order.quantity.atrMultiple ?? '0';
-  const period = order.quantity.atrPeriod ?? 0;
+  const multiple = riskDistance?.atrMultiple ?? '0';
+  const period = riskDistance?.atrPeriod ?? 0;
   if (!atr || atr.lte(0)) return { ok: false, code: 'no_atr' };
   // Figures as shown in the trade list, so the quantity checks by hand exactly.
   const atrShown = atr.toDecimalPlaces(4);
   const equityShown = equity.toDecimalPlaces(2);
   const distance = atrShown.times(multiple);
   if (distance.lte(0)) return { ok: false, code: 'no_stop_distance' };
-  const riskQty = equityShown
-    .times(order.quantity.value)
-    .div(100)
+  const dollars = order.quantity.amountIn === 'dollars';
+  const riskQty = (dollars
+    ? new Decimal(order.quantity.value)
+    : equityShown.times(order.quantity.value).div(100)
+  )
     .div(distance)
     .div(lotSize)
     .floor()
@@ -163,7 +184,9 @@ function sizeByAtr({
   const sizing: RiskSizing = {
     method: 'risk_atr',
     equity: equityShown.toString(),
-    riskPct: new Decimal(order.quantity.value).toString(),
+    ...(dollars
+      ? { riskAmount: new Decimal(order.quantity.value).toString() }
+      : { riskPct: new Decimal(order.quantity.value).toString() }),
     atrPeriod: period,
     atr: atrShown.toString(),
     atrMultiple: new Decimal(multiple).toString(),

@@ -175,9 +175,14 @@ const CAP_LABELS = {
  * (2 × ATR(20) 4.1234) = 121 shares".
  */
 export function sizingText(sizing: NonNullable<BacktestTradeDto['sizing']>): string[] {
-  const budget = (Number(sizing.equity) * Number(sizing.riskPct)) / 100;
+  const dollars = sizing.riskAmount !== undefined;
+  const budget = dollars
+    ? Number(sizing.riskAmount)
+    : (Number(sizing.equity) * Number(sizing.riskPct)) / 100;
   const lines = [
-    `Risk ${sizing.riskPct}% of ${formatMoney(sizing.equity)} equity = ${formatMoney(budget)}`,
+    dollars
+      ? `Risk ${formatMoney(sizing.riskAmount ?? '0')}`
+      : `Risk ${sizing.riskPct}% of ${formatMoney(sizing.equity)} equity = ${formatMoney(budget)}`,
     `Stop distance ${sizing.stopDistance} = ${sizing.atrMultiple} × ATR(${sizing.atrPeriod}) ${sizing.atr}`,
     `${formatMoney(budget)} ÷ ${sizing.stopDistance} = ${sizing.riskQuantity} shares`,
   ];
