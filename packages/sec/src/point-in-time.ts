@@ -138,13 +138,17 @@ interface Known {
   value: number;
   /** Index of the filing that last set it. */
   filing: number;
+  /** The XBRL tag it was reported under, e.g. dividends declared or dividends paid. */
+  tag?: string | undefined;
 }
+
+type TaggedFact = SecFact & { tag: string };
 
 interface Filing {
   accn: string;
   form: string;
   availableFrom: string;
-  facts: Map<ConceptName, SecFact[]>;
+  facts: Map<ConceptName, TaggedFact[]>;
 }
 
 /** Facts per concept and filing; the first tag with a value in a filing wins for that filing. */
@@ -172,7 +176,7 @@ function collectFilings(facts: SecCompanyFacts, acceptance: ReadonlyMap<string, 
           byAccn.set(f.accn, filing);
         }
         const bucket = filing.facts.get(name) ?? [];
-        bucket.push(f);
+        bucket.push({ ...f, tag });
         filing.facts.set(name, bucket);
       }
       for (const a of here) claimed.add(a);
@@ -280,6 +284,47 @@ function dividendStreak(
 }
 
 /**
+ * A stock split this filing shows, as the ratio old per-share ÷ new (2 for a
+ * 2-for-1). A per-share value restated by a whole ratio is a split only when
+ * (a) it is the same tag as before: dividends declared and dividends paid for
+ * the same quarter often differ by 2× or 3× and are not a restatement, and
+ * (b) the cover page's share count moved the other way by about the same
+ * ratio since the last count. Every restated value in the filing must agree.
+ * Mistaking a declared/paid difference for a split rescaled earlier
+ * dividends and gave yields above 100% (v1.2 review, 2026-11-07).
+ */
+function detectSplit(
+  filing: Filing,
+  index: number,
+  known: ReadonlyMap<ConceptName, Map<string, Known>>,
+): number | undefined {
+  const ratios: number[] = [];
+  for (const name of ['eps', 'dps'] as const) {
+    const have = known.get(name);
+    for (const f of filing.facts.get(name) ?? []) {
+      const had = have?.get(key(f));
+      if (!had || had.filing === index || had.tag !== f.tag || had.value === f.val) continue;
+      const r = splitRatio(had.value, f.val);
+      // A restated value that is not a whole ratio: an ordinary restatement, not a split.
+      if (r === undefined) return undefined;
+      ratios.push(r);
+    }
+  }
+  const ratio = ratios[0];
+  if (ratio === undefined || ratios.some((r) => r !== ratio)) return undefined;
+  const before = latestInstant(known.get('shares')?.values() ?? []);
+  const nowShares = (filing.facts.get('shares') ?? []).reduce<Map<string, number>>(
+    (m, f) => m.set(f.end, (m.get(f.end) ?? 0) + f.val),
+    new Map(),
+  );
+  const latestEnd = [...nowShares.keys()].sort().at(-1);
+  const after = latestEnd ? nowShares.get(latestEnd) : undefined;
+  if (!before || after === undefined || before.value <= 0) return undefined;
+  const moved = after / before.value;
+  return Math.abs(moved - ratio) / ratio < 0.15 ? ratio : undefined;
+}
+
+/**
  * Every point-in-time observation the company facts support, oldest first.
  * `acceptance` maps accession numbers to acceptance instants (see
  * `acceptanceTimes`); a filing missing from it uses its filing date.
@@ -311,16 +356,7 @@ export function pointInTimeObservations(
   };
 
   filings.forEach((filing, index) => {
-    // A per-share value restated by a whole ratio is a stock split: earlier per-share
-    // values are put on the new basis, so quarters from before and after add up.
-    let split: number | undefined;
-    for (const name of ['eps', 'dps'] as const) {
-      const have = known.get(name);
-      for (const f of filing.facts.get(name) ?? []) {
-        const had = have?.get(key(f));
-        if (had && had.filing !== index) split ??= splitRatio(had.value, f.val);
-      }
-    }
+    const split = detectSplit(filing, index, known);
     if (split) {
       for (const name of ['eps', 'dps'] as const) {
         for (const k of known.get(name)?.values() ?? []) k.value /= split;
@@ -338,7 +374,12 @@ export function pointInTimeObservations(
         for (const f of list) {
           const isInstant = (CONCEPTS[name] as Concept).instant === true;
           if (isInstant ? f.start !== undefined : f.start === undefined) continue;
-          map.set(key(f), { start: f.start, end: f.end, value: f.val, filing: index });
+          // A period known under a preferred tag (dividends declared) keeps it over a
+          // later filing's fallback tag (dividends paid), which measures something else.
+          const had = map.get(key(f));
+          const tags: readonly string[] = (CONCEPTS[name] as Concept).tags;
+          if (had?.tag && tags.indexOf(had.tag) < tags.indexOf(f.tag)) continue;
+          map.set(key(f), { start: f.start, end: f.end, value: f.val, filing: index, tag: f.tag });
         }
       }
       known.set(name, map);

@@ -13,7 +13,13 @@ import {
   type Quote,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
-import { AlpacaAuthError, AlpacaRequestError, type AlpacaClient } from './client';
+import {
+  AlpacaAuthError,
+  AlpacaRateLimitError,
+  AlpacaRequestError,
+  AlpacaUnavailableError,
+  type AlpacaClient,
+} from './client';
 import { ALPACA_DATA_FEED } from './endpoints';
 import type { AlpacaAccount, AlpacaBar, AlpacaBarsPage, AlpacaSnapshot } from './types';
 
@@ -142,11 +148,42 @@ const ADJUSTMENTS: Record<PriceAdjustment, string> = {
 const HOUR = 3_600_000;
 const MAX_PAGES = 200;
 
+/**
+ * Asks again when Alpaca throttles (waiting as long as it says, else 2 s, 4 s,
+ * 8 s…) or is briefly unreachable, so a back test over hundreds of symbols
+ * slows down to the key's limit instead of failing (v1.2 review).
+ */
+export async function withAlpacaRetries<T>(
+  fn: () => Promise<T>,
+  sleep: (ms: number) => Promise<void>,
+  attempts = 8,
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const limited = e instanceof AlpacaRateLimitError;
+      const unavailable = e instanceof AlpacaUnavailableError && !(e instanceof AlpacaAuthError);
+      if (!unavailable || attempt >= (limited ? attempts : 3) - 1) throw e;
+      const backoff = 2000 * 2 ** Math.min(attempt, 4);
+      const wait = limited && e.retryAfterMs !== undefined ? e.retryAfterMs + 250 : backoff;
+      await sleep(Math.min(wait, 65_000));
+    }
+  }
+}
+
 export function createAlpacaHistory(
   client: AlpacaClient,
-  options: { now?: () => Date } = {},
+  options: {
+    now?: () => Date;
+    /** Wait out throttling and brief outages (back tests); otherwise fail at once. */
+    patient?: boolean;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
 ): HistoricalDataProvider {
   const now = options.now ?? (() => new Date());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const call = <T>(fn: () => Promise<T>) => (options.patient ? withAlpacaRetries(fn, sleep) : fn());
   return {
     id: 'alpaca-iex',
     intervals: ['5m', '1h', '1d'],
@@ -172,17 +209,20 @@ export function createAlpacaHistory(
       for (let page = 0; page < MAX_PAGES; page++) {
         let result: AlpacaBarsPage;
         try {
-          result = await client.data<AlpacaBarsPage>('/v2/stocks/bars', {
-            symbols: req.symbol,
-            timeframe,
-            start: `${req.from}T00:00:00Z`,
-            end: new Date(Date.parse(`${req.to}T00:00:00Z`) + 2 * 86_400_000).toISOString(),
-            adjustment: ADJUSTMENTS[req.adjustment],
-            feed: ALPACA_DATA_FEED,
-            limit: 10_000,
-            sort: 'asc',
-            page_token: pageToken,
-          });
+          const token = pageToken;
+          result = await call(() =>
+            client.data<AlpacaBarsPage>('/v2/stocks/bars', {
+              symbols: req.symbol,
+              timeframe,
+              start: `${req.from}T00:00:00Z`,
+              end: new Date(Date.parse(`${req.to}T00:00:00Z`) + 2 * 86_400_000).toISOString(),
+              adjustment: ADJUSTMENTS[req.adjustment],
+              feed: ALPACA_DATA_FEED,
+              limit: 10_000,
+              sort: 'asc',
+              page_token: token,
+            }),
+          );
         } catch (e) {
           if (isNotFound(e)) {
             throw new UnsupportedBarRequestError(`Alpaca has no bars for ${req.symbol}`);

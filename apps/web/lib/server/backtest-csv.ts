@@ -1,4 +1,5 @@
 import type { BacktestRunSummary, BacktestTradeRow } from '@tm/db';
+import { tradeDirection } from '../backtest-text';
 
 const HEADER = [
   'cycle',
@@ -53,7 +54,7 @@ export function tradesCsv(run: BacktestRunSummary, trades: readonly BacktestTrad
     const legs = t.legs.length > 0 ? t.legs : [null];
     const z = t.sizing;
     const extra = [
-      t.direction ?? null,
+      t.direction || t.legs.some((l) => l.side === 'sell_short') ? tradeDirection(t) : null,
       t.group ?? null,
       z?.method ?? null,
       z?.equity ?? null,

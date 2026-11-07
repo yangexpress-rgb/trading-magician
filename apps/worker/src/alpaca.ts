@@ -117,7 +117,8 @@ export function alpacaProvider(options: AlpacaProviderOptions = {}): MarketDataP
   return {
     needsCredential: true,
     quotes: (ctx) => createAlpacaQuotes(clientFor(ctx), { now: ctx.now }),
-    history: (ctx) => createAlpacaHistory(clientFor(ctx), { now: ctx.now }),
+    history: (ctx) =>
+      createAlpacaHistory(clientFor(ctx), { now: ctx.now, patient: ctx.patient ?? false }),
     check: (ctx) => checkAlpacaData(clientFor(ctx)),
     lookup: async (ctx, symbol) => {
       const found = await lookupAlpacaAsset(clientFor(ctx), symbol);

@@ -1,6 +1,7 @@
 import {
   allOrders,
   addDays,
+  BrokerUnavailableError,
   CONTEXT_INSTRUMENT_ID,
   contextInstruments,
   definitionSeries,
@@ -18,6 +19,7 @@ import {
   type PriceAdjustment,
   type Session,
   type StrategyDefinition,
+  UnsupportedBarRequestError,
 } from '@tm/domain';
 import type { BacktestInputs } from './inputs';
 
@@ -172,6 +174,37 @@ export function watchOnlyInstruments(instruments: ReadonlyMap<string, Instrument
   return out;
 }
 
+/**
+ * Bars for one instrument could not be loaded. The message names the symbol
+ * and, for the errors whose text is meant for people (feed unreachable or
+ * throttled, a feed's own refusal), why; it never carries a key.
+ */
+export class BarLoadError extends Error {
+  constructor(
+    readonly symbol: string,
+    cause: unknown,
+  ) {
+    super(`Bars for ${symbol} could not be loaded: ${reasonOf(cause)}`);
+    this.name = 'BarLoadError';
+  }
+}
+
+/** Errors whose messages are written for people and never hold a secret. */
+const PEOPLE_FACING = new Set([
+  'AlpacaUnavailableError',
+  'AlpacaRateLimitError',
+  'AlpacaAuthError',
+  'AlpacaRequestError',
+  'CustomFetchError',
+]);
+
+function reasonOf(error: unknown): string {
+  if (error instanceof BrokerUnavailableError || error instanceof UnsupportedBarRequestError)
+    return error.message;
+  if (error instanceof Error && PEOPLE_FACING.has(error.name)) return error.message;
+  return 'the data feed failed unexpectedly';
+}
+
 /** Fetches every planned series from the provider. */
 export async function loadData(
   provider: HistoricalDataProvider,
@@ -179,24 +212,49 @@ export async function loadData(
   instruments: ReadonlyMap<string, InstrumentRef>,
   /** Called after each series, e.g. to keep a queue lease while hundreds load. */
   onProgress?: () => Promise<void>,
+  /**
+   * Instruments that may be left out when their bars fail, such as a
+   * Selection group's members: the run goes on without them and says so.
+   * Any other instrument's failure stops the run, naming it.
+   */
+  optional: ReadonlySet<string> = new Set(),
 ): Promise<LoadedData> {
   const series = new Map<string, Bar[]>();
   const versions = new Set<string>();
   const warnings = new Set<string>();
+  const leftOut = new Map<string, string>();
   for (const plan of plans) {
     const instrument = instruments.get(plan.spec.instrumentId);
     if (!instrument) throw new Error('The strategy uses an instrument that no longer exists');
-    const result = await provider.getBars({
-      ...plan.spec,
-      symbol: instrument.symbol,
-      assetClass: instrument.assetClass,
-      from: plan.from,
-      to: plan.to,
-    });
+    if (leftOut.has(plan.spec.instrumentId)) continue;
+    let result: Awaited<ReturnType<HistoricalDataProvider['getBars']>>;
+    try {
+      result = await provider.getBars({
+        ...plan.spec,
+        symbol: instrument.symbol,
+        assetClass: instrument.assetClass,
+        from: plan.from,
+        to: plan.to,
+      });
+    } catch (error) {
+      if (!optional.has(plan.spec.instrumentId)) throw new BarLoadError(instrument.symbol, error);
+      leftOut.set(plan.spec.instrumentId, `${instrument.symbol} (${reasonOf(error)})`);
+      await onProgress?.();
+      continue;
+    }
     series.set(seriesKey(plan.spec), result.bars);
     versions.add(result.dataVersion);
     for (const w of result.warnings) warnings.add(`${instrument.symbol}: ${w}`);
     await onProgress?.();
+  }
+  if (leftOut.size > 0) {
+    const list = [...leftOut.values()];
+    warnings.add(
+      `${list.length} ${list.length === 1 ? 'member was' : 'members were'} left out because ${list.length === 1 ? 'its' : 'their'} bars could not be loaded: ${list.slice(0, 5).join('; ')}${list.length > 5 ? '…' : ''}`.slice(
+        0,
+        500,
+      ),
+    );
   }
   return { series, dataVersions: [...versions].sort(), warnings: [...warnings] };
 }

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { cboeBars, findIndexListing, isIndicatorOnlyClass, parseCboeHistory } from './indices';
+import {
+  cboeBars,
+  findIndexListing,
+  indexListingBySymbol,
+  isIndicatorOnlyClass,
+  parseCboeHistory,
+  parseFredSeries,
+} from './indices';
 
 const CSV = `DATE,OPEN,HIGH,LOW,CLOSE
 01/02/1990,17.24,17.24,17.24,17.24
@@ -52,5 +59,41 @@ describe('CBOE history (v1.2 item 5)', () => {
     expect(findIndexListing('Apple')).toBeUndefined();
     expect(isIndicatorOnlyClass('index')).toBe(true);
     expect(isIndicatorOnlyClass('etf')).toBe(false);
+  });
+
+  it('refuses impossible candles: a high below the close, a low above the open', () => {
+    const { days, skipped } = parseCboeHistory(`DATE,OPEN,HIGH,LOW,CLOSE
+04/01/2024,13.30,13.90,13.05,13.65
+04/02/2024,14.10,14.00,13.90,14.61
+04/03/2024,14.10,14.80,14.20,14.61
+04/04/2024,14.10,14.80,13.90,13.95
+04/08/2024,14.10,14.80,13.90,13.80
+04/05/2024,14.10,13.90,14.00,14.00
+`);
+    expect(days.map((d) => d.date)).toEqual(['2024-04-01', '2024-04-04']);
+    expect(skipped).toBe(4);
+  });
+
+  it("reads FRED's VIXCLS closes as flat bars, a blank or '.' day being no bar", () => {
+    const { days, skipped } = parseFredSeries(`observation_date,VIXCLS
+2024-03-28,13.01
+2024-03-29,
+2024-04-01,.
+2024-04-02,14.61
+garbage,1
+`);
+    expect(days).toEqual([
+      { date: '2024-03-28', open: '13.01', high: '13.01', low: '13.01', close: '13.01' },
+      { date: '2024-04-02', open: '14.61', high: '14.61', low: '14.61', close: '14.61' },
+    ]);
+    expect(skipped).toBe(1);
+    expect(parseFredSeries('DATE,VIXCLS\n2024-03-28,13.01\n').days).toHaveLength(1);
+    expect(() => parseFredSeries('nothing')).toThrow();
+  });
+
+  it("flags the VIX's Cboe display terms as not yet reviewed, with FRED as its fallback", () => {
+    const vix = indexListingBySymbol('VIX');
+    expect(vix?.fredSeries).toBe('VIXCLS');
+    expect(vix?.terms).toMatchObject({ owner: 'Cboe Global Markets', reviewed: false });
   });
 });

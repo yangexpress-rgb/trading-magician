@@ -38,6 +38,17 @@ export class AlpacaUnavailableError extends BrokerUnavailableError {
   }
 }
 
+/**
+ * Alpaca is throttling this key (HTTP 429; the free plan allows 200 requests a
+ * minute). `retryAfterMs` is when it says to try again, if it said.
+ */
+export class AlpacaRateLimitError extends AlpacaUnavailableError {
+  constructor(readonly retryAfterMs: number | undefined) {
+    super('Alpaca is over its request limit for this key');
+    this.name = 'AlpacaRateLimitError';
+  }
+}
+
 /** Alpaca refused the key. Retrying will not help until it is replaced. */
 export class AlpacaAuthError extends BrokerUnavailableError {
   constructor() {
@@ -138,7 +149,8 @@ export class AlpacaClient {
       }
     }
     if (response.status === 401) throw new AlpacaAuthError();
-    if (response.status === 429 || response.status >= 500) throw new AlpacaUnavailableError();
+    if (response.status === 429) throw new AlpacaRateLimitError(retryAfter(response, Date.now()));
+    if (response.status >= 500) throw new AlpacaUnavailableError();
     let code: number | undefined;
     let message = `Alpaca answered ${response.status}`;
     try {
@@ -150,4 +162,13 @@ export class AlpacaClient {
     }
     throw new AlpacaRequestError(response.status, code, message);
   }
+}
+
+/** When a 429 says to try again: `Retry-After` seconds, or the `X-RateLimit-Reset` epoch second. */
+export function retryAfter(response: Pick<Response, 'headers'>, nowMs: number): number | undefined {
+  const after = Number(response.headers.get('retry-after'));
+  if (Number.isFinite(after) && after > 0) return after * 1000;
+  const reset = Number(response.headers.get('x-ratelimit-reset'));
+  if (Number.isFinite(reset) && reset > 0) return Math.max(0, reset * 1000 - nowMs);
+  return undefined;
 }

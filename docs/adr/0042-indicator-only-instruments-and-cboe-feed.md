@@ -38,6 +38,19 @@ traded, CBOE's free end-of-day history as its feed, and a BandWidth function.
   Providers can now say which data they are routed for (`dataTypes`); CBOE is routed for bars
   alone, so adding it makes one `index` bars route. The worker's feed checks download the file.
   Tests use a made-up file (`CBOE_FAKE=true`).
+- **Configuration, fallback and checks (v1.2 review, 2026-11-07).** The CBOE folder is the worker's
+  `CBOE_HISTORY_URL` (default the CDN above). When CBOE can't be reached or sends a file that
+  doesn't parse, the feed reads the index's FRED series instead (VIXCLS for the VIX, from
+  `FRED_CSV_URL`, default `https://fred.stlouisfed.org/graph/fredgraph.csv`). FRED has closes only,
+  so those bars are flat (open = high = low = close) and say so in a warning; their data version
+  starts `fred-`. Rows with an impossible candle (a high below the open, close or low, or a low
+  above the open or close) are refused when the file is read, counted and reported, rather than
+  repaired.
+- **Licensing flag.** The VIX is Cboe's data, whether it comes from Cboe's CDN or FRED's copy.
+  `CBOE_DISPLAY_TERMS` in `packages/domain/src/market/indices.ts` carries the owner, the
+  attribution every VIX series shows ("Source: Cboe Global Markets") and `reviewed: false`: Cboe's
+  display terms have not been reviewed for a paid service or for redistribution (CSV exports
+  included). It stays false until someone has, and the launch gate lists it.
 - **Calendar alignment.** Each CBOE row becomes a bar spanning that day's NYSE regular session,
   exactly like a stock's daily bar. A value published on a day the NYSE was closed is dropped (with
   a warning). A trading day CBOE has no value for has no bar; the engine reads an indicator-only

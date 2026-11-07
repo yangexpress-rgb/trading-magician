@@ -77,6 +77,10 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
         .enum(['true', 'false'])
         .default('false')
         .transform((v) => v === 'true'),
+      /** CBOE's index history folder (v1.2 item 5); the public CDN when unset. */
+      CBOE_HISTORY_URL: z.string().url().startsWith('https://').optional(),
+      /** FRED's CSV download, the VIX fallback (VIXCLS); FRED's own when unset. */
+      FRED_CSV_URL: z.string().url().startsWith('https://').optional(),
       /** Tests only: CBOE's index history comes from an in-process fake (v1.2 item 5). */
       CBOE_FAKE: z
         .enum(['true', 'false'])

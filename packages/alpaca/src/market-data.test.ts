@@ -156,3 +156,60 @@ describe('fake Alpaca fidelity', () => {
     expect(keys(page.bars.ZTSTA![0]!)).toEqual(keys(bars.bars.ZTSTA[0]!));
   });
 });
+
+describe('Alpaca throttling (v1.2 review: the S&P 500 back test)', () => {
+  const throttled = (times: number) => {
+    const now = { t: new Date('2026-10-05T00:00:00Z') };
+    const { fake } = setup(now);
+    let left = times;
+    const fetch: typeof fake.fetch = (url, init) => {
+      if (left-- > 0)
+        return Promise.resolve(
+          new Response('{"message":"too many requests"}', {
+            status: 429,
+            headers: { 'retry-after': '3' },
+          }),
+        );
+      return fake.fetch(url, init);
+    };
+    const client = new AlpacaClient({
+      credentials: fake.credentials,
+      fetch,
+      tradingUrl: FAKE_ALPACA_TRADING_URL,
+      dataUrl: FAKE_ALPACA_DATA_URL,
+      allowLocal: true,
+    });
+    return { client, now };
+  };
+  const request = {
+    instrumentId: 'i-1',
+    symbol: 'ZTSTA',
+    assetClass: 'stock',
+    interval: '1d' as const,
+    adjustment: 'split_and_dividend' as const,
+    session: 'regular' as const,
+    from: '2026-09-01',
+    to: '2026-09-30',
+  };
+
+  it('waits as long as Alpaca says, then carries on, when patient', async () => {
+    const { client, now } = throttled(2);
+    const waits: number[] = [];
+    const history = createAlpacaHistory(client, {
+      now: () => now.t,
+      patient: true,
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    const series = await history.getBars(request);
+    expect(series.bars.length).toBeGreaterThan(0);
+    expect(waits).toEqual([3250, 3250]);
+  });
+
+  it('fails at once, saying so, when not patient (paper runs, charts)', async () => {
+    const { client, now } = throttled(1);
+    const history = createAlpacaHistory(client, { now: () => now.t });
+    await expect(history.getBars(request)).rejects.toThrow(/over its request limit/);
+  });
+});

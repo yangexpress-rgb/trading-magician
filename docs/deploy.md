@@ -327,6 +327,12 @@ and sign in.
 - **More invites.** Mint one code per person, up to the 20 Yong settled on: `invites:mint 5
 "second round"`.
 - **Your own domain.** Add it under the web service's Networking, then change `APP_URL`.
+- **VIX sources.** The worker reads the VIX from Cboe's free history CDN and, when that fails,
+  from FRED's VIXCLS closes. Both are optional worker variables, for a mirror or a moved URL:
+  `CBOE_HISTORY_URL` (default `https://cdn.cboe.com/api/global/us_indices/daily_prices`) and
+  `FRED_CSV_URL` (default `https://fred.stlouisfed.org/graph/fredgraph.csv`); both must be https.
+  The data is Cboe's either way, and its display terms have not been reviewed for a paid service
+  (ADR 0042, `CBOE_DISPLAY_TERMS`); the launch gate lists it.
 - **Owner connection.** `DATABASE_URL` stays on the web service only because Railway runs the
   pre-deploy step with that service's variables. The running app never connects with it.
 

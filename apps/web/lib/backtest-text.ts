@@ -194,3 +194,27 @@ export function atrStopText(stop: NonNullable<BacktestTradeDto['atrStop']>): str
   const sign = stop.direction === 'short' ? '+' : '−';
   return `Stop ${stop.level} = entry ${stop.entryPrice} ${sign} ${stop.atrMultiple} × ATR ${stop.atr}`;
 }
+
+export type TradeDirection = 'long' | 'short' | 'long_short';
+
+export const DIRECTION_WORDS: Record<TradeDirection, string> = {
+  long: 'Long',
+  short: 'Short',
+  long_short: 'Long and short',
+};
+
+/**
+ * A trade's direction (v1.2 item 8), from the Entry legs it filled: all short
+ * sales is short, a mix of buys and short sales (a pair) is long and short,
+ * else long. Without filled Entry legs, as the back test recorded it.
+ */
+export function tradeDirection(t: {
+  direction?: 'long' | 'short' | null | undefined;
+  legs: readonly { phase: string; side: string }[];
+}): TradeDirection {
+  const entries = t.legs.filter((l) => l.phase === 'entry');
+  const short = entries.filter((l) => l.side === 'sell_short').length;
+  if (entries.length === 0) return t.direction ?? 'long';
+  if (short === entries.length) return 'short';
+  return short > 0 ? 'long_short' : 'long';
+}

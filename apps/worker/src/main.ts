@@ -107,6 +107,8 @@ if (databaseUrl) {
     custom_rest: customRestProvider({ transport: customTransport }),
     cboe: cboeProvider({
       fetch: env.CBOE_FAKE ? fakeCboeFetch(now ?? (() => new Date())) : undefined,
+      historyUrl: env.CBOE_HISTORY_URL,
+      fredUrl: env.FRED_CSV_URL,
     }),
   };
   if (env.CBOE_FAKE) logger.warn('CBOE index history comes from a local fake');
@@ -137,6 +139,7 @@ if (databaseUrl) {
         now: () => new Date(),
         providers,
         privateKey: credentialKey,
+        patient: true,
       }),
     resolveUniverse: (userId) =>
       resolveBuiltinUniverse({

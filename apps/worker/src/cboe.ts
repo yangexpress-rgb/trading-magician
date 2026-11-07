@@ -4,8 +4,11 @@ import {
   CBOE_HISTORY_URL,
   cboeBars,
   cboeHistoryPath,
+  FRED_CSV_URL,
+  fredSeriesQuery,
   indexListingBySymbol,
   parseCboeHistory,
+  parseFredSeries,
   UnsupportedBarRequestError,
   type BarSeries,
   type CboeDay,
@@ -20,6 +23,11 @@ import type { MarketDataProvider } from './providers';
  * daily bars only, no intraday bars and no live prices, and it is routed for
  * bars alone. Bars line up with the NYSE calendar (see `cboeBars`), so a back
  * test reads them exactly like any stock's daily bars.
+ *
+ * When CBOE can't be reached or sends a bad file, the index's FRED series
+ * (VIXCLS for the VIX) is used instead: closes only, so flat bars, and the
+ * bars say so. Both URLs are configuration (`CBOE_HISTORY_URL`,
+ * `FRED_CSV_URL`). The data is Cboe's either way: see `CBOE_DISPLAY_TERMS`.
  */
 
 export type Fetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -30,6 +38,18 @@ export interface CboeProviderOptions {
   /** How long a downloaded history is reused; CBOE updates it once a day. */
   refreshMs?: number | undefined;
   timeoutMs?: number | undefined;
+  /** CBOE's history folder; one `<SYMBOL>_History.csv` per index. */
+  historyUrl?: string | undefined;
+  /** FRED's CSV download, for the fallback series. */
+  fredUrl?: string | undefined;
+}
+
+interface History {
+  days: CboeDay[];
+  digest: string;
+  /** Where the days came from, and rows refused as malformed or impossible. */
+  source: 'cboe' | 'fred';
+  skipped: number;
 }
 
 const DEFAULTS = { refreshMs: 6 * 3600_000, timeoutMs: 20_000 };
@@ -48,11 +68,12 @@ export function cboeProvider(options: CboeProviderOptions = {}): MarketDataProvi
   const refreshMs = options.refreshMs ?? DEFAULTS.refreshMs;
   const timeoutMs = options.timeoutMs ?? DEFAULTS.timeoutMs;
   // One download per index per process, shared by every tenant: the file is public.
-  const cache = new Map<string, { at: number; days: CboeDay[]; digest: string }>();
-  const inFlight = new Map<string, Promise<{ days: CboeDay[]; digest: string }>>();
+  const historyUrl = (options.historyUrl ?? CBOE_HISTORY_URL).replace(/\/+$/, '');
+  const fredUrl = options.fredUrl ?? FRED_CSV_URL;
+  const cache = new Map<string, History & { at: number }>();
+  const inFlight = new Map<string, Promise<History>>();
 
-  async function download(symbol: string) {
-    const url = `${CBOE_HISTORY_URL}${cboeHistoryPath(symbol)}`;
+  async function get(url: string, who: string, symbol: string): Promise<string> {
     let res: Response;
     try {
       res = await fetchFn(url, {
@@ -60,16 +81,56 @@ export function cboeProvider(options: CboeProviderOptions = {}): MarketDataProvi
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
-      throw new CboeUnavailableError();
+      throw new CboeUnavailableError(`${who} could not be reached for ${symbol}`);
     }
-    if (!res.ok) throw new CboeUnavailableError(`CBOE answered ${res.status} for ${symbol}`);
-    const text = await res.text();
-    const { days } = parseCboeHistory(text);
-    if (days.length < MIN_DAYS) {
+    if (!res.ok) throw new CboeUnavailableError(`${who} answered ${res.status} for ${symbol}`);
+    return res.text();
+  }
+
+  const digestOf = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 16);
+
+  async function fromCboe(symbol: string): Promise<History> {
+    const text = await get(`${historyUrl}${cboeHistoryPath(symbol)}`, 'CBOE', symbol);
+    let parsed: ReturnType<typeof parseCboeHistory>;
+    try {
+      parsed = parseCboeHistory(text);
+    } catch {
+      throw new CboeUnavailableError(`CBOE's ${symbol} history is not in the expected format`);
+    }
+    if (parsed.days.length < MIN_DAYS) {
       throw new CboeUnavailableError(`CBOE's ${symbol} history looks incomplete`);
     }
-    const digest = createHash('sha256').update(text).digest('hex').slice(0, 16);
-    return { days, digest };
+    return { days: parsed.days, digest: digestOf(text), source: 'cboe', skipped: parsed.skipped };
+  }
+
+  async function fromFred(symbol: string, series: string): Promise<History> {
+    const text = await get(`${fredUrl}${fredSeriesQuery(series)}`, 'FRED', symbol);
+    let parsed: ReturnType<typeof parseFredSeries>;
+    try {
+      parsed = parseFredSeries(text);
+    } catch {
+      throw new CboeUnavailableError(`FRED's ${series} file is not in the expected format`);
+    }
+    if (parsed.days.length < MIN_DAYS) {
+      throw new CboeUnavailableError(`FRED's ${series} history looks incomplete`);
+    }
+    return { days: parsed.days, digest: digestOf(text), source: 'fred', skipped: parsed.skipped };
+  }
+
+  async function download(symbol: string): Promise<History> {
+    try {
+      return await fromCboe(symbol);
+    } catch (error) {
+      const series = indexListingBySymbol(symbol)?.fredSeries;
+      if (!series) throw error;
+      try {
+        return await fromFred(symbol, series);
+      } catch {
+        throw new CboeUnavailableError(
+          `${(error as Error).message}, and its FRED copy (${series}) could not be loaded either`,
+        );
+      }
+    }
   }
 
   async function history(symbol: string, now: number) {
@@ -110,13 +171,25 @@ export function cboeProvider(options: CboeProviderOptions = {}): MarketDataProvi
       const at = now();
       const h = await history(listing.providerId, at.getTime());
       const { bars, dropped } = cboeBars(h.days, req.from, req.to, at);
-      const warnings = [`${req.symbol} is CBOE's end-of-day value, aligned to NYSE trading days`];
+      const warnings = [
+        `${req.symbol} is CBOE's end-of-day value, aligned to NYSE trading days (${listing.terms.attribution})`,
+      ];
+      if (h.source === 'fred') {
+        warnings.push(
+          `CBOE could not be reached, so ${req.symbol} comes from FRED (${listing.fredSeries}): closes only, so each bar's open, high and low are its close`,
+        );
+      }
+      if (h.skipped > 0) {
+        warnings.push(
+          `${h.skipped} ${h.skipped === 1 ? 'row' : 'rows'} of the ${req.symbol} file ${h.skipped === 1 ? 'was' : 'were'} left out as malformed or impossible (such as a high below the close)`,
+        );
+      }
       if (dropped.length > 0) {
         warnings.push(
           `${dropped.length} ${req.symbol} value${dropped.length === 1 ? '' : 's'} published on days the NYSE was closed ${dropped.length === 1 ? 'was' : 'were'} left out`,
         );
       }
-      return { bars, dataVersion: `cboe-${h.digest}`, warnings };
+      return { bars, dataVersion: `${h.source}-${h.digest}`, warnings };
     },
   });
 

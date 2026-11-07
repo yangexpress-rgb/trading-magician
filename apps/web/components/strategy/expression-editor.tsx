@@ -536,7 +536,9 @@ function SeriesFields({
         />
       )}
       {expr.kind === 'indicator' && spec?.help && (
-        <p className="col-span-full text-xs text-ink-muted">{spec.help}</p>
+        <p className="col-span-full text-xs text-ink-muted">
+          {spec.help(resolveIndicatorParams(spec, expr.params), expr.offset)}
+        </p>
       )}
 
       <details className="col-span-full">

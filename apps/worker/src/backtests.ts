@@ -1,4 +1,5 @@
 import {
+  BarLoadError,
   loadData,
   planSeries,
   simulate,
@@ -52,11 +53,29 @@ export type ProcessOutcome = 'idle' | 'lost' | BacktestRunStatus;
 
 const GENERIC_FAILURE = 'The back test could not be completed. Try again, or change the dates.';
 
-/** A message safe to show the user: data problems are explained, anything else is generic. */
-function userMessage(error: unknown): string {
-  if (error instanceof UnsupportedBarRequestError) return error.message;
+/**
+ * What to tell the person (v1.2 review: "surface the real error"). Data
+ * problems explain themselves and name the symbol; anything else gives the
+ * error's kind and text with addresses and anything key-like removed.
+ */
+export function userMessage(error: unknown): string {
+  if (error instanceof UnsupportedBarRequestError || error instanceof BarLoadError)
+    return error.message.slice(0, 500);
   if (error instanceof Error && error.message.startsWith('The strategy uses')) return error.message;
+  if (error instanceof Error && error.message) {
+    const text = scrub(error.message).slice(0, 300);
+    return `${GENERIC_FAILURE} Reason: ${error.name && error.name !== 'Error' ? `${error.name}: ` : ''}${text}`;
+  }
   return GENERIC_FAILURE;
+}
+
+/** Drops URLs, connection strings and long token-like runs from an error's text. */
+export function scrub(text: string): string {
+  return text
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[address]')
+    .replace(/\b[A-Za-z0-9_\-+/=]{24,}\b/g, '[hidden]')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export async function processNextRun(options: BacktestWorkerOptions): Promise<ProcessOutcome> {
@@ -105,6 +124,8 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
         lastRenew = Date.now();
         await inTenant((tx) => renewLease(tx, runId, workerId, leaseSeconds));
       },
+      // A member whose bars fail is left out with a warning, not the whole run.
+      new Set(members),
     );
     data.warnings.push(...universeWarnings);
     const companies = fundamentalInstruments(work.definition, members);

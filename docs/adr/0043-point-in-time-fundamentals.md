@@ -45,7 +45,13 @@ availableFrom, accession, form)`. `availableFrom` is the filing's acceptance tim
 - **Registry metrics** (category `fundamental`, US stocks only): P/E (unknown when EPS ≤ 0),
   earnings yield, dividend yield, price-to-book (market cap ÷ equity, unknown when equity ≤ 0),
   EV/EBITDA (unknown when EBITDA ≤ 0), dividend-growth streak, and revenue, net income and EPS
-  (TTM). Missing data is unknown, never zero, with one exception (open point O19).
+  (TTM). Missing data is unknown, never zero, with one exception, open point O19 in
+  `docs/design/v1.2-deviations.md`: EV/EBITDA counts a balance-sheet line the company does not
+  report (debt, preferred stock, minority interest) as a zero balance, because most companies
+  report no preferred stock or minority interest and would otherwise have no EV/EBITDA; cash is
+  still required. A dividend-growth streak of 0 is a value, not missing data: the filings report
+  dividends per share and the latest year's did not rise. A company whose 10-Ks report no
+  dividends per share has no streak (unknown).
 - **Storage.** Filings are public, so observations are kept once for every tenant in
   `fundamental_company` and `fundamental_observation` (migration 0057), which only the worker's
   login (`tm_secrets`) can read or write. An observation is never updated: a later sync adds rows.
