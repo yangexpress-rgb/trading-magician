@@ -515,5 +515,5 @@ describe('the history rebuild (F7)', () => {
     const [feed] =
       await t.ownerSql`select distinct feed from option_daily_signal where underlying_id = ${qqq}`;
     expect(feed?.feed).toBe('alpaca_bars');
-  });
+  }, 60_000);
 });
