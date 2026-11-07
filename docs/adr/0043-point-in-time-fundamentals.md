@@ -102,3 +102,15 @@ dividends per share (TTM) of 0 when a company's filings report earnings but neit
 share nor any cash dividends paid for a period ending in the 15 months before its latest earnings.
 A payer that reports cash dividends without a per-share figure stays unknown. Migration 0062
 re-syncs every company so the zeros are stored.
+
+## Amendment (2026-11-07): working around filers' tagging gaps (N49)
+
+Replaying real S&P 500 filings showed figures missing where filers tag less than the replay
+assumed. A dividend quarter no filing tags (a fiscal Q4 that only an untagged annual report covers)
+takes the quarter before it, at most one in four and never for earnings. Dividends tagged by
+payment date without a period are summed over the 350 days to the latest payment. No figure steps
+back to an older period than one already given (a later filing repeating 2019's dividends had
+replaced 2025's). EPS (TTM) falls back to net income (TTM) ÷ shares when no diluted EPS is tagged
+for the latest period, until one is. The balance sheet's share count stands in for a missing cover
+page count, and a share class missing from EDGAR's ticker list takes its sibling's company.
+Migration 0063 re-syncs every company.

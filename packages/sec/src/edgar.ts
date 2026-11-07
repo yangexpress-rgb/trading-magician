@@ -52,8 +52,23 @@ export async function fetchTickers(client: SecClient): Promise<Map<string, SecLi
       exchange: typeof row[iExchange] === 'string' ? (row[iExchange] as string) : null,
     });
   }
+  // Each pair is one company's two share classes; when EDGAR's list carries
+  // only one (Fox and News Corp lacked FOXA and NWSA, 2026-11-07), the other
+  // takes the same company.
+  for (const [a, b] of SHARE_CLASS_SIBLINGS) {
+    const from = out.get(a) ?? out.get(b);
+    for (const t of [a, b]) if (from && !out.has(t)) out.set(t, { ...from, ticker: t });
+  }
   return out;
 }
+
+/** S&P 500 companies with two listed share classes. */
+export const SHARE_CLASS_SIBLINGS: readonly (readonly [string, string])[] = [
+  ['FOXA', 'FOX'],
+  ['NWSA', 'NWS'],
+  ['GOOGL', 'GOOG'],
+  ['BRK.B', 'BRK.A'],
+];
 
 // ---------------------------------------------------------------------------
 // Concepts: the us-gaap tags each line is reported under, most common first.

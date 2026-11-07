@@ -252,7 +252,7 @@ Each is an editable input or a single constant.
 
 ## Design v1.2 changes (2026-11-06 to 2026-11-07)
 
-The v1.2 design (`docs/design/design-doc-v1.2.md`) numbers its changes N1 to N48 and its open
+The v1.2 design (`docs/design/design-doc-v1.2.md`) numbers its changes N1 to N49 and its open
 points O1 to O31 (`docs/design/v1.2-deviations.md`). ADRs 0040 to 0046 cite them. Rows N1 to N33
 are described in the design doc and ADRs 0040 to 0042; the P1 item 6 and P2 rows follow.
 
@@ -273,3 +273,4 @@ are described in the design doc and ADRs 0040 to 0042; the P1 item 6 and P2 rows
 | N46    | Stock splits in filings confirmed by the share count                      | ADR 0043, migration 0061                 | `packages/sec/src/point-in-time.ts` (`detectSplit`)                                                                                          | sec `point-in-time.test.ts`                                                                                       |
 | N47    | Builder and results fixes (help text, Remove group, pair direction)       | review 2026-11-07                        | `packages/domain/src/strategy/catalog.ts`, `apps/web/components/strategy/entry-groups.tsx`, `apps/web/lib/backtest-text.ts`                  | domain `breakout-offset.test.ts`, web `backtest-text.test.ts`, e2e `v12-p2.spec.ts`                               |
 | N48    | A non-payer's dividend yield is 0%                                        | ADR 0043, migration 0062                 | `packages/sec/src/point-in-time.ts` (`paysNoDividend`)                                                                                       | sec `point-in-time.test.ts`, worker `test/fundamentals.test.ts`                                                   |
+| N49    | EDGAR tagging gaps worked around                                          | ADR 0043, migration 0063                 | `packages/sec/src/point-in-time.ts`, `packages/sec/src/edgar.ts` (`SHARE_CLASS_SIBLINGS`)                                                    | sec `point-in-time.test.ts`, `edgar.test.ts`                                                                      |
