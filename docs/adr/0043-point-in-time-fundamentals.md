@@ -82,3 +82,15 @@ availableFrom, accession, form)`. `availableFrom` is the filing's acceptance tim
 - Real EDGAR data has not been fetched from the cloud build machine, whose network does not reach
   sec.gov; tests use a local fake. Coverage of dividends per share across the S&P 500 is checked on
   the Mac (open point O22).
+
+## Amendment (2026-11-07): confirming stock splits
+
+Yong's review found screener dividend yields of 158% (EL), 21% (TMUS) and 20% (SRE). The replay
+took any per-share value restated by a whole ratio for a stock split, and companies report a
+quarter's dividends declared in one filing and dividends paid in another, often 2× or 3× apart, so
+earlier figures were rescaled, sometimes several times. A split now needs the same tag as before,
+every restated value in the filing agreeing on the ratio, and the cover page's share count moving
+by about that ratio since the last count; a period known as dividends declared is never replaced by
+dividends paid. Migration 0061 deletes the stored companies and observations so they are synced
+again with the fixed derivation (the data is public and is fetched again on the next back test,
+paper pass or screen; a run before and after may differ for companies that were affected).
