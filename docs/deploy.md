@@ -179,7 +179,7 @@ load test (`load/README.md`) and the real-provider checks (`docs/launch-checks.m
 ### Production must not contain
 
 `CREDENTIALS_PRIVATE_KEY`, `SIGNUP_PLAN`, `SIGNUP_MODE=open`, `PAPER_CLOCK_START`, `ALPACA_FAKE`,
-`SEC_FAKE`, `CUSTOM_REST_FAKE`, `BILLING_FAKE`, or any Stripe key that does not start with `sk_test_`/`rk_test_`
+`SEC_FAKE`, `CUSTOM_REST_FAKE`, `CBOE_OPTIONS_FAKE`, `BILLING_FAKE`, or any Stripe key that does not start with `sk_test_`/`rk_test_`
 (the apps refuse a live Stripe key). Check the Variables tab of web and worker before inviting
 anyone.
 
@@ -333,6 +333,15 @@ and sign in.
   `FRED_CSV_URL` (default `https://fred.stlouisfed.org/graph/fredgraph.csv`); both must be https.
   The data is Cboe's either way, and its display terms have not been reviewed for a paid service
   (ADR 0042, `CBOE_DISPLAY_TERMS`); the launch gate lists it.
+- **Options data (ADR 0047).** The worker records option chains once a day for everyone. Give it
+  the app's own Alpaca paper key as `OPTIONS_ALPACA_KEY_ID` and `OPTIONS_ALPACA_SECRET_KEY` (both
+  or neither): it reads the underlyings' daily closes, rebuilds history from option bars and finds
+  the seed symbols with it. Without it the chains are stored but no signal is worked out. Optional:
+  `CBOE_OPTIONS_URL` (default `https://cdn.cboe.com/api/global/delayed_quotes/options`, https only),
+  `OPTIONS_HISTORY_DAYS` (default 400) and `OPTIONS_RECORDING=off` to stop the recording. Each
+  person then adds "CBOE delayed options (daily)" under Settings › Data feeds to use the options
+  metrics. The chains are for internal use only (`CBOE_OPTIONS_DISPLAY_TERMS`); the launch gate
+  lists the terms review.
 - **Owner connection.** `DATABASE_URL` stays on the web service only because Railway runs the
   pre-deploy step with that service's variables. The running app never connects with it.
 
