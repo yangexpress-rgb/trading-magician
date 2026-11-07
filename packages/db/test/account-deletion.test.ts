@@ -114,6 +114,94 @@ describe('account purge (design v1.1 D1)', () => {
     expect(await purgeDeletedAccounts(t.worker.db)).toBe(0);
   });
 
+  it('removes custom REST feed data and settings (review M4)', async () => {
+    const userId = await seedUser('feeds@example.test');
+    const config = { baseUrl: 'https://api.example.com/v1', auth: { type: 'none' } };
+    const [feed] = await t.ownerSql`
+      insert into data_feed_connection (user_id, name, provider, asset_classes, config)
+      values (${userId}, 'My JSON feed', 'custom_rest', '{stock}', ${t.ownerSql.json(config)})
+      returning id`;
+    await t.ownerSql`
+      insert into custom_feed_test (user_id, config, digest, symbol, status, result)
+      values (${userId}, ${t.ownerSql.json(config)}, 'd1', 'SPY', 'succeeded',
+              ${t.ownerSql.json({ sample: 'provider answer' })})`;
+    await t.ownerSql`
+      insert into custom_feed_cache (user_id, feed_id, kind, symbol, payload)
+      values (${userId}, ${feed!.id}, 'quote', 'SPY', ${t.ownerSql.json({ last: 1 })})`;
+    await t.ownerSql`
+      insert into custom_feed_usage (user_id, feed_id, period, window_start, count)
+      values (${userId}, ${feed!.id}, 'day', now(), 3)`;
+    await markDeleted(userId, 31);
+
+    expect(await purgeDeletedAccounts(t.worker.db)).toBe(1);
+
+    expect(await count('custom_feed_test', userId)).toBe(0);
+    expect(await count('custom_feed_cache', userId)).toBe(0);
+    expect(await count('custom_feed_usage', userId)).toBe(0);
+    const [kept] =
+      await t.ownerSql`select name, config from data_feed_connection where id = ${feed!.id}`;
+    expect(kept).toEqual({ name: 'Deleted feed', config: {} });
+  });
+
+  it('knows what to do with every table that holds a user id', async () => {
+    // Each table with a user_id column, and what the purge does with it. A new
+    // table fails here until it is added to the purge or listed as kept.
+    const handled = new Set([
+      // Removed.
+      'session',
+      'account',
+      'credential',
+      'backtest_run',
+      'backtest_trade',
+      'notification',
+      'instrument_lookup',
+      'price_chart',
+      'stock_screen',
+      'company_report',
+      'custom_feed_test',
+      'custom_feed_cache',
+      'custom_feed_usage',
+      // Kept with names and settings removed.
+      'profile',
+      'data_feed_connection',
+      'broker_connection',
+      'trading_account',
+      'strategy',
+      // Kept: order, execution and audit records (§20 #14), or holding nothing personal.
+      'audit_event',
+      'order_intent',
+      'broker_order',
+      'order_event',
+      'fill',
+      'position_snapshot',
+      'trigger_event',
+      'scheduled_action',
+      'strategy_cycle',
+      'strategy_runtime',
+      'strategy_version',
+      'strategy_instrument',
+      'strategy_status_change',
+      'execution_control',
+      'execution_incident',
+      'paper_order',
+      'paper_position',
+      'paper_update',
+      'broker_sync',
+      'account_valuation',
+      'book_valuation',
+      'data_route',
+      'entitlement',
+      'subscription',
+      'billing_event',
+      'platform_admin',
+    ]);
+    const rows = await t.ownerSql`
+      select distinct table_name from information_schema.columns
+       where table_schema = 'public' and column_name = 'user_id'`;
+    const unhandled = rows.map((r) => r.table_name as string).filter((n) => !handled.has(n));
+    expect(unhandled).toEqual([]);
+  });
+
   it('refuses a window shorter than 30 days, and only the worker may purge', async () => {
     await expect(t.worker.db.execute(sql`select purge_deleted_accounts(7, 10)`)).rejects.toSatisfy(
       (e) => pgCode(e) === '22023',
