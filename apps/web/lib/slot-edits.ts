@@ -99,3 +99,8 @@ export function toFixedLegs(def: StrategyDefinition, instrumentId: string): Stra
 export function timeStopRule(barsHeld = 5): ExitRule {
   return { kind: 'timeStop', id: randomId(), barsHeld };
 }
+
+/** A fixed stop 2 ATR(20)s from the entry price (v1.2 item 9). */
+export function atrStopRule(atrMultiple = '2', atrPeriod = 20): ExitRule {
+  return { kind: 'atrStop', id: randomId(), atrPeriod, atrMultiple };
+}

@@ -172,3 +172,102 @@ test('a long and a short entry group: built, validated, back tested with directi
   const a11y = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(a11y.violations).toEqual([]);
 });
+
+test('risk % of equity sized from ATR, with an ATR stop, explained per trade', async ({
+  page,
+  baseURL,
+}) => {
+  test.setTimeout(180_000);
+  await signUpAndVerify(page, uniqueEmail('risk-atr'));
+  const headers = { origin: baseURL! };
+  const s = await createStrategyWithRules(page, baseURL!, 'ATR-sized breakout', (ids, account) =>
+    longBreakout(ids['DEMO-A']!, account),
+  );
+
+  // In the builder: Entry leg 1 risks 1% of equity with the stop 1 ATR(20) away,
+  // and the Exit gets an ATR stop at the same distance.
+  await page.goto(`/strategy-lab/${s.id}`);
+  const entryLeg = page.getByRole('region', { name: /^Entry leg 1/ }).first();
+  await entryLeg.getByLabel('Quantity in').selectOption('risk_atr');
+  await expect(entryLeg.getByLabel('Risk (% of equity)')).toHaveValue('1');
+  await expect(entryLeg.getByLabel('ATR period (daily bars)')).toHaveValue('20');
+  await entryLeg.getByLabel('Stop distance (ATRs)').fill('1');
+  await page.getByRole('button', { name: 'Add an ATR stop' }).click();
+  await page.getByLabel('ATR stop: ATRs from the entry price').fill('1');
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await expect(page.locator('#save-state')).toHaveText('All changes saved');
+  const v = await (
+    await page.request.post(`/api/v1/strategies/${s.id}/validate`, { headers })
+  ).json();
+  expect(v.errors).toEqual([]);
+
+  const queued = await page.request.post(`/api/v1/strategies/${s.id}/backtests`, {
+    data: { from: '2023-01-03', to: '2024-12-31' },
+    headers,
+  });
+  expect(queued.status(), await queued.text()).toBeLessThan(300);
+  const run = await queued.json();
+  await expect
+    .poll(
+      async () => (await (await page.request.get(`/api/v1/backtests/${run.id}`)).json()).status,
+      { timeout: 90_000 },
+    )
+    .toBe('completed');
+  type Trade = {
+    exitReason?: string;
+    legs: { phase: string; quantity: string }[];
+    sizing?: {
+      equity: string;
+      riskPct: string;
+      atr: string;
+      atrMultiple: string;
+      stopDistance: string;
+      riskQuantity: string;
+      quantity: string;
+      cappedBy?: string;
+    };
+    atrStop?: { atr: string; entryPrice: string; level: string };
+  };
+  const { trades } = (await (
+    await page.request.get(`/api/v1/backtests/${run.id}/trades`)
+  ).json()) as { trades: Trade[] };
+  expect(trades.length).toBeGreaterThan(0);
+  // Each trade's quantity checks by hand from what it shows.
+  for (const t of trades) {
+    const z = t.sizing!;
+    expect(Number(z.stopDistance)).toBeCloseTo(Number(z.atr) * Number(z.atrMultiple), 8);
+    expect(Number(z.riskQuantity)).toBe(
+      Math.floor((Number(z.equity) * Number(z.riskPct)) / 100 / Number(z.stopDistance)),
+    );
+    const entryQty = t.legs.find((l) => l.phase === 'entry')?.quantity;
+    if (entryQty) expect(Number(entryQty)).toBe(Number(z.quantity));
+    if (!z.cappedBy) expect(z.quantity).toBe(z.riskQuantity);
+  }
+  const stopped = trades.filter((t) => t.exitReason === 'atr_stop');
+  expect(stopped.length).toBeGreaterThan(0);
+  for (const t of stopped) {
+    expect(Number(t.atrStop!.level)).toBeCloseTo(
+      Number(t.atrStop!.entryPrice) - Number(t.atrStop!.atr),
+      3,
+    );
+  }
+
+  // The trade list explains the sizing and labels the ATR stop.
+  await page.reload();
+  const table = page
+    .getByRole('region', { name: 'Back test results' })
+    .getByRole('table', { name: 'Trades' });
+  await expect(table.getByRole('columnheader', { name: 'Sizing' })).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(table.getByText('ATR stop', { exact: true }).first()).toBeVisible();
+  await expect(table.getByText(/^Risk 1% of \$[\d,.]+ equity = /).first()).toBeVisible();
+  await expect(
+    table.getByText(/^Stop [\d.]+ = entry [\d.]+ − 1 × ATR [\d.]+$/).first(),
+  ).toBeVisible();
+  const csv = await (await page.request.get(`/api/v1/backtests/${run.id}/export`)).text();
+  expect(csv.split('\r\n')[0]).toContain('risk_pct,atr_period,atr_at_entry');
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/risk-atr.png`, fullPage: true });
+  const a11y = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
+  expect(a11y.violations).toEqual([]);
+});

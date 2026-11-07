@@ -6,6 +6,7 @@ export * from './groups';
 export * from './ids';
 export * from './lifecycle';
 export * from './metrics';
+export * from './risk-exits';
 export * from './mirror';
 export * from './schema';
 export * from './schedule';

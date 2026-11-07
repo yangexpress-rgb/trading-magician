@@ -1107,6 +1107,10 @@ export const backtestTrades = pgTable(
     /** Two-sided strategies (v1.2 item 8): long or short, and the entry group's name. */
     direction: text('direction'),
     entryGroup: text('entry_group'),
+    /** Risk-based sizing (v1.2 item 9): equity, risk %, ATR at entry, stop distance, quantity. */
+    sizing: jsonb('sizing'),
+    /** ATR stop (v1.2 item 9): ATR at entry, entry price and the fixed stop level. */
+    atrStop: jsonb('atr_stop'),
   },
   (t) => [
     foreignKey({
@@ -1117,7 +1121,7 @@ export const backtestTrades = pgTable(
     check('backtest_trade_status', sql`${t.status} in ('closed', 'open', 'aborted')`),
     check(
       'backtest_trade_exit_reason',
-      sql`${t.exitReason} is null or ${t.exitReason} in ('condition', 'time_stop', 'rebalance')`,
+      sql`${t.exitReason} is null or ${t.exitReason} in ('condition', 'time_stop', 'rebalance', 'atr_stop')`,
     ),
     check(
       'backtest_trade_direction',

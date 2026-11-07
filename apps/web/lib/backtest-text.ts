@@ -1,4 +1,4 @@
-import type { BacktestRunStatusDto, BacktestRunSummaryDto } from '@tm/contracts';
+import type { BacktestRunStatusDto, BacktestRunSummaryDto, BacktestTradeDto } from '@tm/contracts';
 import type { BacktestMetrics } from '@tm/backtest';
 import type { Tone } from '@tm/ui';
 
@@ -161,4 +161,36 @@ export function thin<T>(points: readonly T[], limit = 600): T[] {
   if (points.length <= limit) return [...points];
   const step = (points.length - 1) / (limit - 1);
   return Array.from({ length: limit }, (_, i) => points[Math.round(i * step)] as T);
+}
+
+const CAP_LABELS = {
+  max_order_size: 'the maximum order size',
+  max_exposure: 'the maximum exposure',
+  buying_power: 'buying power',
+} as const;
+
+/**
+ * How a risk-based Entry quantity was worked out (v1.2 item 9), so it can be
+ * checked by hand: "Risk 1% of $100,000.00 = $1,000.00 ÷ stop distance 8.2468
+ * (2 × ATR(20) 4.1234) = 121 shares".
+ */
+export function sizingText(sizing: NonNullable<BacktestTradeDto['sizing']>): string[] {
+  const budget = (Number(sizing.equity) * Number(sizing.riskPct)) / 100;
+  const lines = [
+    `Risk ${sizing.riskPct}% of ${formatMoney(sizing.equity)} equity = ${formatMoney(budget)}`,
+    `Stop distance ${sizing.stopDistance} = ${sizing.atrMultiple} × ATR(${sizing.atrPeriod}) ${sizing.atr}`,
+    `${formatMoney(budget)} ÷ ${sizing.stopDistance} = ${sizing.riskQuantity} shares`,
+  ];
+  if (sizing.cappedBy && sizing.quantity !== sizing.riskQuantity) {
+    lines.push(
+      `Capped at ${sizing.quantity} by ${CAP_LABELS[sizing.cappedBy as keyof typeof CAP_LABELS] ?? sizing.cappedBy}`,
+    );
+  }
+  return lines;
+}
+
+/** The fixed ATR stop of a trade (v1.2 item 9), e.g. "Stop 391.23 = entry 399.48 − 2 × ATR 4.12". */
+export function atrStopText(stop: NonNullable<BacktestTradeDto['atrStop']>): string {
+  const sign = stop.direction === 'short' ? '+' : '−';
+  return `Stop ${stop.level} = entry ${stop.entryPrice} ${sign} ${stop.atrMultiple} × ATR ${stop.atr}`;
 }

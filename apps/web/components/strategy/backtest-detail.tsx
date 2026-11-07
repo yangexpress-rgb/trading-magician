@@ -470,6 +470,7 @@ function OrderReport({
 export const EXIT_REASON_LABELS: Record<NonNullable<BacktestTradeDto['exitReason']>, string> = {
   condition: 'Exit condition',
   time_stop: 'Time stop',
+  atr_stop: 'ATR stop',
   rebalance: 'Rebalance: no longer selected',
 };
 

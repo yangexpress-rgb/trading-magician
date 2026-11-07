@@ -188,6 +188,7 @@ export const QUANTITY_LABELS = {
   notional: 'Amount (base currency)',
   pct_equity: '% of account equity',
   risk_sized: 'Risk-sized (amount at risk)',
+  risk_atr: 'Risk % of equity, stop in ATRs',
 } as const;
 
 export const ORDER_TYPE_LABELS = {
@@ -237,12 +238,18 @@ const QUANTITY_UNITS = {
   notional: (v: string, ccy: string) => `${ccy} ${v} of`,
   pct_equity: (v: string) => `${v}% of equity in`,
   risk_sized: (v: string, ccy: string) => `${ccy} ${v} at risk in`,
+  risk_atr: (v: string) => `${v}% of equity at risk in`,
 } as const;
 
 /** One-line text for a leg, e.g. "Buy 100 DEMO-A · Limit at 99.5 · Day". */
 export function describeLeg(order: PlannedOrder, symbol: SymbolLookup, currency: string): string {
-  const qty = QUANTITY_UNITS[order.quantity.type](order.quantity.value, currency);
+  const q = order.quantity;
+  const qty = QUANTITY_UNITS[q.type](q.value, currency);
   const parts = [`${SIDE_LABELS[order.side]} ${qty} ${instrumentText(order.instrumentId, symbol)}`];
+  // v1.2 item 9: the sizing stop, e.g. "sized for a stop 2 × ATR(20) away".
+  if (q.type === 'risk_atr') {
+    parts[0] += `, sized for a stop ${q.atrMultiple ?? '…'} × ATR(${q.atrPeriod ?? '…'}) away`;
+  }
   let type: string = ORDER_TYPE_LABELS[order.orderType];
   if (order.limitPrice) type += ` at ${describeExpr(order.limitPrice, symbol)}`;
   if (order.stopPrice) type += `, stop ${describeExpr(order.stopPrice, symbol)}`;

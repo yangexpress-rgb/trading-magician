@@ -1,4 +1,5 @@
 import type {
+  RiskSizing,
   ConditionNode,
   OrderSide,
   OrderType,
@@ -52,10 +53,20 @@ export interface BacktestTrade {
   /** Net P/L as a percentage of the Entry value. */
   returnPct: string | null;
   /** Which rule closed the cycle, for strategies using v1.2 rules. */
-  exitReason?: 'condition' | 'rebalance' | 'time_stop';
+  exitReason?: 'condition' | 'rebalance' | 'time_stop' | 'atr_stop';
   /** Two-sided strategies (v1.2 item 8): the direction and entry group of the trade. */
   direction?: 'long' | 'short';
   group?: string;
+  /** Risk-based sizing (v1.2 item 9): equity, risk %, ATR at entry, stop distance, quantity. */
+  sizing?: RiskSizing;
+  /** ATR stop (v1.2 item 9): ATR at entry, average entry price and the fixed stop level. */
+  atrStop?: {
+    atr: string;
+    atrMultiple: string;
+    direction: 'long' | 'short';
+    entryPrice: string;
+    level: string;
+  };
 }
 
 /**

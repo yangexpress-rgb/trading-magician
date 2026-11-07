@@ -71,6 +71,13 @@ import {
   selectLegs,
   slotDefinition,
   groupDefinition,
+  atrExpr,
+  atrStopHit,
+  atrStopInstrument,
+  atrStopLevel,
+  atrStopOf,
+  riskSizingCap,
+  stopCloseExpr,
   newRuntimeTriggerState,
   slotKey,
   slotModeOf,
@@ -889,6 +896,30 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       newData && c.cycle.status === 'open'
         ? { truth: evaluate('exit', cycleView(c), cycleDef) }
         : undefined;
+    // ATR stop (v1.2 item 9): the ATR is fixed when Entry is decided; a daily
+    // close beyond entry ∓ multiple × that ATR exits, by OR with the condition.
+    const atrRule = atrStopOf(cycleDef);
+    const atrInstrument = atrStopInstrument(cycleDef);
+    if (atrRule && atrInstrument && !c.cycle.atrAtEntry) {
+      const atr = evaluateExpr(atrExpr(atrInstrument, atrRule.atrPeriod), view);
+      if (atr) c.cycle = { ...c.cycle, atrAtEntry: atr.toString() };
+    }
+    let atrStopFired = false;
+    if (newData && atrRule && atrInstrument && c.cycle.atrAtEntry && c.cycle.status === 'open') {
+      const entry = c.entries.get(atrInstrument);
+      const held = c.positions.get(atrInstrument) ?? ZERO;
+      const close = evaluateExpr(stopCloseExpr(atrInstrument), view);
+      if (entry && !entry.quantity.isZero() && !held.isZero() && close) {
+        const long = held.gt(0);
+        const level = atrStopLevel(
+          entry.cost.div(entry.quantity),
+          new Decimal(c.cycle.atrAtEntry),
+          atrRule.atrMultiple,
+          long,
+        );
+        atrStopFired = atrStopHit(close, level, long);
+      }
+    }
     const plan = planCycle({
       definition: cycleDef,
       cycle: c.cycle,
@@ -896,7 +927,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       positions: c.positions,
       now: t,
       exitTruth,
-      forceExit: rebalanceExits.has(c.id) ? 'rebalance' : undefined,
+      forceExit: rebalanceExits.has(c.id) ? 'rebalance' : atrStopFired ? 'atr_stop' : undefined,
     });
     let exitEventId: string | undefined;
     if (exitTruth) {
@@ -1087,6 +1118,8 @@ async function placeLeg(
   const stop = price(order.stopPrice);
   if ((order.limitPrice && !limit) || (order.stopPrice && !stop)) return skip(plan, leg);
 
+  // Risk-based sizing (v1.2 item 9): ATR of the daily bars now, capped to the limits.
+  const atrPeriod = order.quantity.type === 'risk_atr' ? order.quantity.atrPeriod : undefined;
   const sized = sizeOrder({
     order,
     referencePrice: quote.last,
@@ -1094,7 +1127,26 @@ async function placeLeg(
     equity: input.equity,
     position: c.positions.get(order.instrumentId) ?? ZERO,
     lotSize: new Decimal(work.instruments.get(order.instrumentId)?.lotSize ?? '1'),
+    ...(atrPeriod
+      ? {
+          atr: evaluateExpr(atrExpr(order.instrumentId, atrPeriod), input.view),
+          cap: riskSizingCap(def.risk, input.equity, input.gross),
+        }
+      : {}),
   });
+  if (atrPeriod) {
+    // Kept on the cycle so the run's log says how the quantity was set, or why nothing was.
+    const why = sized.ok ? undefined : sized.code;
+    plan.cycle.sizing = {
+      ...plan.cycle.sizing,
+      [leg.legId]: { ...sized.sizing, ...(why ? { skipped: why } : {}) },
+    };
+    if (why)
+      ctx.logger.info(
+        { runtimeId: work.id, leg: leg.legId, reason: why },
+        'risk-sized entry skipped',
+      );
+  }
   if (!sized.ok) return skip(plan, leg);
 
   const marketClosedCancel =

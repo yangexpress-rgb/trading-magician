@@ -323,14 +323,23 @@ function LegEditor({
             id={id('qty-type')}
             label="Quantity in"
             value={order.quantity.type}
-            onChange={(e) =>
+            onChange={(e) => {
+              const type = e.target.value as PlannedOrder['quantity']['type'];
+              const { atrPeriod, atrMultiple, ...q } = order.quantity;
+              // Risk % of equity with an ATR stop (v1.2 item 9): 1% risk, 2 × ATR(20).
               set({
-                quantity: {
-                  ...order.quantity,
-                  type: e.target.value as PlannedOrder['quantity']['type'],
-                },
-              })
-            }
+                quantity:
+                  type === 'risk_atr'
+                    ? {
+                        ...q,
+                        type,
+                        value: order.quantity.type === 'risk_atr' ? q.value : '1',
+                        atrPeriod: atrPeriod ?? 20,
+                        atrMultiple: atrMultiple ?? '2',
+                      }
+                    : { ...q, type },
+              });
+            }}
           >
             {QUANTITY_TYPES.map((q) => (
               <option key={q} value={q}>
@@ -342,12 +351,49 @@ function LegEditor({
           </MiniSelect>
           <MiniInput
             id={id('qty')}
-            label="Quantity"
+            label={order.quantity.type === 'risk_atr' ? 'Risk (% of equity)' : 'Quantity'}
             inputMode="decimal"
             value={order.quantity.value}
             error={err('quantity', 'value')}
             onChange={(e) => set({ quantity: { ...order.quantity, value: e.target.value.trim() } })}
           />
+          {order.quantity.type === 'risk_atr' && (
+            <>
+              <MiniInput
+                id={id('qty-atr-mult')}
+                label="Stop distance (ATRs)"
+                inputMode="decimal"
+                value={order.quantity.atrMultiple ?? ''}
+                error={err('quantity', 'atrMultiple')}
+                onChange={(e) =>
+                  set({ quantity: { ...order.quantity, atrMultiple: e.target.value.trim() } })
+                }
+              />
+              <MiniInput
+                id={id('qty-atr-period')}
+                label="ATR period (daily bars)"
+                type="number"
+                min={1}
+                max={500}
+                step={1}
+                value={
+                  order.quantity.atrPeriod !== undefined &&
+                  Number.isFinite(order.quantity.atrPeriod)
+                    ? String(order.quantity.atrPeriod)
+                    : ''
+                }
+                error={err('quantity', 'atrPeriod')}
+                onChange={(e) =>
+                  set({
+                    quantity: {
+                      ...order.quantity,
+                      atrPeriod: e.target.value === '' ? Number.NaN : Number(e.target.value),
+                    },
+                  })
+                }
+              />
+            </>
+          )}
           <MiniSelect
             id={id('type')}
             label="Order type"

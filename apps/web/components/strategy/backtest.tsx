@@ -26,6 +26,8 @@ import {
   isActive,
   metricTiles,
   RUN_STATUS,
+  sizingText,
+  atrStopText,
   thin,
 } from '@/lib/backtest-text';
 import { ADJUSTMENT_LABELS, SIDE_LABELS } from '@/lib/strategy-text';
@@ -417,6 +419,7 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
   const selected = state.selected;
   if (!selected) return null;
   const { run, trades } = selected;
+  const sized = trades?.some((t) => t.sizing) ?? false;
   const interval = run.inputs.interval;
   return (
     <Card aria-labelledby="bt-results-heading">
@@ -509,6 +512,7 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                     <Th>Entry</Th>
                     <Th>Exit</Th>
                     <Th>Legs</Th>
+                    {sized && <Th>Sizing</Th>}
                     <Th className="text-right">Net P/L</Th>
                     <Th className="text-right">Return</Th>
                   </tr>
@@ -534,10 +538,29 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                             {EXIT_REASON_LABELS[t.exitReason]}
                           </div>
                         )}
+                        {t.atrStop && (
+                          <div className="text-xs text-ink-muted">{atrStopText(t.atrStop)}</div>
+                        )}
                       </Td>
                       <Td>
                         <TradeLegs trade={t} />
                       </Td>
+                      {sized && (
+                        <Td className="min-w-56 text-xs">
+                          {t.sizing ? (
+                            <>
+                              <div className="font-medium">Risk % of equity, ATR stop</div>
+                              {sizingText(t.sizing).map((line) => (
+                                <div key={line} className="text-ink-muted">
+                                  {line}
+                                </div>
+                              ))}
+                            </>
+                          ) : (
+                            <span className="text-ink-muted">As set on the leg</span>
+                          )}
+                        </Td>
+                      )}
                       <Td className="text-right tabular-nums">{formatSignedMoney(t.netPnl)}</Td>
                       <Td className="text-right tabular-nums">{formatPct(t.returnPct, true)}</Td>
                     </tr>

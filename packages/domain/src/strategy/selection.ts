@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { riskSeries } from './risk-exits';
 import {
   CONTEXT_INSTRUMENT_ID,
   evaluateCondition,
@@ -438,6 +439,8 @@ export function definitionSeries(
   for (const ref of definitionMetrics(def)) {
     for (const id of contexts) out.push(...metricRequirements(ref, id));
   }
+  // ATR sizing and ATR stops (v1.2 item 9).
+  for (const e of riskSeries(def)) visit(e, 0);
   return out;
 }
 

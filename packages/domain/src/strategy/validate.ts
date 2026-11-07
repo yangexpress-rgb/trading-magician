@@ -149,6 +149,7 @@ export function validateStrategy(
   });
 
   checkGroups(def, ctx, add);
+  checkAtrStops(def, add);
   checkBacktest(ctx, add);
 
   return {
@@ -315,6 +316,30 @@ function isSeries(e: Expr): boolean {
 function containsSeries(e: Expr): boolean {
   for (const x of walkExpr(e)) if (isSeries(x)) return true;
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// ATR stop (v1.2 item 9)
+
+function checkAtrStops(def: StrategyDefinition, add: Add) {
+  const parts = [
+    { p: def as Pick<StrategyDefinition, 'entry' | 'exit'>, at: [] as (string | number)[] },
+    ...(def.groups ?? []).map((g, i) => ({ p: g, at: ['groups', i] })),
+  ];
+  for (const { p, at } of parts) {
+    const rules = p.exit.rules ?? [];
+    const stops = rules.filter((r) => r.kind === 'atrStop');
+    if (stops.length > 1)
+      add('error', 'duplicate_atr_stop', 'Use one ATR stop per Exit', [...at, 'exit', 'rules']);
+    const instruments = new Set(p.entry.orders.map((o) => o.instrumentId));
+    if (stops.length > 0 && instruments.size > 1)
+      add(
+        'warning',
+        'atr_stop_first_leg',
+        "The ATR stop watches the first Entry leg's instrument and closes every leg when it fires",
+        [...at, 'exit', 'rules'],
+      );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1228,6 +1253,43 @@ function checkQuantity(
         );
       }
       break;
+    case 'risk_atr': {
+      // v1.2 item 9: risk a percentage of equity with the stop a multiple of ATR away.
+      const phase = path[path.length - 3] ?? path[0];
+      if (phase === 'exit' && o.side !== 'close')
+        add(
+          'error',
+          'risk_atr_entry_only',
+          `"${o.legLabel}" closes a position: risk-based sizing is for Entry legs`,
+          [...path, 'quantity', 'type'],
+          o.id,
+        );
+      if (q.gt(100))
+        add(
+          'error',
+          'invalid_quantity',
+          `"${o.legLabel}" can't risk more than 100% of equity`,
+          qPath,
+          o.id,
+        );
+      if (!o.quantity.atrPeriod)
+        add(
+          'error',
+          'risk_atr_needs_period',
+          `Set the ATR period for "${o.legLabel}"`,
+          [...path, 'quantity', 'atrPeriod'],
+          o.id,
+        );
+      if (!o.quantity.atrMultiple)
+        add(
+          'error',
+          'risk_atr_needs_multiple',
+          `Set the stop distance in ATRs for "${o.legLabel}"`,
+          [...path, 'quantity', 'atrMultiple'],
+          o.id,
+        );
+      break;
+    }
     case 'risk_sized':
       if (!o.stopPrice) {
         add(

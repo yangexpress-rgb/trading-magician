@@ -52,6 +52,22 @@ export interface BacktestRunDto extends BacktestRunSummaryDto {
   result: Omit<BacktestResult, 'trades' | 'metrics'> | null;
 }
 
+/** Risk-based sizing of one trade (v1.2 item 9). Money and prices are decimal strings. */
+export interface BacktestTradeSizingDto {
+  method: 'risk_atr';
+  equity: string;
+  riskPct: string;
+  atrPeriod: number;
+  atr: string;
+  atrMultiple: string;
+  stopDistance: string;
+  /** Quantity the risk budget allows before account limits. */
+  riskQuantity: string;
+  quantity: string;
+  /** The account limit that lowered the quantity, if any. */
+  cappedBy?: string;
+}
+
 export interface BacktestTradeDto {
   cycle: number;
   status: 'closed' | 'open' | 'aborted';
@@ -63,10 +79,20 @@ export interface BacktestTradeDto {
   returnPct: string | null;
   legs: BacktestTradeLeg[];
   /** Why the cycle exited (v1.2); absent on older runs. */
-  exitReason?: 'condition' | 'rebalance' | 'time_stop';
+  exitReason?: 'condition' | 'rebalance' | 'time_stop' | 'atr_stop';
   /** Two-sided strategies (v1.2 item 8): long or short, and the entry group's name. */
   direction?: 'long' | 'short';
   group?: string;
+  /** Risk-based sizing (v1.2 item 9): how the Entry quantity was worked out. */
+  sizing?: BacktestTradeSizingDto;
+  /** ATR stop (v1.2 item 9): ATR at entry, the entry price and the fixed stop level. */
+  atrStop?: {
+    atr: string;
+    atrMultiple: string;
+    direction: 'long' | 'short';
+    entryPrice: string;
+    level: string;
+  };
 }
 
 export interface BacktestListDto {

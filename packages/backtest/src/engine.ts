@@ -1,5 +1,13 @@
 import {
   checkPreTradeRisk,
+  atrExpr,
+  atrStopHit,
+  atrStopInstrument,
+  atrStopLevel,
+  atrStopOf,
+  riskSizingCap,
+  stopCloseExpr,
+  type RiskSizing,
   entryGroups,
   isTwoSided,
   type GroupKey,
@@ -84,6 +92,7 @@ const SIZING_MESSAGES: Record<SizingSkip, string> = {
   no_stop_distance: 'Risk-sized orders were skipped because the stop was at the current price',
   nothing_to_close: 'Some Exit legs had no position left to close',
   zero_quantity: 'Some orders were skipped because their quantity rounded to zero',
+  no_atr: 'Some risk-sized entries were skipped because the ATR had too little history',
 };
 const RISK_MESSAGES: Record<RiskCheckCode, string> = {
   risk_active_orders: 'Orders were rejected by the maximum active orders limit',
@@ -147,6 +156,8 @@ interface LegState {
   bestPrice?: Decimal;
   barsWorking: number;
   fillCount: number;
+  /** Risk-based sizing (v1.2 item 9): how the quantity was worked out. */
+  sizing?: RiskSizing;
 }
 
 interface CyclePosition {
@@ -171,7 +182,7 @@ interface Cycle {
   /** The entry group that opened it (v1.2 item 8); null for the strategy's own Entry. */
   group: GroupKey;
   /** Why the cycle exited, when v1.2 exit reasons apply. */
-  exitReason?: 'condition' | 'rebalance' | 'time_stop';
+  exitReason?: 'condition' | 'rebalance' | 'time_stop' | 'atr_stop';
   state: 'entering' | 'open' | 'exiting' | 'closed' | 'aborted';
   entryTriggeredAt?: number;
   events: Map<PhaseEvent, number>;
@@ -185,6 +196,15 @@ interface Cycle {
   firstFill?: number;
   lastFill?: number;
   entryValue: Decimal;
+  /** ATR stop (v1.2 item 9): the ATR when Entry was decided, and the level once filled. */
+  atrAtEntry?: Decimal;
+  atrStop?: {
+    atr: Decimal;
+    atrMultiple: string;
+    entryPrice: Decimal;
+    level: Decimal;
+    long: boolean;
+  };
 }
 
 export interface SimulationInput {
@@ -561,6 +581,22 @@ export function simulate({
                 g = g.plus(p.quantity.abs().times(mark(id) ?? ZERO));
               return sum.plus(g);
             }, ZERO);
+    // ATR stop (v1.2 item 9): the ATR as of the bar Entry is decided on.
+    const atrRule = leg.phase === 'entry' ? atrStopOf(c.def) : undefined;
+    if (atrRule && c.atrAtEntry === undefined) {
+      const instrument = atrStopInstrument(c.def);
+      const atr = instrument
+        ? evaluateExpr(atrExpr(instrument, atrRule.atrPeriod, inputs.adjustment), view)
+        : undefined;
+      if (atr) c.atrAtEntry = atr;
+      else
+        warnings.add(
+          'atr_stop_unset',
+          'Some positions had no ATR stop because the ATR had too little history at entry',
+        );
+    }
+    // Risk-based sizing (v1.2 item 9) is capped to the limits, never past them.
+    const atrSizing = o.quantity.type === 'risk_atr' && o.quantity.atrPeriod;
     const sized = sizeOrder({
       order: o,
       referencePrice: ref,
@@ -568,7 +604,17 @@ export function simulate({
       equity: equityNow(),
       position: pos,
       lotSize: lot(o.instrumentId),
+      ...(atrSizing
+        ? {
+            atr: evaluateExpr(
+              atrExpr(o.instrumentId, o.quantity.atrPeriod ?? 0, inputs.adjustment),
+              view,
+            ),
+            cap: riskSizingCap(risk, equityNow(), positionValue().gross.minus(closingGross)),
+          }
+        : {}),
     });
+    if (sized.sizing) leg.sizing = sized.sizing;
     if (!sized.ok) {
       if (sized.code === 'no_stop_distance')
         return reject(leg, now, sized.code, SIZING_MESSAGES[sized.code]);
@@ -791,8 +837,30 @@ export function simulate({
     c.entryLegs.push(...legOrderFor(c.def, 'entry').map((l) => legState(c, l, 'entry')));
   }
 
+  /** Whether a cycle's ATR stop fires on the current daily close (v1.2 item 9). */
+  function checkAtrStop(c: Cycle): boolean {
+    const rule = atrStopOf(c.def);
+    const instrument = atrStopInstrument(c.def);
+    if (!rule || !instrument || !c.atrAtEntry) return false;
+    const p = c.positions.get(instrument);
+    if (!p || p.entryQuantity.isZero() || p.quantity.isZero()) return false;
+    const long = p.quantity.gt(0);
+    if (!c.atrStop) {
+      const entryPrice = p.entryCost.div(p.entryQuantity);
+      c.atrStop = {
+        atr: c.atrAtEntry,
+        atrMultiple: rule.atrMultiple,
+        entryPrice,
+        level: atrStopLevel(entryPrice, c.atrAtEntry, rule.atrMultiple, long),
+        long,
+      };
+    }
+    const close = evaluateExpr(stopCloseExpr(instrument, inputs.adjustment), view);
+    return close !== undefined && atrStopHit(close, c.atrStop.level, long);
+  }
+
   /** Starts a cycle's Exit now, for a reason other than its Exit condition. */
-  function forceExit(c: Cycle, now: number, reason: 'rebalance' | 'time_stop') {
+  function forceExit(c: Cycle, now: number, reason: 'rebalance' | 'time_stop' | 'atr_stop') {
     c.state = 'exiting';
     c.exitReason = reason;
     c.legEvents.set('exit:trigger', now);
@@ -1153,6 +1221,8 @@ export function simulate({
         // The time stop, combined with the Exit condition by OR (v1.2 item 4).
         if (c.state === 'open' && timeStopReached(c.def, c.events.get('entry_partial_fill'), now))
           forceExit(c, now, 'time_stop');
+        // The ATR stop, also by OR (v1.2 item 9): a daily close beyond the level fixed at entry.
+        if (c.state === 'open' && checkAtrStop(c)) forceExit(c, now, 'atr_stop');
       }
       if (c.state === 'open' || c.state === 'exiting') {
         const exitTriggeredAt = c.state === 'exiting' ? c.legEvents.get('exit:trigger') : undefined;
@@ -1262,6 +1332,19 @@ export function simulate({
         ...(v12 && status === 'closed' ? { exitReason: c.exitReason ?? 'condition' } : {}),
         // Two-sided strategies say which group and direction each trade took (v1.2 item 8).
         ...(twoSided ? { direction: groupOf(c).direction, group: groupOf(c).label } : {}),
+        // Risk sizing and the ATR stop, so each trade can be checked by hand (v1.2 item 9).
+        ...withSizing(sizingOf(c)),
+        ...(c.atrStop
+          ? {
+              atrStop: {
+                atr: c.atrStop.atr.toDecimalPlaces(4).toString(),
+                atrMultiple: c.atrStop.atrMultiple,
+                direction: c.atrStop.long ? ('long' as const) : ('short' as const),
+                entryPrice: c.atrStop.entryPrice.toDecimalPlaces(4).toString(),
+                level: c.atrStop.level.toDecimalPlaces(4).toString(),
+              },
+            }
+          : {}),
       };
     });
 
@@ -1405,7 +1488,7 @@ export function simulate({
     symbols: Object.fromEntries([...usedInstruments].map((id) => [id, symbol(id)])),
     engineVersion: ENGINE_VERSION,
     dataVersions: data.dataVersions,
-    assumptions: [...describeAssumptions(inputs), ...shortAssumptions()],
+    assumptions: [...describeAssumptions(inputs), ...shortAssumptions(), ...riskAssumptions()],
     sharpeMethod: SHARPE_METHOD,
     metrics: computeMetrics({
       initial,
@@ -1424,6 +1507,36 @@ export function simulate({
     warnings: warnings.list(),
     ...(mode !== 'none' ? { selections: selectionLog() } : {}),
   };
+
+  function withSizing(sizing: RiskSizing | undefined): { sizing?: RiskSizing } {
+    return sizing ? { sizing } : {};
+  }
+
+  /** The first Entry leg's risk-sizing record, if it was risk-sized. */
+  function sizingOf(c: Cycle): RiskSizing | undefined {
+    return c.entryLegs.find((l) => l.sizing)?.sizing;
+  }
+
+  /** What risk sizing and the ATR stop assume (v1.2 item 9). */
+  function riskAssumptions(): string[] {
+    const defs = groups.map((g) => g.definition);
+    const sized = defs.some((d) => d.entry.orders.some((o) => o.quantity.type === 'risk_atr'));
+    const stopped = defs.some((d) => atrStopOf(d));
+    const out: string[] = [];
+    if (sized || stopped)
+      out.push(
+        'ATR is the average true range of daily bars on the same price basis as fills, as of the bar Entry was decided on',
+      );
+    if (sized)
+      out.push(
+        'Risk-sized quantities are floor(equity × risk % ÷ (ATR × multiple)) in whole lots, lowered to fit buying power, the maximum order size and the maximum exposure; no order is placed when that is 0 or the ATR has too little history',
+      );
+    if (stopped)
+      out.push(
+        'The ATR stop is fixed at entry (entry price ∓ multiple × ATR) and does not trail; a daily close beyond it exits at the next bar, like the other exits',
+      );
+    return out;
+  }
 
   /** What a back test with short entries assumes (v1.2 item 8). */
   function shortAssumptions(): string[] {

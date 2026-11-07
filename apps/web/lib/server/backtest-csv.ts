@@ -19,6 +19,19 @@ const HEADER = [
   'engine_version',
   'data_versions',
   'exit_reason',
+  // v1.2 items 8 and 9: direction and group, and how a risk-based quantity was sized.
+  'direction',
+  'entry_group',
+  'sizing_method',
+  'sizing_equity',
+  'risk_pct',
+  'atr_period',
+  'atr_at_entry',
+  'atr_multiple',
+  'stop_distance',
+  'risk_quantity',
+  'capped_by',
+  'atr_stop_level',
 ];
 
 /**
@@ -38,6 +51,21 @@ export function tradesCsv(run: BacktestRunSummary, trades: readonly BacktestTrad
     const trade = [t.grossPnl, t.costs, t.netPnl, t.returnPct];
     const times = [t.entryTime?.toISOString() ?? null, t.exitTime?.toISOString() ?? null];
     const legs = t.legs.length > 0 ? t.legs : [null];
+    const z = t.sizing;
+    const extra = [
+      t.direction ?? null,
+      t.group ?? null,
+      z?.method ?? null,
+      z?.equity ?? null,
+      z?.riskPct ?? null,
+      z?.atrPeriod ?? null,
+      z?.atr ?? null,
+      z?.atrMultiple ?? null,
+      z?.stopDistance ?? null,
+      z?.riskQuantity ?? null,
+      z?.cappedBy ?? null,
+      t.atrStop?.level ?? null,
+    ];
     for (const l of legs) {
       rows.push([
         t.cycle,
@@ -52,6 +80,7 @@ export function tradesCsv(run: BacktestRunSummary, trades: readonly BacktestTrad
         ...trade,
         ...provenance,
         t.exitReason ?? null,
+        ...extra,
       ]);
     }
   }

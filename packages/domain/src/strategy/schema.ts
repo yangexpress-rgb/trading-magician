@@ -305,7 +305,17 @@ export const ORDER_SIDES = [
   'reduce',
 ] as const;
 export type OrderSide = (typeof ORDER_SIDES)[number];
-export const QUANTITY_TYPES = ['units', 'notional', 'pct_equity', 'risk_sized'] as const;
+/**
+ * `risk_atr` (v1.2 item 9): risk `value`% of equity, with the stop
+ * `atrMultiple` × ATR(`atrPeriod`) away: quantity = equity × value% ÷ (ATR × multiple).
+ */
+export const QUANTITY_TYPES = [
+  'units',
+  'notional',
+  'pct_equity',
+  'risk_sized',
+  'risk_atr',
+] as const;
 export const ORDER_TYPES = ['market', 'limit', 'stop', 'stop_limit'] as const;
 export type OrderType = (typeof ORDER_TYPES)[number];
 export const TIME_IN_FORCE = ['day', 'gtc', 'ioc', 'fok'] as const;
@@ -359,6 +369,9 @@ export const plannedOrderSchema = z.object({
     type: z.enum(QUANTITY_TYPES),
     value: positiveDecimalString,
     rounding: z.enum(['down', 'nearest']).default('down'),
+    /** `risk_atr` only: the ATR's period in daily bars, and the stop distance in ATRs. */
+    atrPeriod: z.number().int().min(1).max(500).optional(),
+    atrMultiple: positiveDecimalString.optional(),
   }),
   orderType: z.enum(ORDER_TYPES),
   limitPrice: exprSchema.optional(),
@@ -468,13 +481,24 @@ export const entryPhaseSchema = phaseSchema.extend({
 });
 export type EntryPhase = z.infer<typeof entryPhaseSchema>;
 
-export const EXIT_RULE_KINDS = ['timeStop'] as const;
+export const EXIT_RULE_KINDS = ['timeStop', 'atrStop'] as const;
 export const exitRuleSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('timeStop'),
     id,
     /** Trading days held, counting the day the position opened. */
     barsHeld: z.number().int().min(1, 'Hold for at least 1 day').max(2520),
+  }),
+  /**
+   * v1.2 item 9: exit when a daily close crosses the entry price minus (long)
+   * or plus (short) `atrMultiple` × ATR(`atrPeriod`) as measured at entry.
+   * The level is fixed at entry; a trailing stop is not part of this round.
+   */
+  z.object({
+    kind: z.literal('atrStop'),
+    id,
+    atrPeriod: z.number().int().min(1).max(500),
+    atrMultiple: positiveDecimalString,
   }),
 ]);
 export type ExitRule = z.infer<typeof exitRuleSchema>;

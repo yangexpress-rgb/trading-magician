@@ -15,7 +15,7 @@ import {
   type Selection,
   type StrategyDefinition,
 } from '@tm/domain';
-import { toFixedLegs, toSelectionGroup, timeStopRule } from '@/lib/slot-edits';
+import { atrStopRule, toFixedLegs, toSelectionGroup, timeStopRule } from '@/lib/slot-edits';
 import { ConditionTreeEditor } from './condition-editor';
 import { useEditor } from './editor-context';
 import { defaultMetricRef, MetricRefFields } from './expression-editor';
@@ -357,6 +357,11 @@ export function ExitRulesEditor({
     onChange({ ...definition, exit: next.length > 0 ? { ...exit, rules: next } : exit });
   };
   const hasTimeStop = rules.some((r) => r.kind === 'timeStop');
+  const hasAtrStop = rules.some((r) => r.kind === 'atrStop');
+  const patch = (i: number, p: Partial<ExitRule>) =>
+    setRules(rules.map((x, j) => (j === i ? ({ ...x, ...p } as ExitRule) : x)));
+  const remove = (i: number) => setRules(rules.filter((_, j) => j !== i));
+  const asInt = (v: string) => (v === '' ? Number.NaN : Number(v));
   return (
     <div className="mt-4">
       <h3 className="mb-1 text-base font-semibold text-cond">Exit rules</h3>
@@ -371,38 +376,60 @@ export function ExitRulesEditor({
               key={r.id}
               className="flex flex-wrap items-end gap-2 rounded-md border border-line bg-surface p-2"
             >
-              <MiniInput
-                id={`rule-${r.id}-bars`}
-                label="Exit after this many trading days held"
-                type="number"
-                min={1}
-                max={2520}
-                step={1}
-                disabled={!editable}
-                value={Number.isFinite(r.barsHeld) ? String(r.barsHeld) : ''}
-                error={issueAt(['exit', 'rules', i, 'barsHeld'])}
-                onChange={(e) =>
-                  setRules(
-                    rules.map((x, j) =>
-                      j === i
-                        ? {
-                            ...x,
-                            barsHeld: e.target.value === '' ? Number.NaN : Number(e.target.value),
-                          }
-                        : x,
-                    ),
-                  )
-                }
-              />
-              <p className="flex-1 pb-1 text-xs text-ink-muted">
-                Counts the day the position opened. With daily bars, 5 days exits at the sixth open,
-                after the position was held through five closes.
-              </p>
+              {r.kind === 'timeStop' ? (
+                <>
+                  <MiniInput
+                    id={`rule-${r.id}-bars`}
+                    label="Exit after this many trading days held"
+                    type="number"
+                    min={1}
+                    max={2520}
+                    step={1}
+                    disabled={!editable}
+                    value={Number.isFinite(r.barsHeld) ? String(r.barsHeld) : ''}
+                    error={issueAt(['exit', 'rules', i, 'barsHeld'])}
+                    onChange={(e) => patch(i, { barsHeld: asInt(e.target.value) })}
+                  />
+                  <p className="flex-1 pb-1 text-xs text-ink-muted">
+                    Counts the day the position opened. With daily bars, 5 days exits at the sixth
+                    open, after the position was held through five closes.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <MiniInput
+                    id={`rule-${r.id}-mult`}
+                    label="ATR stop: ATRs from the entry price"
+                    inputMode="decimal"
+                    disabled={!editable}
+                    value={r.atrMultiple}
+                    error={issueAt(['exit', 'rules', i, 'atrMultiple'])}
+                    onChange={(e) => patch(i, { atrMultiple: e.target.value.trim() })}
+                  />
+                  <MiniInput
+                    id={`rule-${r.id}-period`}
+                    label="ATR period (daily bars)"
+                    type="number"
+                    min={1}
+                    max={500}
+                    step={1}
+                    disabled={!editable}
+                    value={Number.isFinite(r.atrPeriod) ? String(r.atrPeriod) : ''}
+                    error={issueAt(['exit', 'rules', i, 'atrPeriod'])}
+                    onChange={(e) => patch(i, { atrPeriod: asInt(e.target.value) })}
+                  />
+                  <p className="flex-1 pb-1 text-xs text-ink-muted">
+                    The stop is set once, at entry: the entry price minus (long) or plus (short)
+                    this many ATRs, using the ATR on the entry day. It exits at the next open after
+                    a daily close beyond it. It does not trail.
+                  </p>
+                </>
+              )}
               {editable && (
                 <RowButton
-                  label="Remove the time stop"
+                  label={r.kind === 'timeStop' ? 'Remove the time stop' : 'Remove the ATR stop'}
                   className="text-danger"
-                  onClick={() => setRules(rules.filter((_, j) => j !== i))}
+                  onClick={() => remove(i)}
                 >
                   Remove
                 </RowButton>
@@ -411,10 +438,19 @@ export function ExitRulesEditor({
           ))}
         </ul>
       )}
-      {editable && !hasTimeStop && (
-        <RowButton label="Add a time stop" onClick={() => setRules([...rules, timeStopRule()])}>
-          + Exit after N trading days held
-        </RowButton>
+      {editable && (
+        <div className="mt-1 flex flex-wrap gap-2">
+          {!hasTimeStop && (
+            <RowButton label="Add a time stop" onClick={() => setRules([...rules, timeStopRule()])}>
+              + Exit after N trading days held
+            </RowButton>
+          )}
+          {!hasAtrStop && (
+            <RowButton label="Add an ATR stop" onClick={() => setRules([...rules, atrStopRule()])}>
+              + Stop N ATRs from the entry price
+            </RowButton>
+          )}
+        </div>
       )}
     </div>
   );
