@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { BUILDER_INDICATORS, INDICATORS } from './catalog';
+import { getMetric } from './metrics';
 import { migrateV1 } from './migrate-v1';
 import { parseDefinition } from './serialize';
 import {
@@ -291,3 +293,13 @@ function indicatorV1(
 ) {
   return indicator(id, { name, params, offset });
 }
+
+describe('one computation per name (ADR 0049)', () => {
+  it('offers RSI and Bollinger bands once each: as a metric and a statistic, not as indicators', () => {
+    expect(BUILDER_INDICATORS.map((i) => i.name)).not.toContain('RSI');
+    expect(BUILDER_INDICATORS.map((i) => i.name)).not.toContain('BBANDS');
+    expect(getMetric('rsi')).toBeDefined();
+    // Still in the catalog, so a strategy kept as saved still runs.
+    expect(INDICATORS.map((i) => i.name)).toEqual(expect.arrayContaining(['RSI', 'BBANDS']));
+  });
+});

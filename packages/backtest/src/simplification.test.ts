@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Expr } from '@tm/domain';
 import { simulate } from './engine';
 import {
   A,
@@ -121,5 +122,49 @@ describe('Strategy Lab simplification (ADR 0049)', () => {
     expect(run(def, [100, 100, 100, 100, 100]).fills.filter((f) => f.side === 'buy')).toHaveLength(
       1,
     );
+  });
+});
+
+describe('RSI metric and RSI indicator (ADR 0049)', () => {
+  it('compute the same values on the same bars', () => {
+    const values = Array.from({ length: 60 }, (_, i) => 100 + 10 * Math.sin(i / 3) + (i % 7));
+    const rsiIndicator: Expr = {
+      kind: 'indicator',
+      id: 'rsi',
+      name: 'RSI',
+      params: { period: 2 },
+      instrumentId: A,
+      field: 'close',
+      interval: '1d',
+      adjustment: 'split_and_dividend',
+      session: 'regular',
+      offset: 0,
+    };
+    const rsiMetric: Expr = {
+      kind: 'metric',
+      id: 'rsi',
+      metric: 'rsi',
+      params: { period: 2 },
+      instrumentId: A,
+    };
+    const checks = (left: Expr) => {
+      const def = strategy(
+        compare(left, 'lt', constant('30')),
+        [leg('buy')],
+        compare(close(), 'gt', constant('1000')),
+        [leg('sell', { side: 'sell' })],
+      );
+      return run(def, values).conditions!.entry.bars.map((b) => [
+        b.time,
+        b.truth,
+        b.checks.map((c) => c.left),
+      ]);
+    };
+    const viaIndicator = checks(rsiIndicator);
+    expect(viaIndicator.length).toBeGreaterThan(50);
+    expect(
+      viaIndicator.filter(([, , left]) => (left as unknown[])[0] != null).length,
+    ).toBeGreaterThan(50);
+    expect(checks(rsiMetric)).toEqual(viaIndicator);
   });
 });
