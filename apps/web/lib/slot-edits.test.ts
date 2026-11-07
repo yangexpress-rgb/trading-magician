@@ -6,7 +6,13 @@ import {
   type StrategyDefinition,
 } from '@tm/domain';
 import { describe, expect, it } from 'vitest';
-import { timeStopRule, toFixedLegs, toSelectionGroup } from './slot-edits';
+import {
+  fromLegsSelection,
+  timeStopRule,
+  toFixedLegs,
+  toLegsSelection,
+  toSelectionGroup,
+} from './slot-edits';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
@@ -24,9 +30,7 @@ function fixed(): StrategyDefinition {
       quantity: { type: 'units', value: '10', rounding: 'down' },
       orderType: 'market',
       timeInForce: 'day',
-      extendedHours: false,
       timing: { mode: 'immediate' },
-      timingOnly: false,
     },
   ];
   return def;
@@ -73,5 +77,27 @@ describe('switching Entry to a Selection group', () => {
     const def = fixed();
     def.exit.rules = [timeStopRule(5)];
     expect(strategyDefinitionSchema.safeParse(def).success).toBe(true);
+  });
+
+  it('ranks these legs for "only the best one", and goes back keeping each leg (ADR 0049)', () => {
+    const start = fixed();
+    start.entry.orders.push({
+      ...start.entry.orders[0]!,
+      id: 'leg2',
+      legLabel: 'Buy B',
+      instrumentId: B,
+    });
+    const def = toLegsSelection(start);
+    expect(slotModeOf(def)).toBe('legs');
+    expect(def.entry.orders.map((o) => o.instrumentId)).toEqual([A, B]);
+    expect(def.entry.selection).toMatchObject({
+      universe: { type: 'legs' },
+      count: { type: 'fixed', value: 1 },
+    });
+    expect(def.exit.trigger).toBeUndefined();
+    expect(strategyDefinitionSchema.safeParse(def).success).toBe(true);
+    const back = fromLegsSelection(def);
+    expect(slotModeOf(back)).toBe('none');
+    expect(back.exit.trigger).toBeDefined();
   });
 });

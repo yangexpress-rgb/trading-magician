@@ -42,13 +42,15 @@ export function createDefinition(ids: IdFactory = randomId): StrategyDefinition 
     schemaVersion: STRATEGY_SCHEMA_VERSION,
     entry: {
       condition: emptyGroup(ids),
-      trigger: { mode: 'on_transition', cooldownSec: 0, confirmationBars: 0 },
+      trigger: { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 },
       orders: [],
     },
     exit: {
       condition: emptyGroup(ids),
-      trigger: { mode: 'on_transition', cooldownSec: 0, confirmationBars: 0 },
+      trigger: { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 },
       orders: [],
+      // A new strategy's Exit legs mirror Entry until the user turns it off (ADR 0049).
+      mirrorEntry: true,
     },
     execution: structuredClone(DEFAULT_EXECUTION),
     risk: { ...DEFAULT_RISK },

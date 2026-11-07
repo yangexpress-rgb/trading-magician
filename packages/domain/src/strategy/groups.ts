@@ -20,9 +20,12 @@ export interface EntryGroupView {
   definition: StrategyDefinition;
 }
 
-/** A group's direction: as set, else "short" when every Entry leg sells short. */
-export function directionOf(entry: EntryPhase): PositionDirection {
-  if (entry.direction) return entry.direction;
+/**
+ * A group's direction, derived from its Entry legs (ADR 0049; never stored):
+ * "short" when every Entry leg sells short, else "long". A Selection group's
+ * template leg is its only Entry leg, so its side is the group's direction.
+ */
+export function directionOf(entry: Pick<EntryPhase, 'orders'>): PositionDirection {
   return entry.orders.length > 0 && entry.orders.every((o) => o.side === 'sell_short')
     ? 'short'
     : 'long';
@@ -30,9 +33,8 @@ export function directionOf(entry: EntryPhase): PositionDirection {
 
 export const hasGroups = (def: StrategyDefinition) => (def.groups?.length ?? 0) > 0;
 
-/** Whether results should say which direction each trade took. */
-export const isTwoSided = (def: StrategyDefinition) =>
-  hasGroups(def) || def.entry.direction !== undefined;
+/** Whether results should say which direction each trade took: with several entry groups. */
+export const isTwoSided = (def: StrategyDefinition) => hasGroups(def);
 
 /** The definition one group runs. The strategy's own group is the strategy itself. */
 export function groupDefinition(def: StrategyDefinition, key: GroupKey): StrategyDefinition {

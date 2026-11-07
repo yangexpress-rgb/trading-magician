@@ -9,6 +9,7 @@ import {
   type RiskProfile,
   type StrategyDefinition,
   type TRIGGER_MODES,
+  type Trigger,
 } from '@tm/domain';
 
 /** Human labels for the strategy vocabulary, shared by the editor and summaries. */
@@ -188,8 +189,7 @@ export const QUANTITY_LABELS = {
   units: 'Units (shares)',
   notional: 'Amount (base currency)',
   pct_equity: '% of account equity',
-  risk_sized: 'Risk-sized (amount at risk)',
-  risk_atr: 'Risk % of equity, stop in ATRs',
+  risk: 'Risk (lose at most this at the stop)',
 } as const;
 
 export const ORDER_TYPE_LABELS = {
@@ -222,10 +222,12 @@ export const LEG_EVENT_LABELS = { submitted: 'submitted', filled: 'filled' } as 
 export function describeTiming(
   order: PlannedOrder,
   labelOf: (legId: string) => string | undefined,
+  /** "Allow timed entries without conditions" (ADR 0049). */
+  timingOnly = false,
 ): string {
   const t = order.timing;
   if (t.mode === 'immediate') return 'Immediately when the conditions qualify';
-  const suffix = order.timingOnly ? ' (timing only)' : '';
+  const suffix = timingOnly ? ' (timing only)' : '';
   if (t.mode === 'exact') return `At ${t.at || '…'} (${t.zone})${suffix}`;
   const ref =
     t.reference.kind === 'phase'
@@ -238,24 +240,29 @@ const QUANTITY_UNITS = {
   units: (v: string) => v,
   notional: (v: string, ccy: string) => `${ccy} ${v} of`,
   pct_equity: (v: string) => `${v}% of equity in`,
-  risk_sized: (v: string, ccy: string) => `${ccy} ${v} at risk in`,
-  risk_atr: (v: string) => `${v}% of equity at risk in`,
+  risk: (v: string, ccy: string, q?: PlannedOrder['quantity']) =>
+    q?.amountIn === 'dollars' ? `${ccy} ${v} at risk in` : `${v}% of equity at risk in`,
 } as const;
 
 /** One-line text for a leg, e.g. "Buy 100 DEMO-A · Limit at 99.5 · Day". */
-export function describeLeg(order: PlannedOrder, symbol: SymbolLookup, currency: string): string {
+export function describeLeg(
+  order: PlannedOrder,
+  symbol: SymbolLookup,
+  currency: string,
+  /** The Entry's risk distance, for a leg sized from the ATR (ADR 0049). */
+  risk?: { atrPeriod: number; atrMultiple: string } | undefined,
+): string {
   const q = order.quantity;
-  const qty = QUANTITY_UNITS[q.type](q.value, currency);
+  const qty = QUANTITY_UNITS[q.type](q.value, currency, q);
   const parts = [`${SIDE_LABELS[order.side]} ${qty} ${instrumentText(order.instrumentId, symbol)}`];
   // v1.2 item 9: the sizing stop, e.g. "sized for a stop 2 × ATR(20) away".
-  if (q.type === 'risk_atr') {
-    parts[0] += `, sized for a stop ${q.atrMultiple ?? '…'} × ATR(${q.atrPeriod ?? '…'}) away`;
+  if (q.type === 'risk' && q.distanceFrom === 'atr') {
+    parts[0] += `, sized for a stop ${risk?.atrMultiple ?? '…'} × ATR(${risk?.atrPeriod ?? '…'}) away`;
   }
   let type: string = ORDER_TYPE_LABELS[order.orderType];
   if (order.limitPrice) type += ` at ${describeExpr(order.limitPrice, symbol)}`;
   if (order.stopPrice) type += `, stop ${describeExpr(order.stopPrice, symbol)}`;
   parts.push(type, TIF_LABELS[order.timeInForce]);
-  if (order.extendedHours) parts.push('extended hours');
   return parts.join(' · ');
 }
 
@@ -309,6 +316,23 @@ export const TRIGGER_LABELS: Record<(typeof TRIGGER_MODES)[number], string> = {
   once_per_cycle: 'Once per strategy cycle',
 };
 
+/** "Fire when" in words (ADR 0049); no trigger means a slot's Exit, checked directly. */
+export function describeTrigger(t: Trigger | undefined): string {
+  if (!t) return 'On every bar the condition is true';
+  const n = t.confirmationBars + 1;
+  const when =
+    t.mode === 'on_transition'
+      ? t.confirmationBars > 0
+        ? `After it has been true for ${n} bars`
+        : 'As soon as it becomes true'
+      : t.mode === 'while_true'
+        ? `Repeatedly while true${t.confirmationBars > 0 ? `, after ${n} bars true` : ''}`
+        : `Once per cycle${t.confirmationBars > 0 ? `, after ${n} bars true` : ''}`;
+  return t.cooldownBars > 0
+    ? `${when}; then waits ${t.cooldownBars} ${t.cooldownBars === 1 ? 'bar' : 'bars'}`
+    : when;
+}
+
 export const RISK_FIELDS: {
   key: keyof RiskProfile;
   label: string;
@@ -319,7 +343,7 @@ export const RISK_FIELDS: {
   { key: 'maxActiveOrders', label: 'Maximum active orders', unit: 'count' },
   { key: 'dailyLossLimit', label: 'Daily loss limit', unit: 'money' },
   { key: 'priceCollarPct', label: 'Price collar', unit: 'pct' },
-  { key: 'maxOpenPositions', label: 'Maximum open positions', unit: 'count' },
+  { key: 'maxInstrumentsHeld', label: 'Maximum instruments held', unit: 'count' },
   { key: 'maxDrawdownPct', label: 'Maximum drawdown', unit: 'pct' },
 ];
 

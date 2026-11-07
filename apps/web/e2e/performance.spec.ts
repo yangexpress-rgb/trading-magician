@@ -42,12 +42,12 @@ test('shows a paper strategy’s cycles, figures and data quality', async ({ pag
     return {
       entry: {
         condition: group('eg', comparison('in', a, 'gt')),
-        trigger: { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 },
+        trigger: { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 },
         orders: [leg('buy', 'Buy A', a, account, 'buy')],
       },
       exit: {
         condition: group('xg', comparison('out', a, 'lt')),
-        trigger: { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 },
+        trigger: { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 },
         orders: [leg('sell', 'Sell A', a, account, 'close')],
       },
     };

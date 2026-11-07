@@ -42,10 +42,19 @@ import { markExpr } from './evaluate';
 
 export type SlotMode = 'none' | 'selection' | 'legs';
 
+/**
+ * A Selection group of "these legs" (ADR 0049): the Entry legs are the
+ * candidates, ranked by the group's metric. It runs as per-leg conditions do,
+ * with the ranking picking which qualifying legs fire.
+ */
+export function rankedLegs(def: Pick<StrategyDefinition, 'entry'>): Selection | undefined {
+  const sel = def.entry.kind === 'selection' ? def.entry.selection : undefined;
+  return sel?.universe.type === 'legs' ? sel : undefined;
+}
+
 export function slotModeOf(def: StrategyDefinition): SlotMode {
-  if (def.entry.kind === 'selection') return 'selection';
-  if (def.entry.orders.some((o) => o.legCondition) || def.entry.fireMode?.mode === 'bestByMetric')
-    return 'legs';
+  if (def.entry.kind === 'selection' && !rankedLegs(def)) return 'selection';
+  if (rankedLegs(def) || def.entry.orders.some((o) => o.legCondition)) return 'legs';
   return 'none';
 }
 
@@ -68,6 +77,7 @@ export function universeMembers(
   selection: Selection,
   builtin: (id: 'sp500') => readonly string[],
 ): string[] {
+  if (selection.universe.type === 'legs') return [];
   const ids =
     selection.universe.type === 'list' ? selection.universe.instrumentIds : builtin('sp500');
   return [...new Set(ids)];
@@ -168,6 +178,10 @@ export function rankUniverse(
 // Per-leg conditions (item 2)
 // ---------------------------------------------------------------------------
 
+/** Three-valued AND: false wins, then unknown. */
+const and = (a: Truth, b: Truth): Truth =>
+  a === false || b === false ? false : a === undefined || b === undefined ? undefined : true;
+
 export function hasComparisons(g: ConditionGroup): boolean {
   for (const _ of walkComparisons(g)) return true;
   return false;
@@ -179,7 +193,7 @@ export interface LegRow {
   symbol: string;
   /** Entry condition and leg condition together; null when unknown. */
   passed: boolean | null;
-  /** The fire-mode metric, for best-by-metric. */
+  /** The ranking metric, for a Selection group of these legs. */
   value: string | null;
   selected: boolean;
 }
@@ -187,10 +201,10 @@ export interface LegRow {
 /**
  * Which Entry legs qualify on this bar: a leg fires only when the Entry
  * condition (when it has one) and its own leg condition are both true; a
- * leg without a leg condition follows the Entry condition alone. Under
- * best-by-metric only the qualifying leg with the highest metric value
- * fires (ties by symbol); a leg whose metric is null can't be compared and
- * doesn't fire.
+ * leg without a leg condition follows the Entry condition alone. In a
+ * Selection group of these legs, the group's pre-filter must hold too and
+ * only the top N qualifying legs by the ranking metric fire (ties by
+ * symbol); a leg whose metric is null can't be compared and doesn't fire.
  */
 export function selectLegs(
   def: StrategyDefinition,
@@ -200,21 +214,19 @@ export function selectLegs(
   const phase: Truth = hasComparisons(def.entry.condition)
     ? evaluateCondition(def.entry.condition, view)
     : true;
-  const fire = def.entry.fireMode;
+  const ranked = rankedLegs(def);
   const rows: LegRow[] = def.entry.orders.map((o) => {
     const r = withContext(view, o.instrumentId);
-    const own: Truth =
+    const own: Truth = and(
       o.legCondition && hasComparisons(o.legCondition)
         ? evaluateCondition(o.legCondition, r)
-        : true;
-    const passed: Truth =
-      phase === false || own === false
-        ? false
-        : phase === undefined || own === undefined
-          ? undefined
-          : true;
-    const value =
-      fire?.mode === 'bestByMetric' ? computeMetric(fire.metric, o.instrumentId, r) : undefined;
+        : true,
+      ranked?.preFilter && hasComparisons(ranked.preFilter)
+        ? evaluateCondition(ranked.preFilter, r)
+        : true,
+    );
+    const passed: Truth = and(phase, own);
+    const value = ranked ? computeMetric(ranked.ranking, o.instrumentId, r) : undefined;
     return {
       legId: o.id,
       instrumentId: o.instrumentId,
@@ -225,15 +237,16 @@ export function selectLegs(
     };
   });
   let chosen = rows.filter((r) => r.passed === true);
-  if (fire?.mode === 'bestByMetric') {
-    const best = chosen
+  if (ranked) {
+    const sign = ranked.direction === 'desc' ? -1 : 1;
+    chosen = chosen
       .filter((r) => r.value !== null)
       .sort(
         (a, b) =>
-          new Decimal(b.value as string).comparedTo(new Decimal(a.value as string)) ||
+          sign * new Decimal(a.value as string).comparedTo(new Decimal(b.value as string)) ||
           (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0),
-      )[0];
-    chosen = best ? [best] : [];
+      )
+      .slice(0, selectionCount(ranked, def.entry.orders.length));
   }
   for (const r of chosen) r.selected = true;
   return {
@@ -311,7 +324,7 @@ export function slotDefinition(def: StrategyDefinition, slot: Slot, count = 1): 
   const { legCondition: _drop, ...leg } = bindOrder(template, slot.instrumentId);
   void _drop;
   const entry: PlannedOrder =
-    def.entry.kind === 'selection' && count > 1
+    def.entry.kind === 'selection' && !rankedLegs(def) && count > 1
       ? {
           ...leg,
           quantity: {
@@ -323,10 +336,13 @@ export function slotDefinition(def: StrategyDefinition, slot: Slot, count = 1): 
   const exits = def.exit.orders
     .filter((o) => o.instrumentId === CONTEXT_INSTRUMENT_ID || o.instrumentId === slot.instrumentId)
     .map((o) => bindOrder(o, slot.instrumentId));
+  // A slot's Exit has no trigger: its condition is checked directly (ADR 0049).
+  const { trigger: _noTrigger, ...exit } = def.exit;
+  void _noTrigger;
   return {
     ...def,
     entry: { ...def.entry, orders: [entry] },
-    exit: { ...def.exit, orders: exits },
+    exit: { ...exit, orders: exits },
     execution: { ...def.execution, legOrder: undefined },
   };
 }
@@ -373,7 +389,7 @@ export function definitionExpressions(def: StrategyDefinition): Expr[] {
 
 /** Instruments a slot can stand for: universe members, or the Entry legs' instruments. */
 export function contextInstruments(def: StrategyDefinition, members: readonly string[]): string[] {
-  if (def.entry.kind === 'selection') return [...members];
+  if (def.entry.kind === 'selection' && !rankedLegs(def)) return [...members];
   return [...new Set(def.entry.orders.map((o) => o.instrumentId))].filter(
     (id) => id !== CONTEXT_INSTRUMENT_ID,
   );
@@ -383,7 +399,6 @@ export function contextInstruments(def: StrategyDefinition, members: readonly st
 function definitionMetrics(def: StrategyDefinition): MetricRef[] {
   const refs: MetricRef[] = [];
   if (def.entry.kind === 'selection' && def.entry.selection) refs.push(def.entry.selection.ranking);
-  if (def.entry.fireMode?.mode === 'bestByMetric') refs.push(def.entry.fireMode.metric);
   return refs;
 }
 
@@ -418,7 +433,7 @@ export function definitionSeries(
         const ids = e.instrumentId === CONTEXT_INSTRUMENT_ID ? contexts : [e.instrumentId];
         for (const id of ids)
           for (const s of metricRequirements(metricExprRef(e), id))
-            out.push({ ...s, offset: s.offset + extra });
+            out.push({ ...s, offset: s.offset + extra + (e.offset ?? 0) });
         return;
       }
       case 'stat':
@@ -531,7 +546,7 @@ export const PAPER_UNIVERSE_LIMIT = 50;
  * and run on paper once the worker caches bars (Design v1.2 N11).
  */
 export function paperRunBlocker(def: StrategyDefinition): string | undefined {
-  if (def.entry.kind !== 'selection') return undefined;
+  if (def.entry.kind !== 'selection' || rankedLegs(def)) return undefined;
   const u = def.entry.selection?.universe;
   if (u?.type === 'builtin')
     return 'S&P 500 Selection groups can be back tested, but not run on paper yet: the paper runtime would reload 500 stocks’ bars on every pass. Use a list of up to 50 instruments to run on paper.';

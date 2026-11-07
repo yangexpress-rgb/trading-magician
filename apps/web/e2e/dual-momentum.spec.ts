@@ -19,7 +19,7 @@ const ret12 = (id: string, instrumentId: string) => ({
 function dualMomentum(ids: Record<string, string>, accountId: string) {
   const legs = ['DEMO-A', 'DEMO-B', 'DEMO-C'].map((s) => [s, ids[s]!] as const);
   const empty = (id: string) => ({ kind: 'group', id, op: 'and', negate: false, children: [] });
-  const trigger = { mode: 'on_transition', cooldownSec: 0, confirmationBars: 0 };
+  const trigger = { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 };
   return {
     entry: {
       condition: empty('eg'),

@@ -27,9 +27,11 @@ import {
 } from './tree';
 import { CONTEXT_INSTRUMENT_ID } from './evaluate';
 import { checkMetricRef, getMetric, metricReferences } from './metrics';
+import { atrStopDistance, sizesFromAtr } from './risk-exits';
 import {
   hasComparisons,
   listMembers,
+  rankedLegs,
   optionInstruments,
   paperRunBlocker,
   slotModeOf,
@@ -266,7 +268,9 @@ function checkCondition(
 
   if (comparisons.length === 0) {
     const allTimingOnly =
-      def[phase].orders.length > 0 && def[phase].orders.every((o) => o.timingOnly);
+      !!def.execution.timingOnly &&
+      def[phase].orders.length > 0 &&
+      def[phase].orders.every((o) => o.timing.mode !== 'immediate');
     // A Selection group or per-leg conditions decide entries themselves, and an
     // exit rule such as the time stop can be the only exit (v1.2).
     // A rebalance (Selection group, or per-leg conditions on a calendar
@@ -307,8 +311,42 @@ function checkCondition(
 
   // "This instrument" means the slot's instrument, which exists in Exit rules of
   // a Selection group or per-leg strategy; the strategy-level Entry has none.
-  const context = phase === 'exit' && slotModeOf(def) !== 'none';
+  const mode = slotModeOf(def);
+  // In the Entry gate of such a strategy, "this instrument" gets its own named error below.
+  const context = mode !== 'none';
   checkTree(root, [phase, 'condition'], ctx, add, context);
+
+  // The shared regime gate is evaluated once for the whole strategy, never for a
+  // member, so "this instrument" there would always be unknown (ADR 0049).
+  if (phase === 'entry' && mode !== 'none')
+    for (const e of walkExpressions(root))
+      if ('instrumentId' in e && e.instrumentId === CONTEXT_INSTRUMENT_ID) {
+        add(
+          'error',
+          'context_in_gate',
+          'The regime gate is checked once for the whole strategy, not per instrument, so it can\'t use "this instrument": move that condition into the pre-filter or a leg condition',
+          [phase, 'condition'],
+          e.id,
+        );
+        break;
+      }
+
+  // A crossing is true on one bar only, so it can never be true on N + 1 bars in a row.
+  const trigger = def[phase].trigger;
+  const triggered = phase === 'entry' ? mode === 'none' : !!trigger && mode === 'none';
+  if (triggered && trigger && trigger.confirmationBars >= 1) {
+    const cross = comparisons.find(
+      (c) => c.operator === 'crosses_above' || c.operator === 'crosses_below',
+    );
+    if (cross)
+      add(
+        'error',
+        'cross_with_confirmation',
+        `A crossing is true on the one bar it happens, so "${label}" fires "after ${trigger.confirmationBars} ${trigger.confirmationBars === 1 ? 'bar' : 'bars'} true" can never happen: fire as soon as it becomes true, or compare with "is above" / "is below" instead of a crossing`,
+        [phase, 'trigger', 'confirmationBars'],
+        cross.id,
+      );
+  }
 }
 
 function checkTree(
@@ -379,6 +417,24 @@ function checkAtrStops(def: StrategyDefinition, add: Add) {
     const stops = rules.filter((r) => r.kind === 'atrStop');
     if (stops.length > 1)
       add('error', 'duplicate_atr_stop', 'Use one ATR stop per Exit', [...at, 'exit', 'rules']);
+    if (stops.length > 0 && !atrStopDistance(p))
+      add(
+        'error',
+        'atr_stop_no_distance',
+        "Set the Entry's risk distance (ATR period and multiple), or give the ATR stop its own",
+        [...at, 'entry', 'risk'],
+      );
+    // ATR-sized legs read the Entry's one risk distance (ADR 0049).
+    p.entry.orders.forEach((o) => {
+      if (sizesFromAtr(o) && !p.entry.risk)
+        add(
+          'error',
+          'risk_needs_distance',
+          `"${o.legLabel}" risks an amount over the ATR distance: set the Entry's risk distance (ATR period and multiple)`,
+          [...at, 'entry', 'risk'],
+          o.id,
+        );
+    });
     const instruments = new Set(p.entry.orders.map((o) => o.instrumentId));
     if (stops.length > 0 && instruments.size > 1)
       add(
@@ -399,23 +455,8 @@ function checkGroups(def: StrategyDefinition, ctx: ValidationContext, add: Add) 
     { entry: def.entry, path: [] as (string | number)[], label: 'Entry' },
     ...groups.map((g, i) => ({ entry: g.entry, path: ['groups', i], label: g.label })),
   ];
-  for (const { entry, path, label } of all) {
-    // A stated direction must match what the Entry legs do.
-    if (entry.direction) {
-      const side = entry.direction === 'long' ? 'buy' : 'sell_short';
-      entry.orders.forEach((o, i) => {
-        if (o.side !== side)
-          add(
-            'error',
-            'direction_side_mismatch',
-            entry.direction === 'long'
-              ? `"${label}" goes long: its Entry leg "${o.legLabel}" must Buy`
-              : `"${label}" goes short: its Entry leg "${o.legLabel}" must Sell short`,
-            [...path, 'entry', 'orders', i, 'side'],
-            o.id,
-          );
-      });
-    }
+  for (const { entry, path } of all) {
+    // Direction is not stored: it comes from the Entry legs (directionOf, ADR 0049).
     // Shorting needs an instrument the broker lends (unknown is allowed; back tests say so).
     entry.orders.forEach((o, i) => {
       const instrument = ctx.instruments.get(o.instrumentId);
@@ -438,7 +479,7 @@ function checkGroups(def: StrategyDefinition, ctx: ValidationContext, add: Add) 
     add(
       'error',
       'groups_fixed_legs_only',
-      'Entry groups trade fixed instruments: remove the Selection group, per-leg conditions or "best by metric" before adding another entry group',
+      'Entry groups trade fixed instruments: remove the Selection group or per-leg conditions before adding another entry group',
       ['groups'],
     );
   if (def.execution.reentry.mode !== 'single_cycle')
@@ -832,11 +873,7 @@ function checkSlots(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
   for (const phase of ['entry', 'exit'] as const) {
     def[phase].orders.forEach((o, i) => {
       const t = o.timing;
-      if (
-        t.mode === 'exact' ||
-        (t.mode === 'relative' && t.reference.kind === 'leg') ||
-        o.timingOnly
-      ) {
+      if (t.mode === 'exact' || (t.mode === 'relative' && t.reference.kind === 'leg')) {
         add(
           'error',
           'slots_timing',
@@ -847,6 +884,14 @@ function checkSlots(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
       }
     });
   }
+
+  if (def.execution.timingOnly)
+    add(
+      'error',
+      'slots_timing_only',
+      `Timed entries without conditions don't apply with ${mode === 'selection' ? 'a Selection group' : 'per-leg conditions'}: each instrument trades when it is selected`,
+      ['execution', 'timingOnly'],
+    );
 
   if (mode === 'selection') checkSelection(def, ctx, add);
   else checkLegConditions(def, ctx, add);
@@ -1005,11 +1050,28 @@ function checkTradable(
 }
 
 function checkLegConditions(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
-  const fire = def.entry.fireMode;
-  if (fire?.mode === 'bestByMetric') {
-    for (const problem of checkMetricRef(fire.metric))
-      add('error', 'invalid_metric', problem, ['entry', 'fireMode', 'metric']);
-    const spec = getMetric(fire.metric.metric);
+  // A Selection group of these legs (ADR 0049): the legs are ranked by the metric.
+  const ranked = rankedLegs(def);
+  if (ranked) {
+    for (const problem of checkMetricRef(ranked.ranking))
+      add('error', 'invalid_metric', problem, ['entry', 'selection', 'ranking']);
+    for (const id of metricReferences(ranked.ranking))
+      if (!ctx.instruments.has(id))
+        add('error', 'unknown_instrument', 'Choose a valid benchmark', [
+          'entry',
+          'selection',
+          'ranking',
+        ]);
+    if (ranked.preFilter)
+      checkTree(ranked.preFilter, ['entry', 'selection', 'preFilter'], ctx, add, true);
+    if (def.entry.orders.length < 2)
+      add(
+        'warning',
+        'legs_selection_one_leg',
+        'A Selection group of these legs ranks the Entry legs: add another leg to choose between',
+        ['entry', 'orders'],
+      );
+    const spec = getMetric(ranked.ranking.metric);
     def.entry.orders.forEach((o, i) => {
       const info = ctx.instruments.get(o.instrumentId);
       if (spec && info && !spec.assetClasses.includes(info.assetClass))
@@ -1144,12 +1206,15 @@ function checkOrders(def: StrategyDefinition, phase: PhaseName, ctx: ValidationC
         o.id,
       );
     }
-    if (o.extendedHours) {
+    if (
+      def.execution.marketHoursPolicy === 'extended_if_supported' &&
+      extendedHoursEligible(o, !!account?.capabilities.extendedHours)
+    ) {
       add(
         'warning',
         'extended_hours',
         `"${o.legLabel}" may fill outside regular hours, when prices move more and liquidity is thinner`,
-        [...path, 'extendedHours'],
+        ['execution', 'marketHoursPolicy'],
         o.id,
       );
     }
@@ -1268,18 +1333,8 @@ function checkAccountForLeg(
       o.id,
     );
   }
-  if (o.extendedHours && !caps.extendedHours) {
-    add(
-      'error',
-      'extended_hours_unsupported',
-      `"${account.nickname}" doesn't support extended-hours orders`,
-      [...path, 'extendedHours'],
-      o.id,
-    );
-  }
   if (
     marketHoursPolicy === 'extended_if_supported' &&
-    !o.extendedHours &&
     !extendedHoursEligible(o, caps.extendedHours)
   ) {
     add(
@@ -1340,10 +1395,11 @@ function checkQuantity(
         );
       }
       break;
-    case 'risk_atr': {
-      // v1.2 item 9: risk a percentage of equity with the stop a multiple of ATR away.
+    case 'risk': {
+      // One risk quantity (ADR 0049): an amount over the distance to the stop.
+      const fromAtr = o.quantity.distanceFrom === 'atr';
       const phase = path[path.length - 3] ?? path[0];
-      if (phase === 'exit' && o.side !== 'close')
+      if (fromAtr && phase === 'exit' && o.side !== 'close')
         add(
           'error',
           'risk_atr_entry_only',
@@ -1351,7 +1407,7 @@ function checkQuantity(
           [...path, 'quantity', 'type'],
           o.id,
         );
-      if (q.gt(100))
+      if (o.quantity.amountIn === 'pct_equity' && q.gt(100))
         add(
           'error',
           'invalid_quantity',
@@ -1359,26 +1415,15 @@ function checkQuantity(
           qPath,
           o.id,
         );
-      if (!o.quantity.atrPeriod)
+      if (!o.quantity.amountIn || !o.quantity.distanceFrom)
         add(
           'error',
-          'risk_atr_needs_period',
-          `Set the ATR period for "${o.legLabel}"`,
-          [...path, 'quantity', 'atrPeriod'],
+          'risk_incomplete',
+          `Say whether "${o.legLabel}" risks dollars or a % of equity, and whether the stop is its stop price or the ATR distance`,
+          [...path, 'quantity'],
           o.id,
         );
-      if (!o.quantity.atrMultiple)
-        add(
-          'error',
-          'risk_atr_needs_multiple',
-          `Set the stop distance in ATRs for "${o.legLabel}"`,
-          [...path, 'quantity', 'atrMultiple'],
-          o.id,
-        );
-      break;
-    }
-    case 'risk_sized':
-      if (!o.stopPrice) {
+      if (!fromAtr && !o.stopPrice)
         add(
           'error',
           'risk_sizing_needs_stop',
@@ -1386,8 +1431,8 @@ function checkQuantity(
           [...path, 'stopPrice'],
           o.id,
         );
-      }
       break;
+    }
   }
 }
 
@@ -1402,7 +1447,7 @@ function checkPrices(o: PlannedOrder, path: (string | number)[], ctx: Validation
       [...path, 'limitPrice'],
       o.id,
     );
-  if (needsStop && !o.stopPrice && o.quantity.type !== 'risk_sized') {
+  if (needsStop && !o.stopPrice && o.quantity.type !== 'risk') {
     add(
       'error',
       'missing_stop_price',

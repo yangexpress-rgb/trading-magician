@@ -24,17 +24,21 @@ test('build a Selection group with a time stop, back test it, and read the ranki
     '00000000-0000-0000-0000-000000000000',
   );
   await expect(page.getByLabel('Evaluate Entry and re-selection')).toHaveValue('monthEnd');
-  await expect(page.getByText('Trigger options don’t apply here').first()).toBeVisible();
+  await expect(page.getByText(/each instrument is evaluated on its own/).first()).toBeVisible();
+  // The rebalance is shown as an exit of its own (ADR 0049).
+  await expect(
+    page.getByText('Sells whatever leaves the top N at the next rebalance.', { exact: false }),
+  ).toBeVisible();
 
-  // The Entry conditions are the crossover from the fixture; clear them so every month-end rebalances.
-  const entry = page.getByRole('region', { name: 'Entry conditions' });
+  // The regime gate is the crossover from the fixture; clear it so every month-end rebalances.
+  const entry = page.getByRole('region', { name: 'Regime gate' });
   while ((await entry.getByRole('button', { name: /^Remove condition/ }).count()) > 0) {
     await entry
       .getByRole('button', { name: /^Remove condition/ })
       .first()
       .click();
   }
-  const exit = page.getByRole('region', { name: 'Exit conditions' });
+  const exit = page.getByRole('region', { name: 'Exit condition' });
   while ((await exit.getByRole('button', { name: /^Remove condition/ }).count()) > 0) {
     await exit
       .getByRole('button', { name: /^Remove condition/ })
@@ -43,8 +47,8 @@ test('build a Selection group with a time stop, back test it, and read the ranki
   }
 
   // A time stop sits in the Exit rules.
-  await page.getByRole('button', { name: 'Add a time stop' }).click();
-  await page.getByLabel('Exit after this many trading days held').fill('15');
+  await page.getByRole('button', { name: 'Add a holding-period exit' }).click();
+  await page.getByLabel('Holding-period exit: trading days held').fill('15');
 
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/selection-builder.png`, fullPage: true });
   await page.getByRole('button', { name: 'Save draft' }).click();
@@ -98,8 +102,10 @@ test('per-leg conditions, a z-score and a registry metric in the builder', async
     .selectOption({ label: 'Metric (price-based, shared registry)' });
   await expect(right.getByLabel('Metric')).toHaveValue('return');
 
-  await page.getByLabel('When several legs qualify').selectOption('bestByMetric');
-  await expect(page.getByLabel('Best by (highest)')).toHaveValue('return');
+  // "Only the best ones" is a Selection group of these legs (ADR 0049).
+  await page.getByLabel('When several legs qualify').selectOption('best');
+  await expect(page.getByLabel('Rank by', { exact: true })).toHaveValue('return');
+  await expect(page.getByText('Universe: these Entry legs', { exact: false })).toBeVisible();
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/per-leg-builder.png`, fullPage: true });
   await page.getByRole('button', { name: 'Save draft' }).click();
   await expect(page.locator('#save-state')).toHaveText('All changes saved');

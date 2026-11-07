@@ -2,22 +2,36 @@
 
 import {
   REQUIRED_RISK_LIMITS,
-  TRIGGER_MODES,
+  slotModeOf,
   type ExecutionPolicy,
-  type Phase,
   type PhaseName,
   type RiskProfile,
   type StrategyDefinition,
+  type Trigger,
 } from '@tm/domain';
 import { Card } from '@tm/ui';
-import { RISK_FIELDS, TRIGGER_LABELS } from '@/lib/strategy-text';
+import { RISK_FIELDS } from '@/lib/strategy-text';
 import { useEditor } from './editor-context';
 import { MiniInput, MiniSelect, RowButton } from './fields';
-import { ScheduleField } from './slots-editor';
 
 const intOrNaN = (v: string) => (v === '' ? Number.NaN : Number(v));
 
-/** Trigger mode and debounce for one phase (§6.5), behind a disclosure. */
+type FireWhen = 'becomes_true' | 'after_bars' | 'while_true' | 'once_per_cycle';
+
+const FIRE_WHEN_LABELS: Record<FireWhen, string> = {
+  becomes_true: 'As soon as it becomes true (default)',
+  after_bars: 'After it has been true for N bars',
+  while_true: 'Repeatedly while true',
+  once_per_cycle: 'Once per cycle, when it becomes true',
+};
+
+const fireWhenOf = (t: Trigger): FireWhen =>
+  t.mode === 'on_transition' ? (t.confirmationBars > 0 ? 'after_bars' : 'becomes_true') : t.mode;
+
+/**
+ * When a phase fires (§6.5, ADR 0049): one "Fire when" choice for the trigger
+ * mode and confirmation together, and a cooldown counted in bars.
+ */
 export function TriggerSettings({
   phase,
   value,
@@ -25,52 +39,72 @@ export function TriggerSettings({
   idPrefix = '',
 }: {
   phase: PhaseName;
-  value: Phase['trigger'];
-  onChange: (trigger: Phase['trigger']) => void;
+  value: Trigger;
+  onChange: (trigger: Trigger) => void;
   /** Keeps ids unique when several entry groups are shown (v1.2 item 8). */
   idPrefix?: string;
 }) {
   const { issueAt, editable } = useEditor();
   const err = (k: string) => issueAt([phase, 'trigger', k]);
+  const when = fireWhenOf(value);
+  const showBars = when === 'after_bars' || value.confirmationBars > 0;
   return (
-    <details className="mt-3">
-      <summary className="cursor-pointer text-sm font-medium">Trigger options</summary>
-      <fieldset disabled={!editable} className="mt-2 grid-fields-wide gap-2">
-        <legend className="sr-only">{phase === 'entry' ? 'Entry' : 'Exit'} trigger options</legend>
-        <MiniSelect
-          id={`${idPrefix}${phase}-trigger-mode`}
-          label="Fire"
-          value={value.mode}
-          onChange={(e) => onChange({ ...value, mode: e.target.value as Phase['trigger']['mode'] })}
-        >
-          {TRIGGER_MODES.map((m) => (
-            <option key={m} value={m}>
-              {TRIGGER_LABELS[m]}
-            </option>
-          ))}
-        </MiniSelect>
-        <MiniInput
-          id={`${idPrefix}${phase}-trigger-cooldown`}
-          label="Cooldown (seconds)"
-          type="number"
-          min={0}
-          step={1}
-          value={Number.isFinite(value.cooldownSec) ? String(value.cooldownSec) : ''}
-          error={err('cooldownSec')}
-          onChange={(e) => onChange({ ...value, cooldownSec: intOrNaN(e.target.value) })}
-        />
+    <fieldset disabled={!editable} className="mt-3 grid-fields-wide gap-2">
+      <legend className="sr-only">{phase === 'entry' ? 'Entry' : 'Exit'} trigger</legend>
+      <MiniSelect
+        id={`${idPrefix}${phase}-trigger-mode`}
+        label="Fire when"
+        value={when}
+        error={err('confirmationBars')}
+        onChange={(e) => {
+          const next = e.target.value as FireWhen;
+          onChange(
+            next === 'becomes_true'
+              ? { ...value, mode: 'on_transition', confirmationBars: 0 }
+              : next === 'after_bars'
+                ? {
+                    ...value,
+                    mode: 'on_transition',
+                    confirmationBars: Math.max(1, value.confirmationBars),
+                  }
+                : { ...value, mode: next, confirmationBars: 0 },
+          );
+        }}
+      >
+        {(Object.keys(FIRE_WHEN_LABELS) as FireWhen[]).map((m) => (
+          <option key={m} value={m}>
+            {FIRE_WHEN_LABELS[m]}
+          </option>
+        ))}
+      </MiniSelect>
+      {showBars && (
         <MiniInput
           id={`${idPrefix}${phase}-trigger-confirm`}
-          label="Confirmation bars"
+          label="N: bars true in a row"
           type="number"
-          min={0}
+          min={when === 'after_bars' ? 2 : 1}
           step={1}
-          value={Number.isFinite(value.confirmationBars) ? String(value.confirmationBars) : ''}
-          error={err('confirmationBars')}
-          onChange={(e) => onChange({ ...value, confirmationBars: intOrNaN(e.target.value) })}
+          value={Number.isFinite(value.confirmationBars) ? String(value.confirmationBars + 1) : ''}
+          onChange={(e) =>
+            onChange({
+              ...value,
+              confirmationBars:
+                e.target.value === '' ? Number.NaN : Math.max(0, Number(e.target.value) - 1),
+            })
+          }
         />
-      </fieldset>
-    </details>
+      )}
+      <MiniInput
+        id={`${idPrefix}${phase}-trigger-cooldown`}
+        label="Then wait (bars) before firing again"
+        type="number"
+        min={0}
+        step={1}
+        value={Number.isFinite(value.cooldownBars) ? String(value.cooldownBars) : ''}
+        error={err('cooldownBars')}
+        onChange={(e) => onChange({ ...value, cooldownBars: intOrNaN(e.target.value) })}
+      />
+    </fieldset>
   );
 }
 
@@ -89,6 +123,12 @@ export function ExecutionAndRisk({
     onChange({ ...definition, execution: { ...ex, ...patch } });
   const legs = [...definition.entry.orders, ...definition.exit.orders];
   const required = new Set<string>(REQUIRED_RISK_LIMITS);
+  // The leg timeout applies only when a phase sends several legs (ADR 0049).
+  const phases = [definition, ...(definition.groups ?? [])];
+  const multiLeg =
+    slotModeOf(definition) === 'none' &&
+    phases.some((p) => p.entry.orders.length > 1 || p.exit.orders.length > 1);
+  const slots = slotModeOf(definition) !== 'none';
 
   const order = ex.legOrder ?? legs.map((l) => l.id);
   const moveLeg = (i: number, delta: -1 | 1) => {
@@ -109,7 +149,6 @@ export function ExecutionAndRisk({
           How legs are sent and what happens when one doesn&rsquo;t fill. Brokers rarely fill
           several instruments as one atomic order.
         </p>
-        <ScheduleField definition={definition} onChange={onChange} />
         <fieldset disabled={!editable} className="grid-fields-wide gap-3">
           <legend className="sr-only">Execution policy</legend>
           <MiniSelect
@@ -130,16 +169,18 @@ export function ExecutionAndRisk({
             <option value="sequential">One after another, in order</option>
             <option value="after_prior_fill">Next leg only after the previous one fills</option>
           </MiniSelect>
-          <MiniInput
-            id="exec-timeout"
-            label="Leg timeout (seconds)"
-            type="number"
-            min={1}
-            step={1}
-            value={Number.isFinite(ex.legTimeoutSec) ? String(ex.legTimeoutSec) : ''}
-            error={issueAt(['execution', 'legTimeoutSec'])}
-            onChange={(e) => setEx({ legTimeoutSec: intOrNaN(e.target.value) })}
-          />
+          {multiLeg && (
+            <MiniInput
+              id="exec-timeout"
+              label="Leg timeout (seconds)"
+              type="number"
+              min={1}
+              step={1}
+              value={Number.isFinite(ex.legTimeoutSec) ? String(ex.legTimeoutSec) : ''}
+              error={issueAt(['execution', 'legTimeoutSec'])}
+              onChange={(e) => setEx({ legTimeoutSec: intOrNaN(e.target.value) })}
+            />
+          )}
           <MiniSelect
             id="exec-failure"
             label="If a leg fails or times out"
@@ -173,6 +214,38 @@ export function ExecutionAndRisk({
             <option value="NYSE">NYSE</option>
           </MiniSelect>
         </fieldset>
+
+        {(!slots || ex.timingOnly) && (
+          <div className="mt-3">
+            <label className="flex items-center gap-1.5 text-sm">
+              <input
+                type="checkbox"
+                disabled={!editable}
+                checked={ex.timingOnly === true}
+                aria-describedby="exec-timing-only-help"
+                onChange={(e) => {
+                  const { timingOnly: _t, ...rest } = ex;
+                  void _t;
+                  onChange({
+                    ...definition,
+                    execution: e.target.checked ? { ...rest, timingOnly: true } : rest,
+                  });
+                }}
+              />
+              Allow timed entries without conditions
+            </label>
+            {issueAt(['execution', 'timingOnly']) && (
+              <p className="text-xs font-medium text-danger">
+                {issueAt(['execution', 'timingOnly'])}
+              </p>
+            )}
+            <p id="exec-timing-only-help" className="mt-1 text-xs text-ink-muted">
+              On: a leg timed for an exact date or after a delay goes on its timing alone, without
+              waiting for its phase&rsquo;s conditions, and an Entry leg at an exact time opens a
+              cycle by itself. Off: timed legs also wait for the conditions.
+            </p>
+          </div>
+        )}
 
         {ex.multiLegPolicy !== 'concurrent' && (
           <div className="mt-3">

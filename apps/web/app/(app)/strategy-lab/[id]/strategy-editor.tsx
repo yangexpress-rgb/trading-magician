@@ -3,6 +3,7 @@
 import { ApiError } from '@tm/contracts';
 import {
   canonicalJson,
+  DEFAULT_TRIGGER,
   directionOf,
   hasGroups,
   slotModeOf,
@@ -28,9 +29,15 @@ import {
 import { InstrumentFinder } from '@/components/strategy/instrument-finder';
 import { BackTestPanel, useValidation, ValidationPanel } from '@/components/strategy/lifecycle';
 import { OrdersEditor } from '@/components/strategy/orders-editor';
-import { EntryStructure, ExitRulesEditor } from '@/components/strategy/slots-editor';
+import {
+  EntryStructure,
+  ExitRulesEditor,
+  RiskDistanceEditor,
+  ScheduleField,
+} from '@/components/strategy/slots-editor';
 import {
   addGroup,
+  DIRECTION_LABELS,
   DirectionField,
   GroupHeader,
   GroupScope,
@@ -147,14 +154,22 @@ export function StrategyEditor({
 
   const slotMode = slotModeOf(definition);
   const universe = definition.entry.selection?.universe;
-  const universeKey =
-    universe?.type === 'list' ? universe.instrumentIds.join(',') : (universe?.id ?? '');
+  // "These legs" ranks the Entry legs' instruments (ADR 0049).
+  const memberIds =
+    universe?.type === 'list'
+      ? universe.instrumentIds
+      : universe?.type === 'legs'
+        ? definition.entry.orders.map((o) => o.instrumentId)
+        : undefined;
+  const universeKey = memberIds
+    ? memberIds.join(',')
+    : universe?.type === 'builtin'
+      ? universe.id
+      : '';
   const universeClasses = useMemo(() => {
-    if (!universe || universe.type === 'builtin') return ['stock'];
+    if (!memberIds) return ['stock'];
     const classes = new Set(
-      universe.instrumentIds.map(
-        (id) => instruments.find((i) => i.id === id)?.assetClass ?? 'stock',
-      ),
+      memberIds.map((id) => instruments.find((i) => i.id === id)?.assetClass ?? 'stock'),
     );
     return [...classes];
   }, [universeKey, instruments]);
@@ -264,20 +279,35 @@ export function StrategyEditor({
           <section
             key={g.id}
             aria-label={`Entry group ${i + 2}: ${g.label}`}
-            className="space-y-4 rounded-lg border border-line p-3"
+            className="rounded-lg border border-line p-3"
           >
-            <GroupHeader definition={definition} index={i} onChange={edit} />
-            <GroupScope definition={definition} index={i} onChange={edit}>
-              {(own, set) => (
-                <PhaseCards
-                  definition={own}
-                  onChange={set}
-                  slotMode="none"
-                  groupTitle={g.label}
-                  idPrefix={`group-${g.id}-`}
-                />
-              )}
-            </GroupScope>
+            {/* One summary row per group, so two groups don't read as two strategies (ADR 0049). */}
+            <details>
+              <summary className="cursor-pointer text-sm">
+                <span className="font-semibold">
+                  Entry group {i + 2}: {g.label}
+                </span>{' '}
+                <span className="text-ink-muted">
+                  · {DIRECTION_LABELS[directionOf(g.entry)].split(':')[0]} · {g.entry.orders.length}{' '}
+                  Entry {g.entry.orders.length === 1 ? 'leg' : 'legs'}, {g.exit.orders.length} Exit{' '}
+                  {g.exit.orders.length === 1 ? 'leg' : 'legs'}
+                </span>
+              </summary>
+              <div className="mt-3 space-y-4">
+                <GroupHeader definition={definition} index={i} onChange={edit} />
+                <GroupScope definition={definition} index={i} onChange={edit}>
+                  {(own, set) => (
+                    <PhaseCards
+                      definition={own}
+                      onChange={set}
+                      slotMode="none"
+                      groupTitle={g.label}
+                      idPrefix={`group-${g.id}-`}
+                    />
+                  )}
+                </GroupScope>
+              </div>
+            </details>
           </section>
         ))}
         {editable && slotMode === 'none' && (definition.groups?.length ?? 0) < MAX_GROUPS && (
@@ -345,6 +375,13 @@ function PhaseCards({
       {(['entry', 'exit'] as const).map((phase) => {
         const title = phase === 'entry' ? 'Entry' : 'Exit';
         const heading = groupTitle ? `${title}: ${groupTitle} (${direction})` : title;
+        // One field, named for its job (ADR 0049).
+        const conditionTitle =
+          phase === 'exit'
+            ? 'Exit condition'
+            : slotMode === 'none'
+              ? 'Entry trigger'
+              : 'Regime gate';
         return (
           <Card
             key={phase}
@@ -369,39 +406,48 @@ function PhaseCards({
                 : 'After Entry fills, the strategy exits when these conditions qualify.'}
             </p>
             {phase === 'entry' && slotMode === 'none' && (
-              <DirectionField
-                definition={definition}
-                onChange={onChange}
-                id={`${idPrefix}entry-direction`}
-              />
+              <DirectionField definition={definition} id={`${idPrefix}entry-direction`} />
             )}
             {phase === 'entry' && own && (
               <EntryStructure definition={definition} onChange={onChange} />
             )}
-            <h3 className="mb-2 text-base font-semibold text-cond">{title} conditions</h3>
+            {/* "When" lives in one place per phase (ADR 0049): the schedule is part of Entry. */}
+            {phase === 'entry' && own && (
+              <ScheduleField definition={definition} onChange={onChange} />
+            )}
+            {phase === 'entry' && (
+              <RiskDistanceEditor definition={definition} onChange={onChange} idPrefix={idPrefix} />
+            )}
+            <h3 className="mb-1 text-base font-semibold text-cond">{conditionTitle}</h3>
+            {phase === 'entry' && slotMode !== 'none' && (
+              <p className="mb-2 text-xs text-ink-muted">
+                Checked once for the whole strategy, for example a market regime filter: while it is
+                false nothing new enters. Leave it empty to enter on every scheduled date.
+              </p>
+            )}
             <ConditionTreeEditor
               root={definition[phase].condition}
               onChange={setPhaseCondition(phase)}
-              label={groupTitle ? `${title} conditions: ${groupTitle}` : `${title} conditions`}
+              label={groupTitle ? `${conditionTitle}: ${groupTitle}` : conditionTitle}
               path={[phase, 'condition']}
             />
-            {phase === 'exit' && <ExitRulesEditor definition={definition} onChange={onChange} />}
-            {slotMode === 'none' ? (
+            {slotMode === 'none' && definition[phase].trigger ? (
               <TriggerSettings
                 idPrefix={idPrefix}
                 phase={phase}
-                value={definition[phase].trigger}
+                value={definition[phase].trigger ?? DEFAULT_TRIGGER}
                 onChange={(trigger) =>
                   onChange({ ...definition, [phase]: { ...definition[phase], trigger } })
                 }
               />
             ) : (
               <p className="mt-3 text-xs text-ink-muted">
-                Trigger options don&rsquo;t apply here: with{' '}
-                {slotMode === 'selection' ? 'a Selection group' : 'per-leg conditions'} each
-                instrument is evaluated on its own at every scheduled evaluation.
+                {phase === 'entry'
+                  ? `With ${slotMode === 'selection' ? 'a Selection group' : 'per-leg conditions'} each instrument is evaluated on its own at every scheduled evaluation.`
+                  : 'The Exit condition exits on every bar it is true: there is nothing to confirm or wait for.'}
               </p>
             )}
+            {phase === 'exit' && <ExitRulesEditor definition={definition} onChange={onChange} />}
             <OrdersEditor definition={definition} phase={phase} onChange={onChange} />
           </Card>
         );

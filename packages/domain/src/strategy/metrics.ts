@@ -7,7 +7,12 @@ import {
   type FundamentalPoint,
 } from '../market/point-in-time';
 import type { OptionSignalField, OptionSignalSource } from '../options/signals';
-import type { IndicatorParamSpec, PriceAdjustment } from './catalog';
+import {
+  BAR_INTERVALS,
+  type BarInterval,
+  type IndicatorParamSpec,
+  type PriceAdjustment,
+} from './catalog';
 import type { IndicatorExpr, MarketExpr, MetricExpr, MetricRef } from './schema';
 
 /**
@@ -113,6 +118,17 @@ export function dailyClose(
     adjustment,
     session: 'regular',
     offset,
+  };
+}
+
+/** The RSI series the `rsi` metric reads: closes at its interval, daily by default. */
+function rsiSeries(instrumentId: string, p: Record<string, number | string>): IndicatorExpr {
+  const interval = (BAR_INTERVALS as readonly string[]).includes(String(p.interval))
+    ? (String(p.interval) as BarInterval)
+    : '1d';
+  return {
+    ...dailyIndicator(instrumentId, 'RSI', Number(p.period ?? 14)),
+    ...(interval !== '1d' ? { id: `metric:RSI:${interval}:${instrumentId}`, interval } : {}),
   };
 }
 
@@ -272,16 +288,25 @@ const PRICE_METRICS: readonly MetricSpec[] = [
     },
   },
   {
+    // The one RSI (ADR 0049): conditions, ranking and the screener all read this.
     id: 'rsi',
     label: 'RSI',
-    help: 'The relative strength index on daily closes, as the RSI indicator computes it.',
+    help: "The relative strength index (Wilder's smoothing) of the closes, on daily bars unless another interval is chosen.",
     category: 'price',
     unit: 'number',
-    params: [{ name: 'period', label: 'Period', kind: 'int', min: 2, max: 500, default: 14 }],
+    params: [
+      { name: 'period', label: 'Period', kind: 'int', min: 1, max: 500, default: 14 },
+      {
+        name: 'interval',
+        label: 'Bars',
+        kind: 'enum',
+        options: BAR_INTERVALS,
+        default: '1d',
+      },
+    ],
     assetClasses: PRICE_CLASSES,
-    requirements: (id, p) => [dailyIndicator(id, 'RSI', Number(p.period ?? 14))],
-    compute: (id, p, r, barsBack) =>
-      r.value(dailyIndicator(id, 'RSI', Number(p.period ?? 14)), barsBack),
+    requirements: (id, p) => [rsiSeries(id, p)],
+    compute: (id, p, r, barsBack) => r.value(rsiSeries(id, p), barsBack),
   },
 ];
 

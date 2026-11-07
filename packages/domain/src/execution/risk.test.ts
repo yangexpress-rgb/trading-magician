@@ -67,7 +67,7 @@ describe('checkPreTradeRisk', () => {
   });
 
   it('caps open positions only for new instruments', () => {
-    const risk = { ...PAPER, maxOpenPositions: 2 };
+    const risk = { ...PAPER, maxInstrumentsHeld: 2 };
     expect(code({ risk, openPositions: 2 })).toBe('risk_open_positions');
     expect(code({ risk, openPositions: 2, instrumentHeld: true })).toBeUndefined();
   });

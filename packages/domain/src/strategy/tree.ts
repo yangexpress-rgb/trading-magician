@@ -225,10 +225,7 @@ export function collectInstrumentUses(def: StrategyDefinition): InstrumentUse[] 
     for (const id of selection.universe.instrumentIds)
       uses.push({ instrumentId: id, phase: 'entry', role: 'order' });
   }
-  const metricRefs = [
-    selection?.ranking,
-    def.entry.fireMode?.mode === 'bestByMetric' ? def.entry.fireMode.metric : undefined,
-  ];
+  const metricRefs = [selection?.ranking];
   for (const ref of metricRefs) {
     if (!ref) continue;
     for (const v of Object.values(ref.params))

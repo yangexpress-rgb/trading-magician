@@ -2,14 +2,15 @@ import { z } from 'zod';
 import { BAR_INTERVALS, MARKET_FIELDS, PRICE_ADJUSTMENTS, SESSIONS } from './catalog';
 
 /**
- * Strategy definition, schema version 1 (Design v1.0 §6, §13.2; proposal §4.5).
+ * Strategy definition, schema version 2 (Design v1.0 §6, §13.2; proposal §4.5;
+ * the Strategy Lab simplification, ADR 0049).
  *
  * A definition is a validated tree, never display text. It is stored as one
  * JSON document per immutable strategy version. Structural rules live here;
  * rules that need outside context (instruments, accounts, feeds) live in
- * validate.ts.
+ * validate.ts. Version 1 documents are migrated on read (migrate-v1.ts).
  */
-export const STRATEGY_SCHEMA_VERSION = 1 as const;
+export const STRATEGY_SCHEMA_VERSION = 2 as const;
 
 /** Decimal values travel as strings so no precision is lost (§17.1). */
 export const decimalString = z
@@ -98,6 +99,8 @@ export interface MetricExpr {
   metric: string;
   params: Record<string, number | string>;
   instrumentId: string;
+  /** Bars back from the current one, as on market values (absent is 0). */
+  offset?: number | undefined;
 }
 /**
  * A statistical function over any expression, evaluated bar by bar over its
@@ -165,6 +168,7 @@ export const metricExprSchema = z.object({
   metric: z.string().min(1).max(40),
   params: z.record(z.string(), z.union([z.number(), z.string().max(64)])),
   instrumentId: z.string().uuid({ message: 'Choose an instrument' }),
+  offset: z.number().int().min(0).max(500).optional(),
 });
 
 const statExprSchema = z.object({
@@ -306,16 +310,14 @@ export const ORDER_SIDES = [
 ] as const;
 export type OrderSide = (typeof ORDER_SIDES)[number];
 /**
- * `risk_atr` (v1.2 item 9): risk `value`% of equity, with the stop
- * `atrMultiple` × ATR(`atrPeriod`) away: quantity = equity × value% ÷ (ATR × multiple).
+ * `risk` (one risk quantity, ADR 0049): lose at most an amount if the stop is
+ * hit. The amount is dollars or a % of equity; the distance to the stop is
+ * the leg's stop price, or the Entry's risk distance (ATR × multiple).
  */
-export const QUANTITY_TYPES = [
-  'units',
-  'notional',
-  'pct_equity',
-  'risk_sized',
-  'risk_atr',
-] as const;
+export const QUANTITY_TYPES = ['units', 'notional', 'pct_equity', 'risk'] as const;
+export type QuantityType = (typeof QUANTITY_TYPES)[number];
+export const RISK_AMOUNT_UNITS = ['dollars', 'pct_equity'] as const;
+export const RISK_DISTANCES = ['stop_price', 'atr'] as const;
 export const ORDER_TYPES = ['market', 'limit', 'stop', 'stop_limit'] as const;
 export type OrderType = (typeof ORDER_TYPES)[number];
 export const TIME_IN_FORCE = ['day', 'gtc', 'ioc', 'fok'] as const;
@@ -369,18 +371,16 @@ export const plannedOrderSchema = z.object({
     type: z.enum(QUANTITY_TYPES),
     value: positiveDecimalString,
     rounding: z.enum(['down', 'nearest']).default('down'),
-    /** `risk_atr` only: the ATR's period in daily bars, and the stop distance in ATRs. */
-    atrPeriod: z.number().int().min(1).max(500).optional(),
-    atrMultiple: positiveDecimalString.optional(),
+    /** `risk` only: whether `value` is dollars or a % of equity. */
+    amountIn: z.enum(RISK_AMOUNT_UNITS).optional(),
+    /** `risk` only: the stop distance, from the leg's stop price or the Entry's risk distance. */
+    distanceFrom: z.enum(RISK_DISTANCES).optional(),
   }),
   orderType: z.enum(ORDER_TYPES),
   limitPrice: exprSchema.optional(),
   stopPrice: exprSchema.optional(),
   timeInForce: z.enum(TIME_IN_FORCE).default('day'),
-  extendedHours: z.boolean().default(false),
   timing: timingSchema.prefault({ mode: 'immediate' }),
-  /** When true, only the timing rule must qualify, not the phase condition (§6.8). */
-  timingOnly: z.boolean().default(false),
   notes: z.string().max(500).optional(),
   /**
    * Entry legs only (v1.2 item 2): the leg fires only when the Entry
@@ -397,20 +397,26 @@ export type PlannedOrder = z.infer<typeof plannedOrderSchema>;
 
 export const TRIGGER_MODES = ['on_transition', 'while_true', 'once_per_cycle'] as const;
 
+/**
+ * When a phase's condition fires (§6.5): the builder's one "Fire when"
+ * control. `once_per_cycle` fires once per cycle: the Entry trigger re-arms
+ * when a cycle closes. The cooldown counts evaluations (bars), not seconds.
+ */
+export const triggerSchema = z.object({
+  mode: z.enum(TRIGGER_MODES).default('on_transition'),
+  cooldownBars: z.number().int().min(0).max(1000).default(0),
+  confirmationBars: z.number().int().min(0).max(100).default(0),
+});
+export type Trigger = z.infer<typeof triggerSchema>;
+export const DEFAULT_TRIGGER: Trigger = {
+  mode: 'on_transition',
+  cooldownBars: 0,
+  confirmationBars: 0,
+};
+
 export const phaseSchema = z.object({
   condition: conditionGroupSchema,
-  trigger: z
-    .object({
-      mode: z.enum(TRIGGER_MODES).default('on_transition'),
-      cooldownSec: z
-        .number()
-        .int()
-        .min(0)
-        .max(86_400 * 30)
-        .default(0),
-      confirmationBars: z.number().int().min(0).max(100).default(0),
-    })
-    .prefault({}),
+  trigger: triggerSchema.prefault({}),
   orders: z.array(plannedOrderSchema).max(20),
 });
 export type Phase = z.infer<typeof phaseSchema>;
@@ -433,6 +439,12 @@ export type BuiltinUniverse = (typeof BUILTIN_UNIVERSES)[number];
 
 export const universeSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('builtin'), id: z.enum(BUILTIN_UNIVERSES) }),
+  /**
+   * "These legs" (ADR 0049): the Entry legs themselves are the candidates,
+   * each with its own instrument, sizing and leg condition (its pre-filter).
+   * What "best by metric" used to do is this universe with a count of 1.
+   */
+  z.object({ type: z.literal('legs') }),
   z.object({
     type: z.literal('list'),
     instrumentIds: z
@@ -454,30 +466,29 @@ export const selectionSchema = z.object({
   ]),
   /** Evaluated per member before ranking; failing or unknown members are left out. */
   preFilter: conditionGroupSchema.optional(),
-  weighting: z.literal('equal'),
 });
 export type Selection = z.infer<typeof selectionSchema>;
-
-export const fireModeSchema = z.discriminatedUnion('mode', [
-  z.object({ mode: z.literal('allPassing') }),
-  z.object({ mode: z.literal('bestByMetric'), metric: metricRefSchema }),
-]);
-export type FireMode = z.infer<typeof fireModeSchema>;
 
 export const POSITION_DIRECTIONS = ['long', 'short'] as const;
 export type PositionDirection = (typeof POSITION_DIRECTIONS)[number];
 
+/**
+ * One risk distance per Entry (ADR 0049): the stop is `atrMultiple` ×
+ * ATR(`atrPeriod`) of daily bars from the entry price. Risk-sized legs that
+ * size from the ATR read it, and so does the ATR stop unless it overrides it,
+ * so sizing and the stop can't drift apart.
+ */
+export const riskDistanceSchema = z.object({
+  atrPeriod: z.number().int().min(1).max(500),
+  atrMultiple: positiveDecimalString,
+});
+export type RiskDistance = z.infer<typeof riskDistanceSchema>;
+
 export const entryPhaseSchema = phaseSchema.extend({
-  /**
-   * v1.2 item 8: whether this entry group opens a long or a short position.
-   * Absent on older definitions: then read from the Entry legs (all
-   * "Sell short" is short, anything else long); see `directionOf`.
-   */
-  direction: z.enum(POSITION_DIRECTIONS).optional(),
   /** `fixed` when absent: the legs name their instruments, as in v1.1. */
   kind: z.enum(['fixed', 'selection']).optional(),
   selection: selectionSchema.optional(),
-  fireMode: fireModeSchema.optional(),
+  risk: riskDistanceSchema.optional(),
 });
 export type EntryPhase = z.infer<typeof entryPhaseSchema>;
 
@@ -491,19 +502,26 @@ export const exitRuleSchema = z.discriminatedUnion('kind', [
   }),
   /**
    * v1.2 item 9: exit when a daily close crosses the entry price minus (long)
-   * or plus (short) `atrMultiple` × ATR(`atrPeriod`) as measured at entry.
+   * or plus (short) the stop distance as measured at entry: the Entry's risk
+   * distance, or `override` when the person set one of its own (ADR 0049).
    * The level is fixed at entry; a trailing stop is not part of this round.
    */
   z.object({
     kind: z.literal('atrStop'),
     id,
-    atrPeriod: z.number().int().min(1).max(500),
-    atrMultiple: positiveDecimalString,
+    override: riskDistanceSchema.optional(),
   }),
 ]);
 export type ExitRule = z.infer<typeof exitRuleSchema>;
 
 export const exitPhaseSchema = phaseSchema.extend({
+  /**
+   * Absent with a Selection group or per-leg conditions: there the Exit
+   * condition is checked directly on every bar, with no trigger (ADR 0049).
+   */
+  trigger: triggerSchema.optional(),
+  /** "Mirror Entry legs" (ADR 0049): the Exit legs are generated from the Entry legs. */
+  mirrorEntry: z.boolean().optional(),
   /** Rules combined with the Exit condition by OR: the first to trigger exits. */
   rules: z.array(exitRuleSchema).max(5).optional(),
 });
@@ -548,6 +566,12 @@ export const executionSchema = z.object({
   marketHoursPolicy: z.enum(['queue', 'cancel', 'extended_if_supported']),
   holidayCalendar: z.enum(['NYSE']),
   staleDataSec: z.number().int().min(1).max(86_400),
+  /**
+   * "Allow timed entries without conditions" (ADR 0049): legs with an exact or
+   * relative timing go at their time alone, without the phase condition, and
+   * an exact-timed Entry leg can open a cycle by itself (§6.8).
+   */
+  timingOnly: z.boolean().optional(),
 });
 export type ExecutionPolicy = z.infer<typeof executionSchema>;
 
@@ -557,8 +581,8 @@ export const riskProfileSchema = z.object({
   maxActiveOrders: z.number().int().min(1).max(1000).optional(),
   dailyLossLimit: positiveDecimalString.optional(),
   priceCollarPct: positiveDecimalString.optional(),
-  /** Not yet part of the confirmed defaults; optional until decided. */
-  maxOpenPositions: z.number().int().min(1).max(1000).optional(),
+  /** How many instruments may be held at once (not orders: see maxActiveOrders). */
+  maxInstrumentsHeld: z.number().int().min(1).max(1000).optional(),
   maxDrawdownPct: positiveDecimalString.optional(),
 });
 export type RiskProfile = z.infer<typeof riskProfileSchema>;
@@ -585,3 +609,4 @@ export const strategyDefinitionSchema = z.object({
 });
 export type StrategyDefinition = z.infer<typeof strategyDefinitionSchema>;
 export type PhaseName = 'entry' | 'exit';
+export type ExitTrigger = ExitPhase['trigger'];

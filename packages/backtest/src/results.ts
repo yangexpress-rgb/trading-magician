@@ -215,7 +215,8 @@ export interface ComparisonSummary {
 export interface PhaseConditionReport {
   /** The rules that were tested, so the report reads without the strategy. */
   condition: ConditionNode;
-  trigger: Phase['trigger'];
+  /** Absent for a slot's Exit, which has no trigger (ADR 0049). */
+  trigger?: Phase['trigger'] | undefined;
   evaluated: number;
   trueBars: number;
   falseBars: number;

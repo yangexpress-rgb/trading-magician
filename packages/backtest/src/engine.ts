@@ -5,6 +5,15 @@ import {
   atrStopInstrument,
   atrStopLevel,
   atrStopOf,
+  atrStopDistance,
+  exitFiresDirectly,
+  newRuntimeTriggerState,
+  planEntry,
+  rankedLegs,
+  rearmEntryTrigger,
+  sizesFromAtr,
+  type CycleState,
+  type RuntimeTriggerState,
   riskSizingCap,
   stopCloseExpr,
   type RiskSizing,
@@ -102,7 +111,7 @@ const RISK_MESSAGES: Record<RiskCheckCode, string> = {
   buying_power: 'Orders were rejected for lack of buying power (no leverage)',
   risk_daily_loss: 'New entries stopped for the day after the daily loss limit was hit',
   risk_drawdown: 'New entries stopped after the maximum drawdown was hit',
-  risk_open_positions: 'Orders were rejected by the maximum open positions',
+  risk_open_positions: 'Orders were rejected by the maximum instruments held',
   risk_collar: 'Limit orders were rejected by the price collar',
   stale_data: 'Orders were rejected because the price was stale',
   market_closed: 'Orders were canceled because the market was closed',
@@ -312,22 +321,24 @@ export function simulate({
   const orders: Order[] = [];
   const fills: BacktestFill[] = [];
   const equity: EquityPoint[] = [];
-  const entryTrigger: TriggerState = { prev: undefined, consecutive: 0, fired: 0 };
   const allLegs: LegState[] = [];
   const entryConditions = new ConditionRecorder(def.entry.condition, def.entry.trigger);
   const exitConditions = new ConditionRecorder(def.exit.condition, def.exit.trigger);
   /** Entry groups (v1.2 item 8): the strategy's own first, then each of `groups`. */
   const twoSided = isTwoSided(def);
-  const groups = entryGroups(def).map((g) =>
-    g.key === null
-      ? { ...g, trigger: entryTrigger, entryRec: entryConditions, exitRec: exitConditions }
-      : {
-          ...g,
-          trigger: { prev: undefined, consecutive: 0, fired: 0 } as TriggerState,
-          entryRec: new ConditionRecorder(g.definition.entry.condition, g.definition.entry.trigger),
-          exitRec: new ConditionRecorder(g.definition.exit.condition, g.definition.exit.trigger),
-        },
-  );
+  const groups = entryGroups(def).map((g) => ({
+    ...g,
+    /** The Entry trigger and the timed legs it used, as the paper runtime keeps them. */
+    entry: newRuntimeTriggerState() as RuntimeTriggerState,
+    entryRec:
+      g.key === null
+        ? entryConditions
+        : new ConditionRecorder(g.definition.entry.condition, g.definition.entry.trigger),
+    exitRec:
+      g.key === null
+        ? exitConditions
+        : new ConditionRecorder(g.definition.exit.condition, g.definition.exit.trigger),
+  }));
   const ownGroup = groups[0];
   if (!ownGroup) throw new Error('A strategy always has its own entry group');
   const groupOf = (c: Cycle) => groups.find((g) => g.key === c.group) ?? ownGroup;
@@ -343,7 +354,6 @@ export function simulate({
   let peak = initial;
   let unknownEntrySteps = 0;
   let staleSteps = 0;
-  const exactUsed = new Set<string>();
 
   const mark = (id: string) => view.latest(execKey(id))?.close;
   const positionValue = () => {
@@ -446,9 +456,7 @@ export function simulate({
           quantity: { type: 'units', value: p.quantity.abs().toString(), rounding: 'down' },
           orderType: 'market',
           timeInForce: 'day',
-          extendedHours: false,
           timing: { mode: 'immediate' },
-          timingOnly: false,
         },
         phase: 'flatten',
         side,
@@ -587,11 +595,11 @@ export function simulate({
               return sum.plus(g);
             }, ZERO);
     // ATR stop (v1.2 item 9): the ATR as of the bar Entry is decided on.
-    const atrRule = leg.phase === 'entry' ? atrStopOf(c.def) : undefined;
-    if (atrRule && c.atrAtEntry === undefined) {
+    const stopDistance = leg.phase === 'entry' ? atrStopDistance(c.def) : undefined;
+    if (stopDistance && c.atrAtEntry === undefined) {
       const instrument = atrStopInstrument(c.def);
       const atr = instrument
-        ? evaluateExpr(atrExpr(instrument, atrRule.atrPeriod, inputs.adjustment), view)
+        ? evaluateExpr(atrExpr(instrument, stopDistance.atrPeriod, inputs.adjustment), view)
         : undefined;
       if (atr) c.atrAtEntry = atr;
       else
@@ -601,7 +609,8 @@ export function simulate({
         );
     }
     // Risk-based sizing (v1.2 item 9) is capped to the limits, never past them.
-    const atrSizing = o.quantity.type === 'risk_atr' && o.quantity.atrPeriod;
+    // The Entry's one risk distance (ADR 0049).
+    const riskDistance = sizesFromAtr(o) ? c.def.entry.risk : undefined;
     const sized = sizeOrder({
       order: o,
       referencePrice: ref,
@@ -609,12 +618,13 @@ export function simulate({
       equity: equityNow(),
       position: pos,
       lotSize: lot(o.instrumentId),
-      ...(atrSizing
+      ...(riskDistance && leg.phase === 'entry'
         ? {
             atr: evaluateExpr(
-              atrExpr(o.instrumentId, o.quantity.atrPeriod ?? 0, inputs.adjustment),
+              atrExpr(o.instrumentId, riskDistance.atrPeriod, inputs.adjustment),
               view,
             ),
+            distance: riskDistance,
             cap: riskSizingCap(risk, equityNow(), positionValue().gross.minus(closingGross)),
           }
         : {}),
@@ -784,6 +794,24 @@ export function simulate({
 
   const activeCycles = () => cycles.filter((c) => c.state !== 'closed' && c.state !== 'aborted');
 
+  /** What the shared entry decision needs to know about a cycle. */
+  const CYCLE_STATUS = {
+    entering: 'entry_working',
+    open: 'open',
+    exiting: 'exit_working',
+    closed: 'closed',
+    aborted: 'aborted',
+  } as const;
+  const cycleStateOf = (c: Cycle): CycleState => ({
+    status: CYCLE_STATUS[c.state],
+    entryTriggeredAt: c.entryTriggeredAt,
+    entryBatches: c.entries,
+    exitRound: 1,
+    skipped: [],
+    flattened: false,
+    exitTrigger: c.exitTrigger,
+  });
+
   function newCycle(
     now: number,
     triggered: boolean,
@@ -844,7 +872,7 @@ export function simulate({
 
   /** Whether a cycle's ATR stop fires on the current daily close (v1.2 item 9). */
   function checkAtrStop(c: Cycle): boolean {
-    const rule = atrStopOf(c.def);
+    const rule = atrStopDistance(c.def);
     const instrument = atrStopInstrument(c.def);
     if (!rule || !instrument || !c.atrAtEntry) return false;
     const p = c.positions.get(instrument);
@@ -882,7 +910,7 @@ export function simulate({
 
   function timingDue(c: Cycle, s: LegState, triggeredAt: number | undefined, now: number): boolean {
     const t = s.leg.timing;
-    const needsTrigger = t.mode === 'immediate' || !s.leg.timingOnly;
+    const needsTrigger = t.mode === 'immediate' || !c.def.execution.timingOnly;
     if (needsTrigger && triggeredAt === undefined) return false;
     if (t.mode === 'immediate') return true;
     if (t.mode === 'exact') return now >= Date.parse(t.at);
@@ -924,6 +952,7 @@ export function simulate({
       if (c.state === 'entering') {
         if (done && !anyFill) {
           c.state = 'aborted';
+          onCycleEnded(c);
           return;
         }
         const milestone = ex.entryMilestone === 'partial_fill' ? anyFill : done && anyFill;
@@ -959,6 +988,7 @@ export function simulate({
       const entryDone = c.entryLegs.every((l) => TERMINAL.includes(l.status));
       if (flat(c) && entryDone && flattenDone && (exitDone || c.flattenLegs.length > 0)) {
         c.state = 'closed';
+        onCycleEnded(c);
         return;
       }
       if (c.state === 'exiting' && exitDone && flattenDone) {
@@ -979,7 +1009,13 @@ export function simulate({
       c.flattenLegs.every((l) => TERMINAL.includes(l.status))
     ) {
       c.state = 'closed';
+      onCycleEnded(c);
     }
+  }
+
+  /** A cycle closed or was aborted: its group's Entry trigger re-arms (ADR 0049). */
+  function onCycleEnded(c: Cycle) {
+    if (!c.slot) rearmEntryTrigger(groupOf(c).entry.entryTrigger);
   }
 
   /** One evaluation of a Selection group or per-leg conditions (v1.2 items 1, 2). */
@@ -1147,63 +1183,51 @@ export function simulate({
     if (evaluateEntry && frequency !== 'daily') lastPeriod = period;
     if (evaluateEntry) entryEvaluations += 1;
 
-    if (mode === 'none' && evaluateEntry) {
+    if (mode === 'none') {
+      // The one entry decision (ADR 0049), shared with the paper runtime: the
+      // Entry trigger, then a timed Entry leg that may open a cycle by itself.
       for (const g of groups) {
         const gdef = g.definition;
-        const entryRow = g.entryRec.record(iso(now), view);
-        const entryTruth = entryRow.truth ?? undefined;
-        if (entryTruth === undefined && g.key === null) unknownEntrySteps += 1;
-        const entryBefore = { ...g.trigger };
-        const fires = stepTrigger(g.trigger, entryTruth, now, gdef.entry.trigger);
+        const entryRow = evaluateEntry ? g.entryRec.record(iso(now), view) : undefined;
+        const entryTruth = entryRow ? (entryRow.truth ?? undefined) : undefined;
+        if (entryRow && entryTruth === undefined && g.key === null) unknownEntrySteps += 1;
+        const before = { ...g.entry.entryTrigger };
         const active = activeCycles();
-        if (fires && dailyHalt) g.entryRec.markFired(entryRow, 'daily_loss');
-        else if (fires && drawdownHalt) g.entryRec.markFired(entryRow, 'drawdown');
-        else if (fires) {
-          const mode = ex.reentry.mode;
-          const current = active.at(-1);
-          let acted = true;
-          if (groups.length > 1) {
-            // One position at a time across groups, and no flipping (v1.2 item 8).
-            if (active.length === 0) newCycle(now, true, undefined, 1, g.key);
-            else acted = false;
-          } else if (
-            current &&
-            current.entryTriggeredAt === undefined &&
-            current.state === 'entering'
-          ) {
-            current.entryTriggeredAt = now;
-            current.events.set('entry_trigger', now);
-          } else if (active.length === 0 || mode === 'independent_cycles') {
-            newCycle(now, true);
-          } else if (
-            mode === 'pyramid' &&
-            current &&
-            current.state === 'open' &&
-            current.entries < (ex.reentry.cap ?? 1)
-          ) {
-            addEntryBatch(current);
-          } else acted = false;
-          g.entryRec.markFired(entryRow, acted ? 'fired' : 'cycle_open');
-        } else if (entryTruth === true) {
-          entryRow.outcome = whyNotFired(entryBefore, g.trigger, now, gdef.entry.trigger);
+        const halted = dailyHalt || drawdownHalt;
+        const planned = planEntry({
+          definition: gdef,
+          state: g.entry,
+          active: active.map((c) => ({ id: String(c.no), cycle: cycleStateOf(c) })),
+          now,
+          entryTruth: entryRow ? { truth: entryTruth } : undefined,
+          halted,
+          severalGroups: groups.length > 1,
+        });
+        g.entry = planned.state;
+        const d = planned.decision;
+        const target =
+          d.kind === 'add_batch' || d.kind === 'trigger_cycle'
+            ? cycles[Number(d.cycleId) - 1]
+            : undefined;
+        if (d.kind === 'new_cycle') newCycle(now, d.triggered, undefined, 1, g.key);
+        else if (d.kind === 'add_batch' && target) addEntryBatch(target);
+        else if (d.kind === 'trigger_cycle' && target) {
+          target.entryTriggeredAt = now;
+          target.events.set('entry_trigger', now);
         }
+        if (!entryRow) continue;
+        if (planned.fired && dailyHalt) g.entryRec.markFired(entryRow, 'daily_loss');
+        else if (planned.fired && drawdownHalt) g.entryRec.markFired(entryRow, 'drawdown');
+        else if (planned.fired)
+          g.entryRec.markFired(
+            entryRow,
+            d.kind === 'none' || (d.kind === 'new_cycle' && !d.triggered) ? 'cycle_open' : 'fired',
+          );
+        else if (entryTruth === true)
+          entryRow.outcome = whyNotFired(before, g.entry.entryTrigger, now, gdef.entry.trigger);
       }
-    } else if (mode !== 'none' && evaluateEntry) {
+    } else if (evaluateEntry) {
       selectSlots(now, period);
-    }
-    // Timing-only exact Entry legs open a cycle at their time without the condition (§6.8).
-    if (mode === 'none' && activeCycles().length === 0 && !dailyHalt && !drawdownHalt) {
-      const due = def.entry.orders.find(
-        (o) =>
-          o.timingOnly &&
-          o.timing.mode === 'exact' &&
-          !exactUsed.has(o.id) &&
-          now >= Date.parse(o.timing.at),
-      );
-      if (due) {
-        exactUsed.add(due.id);
-        newCycle(now, false);
-      }
     }
 
     for (const c of activeCycles()) {
@@ -1213,14 +1237,19 @@ export function simulate({
         const row = exitRec.record(iso(now), cycleView(c), c.no);
         const truth = row.truth ?? undefined;
         const before = { ...c.exitTrigger };
-        if (stepTrigger(c.exitTrigger, truth, now, c.def.exit.trigger)) {
+        // A slot's Exit has no trigger: it exits on any bar its condition is true (ADR 0049).
+        const exitTrigger = c.def.exit.trigger;
+        const fires = exitTrigger
+          ? stepTrigger(c.exitTrigger, truth, now, exitTrigger)
+          : exitFiresDirectly(truth);
+        if (fires) {
           exitRec.markFired(row);
           c.state = 'exiting';
           if (v12) c.exitReason = 'condition';
           c.events.set('entry_trigger', c.events.get('entry_trigger') ?? now);
           c.legEvents.set('exit:trigger', now);
-        } else if (truth === true) {
-          row.outcome = whyNotFired(before, c.exitTrigger, now, c.def.exit.trigger);
+        } else if (truth === true && exitTrigger) {
+          row.outcome = whyNotFired(before, c.exitTrigger, now, exitTrigger);
         }
         if (c.exitLegs.length === 0) c.exitLegs = exitLegsFor(c);
         // The time stop, combined with the Exit condition by OR (v1.2 item 4).
@@ -1366,7 +1395,7 @@ export function simulate({
         (ex.multiLegPolicy === 'sequential' && prev.status === 'waiting'))
     )
       return 'waiting_for_prior_leg';
-    if (s.phase === 'entry' && c.entryTriggeredAt === undefined && !s.leg.timingOnly)
+    if (s.phase === 'entry' && c.entryTriggeredAt === undefined && !c.def.execution.timingOnly)
       return 'entry_not_triggered';
     return 'timing_not_due';
   }
@@ -1525,7 +1554,7 @@ export function simulate({
   /** What risk sizing and the ATR stop assume (v1.2 item 9). */
   function riskAssumptions(): string[] {
     const defs = groups.map((g) => g.definition);
-    const sized = defs.some((d) => d.entry.orders.some((o) => o.quantity.type === 'risk_atr'));
+    const sized = defs.some((d) => d.entry.orders.some((o) => sizesFromAtr(o)));
     const stopped = defs.some((d) => atrStopOf(d));
     const out: string[] = [];
     if (sized || stopped)
@@ -1562,12 +1591,7 @@ export function simulate({
   }
 
   function selectionLog(): SelectionLog {
-    const ref =
-      mode === 'selection'
-        ? def.entry.selection?.ranking
-        : def.entry.fireMode?.mode === 'bestByMetric'
-          ? def.entry.fireMode.metric
-          : undefined;
+    const ref = mode === 'selection' ? def.entry.selection?.ranking : rankedLegs(def)?.ranking;
     return {
       kind: mode === 'selection' ? 'ranking' : 'legs',
       metric: ref ? { metric: ref.metric, params: ref.params } : null,

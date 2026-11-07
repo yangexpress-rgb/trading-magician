@@ -1,9 +1,12 @@
 import Decimal from 'decimal.js';
 import type { PriceAdjustment } from './catalog';
 import type {
+  EntryPhase,
+  ExitPhase,
   ExitRule,
   IndicatorExpr,
   PlannedOrder,
+  RiskDistance,
   RiskProfile,
   StrategyDefinition,
 } from './schema';
@@ -55,9 +58,27 @@ export function stopCloseExpr(
   };
 }
 
-export function atrStopOf(def: StrategyDefinition): AtrStopRule | undefined {
+export function atrStopOf(def: Pick<StrategyDefinition, 'exit'>): AtrStopRule | undefined {
   return def.exit.rules?.find((r): r is AtrStopRule => r.kind === 'atrStop');
 }
+
+/**
+ * The distance an ATR stop sits from the entry price (ADR 0049): its own
+ * override when the person set one, else the Entry's risk distance, the same
+ * one risk-sized legs size from. Undefined when neither is set.
+ */
+export function atrStopDistance(part: {
+  entry: Pick<EntryPhase, 'risk'>;
+  exit: Pick<ExitPhase, 'rules'>;
+}): RiskDistance | undefined {
+  const rule = part.exit.rules?.find((r): r is AtrStopRule => r.kind === 'atrStop');
+  if (!rule) return undefined;
+  return rule.override ?? part.entry.risk;
+}
+
+/** Whether a leg is risk-sized from the Entry's ATR risk distance. */
+export const sizesFromAtr = (o: Pick<PlannedOrder, 'quantity'>) =>
+  o.quantity.type === 'risk' && o.quantity.distanceFrom === 'atr';
 
 /** The instrument an ATR stop watches: the first Entry leg's. */
 export const atrStopInstrument = (def: StrategyDefinition) => def.entry.orders[0]?.instrumentId;
@@ -69,13 +90,14 @@ export function riskSeries(
 ): (IndicatorExpr | ReturnType<typeof stopCloseExpr>)[] {
   const out: (IndicatorExpr | ReturnType<typeof stopCloseExpr>)[] = [];
   for (const p of [def, ...(def.groups ?? [])]) {
-    for (const o of p.entry.orders)
-      if (o.quantity.type === 'risk_atr' && o.quantity.atrPeriod)
-        out.push(atrExpr(o.instrumentId, o.quantity.atrPeriod, adjustment));
-    const rule = p.exit.rules?.find((r): r is AtrStopRule => r.kind === 'atrStop');
+    const risk = p.entry.risk;
+    if (risk)
+      for (const o of p.entry.orders)
+        if (sizesFromAtr(o)) out.push(atrExpr(o.instrumentId, risk.atrPeriod, adjustment));
+    const stop = atrStopDistance(p);
     const instrument = p.entry.orders[0]?.instrumentId;
-    if (rule && instrument) {
-      out.push(atrExpr(instrument, rule.atrPeriod, adjustment));
+    if (stop && instrument) {
+      out.push(atrExpr(instrument, stop.atrPeriod, adjustment));
       out.push(stopCloseExpr(instrument, adjustment));
     }
   }
@@ -102,22 +124,25 @@ export const atrStopHit = (close: Decimal, level: Decimal, long: boolean) =>
 
 /** How a risk-based quantity was worked out, shown with each trade so it can be checked by hand. */
 export interface RiskSizing {
+  /** Sized from the ATR risk distance (the label results have carried since v1.2 item 9). */
   method: 'risk_atr';
   equity: string;
-  riskPct: string;
+  /** The amount at risk: a % of equity, or dollars (ADR 0049). */
+  riskPct?: string;
+  riskAmount?: string;
   atrPeriod: number;
   atr: string;
   atrMultiple: string;
   /** ATR × multiple: the risk per share. */
   stopDistance: string;
-  /** floor(equity × risk% ÷ stop distance), before any cap. */
+  /** floor(equity × risk% ÷ stop distance), or floor(dollars ÷ stop distance), before any cap. */
   riskQuantity: string;
   quantity: string;
   /** Set when an account or strategy limit made the quantity smaller. */
   cappedBy?: 'max_order_size' | 'max_exposure' | 'buying_power';
 }
 
-export const isRiskAtr = (o: Pick<PlannedOrder, 'quantity'>) => o.quantity.type === 'risk_atr';
+export const isRiskAtr = sizesFromAtr;
 
 /**
  * The most a risk-sized order may be worth: the tightest of buying power (no

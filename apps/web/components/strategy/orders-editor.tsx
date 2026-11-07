@@ -2,11 +2,13 @@
 
 import {
   CONTEXT_INSTRUMENT_ID,
-  exitFollowsEntry,
+  mirrorsEntry,
   ORDER_TYPES,
   QUANTITY_TYPES,
   randomId,
   refillExitOrders,
+  selectionCount,
+  sizesFromAtr,
   syncExitWithEntry,
   TIME_IN_FORCE,
   type Expr,
@@ -29,6 +31,7 @@ import { ConditionTreeEditor } from './condition-editor';
 import { MiniInput, MiniSelect, RowButton } from './fields';
 import { InstrumentSelect } from './instrument-select';
 import { TimingEditor } from './timing-editor';
+import { DEFAULT_RISK_DISTANCE } from '@/lib/slot-edits';
 
 const PHASE_SIDES: Record<PhaseName, readonly OrderSide[]> = {
   entry: ['buy', 'sell_short'],
@@ -61,7 +64,7 @@ export function OrdersEditor({
   phase: PhaseName;
   onChange: (def: StrategyDefinition) => void;
 }) {
-  const { instruments, accounts, editable, issueAt } = useEditor();
+  const { instruments, accounts, editable, issueAt, baseCurrency } = useEditor();
   const orders = definition[phase].orders;
   const title = PHASE_TITLE[phase];
   const allLegs = (['entry', 'exit'] as const).flatMap((p) =>
@@ -75,23 +78,19 @@ export function OrdersEditor({
       [phase]: { ...definition[phase], orders: next },
       ...(legOrder ? { execution: { ...definition.execution, legOrder } } : {}),
     };
-    // Exit legs follow Entry until the user changes them (ADR 0028).
+    // A leg sized from the ATR reads the Entry's one risk distance (ADR 0049).
+    if (phase === 'entry' && !edited.entry.risk && next.some((o) => sizesFromAtr(o)))
+      edited.entry = { ...edited.entry, risk: { ...DEFAULT_RISK_DISTANCE } };
+    // With "Mirror Entry legs" on, Exit is regenerated from Entry (ADR 0049).
     onChange(phase === 'entry' ? syncExitWithEntry(definition, edited) : edited);
   };
-  const following = phase === 'exit' && orders.length > 0 && exitFollowsEntry(definition);
-  const canRefill =
-    phase === 'exit' &&
-    definition.entry.orders.length > 0 &&
-    (orders.length === 0 || !exitFollowsEntry(definition));
-  const refill = () => {
-    if (
-      orders.length > 0 &&
-      !window.confirm('Replace your Exit orders with the opposite of your Entry orders?')
-    ) {
-      return;
-    }
-    onChange(refillExitOrders(definition));
+  const mirrored = phase === 'exit' && mirrorsEntry(definition.exit);
+  const setMirror = (on: boolean) => {
+    const exit = { ...definition.exit, mirrorEntry: on };
+    onChange(on ? refillExitOrders({ ...definition, exit }) : { ...definition, exit });
   };
+  const template =
+    definition.entry.kind === 'selection' && definition.entry.selection?.universe.type !== 'legs';
   const legOrder = definition.execution.legOrder;
 
   const addLeg = () => {
@@ -105,9 +104,7 @@ export function OrdersEditor({
       quantity: { type: 'units', value: '1', rounding: 'down' },
       orderType: 'market',
       timeInForce: 'day',
-      extendedHours: false,
       timing: { mode: 'immediate' },
-      timingOnly: false,
     };
     setOrders([...orders, leg], legOrder ? [...legOrder, leg.id] : undefined);
   };
@@ -146,16 +143,26 @@ export function OrdersEditor({
       <p className="mb-3 text-sm text-ink-muted">
         {phase === 'entry'
           ? 'Orders placed when Entry qualifies. Each leg can trade a different instrument.'
-          : 'Orders that close what Entry opened. Exit orders never open a new position.'}
+          : 'Market or close orders that undo what Entry opened. Exit orders never open a new position.'}
       </p>
-      {following && (
-        <p
-          className="mb-3 rounded-md bg-surface-2 px-2.5 py-1.5 text-xs text-ink-muted"
-          role="note"
-        >
-          Filled in from your Entry orders: the opposite side on the same instrument and quantity.
-          They keep following Entry until you change one; after that they&rsquo;re yours.
-        </p>
+      {phase === 'exit' && (
+        <div className="mb-3 rounded-md bg-surface-2 px-2.5 py-1.5">
+          <label className="flex items-center gap-1.5 text-sm font-medium">
+            <input
+              type="checkbox"
+              disabled={!editable}
+              checked={mirrored}
+              aria-describedby="exit-mirror-help"
+              onChange={(e) => setMirror(e.target.checked)}
+            />
+            Mirror Entry legs
+          </label>
+          <p id="exit-mirror-help" className="text-xs text-ink-muted">
+            {mirrored
+              ? 'On: each Entry leg has an Exit leg with the opposite side, same instrument and quantity, at market. They change with Entry. Turn this off to build Exit legs yourself.'
+              : 'Off: these Exit legs are yours, and editing Entry leaves them alone. Turn it on to replace them with the opposite of the Entry legs.'}
+          </p>
+        </div>
       )}
       {issueAt([phase, 'orders']) && (
         <p className="mb-2 text-xs font-medium text-danger">{issueAt([phase, 'orders'])}</p>
@@ -172,7 +179,11 @@ export function OrdersEditor({
                 number={i + 1}
                 count={orders.length}
                 legs={allLegs.filter((l) => l.id !== order.id)}
-                selection={definition.entry.kind === 'selection'}
+                selection={template}
+                locked={mirrored}
+                perInstrument={
+                  template ? perInstrumentText(definition, order, baseCurrency) : undefined
+                }
                 describe={(o) => describeTiming(o, labelOf)}
                 onChange={(o) => update(i, o)}
                 onMove={(d) => move(i, d)}
@@ -189,7 +200,7 @@ export function OrdersEditor({
           another doesn&rsquo;t; the execution policy below decides what happens then.
         </p>
       )}
-      {editable && (
+      {editable && !mirrored && (
         <button
           type="button"
           className="mt-3 rounded-md border border-line bg-surface px-2.5 py-1 text-sm font-medium hover:bg-surface-2 disabled:opacity-50"
@@ -199,17 +210,32 @@ export function OrdersEditor({
           + Add {title} order
         </button>
       )}
-      {editable && canRefill && (
-        <button
-          type="button"
-          className="ml-2 mt-3 rounded-md border border-line bg-surface px-2.5 py-1 text-sm font-medium hover:bg-surface-2"
-          onClick={refill}
-        >
-          Match Entry orders
-        </button>
-      )}
     </div>
   );
+}
+
+/** A Selection group's template leg: what each selected instrument gets (ADR 0049). */
+function perInstrumentText(
+  def: StrategyDefinition,
+  order: PlannedOrder,
+  currency: string,
+): string | undefined {
+  const sel = def.entry.selection;
+  if (!sel || def.entry.orders[0]?.id !== order.id) return undefined;
+  const v = Number(order.quantity.value);
+  if (!Number.isFinite(v) || order.quantity.type === 'risk') return undefined;
+  const unit =
+    order.quantity.type === 'units'
+      ? ' shares'
+      : order.quantity.type === 'pct_equity'
+        ? '% of equity'
+        : ` ${currency}`;
+  if (sel.count.type === 'percent')
+    return `Split equally across the top ${sel.count.value}% of the universe`;
+  const n = selectionCount(sel, sel.count.value);
+  const each = v / Math.max(1, n);
+  const shown = order.quantity.type === 'units' ? Math.floor(each) : Number(each.toFixed(2));
+  return `${shown.toLocaleString('en-US')}${unit} for each of the ${n} selected`;
 }
 
 function LegEditor({
@@ -219,6 +245,8 @@ function LegEditor({
   count,
   legs,
   selection,
+  locked,
+  perInstrument,
   describe,
   onChange,
   onMove,
@@ -230,14 +258,19 @@ function LegEditor({
   number: number;
   count: number;
   legs: { id: string; label: string; phase: PhaseName }[];
+  /** A Selection group's template leg: its quantity is the total, split equally. */
   selection: boolean;
+  /** Generated from Entry ("Mirror Entry legs" on): shown, not edited. */
+  locked: boolean;
+  perInstrument?: string | undefined;
   describe: (o: PlannedOrder) => string;
   onChange: (o: PlannedOrder) => void;
   onMove: (delta: -1 | 1) => void;
   onDuplicate: () => void;
   onRemove: () => void;
 }) {
-  const { accounts, editable, issueAt, baseCurrency } = useEditor();
+  const { accounts, editable: canEdit, issueAt, baseCurrency } = useEditor();
+  const editable = canEdit && !locked;
   const [expanded, setExpanded] = useState(false);
   const path = [phase, 'orders', number - 1] as const;
   const err = (...rest: (string | number)[]) => issueAt([...path, ...rest]);
@@ -247,10 +280,18 @@ function LegEditor({
     ? PHASE_SIDES[phase]
     : [...PHASE_SIDES[phase], order.side];
   const needsLimit = order.orderType === 'limit' || order.orderType === 'stop_limit';
-  const needsStop =
-    order.orderType === 'stop' ||
-    order.orderType === 'stop_limit' ||
-    order.quantity.type === 'risk_sized';
+  const fromStop = order.quantity.type === 'risk' && order.quantity.distanceFrom === 'stop_price';
+  const needsStop = order.orderType === 'stop' || order.orderType === 'stop_limit' || fromStop;
+  // Exit legs are market, limit or close orders (ADR 0049): a stop is the ATR
+  // stop's job. A stop order saved before is kept, and shown as such.
+  const orderTypes =
+    phase === 'exit'
+      ? ORDER_TYPES.filter((t) => (t !== 'stop' && t !== 'stop_limit') || t === order.orderType)
+      : ORDER_TYPES;
+  const riskTypes =
+    phase === 'exit' && order.quantity.type !== 'risk'
+      ? QUANTITY_TYPES.filter((q) => q !== 'risk')
+      : QUANTITY_TYPES;
   const set = (patch: Partial<PlannedOrder>) => onChange({ ...order, ...patch });
   const priceDefault = (): Expr =>
     ({ ...newExpr('market', order.instrumentId), field: 'last' }) as Expr;
@@ -325,74 +366,95 @@ function LegEditor({
             value={order.quantity.type}
             onChange={(e) => {
               const type = e.target.value as PlannedOrder['quantity']['type'];
-              const { atrPeriod, atrMultiple, ...q } = order.quantity;
-              // Risk % of equity with an ATR stop (v1.2 item 9): 1% risk, 2 × ATR(20).
+              const { amountIn: _a, distanceFrom: _d, ...q } = order.quantity;
+              void _a;
+              void _d;
+              // Risk 1% of equity over the Entry's ATR distance (v1.2 item 9, ADR 0049).
               set({
                 quantity:
-                  type === 'risk_atr'
+                  type === 'risk'
                     ? {
                         ...q,
                         type,
-                        value: order.quantity.type === 'risk_atr' ? q.value : '1',
-                        atrPeriod: atrPeriod ?? 20,
-                        atrMultiple: atrMultiple ?? '2',
+                        value: order.quantity.type === 'risk' ? q.value : '1',
+                        amountIn: order.quantity.amountIn ?? 'pct_equity',
+                        distanceFrom: order.quantity.distanceFrom ?? 'atr',
                       }
                     : { ...q, type },
               });
             }}
           >
-            {QUANTITY_TYPES.map((q) => (
+            {riskTypes.map((q) => (
               <option key={q} value={q}>
-                {q === 'notional' || q === 'risk_sized'
+                {q === 'notional'
                   ? QUANTITY_LABELS[q].replace('base currency', baseCurrency)
                   : QUANTITY_LABELS[q]}
               </option>
             ))}
           </MiniSelect>
-          <MiniInput
-            id={id('qty')}
-            label={order.quantity.type === 'risk_atr' ? 'Risk (% of equity)' : 'Quantity'}
-            inputMode="decimal"
-            value={order.quantity.value}
-            error={err('quantity', 'value')}
-            onChange={(e) => set({ quantity: { ...order.quantity, value: e.target.value.trim() } })}
-          />
-          {order.quantity.type === 'risk_atr' && (
+          {order.quantity.type === 'risk' && (
             <>
-              <MiniInput
-                id={id('qty-atr-mult')}
-                label="Stop distance (ATRs)"
-                inputMode="decimal"
-                value={order.quantity.atrMultiple ?? ''}
-                error={err('quantity', 'atrMultiple')}
-                onChange={(e) =>
-                  set({ quantity: { ...order.quantity, atrMultiple: e.target.value.trim() } })
-                }
-              />
-              <MiniInput
-                id={id('qty-atr-period')}
-                label="ATR period (daily bars)"
-                type="number"
-                min={1}
-                max={500}
-                step={1}
-                value={
-                  order.quantity.atrPeriod !== undefined &&
-                  Number.isFinite(order.quantity.atrPeriod)
-                    ? String(order.quantity.atrPeriod)
-                    : ''
-                }
-                error={err('quantity', 'atrPeriod')}
+              <MiniSelect
+                id={id('qty-amount-in')}
+                label="Risk"
+                value={order.quantity.amountIn ?? ''}
+                error={err('quantity')}
                 onChange={(e) =>
                   set({
                     quantity: {
                       ...order.quantity,
-                      atrPeriod: e.target.value === '' ? Number.NaN : Number(e.target.value),
+                      amountIn: e.target.value as 'dollars' | 'pct_equity',
                     },
                   })
                 }
-              />
+              >
+                {!order.quantity.amountIn && <option value="">Choose</option>}
+                <option value="pct_equity">% of equity</option>
+                <option value="dollars">An amount ({baseCurrency})</option>
+              </MiniSelect>
+              <MiniSelect
+                id={id('qty-distance')}
+                label="Down to"
+                value={order.quantity.distanceFrom ?? ''}
+                onChange={(e) => {
+                  const distanceFrom = e.target.value as 'stop_price' | 'atr';
+                  onChange({
+                    ...order,
+                    quantity: { ...order.quantity, distanceFrom },
+                    ...(distanceFrom === 'stop_price' && !order.stopPrice
+                      ? { stopPrice: priceDefault() }
+                      : {}),
+                  });
+                  if (distanceFrom === 'stop_price') setExpanded(true);
+                }}
+              >
+                {!order.quantity.distanceFrom && <option value="">Choose</option>}
+                <option value="atr">The Entry&rsquo;s risk distance (ATR)</option>
+                <option value="stop_price">This leg&rsquo;s stop price</option>
+              </MiniSelect>
             </>
+          )}
+          <MiniInput
+            id={id('qty')}
+            label={
+              order.quantity.type === 'risk'
+                ? order.quantity.amountIn === 'dollars'
+                  ? `Risk amount (${baseCurrency})`
+                  : 'Risk (% of equity)'
+                : selection
+                  ? 'Total amount (split equally)'
+                  : 'Quantity'
+            }
+            inputMode="decimal"
+            value={order.quantity.value}
+            error={err('quantity', 'value')}
+            aria-describedby={perInstrument ? id('per-instrument') : undefined}
+            onChange={(e) => set({ quantity: { ...order.quantity, value: e.target.value.trim() } })}
+          />
+          {perInstrument && (
+            <p id={id('per-instrument')} className="self-end pb-1 text-xs text-ink-muted">
+              {perInstrument}
+            </p>
           )}
           <MiniSelect
             id={id('type')}
@@ -407,16 +469,17 @@ function LegEditor({
                 ...rest,
                 orderType,
                 ...(limit ? { limitPrice: limitPrice ?? priceDefault() } : {}),
-                ...(stop || order.quantity.type === 'risk_sized'
-                  ? { stopPrice: stopPrice ?? priceDefault() }
-                  : {}),
+                ...(stop || fromStop ? { stopPrice: stopPrice ?? priceDefault() } : {}),
               });
               if (limit || stop) setExpanded(true);
             }}
           >
-            {ORDER_TYPES.map((t) => (
+            {orderTypes.map((t) => (
               <option key={t} value={t}>
                 {ORDER_TYPE_LABELS[t]}
+                {phase === 'exit' && (t === 'stop' || t === 'stop_limit')
+                  ? ' (kept from before; use the ATR stop)'
+                  : ''}
               </option>
             ))}
           </MiniSelect>
@@ -556,14 +619,6 @@ function LegEditor({
               <option value="down">Down</option>
               <option value="nearest">To nearest</option>
             </MiniSelect>
-            <label className="flex items-center gap-1.5 self-end pb-1 text-sm">
-              <input
-                type="checkbox"
-                checked={order.extendedHours}
-                onChange={(e) => set({ extendedHours: e.target.checked })}
-              />
-              Allow extended hours
-            </label>
           </div>
           <MiniInput
             id={id('notes')}

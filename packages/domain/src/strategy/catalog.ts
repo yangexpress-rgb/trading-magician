@@ -178,6 +178,20 @@ export const INDICATORS: readonly IndicatorSpec[] = [
 
 const BY_NAME = new Map(INDICATORS.map((i) => [i.name, i]));
 
+/**
+ * Indicators with a home elsewhere (ADR 0049): RSI is the registry metric
+ * `rsi`, Bollinger bands the statistics BB_UPPER, BB_MIDDLE and BB_LOWER.
+ * They stay in the catalog so that a strategy saved with one (and not
+ * migrated, for an unusual field or session) still runs, but the builder
+ * never offers them, so each computation is offered once.
+ */
+export const INDICATORS_WITH_A_METRIC: ReadonlySet<string> = new Set(['RSI', 'BBANDS']);
+
+/** The indicators the builder offers: those with no metric or statistic equivalent. */
+export const BUILDER_INDICATORS: readonly IndicatorSpec[] = INDICATORS.filter(
+  (i) => !INDICATORS_WITH_A_METRIC.has(i.name),
+);
+
 export function getIndicator(name: string): IndicatorSpec | undefined {
   return BY_NAME.get(name);
 }

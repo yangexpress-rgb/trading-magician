@@ -24,7 +24,8 @@ import {
   spyBars,
   trendSma200,
 } from './fixtures/spy-strategies';
-import { fingerprint, inputs, loaded } from './test-utils';
+import { behaviour } from './corpus-codec';
+import { inputs, loaded } from './test-utils';
 import type { BacktestResult, InstrumentRef } from './index';
 
 /**
@@ -87,9 +88,7 @@ const leg = (
   quantity: { type: 'pct_equity', value: '90', rounding: 'down' },
   orderType: 'market',
   timeInForce: 'day',
-  extendedHours: false,
   timing: { mode: 'immediate' },
-  timingOnly: false,
   ...partial,
 });
 
@@ -148,7 +147,6 @@ function sectorFixture(schedule?: 'monthEnd'): StrategyDefinition {
         indicator(CONTEXT_INSTRUMENT_ID, 'SMA', { period: 200 }),
       ),
     ),
-    weighting: 'equal',
   };
   def.entry.orders = [leg('buy-each', CONTEXT_INSTRUMENT_ID)];
   def.exit.orders = [leg('close-each', CONTEXT_INSTRUMENT_ID, { side: 'close' })];
@@ -349,9 +347,10 @@ describe('item 1: Selection group, top 3 of 9 sector ETFs', () => {
         inputs: inputs('2023-11-01', '2025-06-30'),
         data: loaded({ [spy]: spyBars() }),
       });
-    expect(fingerprint(run(trendSma200()))).toBe('ce55c3003c6656e6');
-    expect(fingerprint(run(meanReversionRsi2()))).toBe('b0249e656b2ea41a');
-    expect(fingerprint(run(breakoutDonchian()))).toBe('144e139a4cd26fe7');
+    // Behaviour fingerprints from before the Strategy Lab simplification (see regression.test.ts).
+    expect(behaviour(run(trendSma200()))).toBe('359f3c8d617a2e6e');
+    expect(behaviour(run(meanReversionRsi2()))).toBe('28a9842e5ab84767');
+    expect(behaviour(run(breakoutDonchian()))).toBe('c4e0ad1ba4caff45');
   });
 });
 
@@ -458,15 +457,18 @@ describe('item 2: per-leg conditions, SPY / EFA / AGG', () => {
     }
   });
 
-  it('best-by-metric fires only the strongest qualifying leg', () => {
+  it('a Selection group of these legs (formerly best-by-metric) fires only the strongest qualifying leg', () => {
     const def = baseDefinition();
     def.entry.condition.children = [cmp(market(SPY), 'gt', constant('0'))];
     def.entry.orders = RISK3.map(([id, s]) =>
       leg(`buy-${s}`, id, { quantity: { type: 'pct_equity', value: '30', rounding: 'down' } }),
     );
-    def.entry.fireMode = {
-      mode: 'bestByMetric',
-      metric: { metric: 'return', params: { lookbackMonths: '12' } },
+    def.entry.kind = 'selection';
+    def.entry.selection = {
+      universe: { type: 'legs' },
+      ranking: { metric: 'return', params: { lookbackMonths: '12' } },
+      direction: 'desc',
+      count: { type: 'fixed', value: 1 },
     };
     def.exit.orders = RISK3.map(([id, s]) => leg(`sell-${s}`, id, { side: 'close' }));
     def.schedule = { frequency: 'monthEnd' };
@@ -494,7 +496,7 @@ describe('item 2: per-leg conditions, SPY / EFA / AGG', () => {
       inputs: inputs('2023-11-01', '2025-06-30'),
       data: loaded({ [spy]: spyBars(), [QQQ]: spyBars(640, 11) }),
     });
-    expect(fingerprint(r)).toBe('a3a795f07ec79345');
+    expect(behaviour(r)).toBe('0199ca63e0450e45');
   });
 });
 
@@ -612,7 +614,7 @@ describe('item 3: z-score of the PEP − KO spread', () => {
       const old = indicator(spy, 'BBANDS', { period: 20, stdDev: 2, band });
       // Entry when the generalised band equals the indicator: every bar with a value.
       d.entry.condition.children = [cmp(bb, 'eq', old)];
-      d.entry.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+      d.entry.trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
       d.entry.orders = [
         leg('b', spy, { quantity: { type: 'units', value: '1', rounding: 'down' } }),
       ];

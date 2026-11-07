@@ -85,12 +85,18 @@ function comparedValues(c: Comparison, check: ConditionCheck): string {
 }
 
 export function describeTrigger(trigger: PhaseConditionReport['trigger']): string {
+  // A slot's Exit has no trigger: it exits on any bar its condition is true (ADR 0049).
+  if (!trigger) return 'Fires on every bar the condition is true';
   const parts = [`Fires ${TRIGGER_LABELS[trigger.mode].replace(' (default)', '').toLowerCase()}`];
   if (trigger.confirmationBars > 0)
     parts.push(
       `after ${trigger.confirmationBars} confirmation ${trigger.confirmationBars === 1 ? 'bar' : 'bars'}`,
     );
-  if (trigger.cooldownSec > 0) parts.push(`${trigger.cooldownSec}s cooldown`);
+  // Runs from before schema 2 recorded the cooldown in seconds.
+  const old = (trigger as { cooldownSec?: number }).cooldownSec;
+  if (trigger.cooldownBars > 0)
+    parts.push(`${trigger.cooldownBars} ${trigger.cooldownBars === 1 ? 'bar' : 'bars'} cooldown`);
+  else if (old !== undefined && old > 0) parts.push(`${old}s cooldown`);
   return parts.join(' · ');
 }
 

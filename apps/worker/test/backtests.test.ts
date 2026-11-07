@@ -61,9 +61,7 @@ function crossover(): StrategyDefinition {
     quantity: { type: 'units' as const, value: '20', rounding: 'down' as const },
     orderType: 'market' as const,
     timeInForce: 'day' as const,
-    extendedHours: false,
     timing: { mode: 'immediate' as const },
-    timingOnly: false,
   };
   def.entry.orders = [{ id: 'buy', legLabel: 'Buy A', side: 'buy', ...leg }];
   def.exit.orders = [{ id: 'sell', legLabel: 'Sell A', side: 'close', ...leg }];

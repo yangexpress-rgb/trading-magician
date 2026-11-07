@@ -145,16 +145,12 @@ describe('timing', () => {
 
 describe('planned orders', () => {
   it('fills defaults, including immediate timing', () => {
-    const { timing, timeInForce, extendedHours, timingOnly, ...rest } = order('o');
+    const { timing, timeInForce, ...rest } = order('o');
     void timing;
     void timeInForce;
-    void extendedHours;
-    void timingOnly;
     expect(plannedOrderSchema.parse(rest)).toMatchObject({
       timing: { mode: 'immediate' },
       timeInForce: 'day',
-      extendedHours: false,
-      timingOnly: false,
     });
   });
 
@@ -205,7 +201,7 @@ describe('strategy definition', () => {
 
   it('rejects unknown schema versions', () => {
     expect(
-      strategyDefinitionSchema.safeParse({ ...validDefinition(), schemaVersion: 2 }).success,
+      strategyDefinitionSchema.safeParse({ ...validDefinition(), schemaVersion: 3 }).success,
     ).toBe(false);
   });
 });

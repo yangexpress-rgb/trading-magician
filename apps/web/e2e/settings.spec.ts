@@ -25,7 +25,7 @@ const never = (id: string, instrumentId: string) => ({
   left: { kind: 'market', id: `${id}-px`, ...series(instrumentId) },
   right: { kind: 'constant', id: `${id}-k`, value: '1' },
 });
-const whileTrue = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+const whileTrue = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
 const idle = (ids: Record<string, string>, account: string) => {
   const a = ids['DEMO-A']!;
   return {

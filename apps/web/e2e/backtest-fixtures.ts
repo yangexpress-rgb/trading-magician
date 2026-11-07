@@ -42,9 +42,7 @@ export function leg(
     quantity: { type: 'units', value: '20', rounding: 'down' },
     orderType: 'market',
     timeInForce: 'day',
-    extendedHours: false,
     timing: { mode: 'immediate' },
-    timingOnly: false,
   };
 }
 
@@ -71,7 +69,7 @@ function crossoverRules(ids: Record<string, string>, accountId: string, pair: bo
     ...series(a),
   });
   const px = (id: string) => ({ kind: 'market', id, ...series(a) });
-  const trigger = { mode: 'on_transition', cooldownSec: 0, confirmationBars: 0 };
+  const trigger = { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 };
   return {
     entry: {
       condition: group('eg', {

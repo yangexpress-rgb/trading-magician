@@ -192,10 +192,10 @@ describe('planCycle: one leg each way', () => {
 describe('planCycle: timing (§6.8)', () => {
   it('schedules an Exit five minutes after the Entry order was placed, without the Exit condition', () => {
     const def = single();
+    def.execution.timingOnly = true;
     def.exit.orders = [
       order('sell', {
         side: 'sell',
-        timingOnly: true,
         timing: {
           mode: 'relative',
           amount: 5,
@@ -473,9 +473,9 @@ describe('planEntry', () => {
 
   it('opens one cycle for a timing-only exact Entry leg', () => {
     const exact = single();
+    exact.execution.timingOnly = true;
     exact.entry.orders = [
       order('buy', {
-        timingOnly: true,
         timing: { mode: 'exact', at: new Date(s(30)).toISOString(), zone: 'UTC' },
       }),
     ];
@@ -499,7 +499,7 @@ describe('planEntry', () => {
 });
 
 describe('extended hours under the market-hours policy (§6.8)', () => {
-  const dayLimit = { extendedHours: false, orderType: 'limit', timeInForce: 'day' } as const;
+  const dayLimit = { orderType: 'limit', timeInForce: 'day' } as const;
   /** Tuesday 2026-10-06 8:00 New York, before the open. */
   const PRE = Date.parse('2026-10-06T12:00:00Z');
 
@@ -527,16 +527,5 @@ describe('extended hours under the market-hours policy (§6.8)', () => {
       sendsExtendedHours({ ...dayLimit, timeInForce: 'gtc' }, 'extended_if_supported', false, true),
     ).toBe(false);
     expect(sendsExtendedHours(dayLimit, 'extended_if_supported', false, false)).toBe(false);
-  });
-
-  it("always honours a leg's own extended-hours choice", () => {
-    expect(
-      sendsExtendedHours(
-        { ...dayLimit, extendedHours: true, orderType: 'market' },
-        'queue',
-        true,
-        false,
-      ),
-    ).toBe(true);
   });
 });

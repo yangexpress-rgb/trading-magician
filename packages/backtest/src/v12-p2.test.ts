@@ -235,7 +235,7 @@ describe('item 9: risk-based sizing and the ATR stop', () => {
 
   it('skips the entry, saying why, while the ATR has too little history', () => {
     const def = riskAtrTrend();
-    def.entry.orders[0]!.quantity.atrPeriod = 400;
+    def.entry.risk = { atrPeriod: 400, atrMultiple: '2' };
     def.exit.rules = [];
     // ATR(400) needs 401 daily bars: none of the bars up to mid-2024 have that much history.
     const r = simulate({

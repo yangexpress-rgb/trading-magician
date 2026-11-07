@@ -56,7 +56,9 @@ export interface BacktestRunDto extends BacktestRunSummaryDto {
 export interface BacktestTradeSizingDto {
   method: 'risk_atr';
   equity: string;
-  riskPct: string;
+  /** The amount at risk: a % of equity, or dollars (ADR 0049). */
+  riskPct?: string;
+  riskAmount?: string;
   atrPeriod: number;
   atr: string;
   atrMultiple: string;

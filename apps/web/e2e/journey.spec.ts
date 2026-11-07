@@ -58,12 +58,12 @@ test('sign up, subscribe, save, back test, trade on paper and see it in Performa
     return {
       entry: {
         condition: group('eg', comparison('in', a, 'gt')),
-        trigger: { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 },
+        trigger: { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 },
         orders: [leg('buy', 'Buy A', a, account, 'buy')],
       },
       exit: {
         condition: group('xg', comparison('out', a, 'lt')),
-        trigger: { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 },
+        trigger: { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 },
         orders: [leg('sell', 'Sell A', a, account, 'close')],
       },
     };

@@ -6,7 +6,7 @@ import {
   groupDefinition,
   randomId,
   refillExitOrders,
-  syncExitWithEntry,
+  DEFAULT_TRIGGER,
   type EntryGroup,
   type PositionDirection,
   type StrategyDefinition,
@@ -30,50 +30,17 @@ export const DIRECTION_LABELS: Record<PositionDirection, string> = {
   short: 'Short: Entry sells short, Exit buys to cover',
 };
 
-/** Long or short for one group's Entry: sets the direction and the Entry legs' side. */
-export function DirectionField({
-  definition,
-  onChange,
-  id,
-}: {
-  definition: StrategyDefinition;
-  onChange: (def: StrategyDefinition) => void;
-  id: string;
-}) {
-  const { editable } = useEditor();
+/**
+ * Long or short, shown, not chosen (ADR 0049): direction comes from the Entry
+ * legs' sides (Buy is long, Sell short is short), so it can never disagree with them.
+ */
+export function DirectionField({ definition, id }: { definition: StrategyDefinition; id: string }) {
   const direction = directionOf(definition.entry);
-  const set = (next: PositionDirection) => {
-    const side = next === 'long' ? 'buy' : 'sell_short';
-    const edited: StrategyDefinition = {
-      ...definition,
-      entry: {
-        ...definition.entry,
-        direction: next,
-        orders: definition.entry.orders.map((o) => ({ ...o, side })),
-      },
-    };
-    // Exit legs that follow Entry flip with it (ADR 0028).
-    onChange(syncExitWithEntry(definition, edited));
-  };
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-      <label htmlFor={id} className="font-semibold">
-        Direction
-      </label>
-      <select
-        id={id}
-        className="rounded-md border border-line bg-surface px-2 py-1"
-        value={direction}
-        disabled={!editable}
-        onChange={(e) => set(e.target.value as PositionDirection)}
-      >
-        {(['long', 'short'] as const).map((d) => (
-          <option key={d} value={d}>
-            {DIRECTION_LABELS[d]}
-          </option>
-        ))}
-      </select>
-    </div>
+    <p id={id} className="mb-3 text-sm">
+      <span className="font-semibold">Direction:</span> {DIRECTION_LABELS[direction]}{' '}
+      <span className="text-ink-muted">(from the Entry legs&rsquo; side)</span>
+    </p>
   );
 }
 
@@ -85,7 +52,6 @@ export function addGroup(def: StrategyDefinition): StrategyDefinition {
   const base: StrategyDefinition = {
     ...def,
     entry: {
-      direction,
       condition: emptyGroup(),
       trigger: { ...def.entry.trigger },
       orders: def.entry.orders.map((o) => {
@@ -94,7 +60,12 @@ export function addGroup(def: StrategyDefinition): StrategyDefinition {
         return { ...rest, id: randomId(), side, legLabel: `${o.legLabel} (${direction})` };
       }),
     },
-    exit: { condition: emptyGroup(), trigger: { ...def.exit.trigger }, orders: [] },
+    exit: {
+      condition: emptyGroup(),
+      trigger: { ...(def.exit.trigger ?? DEFAULT_TRIGGER) },
+      orders: [],
+      mirrorEntry: true,
+    },
   };
   const filled = refillExitOrders(base);
   const group: EntryGroup = {

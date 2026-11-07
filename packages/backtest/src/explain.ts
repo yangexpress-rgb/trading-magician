@@ -5,8 +5,9 @@ import {
   optionMetricField,
   type ConditionNode,
   type Expr,
-  type Phase,
+  inCooldown,
   type SeriesResolver,
+  type Trigger,
   type TriggerState,
   type Truth,
 } from '@tm/domain';
@@ -76,11 +77,11 @@ export function whyNotFired(
   before: TriggerState,
   after: TriggerState,
   now: number,
-  trigger: Phase['trigger'],
+  trigger: Trigger,
 ): ConditionOutcome {
+  void now;
   if (after.consecutive < trigger.confirmationBars + 1) return 'confirming';
-  if (before.lastFired !== undefined && now - before.lastFired < trigger.cooldownSec * 1000)
-    return 'cooldown';
+  if (inCooldown(after, trigger)) return 'cooldown';
   if (trigger.mode === 'once_per_cycle' && before.fired > 0) return 'fired_before';
   return 'already_true';
 }
@@ -96,7 +97,8 @@ export class ConditionRecorder {
 
   constructor(
     private readonly condition: ConditionNode,
-    private readonly trigger: Phase['trigger'],
+    /** Absent for a slot's Exit, which has no trigger (ADR 0049). */
+    private readonly trigger: Trigger | undefined,
   ) {
     const walk = (node: ConditionNode) => {
       if (node.kind === 'group') node.children.forEach(walk);
@@ -156,7 +158,7 @@ export class ConditionRecorder {
     }
     return {
       condition: this.condition,
-      trigger: this.trigger,
+      ...(this.trigger ? { trigger: this.trigger } : {}),
       evaluated: this.evaluated,
       trueBars: this.trueBars,
       falseBars: this.falseBars,

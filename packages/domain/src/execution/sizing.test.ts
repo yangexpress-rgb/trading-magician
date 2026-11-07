@@ -28,8 +28,39 @@ describe('sizeOrder', () => {
     expect(q(order('buy', 'notional', '1020', 'nearest'))).toBe('20');
     expect(q(order('buy', 'notional', '1040', 'nearest'))).toBe('21');
     expect(q(order('sell_short', 'pct_equity', '5'))).toBe('100');
-    expect(q(order('buy', 'risk_sized', '200'), { stopPrice: d(48) })).toBe('100');
-    expect(q(order('buy', 'risk_sized', '200'))).toBe('no_stop_distance');
+    const risk = (
+      value: string,
+      extra: Partial<PlannedOrder['quantity']>,
+    ): SizingInput['order'] => ({
+      side: 'buy',
+      quantity: { type: 'risk', value, rounding: 'down', ...extra },
+    });
+    const dollarsToStop = risk('200', { amountIn: 'dollars', distanceFrom: 'stop_price' });
+    expect(q(dollarsToStop, { stopPrice: d(48) })).toBe('100');
+    expect(q(dollarsToStop)).toBe('no_stop_distance');
+  });
+
+  it('sizes one risk quantity four ways: dollars or % of equity, to the stop or the ATR distance (ADR 0049)', () => {
+    const risk = (
+      value: string,
+      extra: Partial<PlannedOrder['quantity']>,
+    ): SizingInput['order'] => ({
+      side: 'buy',
+      quantity: { type: 'risk', value, rounding: 'down', ...extra },
+    });
+    const q = (o: SizingInput['order'], extra: Partial<SizingInput> = {}) => {
+      const r = sizeOrder({ ...base, order: o, ...extra });
+      return r.ok ? r.quantity.toString() : r.code;
+    };
+    // 1% of 100,000 = 1,000 over a $2 stop distance = 500 shares.
+    expect(
+      q(risk('1', { amountIn: 'pct_equity', distanceFrom: 'stop_price' }), { stopPrice: d(48) }),
+    ).toBe('500');
+    const atr = { atr: d(2), distance: { atrPeriod: 14, atrMultiple: '2' } };
+    // ATR 2 × 2 = $4 a share: 1,000 / 4 = 250; $400 / 4 = 100.
+    expect(q(risk('1', { amountIn: 'pct_equity', distanceFrom: 'atr' }), atr)).toBe('250');
+    expect(q(risk('400', { amountIn: 'dollars', distanceFrom: 'atr' }), atr)).toBe('100');
+    expect(q(risk('1', { amountIn: 'pct_equity', distanceFrom: 'atr' }))).toBe('no_atr');
   });
 
   it('rounds to the lot size', () => {
