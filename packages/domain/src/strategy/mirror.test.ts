@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createDefinition } from './defaults';
 import { sequentialIds } from './ids';
-import { exitFollowsEntry, mirrorEntryOrders, refillExitOrders, syncExitWithEntry } from './mirror';
+import { mirrorEntryOrders, mirrorsEntry, refillExitOrders, syncExitWithEntry } from './mirror';
 import type { StrategyDefinition } from './schema';
 import { order, OTHER_ACCOUNT, STOCK_A, STOCK_B } from './test-fixtures';
 
@@ -42,9 +42,7 @@ describe('mirrorEntryOrders', () => {
         orderType: 'limit',
         timeInForce: 'gtc',
         accountId: OTHER_ACCOUNT,
-        extendedHours: true,
         timing: { mode: 'exact', at: '2026-11-03T15:00:00Z', zone: 'America/New_York' },
-        timingOnly: true,
         notes: 'entry note',
       }),
     ]);
@@ -52,7 +50,6 @@ describe('mirrorEntryOrders', () => {
       orderType: 'market',
       timeInForce: 'day',
       accountId: OTHER_ACCOUNT,
-      extendedHours: true,
       timing: { mode: 'immediate' },
     });
     expect(exit).not.toHaveProperty('limitPrice');
@@ -78,7 +75,7 @@ describe('mirrorEntryOrders', () => {
   });
 });
 
-describe('Exit follows Entry until the user edits it', () => {
+describe('Mirror Entry legs switch (ADR 0049)', () => {
   it('fills Exit when the first Entry leg is added', () => {
     const empty = createDefinition(sequentialIds('g'));
     const after = syncExitWithEntry(
@@ -88,7 +85,7 @@ describe('Exit follows Entry until the user edits it', () => {
     );
     expect(after.exit.orders).toHaveLength(1);
     expect(after.exit.orders[0]).toMatchObject({ id: 'x1', side: 'sell', legLabel: 'Exit leg 1' });
-    expect(exitFollowsEntry(after)).toBe(true);
+    expect(mirrorsEntry(after.exit)).toBe(true);
   });
 
   it('tracks Entry changes and keeps the Exit leg id', () => {
@@ -106,18 +103,24 @@ describe('Exit follows Entry until the user edits it', () => {
     });
   });
 
-  it('stops following once an Exit leg is changed', () => {
+  it('leaves hand-built Exit legs alone with the switch off', () => {
     const def = refillExitOrders(withEntry(order('e1')), sequentialIds('x'));
+    def.exit.mirrorEntry = false;
     def.exit.orders[0] = { ...def.exit.orders[0]!, orderType: 'limit' };
-    expect(exitFollowsEntry(def)).toBe(false);
+    expect(mirrorsEntry(def.exit)).toBe(false);
     const next = editEntry(def, 0, { quantity: { type: 'units', value: '99', rounding: 'down' } });
     expect(next.exit.orders).toEqual(def.exit.orders);
   });
 
-  it('stops following once an Exit leg is added', () => {
+  it('keeps following after an Exit leg is edited while the switch is on', () => {
     const def = refillExitOrders(withEntry(order('e1')), sequentialIds('x'));
-    def.exit.orders.push(order('extra', { side: 'close' }));
-    expect(exitFollowsEntry(def)).toBe(false);
+    def.exit.orders[0] = { ...def.exit.orders[0]!, orderType: 'limit' };
+    const next = editEntry(def, 0, { quantity: { type: 'units', value: '99', rounding: 'down' } });
+    expect(next.exit.orders[0]).toMatchObject({
+      id: 'x1',
+      orderType: 'market',
+      quantity: { value: '99' },
+    });
   });
 
   it('adds and drops Exit legs with Entry legs, keeping a sequential leg order in step', () => {

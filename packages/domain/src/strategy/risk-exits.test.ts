@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 import { sizeOrder } from '../execution/sizing';
-import { atrStopHit, atrStopLevel, riskSeries, riskSizingCap } from './risk-exits';
+import { atrStopDistance, atrStopHit, atrStopLevel, riskSeries, riskSizingCap } from './risk-exits';
 import type { PlannedOrder, StrategyDefinition } from './schema';
 import { parseDefinition } from './serialize';
 import { context, order, STOCK_A, STOCK_B, validDefinition } from './test-fixtures';
@@ -9,19 +9,27 @@ import { validateStrategy } from './validate';
 
 /** Design v1.2 item 9: risk-based sizing from ATR, and a fixed ATR stop. */
 const d = (v: string | number) => new Decimal(v);
-const riskAtr = (value = '1', atrPeriod = 20, atrMultiple = '2'): PlannedOrder['quantity'] => ({
-  type: 'risk_atr',
+/** Risk a % of equity over the Entry's ATR distance (ADR 0049; was `risk_atr`). */
+const riskAtr = (value = '1'): PlannedOrder['quantity'] => ({
+  type: 'risk',
   value,
   rounding: 'down',
-  atrPeriod,
-  atrMultiple,
+  amountIn: 'pct_equity',
+  distanceFrom: 'atr',
 });
-const base = { referencePrice: d(400), equity: d(100_000), position: d(0), lotSize: d(1) };
+const base = {
+  referencePrice: d(400),
+  equity: d(100_000),
+  position: d(0),
+  lotSize: d(1),
+  distance: { atrPeriod: 20, atrMultiple: '2' },
+};
 
 function sized(): StrategyDefinition {
   const def = validDefinition();
   def.entry.orders = [order('buy-a', { quantity: riskAtr() })];
-  def.exit.rules = [{ kind: 'atrStop', id: 'atr-stop', atrPeriod: 20, atrMultiple: '2' }];
+  def.entry.risk = { atrPeriod: 20, atrMultiple: '2' };
+  def.exit.rules = [{ kind: 'atrStop', id: 'atr-stop' }];
   return def;
 }
 
@@ -121,6 +129,13 @@ describe('risk_atr sizing', () => {
 });
 
 describe('ATR stop', () => {
+  it('reads the Entry risk distance unless it has its own', () => {
+    const def = sized();
+    expect(atrStopDistance(def)).toEqual({ atrPeriod: 20, atrMultiple: '2' });
+    def.exit.rules = [{ kind: 'atrStop', id: 's', override: { atrPeriod: 10, atrMultiple: '3' } }];
+    expect(atrStopDistance(def)).toEqual({ atrPeriod: 10, atrMultiple: '3' });
+  });
+
   it('is fixed at entry: below a long, above a short, and close-based', () => {
     const long = atrStopLevel(d(400), d('4.1234'), '2', true);
     const short = atrStopLevel(d(400), d('4.1234'), '2', false);
@@ -146,16 +161,16 @@ describe('validation', () => {
     expect(parseDefinition(JSON.parse(JSON.stringify(def)))).toEqual(def);
   });
 
-  it('needs a period and a multiple, at most 100% risk, and only on Entry legs', () => {
+  it('needs the Entry risk distance, at most 100% risk, and only on Entry legs', () => {
     const def = sized();
-    def.entry.orders[0]!.quantity = { type: 'risk_atr', value: '150', rounding: 'down' };
+    def.entry.orders[0]!.quantity = riskAtr('150');
+    delete def.entry.risk;
     expect(codes(def)).toEqual(
-      expect.arrayContaining([
-        'invalid_quantity',
-        'risk_atr_needs_period',
-        'risk_atr_needs_multiple',
-      ]),
+      expect.arrayContaining(['invalid_quantity', 'risk_needs_distance', 'atr_stop_no_distance']),
     );
+    const half = sized();
+    half.entry.orders[0]!.quantity = { type: 'risk', value: '1', rounding: 'down' };
+    expect(codes(half)).toContain('risk_incomplete');
     const exit = sized();
     exit.exit.orders = [order('sell-a', { side: 'sell', quantity: riskAtr() })];
     expect(codes(exit)).toContain('risk_atr_entry_only');
@@ -165,7 +180,7 @@ describe('validation', () => {
     const def = sized();
     def.exit.rules = [
       ...def.exit.rules!,
-      { kind: 'atrStop', id: 'atr-2', atrPeriod: 10, atrMultiple: '3' },
+      { kind: 'atrStop', id: 'atr-2', override: { atrPeriod: 10, atrMultiple: '3' } },
     ];
     expect(codes(def)).toContain('duplicate_atr_stop');
     const two = sized();

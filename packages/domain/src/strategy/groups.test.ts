@@ -19,13 +19,11 @@ import { validateStrategy } from './validate';
 /** Design v1.2 item 8: long and short entry groups in one strategy. */
 function twoSided(): StrategyDefinition {
   const def = validDefinition();
-  def.entry.direction = 'long';
   def.groups = [
     {
       id: 'short-1',
       label: 'Short breakdown',
       entry: {
-        direction: 'short',
         condition: {
           kind: 'group',
           id: 'sg',
@@ -83,15 +81,11 @@ describe('entry groups (v1.2 item 8)', () => {
     expect(validateStrategy(twoSided(), context()).errors).toEqual([]);
   });
 
-  it('says when a leg does not match its group direction', () => {
+  it('takes each group direction from its legs, so a leg can no longer disagree with it', () => {
     const def = twoSided();
     def.groups![0]!.entry.orders[0]!.side = 'buy';
-    const v = validateStrategy(def, context());
-    const e = v.errors.find((x) => x.code === 'direction_side_mismatch');
-    expect(e?.message).toBe(
-      '"Short breakdown" goes short: its Entry leg "Short A" must Sell short',
-    );
-    expect(e?.path).toEqual(['groups', 0, 'entry', 'orders', 0, 'side']);
+    expect(entryGroups(def).map((g) => g.direction)).toEqual(['long', 'long']);
+    expect(codes(def)).not.toContain('direction_side_mismatch');
   });
 
   it('needs one cycle at a time, and fixed legs', () => {

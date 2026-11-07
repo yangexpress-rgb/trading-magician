@@ -312,7 +312,8 @@ function checkCondition(
   // "This instrument" means the slot's instrument, which exists in Exit rules of
   // a Selection group or per-leg strategy; the strategy-level Entry has none.
   const mode = slotModeOf(def);
-  const context = phase === 'exit' && mode !== 'none';
+  // In the Entry gate of such a strategy, "this instrument" gets its own named error below.
+  const context = mode !== 'none';
   checkTree(root, [phase, 'condition'], ctx, add, context);
 
   // The shared regime gate is evaluated once for the whole strategy, never for a
@@ -424,7 +425,7 @@ function checkAtrStops(def: StrategyDefinition, add: Add) {
         [...at, 'entry', 'risk'],
       );
     // ATR-sized legs read the Entry's one risk distance (ADR 0049).
-    p.entry.orders.forEach((o, i) => {
+    p.entry.orders.forEach((o) => {
       if (sizesFromAtr(o) && !p.entry.risk)
         add(
           'error',
@@ -454,7 +455,7 @@ function checkGroups(def: StrategyDefinition, ctx: ValidationContext, add: Add) 
     { entry: def.entry, path: [] as (string | number)[], label: 'Entry' },
     ...groups.map((g, i) => ({ entry: g.entry, path: ['groups', i], label: g.label })),
   ];
-  for (const { entry, path, label } of all) {
+  for (const { entry, path } of all) {
     // Direction is not stored: it comes from the Entry legs (directionOf, ADR 0049).
     // Shorting needs an instrument the broker lends (unknown is allowed; back tests say so).
     entry.orders.forEach((o, i) => {

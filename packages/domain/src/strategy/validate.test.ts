@@ -99,7 +99,7 @@ describe('structure', () => {
   it('allows an empty condition when every leg is timing-only', () => {
     const { errors } = check((d) => {
       d.exit.condition.children = [];
-      d.exit.orders[0]!.timingOnly = true;
+      d.execution.timingOnly = true;
       d.exit.orders[0]!.timing = {
         mode: 'relative',
         amount: 1,
@@ -263,7 +263,6 @@ describe('orders and accounts', () => {
           orderType: 'limit',
           limitPrice: constant('100'),
           timeInForce: 'gtc',
-          extendedHours: true,
         });
         d.exit.orders[0]!.side = 'buy_to_cover';
       },
@@ -275,7 +274,6 @@ describe('orders and accounts', () => {
         'unsupported_order_type',
         'unsupported_time_in_force',
         'short_selling_unsupported',
-        'extended_hours_unsupported',
       ]),
     );
   });
@@ -325,7 +323,13 @@ describe('orders and accounts', () => {
     expect(
       check(
         (d) =>
-          (d.entry.orders[0]!.quantity = { type: 'risk_sized', value: '100', rounding: 'down' }),
+          (d.entry.orders[0]!.quantity = {
+            type: 'risk',
+            value: '100',
+            rounding: 'down',
+            amountIn: 'dollars',
+            distanceFrom: 'stop_price',
+          }),
       ).errors,
     ).toEqual(['risk_sizing_needs_stop']);
   });
@@ -347,12 +351,11 @@ describe('orders and accounts', () => {
     expect(errors).toEqual(['exact_time_in_past']);
   });
 
-  it('warns about extended hours and non-atomic multi-leg orders', () => {
+  it('warns about non-atomic multi-leg orders', () => {
     const { warnings } = check((d) => {
-      d.entry.orders[0]!.extendedHours = true;
       d.entry.orders.push(order('buy-b', { instrumentId: STOCK_B }));
     });
-    expect(warnings).toEqual(['extended_hours', 'non_atomic_multi_leg']);
+    expect(warnings).toEqual(['non_atomic_multi_leg']);
   });
 
   it('warns when "extended hours if supported" cannot send a leg early', () => {
@@ -370,7 +373,8 @@ describe('orders and accounts', () => {
       d.exit.orders[0]!.orderType = 'limit';
       d.exit.orders[0]!.limitPrice = constant('60');
     });
-    expect(dayLimit.warnings).toEqual([]);
+    // Both legs can now fill outside regular hours: the strategy setting decides (ADR 0049).
+    expect(dayLimit.warnings).toEqual(['extended_hours', 'extended_hours']);
 
     const noExtended = context({
       accounts: new Map([
@@ -582,7 +586,6 @@ describe('indicator-only instruments (v1.2 item 5)', () => {
         ranking: { metric: 'return', params: {} },
         direction: 'desc',
         count: { type: 'fixed', value: 1 },
-        weighting: 'equal',
       };
       d.entry.orders[0]!.instrumentId = CONTEXT_INSTRUMENT_ID;
       for (const o of d.exit.orders) o.instrumentId = CONTEXT_INSTRUMENT_ID;
@@ -613,5 +616,68 @@ describe('indicator-only instruments (v1.2 item 5)', () => {
       ];
     }, withVix());
     expect(live.errors).toEqual(['index_daily_only']);
+  });
+});
+
+describe('Strategy Lab simplification checks (ADR 0049)', () => {
+  const selection = (d: StrategyDefinition) => {
+    d.entry.kind = 'selection';
+    d.entry.selection = {
+      universe: { type: 'list', instrumentIds: [STOCK_A, STOCK_B] },
+      ranking: { metric: 'return', params: {} },
+      direction: 'desc',
+      count: { type: 'fixed', value: 1 },
+    };
+    d.entry.orders[0]!.instrumentId = CONTEXT_INSTRUMENT_ID;
+    for (const o of d.exit.orders) o.instrumentId = CONTEXT_INSTRUMENT_ID;
+    d.entry.condition.children = [comparison('gate', market('spy'), 'gt', constant('1'))];
+    delete d.exit.trigger;
+  };
+
+  it('refuses a crossing that must stay true for confirmation bars', () => {
+    const r = check((d) => (d.entry.trigger.confirmationBars = 2));
+    expect(r.errors).toEqual(['cross_with_confirmation']);
+    expect(r.raw.errors[0]!.path).toEqual(['entry', 'trigger', 'confirmationBars']);
+    expect(check((d) => (d.entry.trigger.confirmationBars = 0)).errors).toEqual([]);
+  });
+
+  it('refuses "this instrument" in the regime gate of a Selection group', () => {
+    expect(check(selection).errors).toEqual([]);
+    const r = check((d) => {
+      selection(d);
+      d.entry.condition.children = [
+        comparison(
+          'gate',
+          market('this', { instrumentId: CONTEXT_INSTRUMENT_ID }),
+          'gt',
+          constant('1'),
+        ),
+      ];
+    });
+    expect(r.errors).toEqual(['context_in_gate']);
+  });
+
+  it('refuses timed entries without conditions in a Selection group', () => {
+    expect(
+      check((d) => {
+        selection(d);
+        d.execution.timingOnly = true;
+      }).errors,
+    ).toEqual(['slots_timing_only']);
+  });
+
+  it('ranks "these legs", and warns when there is only one leg to choose from', () => {
+    const r = check((d) => {
+      d.entry.kind = 'selection';
+      d.entry.selection = {
+        universe: { type: 'legs' },
+        ranking: { metric: 'return', params: {} },
+        direction: 'desc',
+        count: { type: 'fixed', value: 1 },
+      };
+      delete d.exit.trigger;
+    });
+    expect(r.errors).toEqual([]);
+    expect(r.warnings).toEqual(['legs_selection_one_leg']);
   });
 });
