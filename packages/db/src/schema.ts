@@ -2067,3 +2067,153 @@ export const optionLiveChains = pgTable(
     check('option_live_chain_symbol', sql`${t.symbol} ~ '^[A-Z][A-Z0-9.]{0,9}$'`),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Strategy Library (ADR 0051). A shared catalogue, not tenant data: every
+// signed-in user reads it and may register; registrant and editors are kept.
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per convention version: its label, the day it takes effect and the
+ * three code tables in force. Rows are never edited or deleted (trigger).
+ */
+export const conventionVersions = pgTable(
+  'convention_versions',
+  {
+    label: text('label').primaryKey(),
+    effectiveFrom: date('effective_from').notNull(),
+    /** `{ recordType, timeframe, assetClass }`: arrays of `{ code, meaning, note? }`. */
+    tables: jsonb('tables').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check('convention_versions_label', sql`${t.label} ~ '^v[1-9][0-9]*$'`)],
+);
+
+/** The single global sequence (D3). Only the registration trigger moves it. */
+export const strategyLibrarySequence = pgTable(
+  'strategy_library_sequence',
+  {
+    id: integer('id').primaryKey(),
+    lastIssued: integer('last_issued').notNull(),
+  },
+  (t) => [
+    check('strategy_library_sequence_single', sql`${t.id} = 1`),
+    check('strategy_library_sequence_nonnegative', sql`${t.lastIssued} >= 0`),
+  ],
+);
+
+export const strategyLibraryEntries = pgTable(
+  'strategy_library_entries',
+  {
+    id: id(),
+    /** Set by the insert trigger from the codes and the global sequence; immutable. */
+    registrationNumber: text('registration_number').notNull(),
+    sequenceNo: integer('sequence_no').notNull(),
+    /** The version that issued the number; reads its letters for ever. */
+    conventionVersion: text('convention_version')
+      .notNull()
+      .references(() => conventionVersions.label),
+    recordTypeCode: char('record_type_code', { length: 1 }).notNull(),
+    timeframeCode: char('timeframe_code', { length: 1 }).notNull(),
+    assetClassCode: char('asset_class_code', { length: 1 }).notNull(),
+    name: text('name').notNull(),
+    category: text('category').notNull(),
+    tags: text('tags')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    status: text('status').notNull().default('registered'),
+    shortDescription: text('short_description').notNull(),
+    longDescription: text('long_description').notNull(),
+    assets: text('assets').notNull(),
+    dataRequirements: text('data_requirements'),
+    entry: text('entry').notNull(),
+    exit: text('exit').notNull(),
+    /** Structured durations (`LibraryDuration` in @tm/domain). */
+    frequency: jsonb('frequency').notNull(),
+    turnaround: jsonb('turnaround').notNull(),
+    usedBy: jsonb('used_by')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    trackRecord: text('track_record'),
+    backtestSummary: text('backtest_summary'),
+    sources: jsonb('sources')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    relatedEntries: text('related_entries')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    /** A Strategy Lab strategy in the linking person's workspace; no FK across tenants. */
+    builtStrategyId: uuid('built_strategy_id'),
+    /** Who linked it, so only that workspace resolves the link. */
+    builtStrategyOwner: uuid('built_strategy_owner'),
+    retiredReason: text('retired_reason'),
+    retiredAt: timestamp('retired_at', { withTimezone: true }),
+    retiredBy: uuid('retired_by').references(() => users.id, { onDelete: 'set null' }),
+    /** Stable key of a seed entry, so seeding is idempotent. Null for registrations. */
+    seedKey: text('seed_key'),
+    /** Null for the seed catalogue. */
+    registeredBy: uuid('registered_by').references(() => users.id, { onDelete: 'set null' }),
+    registeredAt: timestamp('registered_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    rowVersion: rowVersion(),
+  },
+  (t) => [
+    uniqueIndex('strategy_library_entries_number_uq').on(t.registrationNumber),
+    uniqueIndex('strategy_library_entries_sequence_uq').on(t.sequenceNo),
+    uniqueIndex('strategy_library_entries_seed_uq').on(t.seedKey),
+    check('strategy_library_entries_status', sql`${t.status} in ('registered', 'retired')`),
+    check(
+      'strategy_library_entries_retired',
+      sql`(${t.status} = 'retired') = (${t.retiredAt} is not null and ${t.retiredReason} is not null)`,
+    ),
+    check(
+      'strategy_library_entries_number_shape',
+      sql`${t.registrationNumber} = ${t.recordTypeCode} || ${t.timeframeCode} || ${t.assetClassCode} || '-' || lpad(${t.sequenceNo}::text, greatest(4, length(${t.sequenceNo}::text)), '0')`,
+    ),
+    check('strategy_library_entries_name_length', sql`char_length(${t.name}) between 1 and 120`),
+    check(
+      'strategy_library_entries_short_length',
+      sql`char_length(${t.shortDescription}) between 1 and 280`,
+    ),
+    check(
+      'strategy_library_entries_prose',
+      sql`char_length(btrim(${t.entry})) > 0 and char_length(btrim(${t.exit})) > 0 and char_length(btrim(${t.assets})) > 0 and char_length(btrim(${t.longDescription})) > 0`,
+    ),
+    check(
+      'strategy_library_entries_built_link',
+      sql`(${t.builtStrategyId} is null) = (${t.builtStrategyOwner} is null)`,
+    ),
+    check(
+      'strategy_library_entries_tags_count',
+      sql`coalesce(array_length(${t.tags}, 1), 0) <= 20`,
+    ),
+  ],
+);
+
+/** Append-only history: one row per edit or retirement, with its note. */
+export const strategyLibraryRevisions = pgTable(
+  'strategy_library_revisions',
+  {
+    id: id(),
+    entryId: uuid('entry_id')
+      .notNull()
+      .references(() => strategyLibraryEntries.id),
+    action: text('action').notNull(),
+    note: text('note').notNull(),
+    /** Names of the fields the edit changed. */
+    changedFields: text('changed_fields')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    editedBy: uuid('edited_by').references(() => users.id, { onDelete: 'set null' }),
+    editedAt: timestamp('edited_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('strategy_library_revisions_entry_idx').on(t.entryId, t.editedAt),
+    check('strategy_library_revisions_action', sql`${t.action} in ('edit', 'retire')`),
+    check('strategy_library_revisions_note', sql`char_length(btrim(${t.note})) between 1 and 500`),
+  ],
+);

@@ -4,6 +4,7 @@ import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 const TABS = [
   { name: 'Quantitative Research', path: '/research' },
+  { name: 'Strategy Library', path: '/library' },
   { name: 'Strategy Lab', path: '/strategy-lab' },
   { name: 'Orders', path: '/orders' },
   { name: 'Performance', path: '/performance' },
@@ -11,6 +12,9 @@ const TABS = [
 ];
 
 const OTHER_PAGES = [
+  '/library/new',
+  '/library/SDS-0001',
+  '/library/SDS-0001/edit',
   '/settings/data-feeds',
   '/settings/accounts',
   '/settings/billing',
@@ -28,7 +32,7 @@ async function expectAccessible(page: Page) {
   ).toEqual([]);
 }
 
-test('shows the five tabs in the specified order and marks the current one', async ({ page }) => {
+test('shows the six tabs in the specified order and marks the current one', async ({ page }) => {
   await signUpAndVerify(page, uniqueEmail('nav'));
   const nav = page.getByRole('navigation', { name: 'Primary' });
   await expect(nav.getByRole('link')).toHaveText(TABS.map((t) => t.name));

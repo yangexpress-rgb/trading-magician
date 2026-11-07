@@ -98,3 +98,5 @@ export * from './admin';
 export * from './leg-accounts';
 export * from './options';
 export * from './options-live';
+export * from './library';
+export { seedStrategyLibrary, STRATEGY_LIBRARY_SEED } from './library-seed';
