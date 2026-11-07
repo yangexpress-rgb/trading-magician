@@ -207,6 +207,24 @@ export interface ScreenFilingMetrics {
   dividendYieldPct: number | null;
   priceToBook: number | null;
   evEbitda: number | null;
+  /** Last price × cover-page shares outstanding from the latest filing, as strategies use. */
+  marketCap?: number | null;
+}
+
+/**
+ * Diluted shares from a year's figures, unless they disagree with net income
+ * ÷ EPS by more than 5×: a few filers tag share counts in millions (McDonald's
+ * gave a $198K market cap), and such a count is no count at all.
+ */
+export function plausibleShares(facts: ScreenFacts | undefined): number | null {
+  const shares = facts?.shares;
+  if (shares == null || !(shares > 0)) return null;
+  const ni = facts?.netIncome;
+  const eps = facts?.eps;
+  if (ni == null || eps == null || eps === 0 || ni === 0 || Math.sign(ni) !== Math.sign(eps))
+    return shares;
+  const implied = ni / eps;
+  return shares / implied > 5 || implied / shares > 5 ? null : shares;
 }
 
 /**
@@ -220,7 +238,8 @@ export function screenFundamentals(
   filing?: ScreenFilingMetrics,
 ): Record<ScreenFundamentalColumn, number | null> {
   return {
-    marketCap: marketCapOf(last, facts?.shares),
+    // Cover-page shares from filings first; a year's diluted shares only as a fallback.
+    marketCap: filing?.marketCap ?? marketCapOf(last, plausibleShares(facts)),
     pe: filing?.pe ?? null,
     dividendYieldPct: filing?.dividendYieldPct ?? null,
     priceToBook: filing?.priceToBook ?? null,

@@ -140,6 +140,31 @@ describe('screener company columns', () => {
     ).toMatchObject({ pe: 20, dividendYieldPct: 3.2, priceToBook: 4, evEbitda: 11 });
   });
 
+  it("takes market cap from the filings' share count, and ignores a share count in millions", () => {
+    // McDonald's: a year's diluted shares tagged as 717 (millions), net income $8.2B, EPS $11.45.
+    const mcd = {
+      year: 2025,
+      revenue: 26e9,
+      revenuePrior: 25e9,
+      netIncome: 8.2e9,
+      eps: 11.45,
+      shares: 717,
+    };
+    expect(screenFundamentals(mcd, 277).marketCap).toBeNull();
+    const filed = {
+      pe: 24,
+      dividendYieldPct: 2.5,
+      priceToBook: null,
+      evEbitda: 18,
+      marketCap: 198e9,
+    };
+    expect(screenFundamentals(mcd, 277, filed).marketCap).toBe(198e9);
+    // A plausible count is still used when no filings are stored.
+    expect(screenFundamentals({ ...mcd, shares: 716e6 }, 277).marketCap).toBe(
+      Math.round(277 * 716e6),
+    );
+  });
+
   it('round-trips the company columns, and reads older tuples as having none', () => {
     const row = screenRow(
       {
