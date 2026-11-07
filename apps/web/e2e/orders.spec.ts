@@ -71,14 +71,14 @@ test('long DEMO-A and short DEMO-B on Entry; Exit legs 5 minutes after the Entry
   });
   await expect(page.getByText('These legs are sent as separate orders').first()).toBeVisible();
 
-  // Exit is pre-filled with the opposite of each Entry leg.
+  // Exit is pre-filled with the opposite of each Entry leg ("Mirror Entry legs" is on);
+  // turning the mirror off makes the Exit legs editable.
   const exitRow = (n: number) => page.getByRole('region', { name: `Exit leg ${n}`, exact: true });
-  await expect(
-    page.getByRole('note').filter({ hasText: 'Filled in from your Entry orders' }),
-  ).toBeVisible();
+  await expect(page.getByLabel('Mirror Entry legs')).toBeChecked();
   const sellA = exitRow(1);
   await expect(sellA.getByLabel('Side')).toHaveValue('sell');
   await expect(sellA.getByLabel('Quantity', { exact: true })).toHaveValue('100');
+  await page.getByLabel('Mirror Entry legs').uncheck();
   await sellA.getByLabel('Leg name').fill('Sell A');
   await fiveMinutesAfterEntrySubmitted(sellA);
   const coverB = exitRow(2);
@@ -185,7 +185,7 @@ test('exact zoned times, limit prices, sequential legs and risk limits round-tri
   await expect(page.getByRole('list').filter({ hasText: '1.Open B' })).toBeVisible();
 });
 
-test('Exit orders follow Entry until edited, and can be matched to Entry again', async ({
+test('Exit orders mirror Entry while "Mirror Entry legs" is on, and are hand-built when off', async ({
   page,
   baseURL,
 }) => {
@@ -202,20 +202,22 @@ test('Exit orders follow Entry until edited, and can be matched to Entry again',
     await entry.getByLabel('Instrument', { exact: true }).inputValue(),
   );
 
-  // Entry changes carry over while Exit is untouched.
+  // With the mirror on, Entry changes regenerate Exit, and Exit legs are not edited by hand.
+  const mirror = page.getByLabel('Mirror Entry legs');
+  await expect(mirror).toBeChecked();
   await entry.getByLabel('Side').selectOption({ label: 'Sell short' });
   await entry.getByLabel('Quantity', { exact: true }).fill('70');
   await expect(exit.getByLabel('Side')).toHaveValue('buy_to_cover');
   await expect(exit.getByLabel('Quantity', { exact: true })).toHaveValue('70');
+  await expect(exit.getByLabel('Quantity', { exact: true })).toBeDisabled();
 
-  // Once Exit is edited it is the user's own.
+  // Off: Exit is the user's own, and Entry edits leave it alone.
+  await mirror.uncheck();
   await exit.getByLabel('Quantity', { exact: true }).fill('30');
   await entry.getByLabel('Quantity', { exact: true }).fill('80');
   await expect(exit.getByLabel('Quantity', { exact: true })).toHaveValue('30');
-  await expect(page.getByText('Filled in from your Entry orders')).toHaveCount(0);
 
-  page.once('dialog', (d) => void d.accept());
-  await page.getByRole('button', { name: 'Match Entry orders' }).click();
+  // On again: Exit is the opposite of Entry once more.
+  await mirror.check();
   await expect(exit.getByLabel('Quantity', { exact: true })).toHaveValue('80');
-  await expect(page.getByText('Filled in from your Entry orders')).toBeVisible();
 });

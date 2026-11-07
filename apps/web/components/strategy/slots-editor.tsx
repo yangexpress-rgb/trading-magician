@@ -8,17 +8,28 @@ import {
   randomId,
   SCHEDULE_FREQUENCIES,
   SCHEDULE_LABELS,
+  isScheduled,
+  sizesFromAtr,
+  slotModeOf,
   type ConditionGroup,
   type ExitRule,
-  type FireMode,
+  type RiskDistance,
   type Schedule,
   type Selection,
   type StrategyDefinition,
 } from '@tm/domain';
-import { atrStopRule, toFixedLegs, toSelectionGroup, timeStopRule } from '@/lib/slot-edits';
+import {
+  atrStopRule,
+  DEFAULT_RISK_DISTANCE,
+  fromLegsSelection,
+  toFixedLegs,
+  toLegsSelection,
+  toSelectionGroup,
+  timeStopRule,
+} from '@/lib/slot-edits';
 import { ConditionTreeEditor } from './condition-editor';
 import { useEditor } from './editor-context';
-import { defaultMetricRef, MetricRefFields } from './expression-editor';
+import { MetricRefFields } from './expression-editor';
 import { MiniInput, MiniSelect, RowButton } from './fields';
 
 const UNIVERSE_LABELS: Record<(typeof BUILTIN_UNIVERSES)[number], string> = {
@@ -48,7 +59,8 @@ export function EntryStructure({
   const { instruments: all, accounts, editable } = useEditor();
   // Only tradable instruments can be a leg or a universe member (v1.2 item 5).
   const instruments = all.filter((i) => !isIndicatorOnlyClass(i.assetClass));
-  const selection = definition.entry.kind === 'selection';
+  const legsRanked = definition.entry.selection?.universe.type === 'legs';
+  const selection = definition.entry.kind === 'selection' && !legsRanked;
   const account = accounts.find((a) => a.isDefault) ?? accounts[0];
   return (
     <div className="mb-4 rounded-md border border-line bg-surface p-3">
@@ -91,7 +103,7 @@ export function EntryStructure({
           }
         />
       ) : (
-        <FireModeEditor definition={definition} onChange={onChange} />
+        <LegsChoice definition={definition} onChange={onChange} />
       )}
     </div>
   );
@@ -118,26 +130,35 @@ function SelectionEditor({
     <div className="mt-3 space-y-3">
       <fieldset disabled={!editable} className="grid-fields-wide gap-2">
         <legend className="sr-only">Selection group</legend>
-        <MiniSelect
-          id={id('universe')}
-          label="Universe"
-          value={u.type === 'builtin' ? u.id : 'list'}
-          onChange={(e) =>
-            set({
-              universe:
-                e.target.value === 'list'
-                  ? { type: 'list', instrumentIds: instruments.slice(0, 10).map((i) => i.id) }
-                  : { type: 'builtin', id: e.target.value as (typeof BUILTIN_UNIVERSES)[number] },
-            })
-          }
-        >
-          {BUILTIN_UNIVERSES.map((b) => (
-            <option key={b} value={b}>
-              {UNIVERSE_LABELS[b]}
-            </option>
-          ))}
-          <option value="list">My list of instruments</option>
-        </MiniSelect>
+        {u.type === 'legs' ? (
+          <p className="self-end pb-1 text-sm">
+            <span className="font-semibold">Universe:</span> these Entry legs
+          </p>
+        ) : (
+          <MiniSelect
+            id={id('universe')}
+            label="Universe"
+            value={u.type === 'builtin' ? u.id : 'list'}
+            onChange={(e) =>
+              set({
+                universe:
+                  e.target.value === 'list'
+                    ? { type: 'list', instrumentIds: instruments.slice(0, 10).map((i) => i.id) }
+                    : {
+                        type: 'builtin',
+                        id: e.target.value as (typeof BUILTIN_UNIVERSES)[number],
+                      },
+              })
+            }
+          >
+            {BUILTIN_UNIVERSES.map((b) => (
+              <option key={b} value={b}>
+                {UNIVERSE_LABELS[b]}
+              </option>
+            ))}
+            <option value="list">My list of instruments</option>
+          </MiniSelect>
+        )}
         <MetricRefFields
           value={selection.ranking}
           classes={universeClasses}
@@ -189,9 +210,6 @@ function SelectionEditor({
             })
           }
         />
-        <MiniSelect id={id('weighting')} label="Weighting" value="equal" disabled>
-          <option value="equal">Equal weight</option>
-        </MiniSelect>
       </fieldset>
 
       {u.type === 'builtin' && (
@@ -273,74 +291,131 @@ function SelectionEditor({
         )}
       </div>
       <p className="text-xs text-ink-muted">
-        The Entry conditions above gate the whole selection, for example a market regime filter.
-        Leave them empty to rebalance on every scheduled date. Instruments that drop out of the top
-        N are sold at the next rebalance.
+        {u.type === 'legs'
+          ? 'Each leg must pass its own conditions and the pre-filter; the qualifying legs are ranked and the top N enter, each with its own quantity.'
+          : 'Every selected instrument is held with an equal share of the template leg’s total amount. Instruments that drop out of the top N are sold at the next rebalance.'}
       </p>
     </div>
   );
 }
 
-/** With per-leg conditions: enter every leg that qualifies, or only the best one (item 2). */
-function FireModeEditor({
+/**
+ * With several fixed legs: enter every leg that qualifies, or only the best
+ * ones by a metric (ADR 0049), which is a Selection group of these legs.
+ */
+function LegsChoice({
   definition,
   onChange,
 }: {
   definition: StrategyDefinition;
   onChange: (def: StrategyDefinition) => void;
 }) {
-  const { editable, instruments } = useEditor();
+  const { editable } = useEditor();
   const legs = definition.entry.orders;
-  const fire: FireMode = definition.entry.fireMode ?? { mode: 'allPassing' };
+  const ranked = definition.entry.selection?.universe.type === 'legs';
   const anyLegCondition = legs.some((o) => o.legCondition);
-  if (legs.length < 2 && !anyLegCondition && fire.mode === 'allPassing') return null;
-  const classes = [
-    ...new Set(
-      legs.map((o) => instruments.find((i) => i.id === o.instrumentId)?.assetClass ?? 'stock'),
-    ),
-  ];
-  const set = (fireMode: FireMode | undefined) => {
-    const { fireMode: _f, ...entry } = definition.entry;
-    void _f;
-    onChange({ ...definition, entry: fireMode ? { ...entry, fireMode } : entry });
-  };
+  if (legs.length < 2 && !anyLegCondition && !ranked) return null;
   return (
-    <fieldset disabled={!editable} className="mt-3 grid-fields-wide gap-2">
-      <legend className="text-xs text-ink-muted">
-        Each Entry leg can have its own conditions (&ldquo;+ Add a condition for this leg&rdquo;
-        below). They are checked together with the Entry conditions above.
-      </legend>
-      <MiniSelect
-        id="fire-mode"
-        label="When several legs qualify"
-        value={fire.mode}
-        onChange={(e) =>
-          set(
-            e.target.value === 'bestByMetric'
-              ? { mode: 'bestByMetric', metric: defaultMetricRef() }
-              : undefined,
-          )
-        }
-      >
-        <option value="allPassing">Enter every leg that qualifies</option>
-        <option value="bestByMetric">Enter only the best one, by a metric</option>
-      </MiniSelect>
-      {fire.mode === 'bestByMetric' && (
-        <MetricRefFields
-          value={fire.metric}
-          classes={classes}
-          id={(f) => `fire-${f}`}
-          label="Best by (highest)"
-          onChange={(metric) => set({ mode: 'bestByMetric', metric })}
+    <div className="mt-3 space-y-2">
+      <fieldset disabled={!editable} className="grid-fields-wide gap-2">
+        <legend className="text-xs text-ink-muted">
+          Each Entry leg can have its own conditions (&ldquo;+ Add a condition for this leg&rdquo;
+          below). They are checked together with the regime gate.
+        </legend>
+        <MiniSelect
+          id="legs-choice"
+          label="When several legs qualify"
+          value={ranked ? 'best' : 'all'}
+          onChange={(e) =>
+            onChange(
+              e.target.value === 'best'
+                ? toLegsSelection(definition)
+                : fromLegsSelection(definition),
+            )
+          }
+        >
+          <option value="all">Enter every leg that qualifies</option>
+          <option value="best">Enter only the best ones, ranked by a metric</option>
+        </MiniSelect>
+      </fieldset>
+      {ranked && definition.entry.selection && (
+        <SelectionEditor
+          selection={definition.entry.selection}
+          onChange={(s) =>
+            onChange({ ...definition, entry: { ...definition.entry, selection: s } })
+          }
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * The Entry's one risk distance (ADR 0049): ATR period and multiple, entered
+ * once and used both to size risk-based legs and, unless it has its own, by
+ * the ATR stop. Shown when a leg sizes from it or Exit has an ATR stop.
+ */
+export function RiskDistanceEditor({
+  definition,
+  onChange,
+  idPrefix = '',
+}: {
+  definition: StrategyDefinition;
+  onChange: (def: StrategyDefinition) => void;
+  idPrefix?: string;
+}) {
+  const { editable, issueAt } = useEditor();
+  const sized = definition.entry.orders.some((o) => sizesFromAtr(o));
+  const stop = (definition.exit.rules ?? []).find((r) => r.kind === 'atrStop');
+  const usesEntry = !!stop && stop.kind === 'atrStop' && !stop.override;
+  if (!sized && !usesEntry && !definition.entry.risk) return null;
+  const value = definition.entry.risk ?? DEFAULT_RISK_DISTANCE;
+  const set = (patch: Partial<RiskDistance>) =>
+    onChange({ ...definition, entry: { ...definition.entry, risk: { ...value, ...patch } } });
+  const uses = [sized && 'risk-based sizing', usesEntry && 'the ATR stop'].filter(Boolean);
+  return (
+    <fieldset
+      disabled={!editable}
+      className="mb-4 rounded-md border border-line bg-surface p-3"
+      aria-describedby={`${idPrefix}risk-distance-help`}
+    >
+      <legend className="text-sm font-semibold">Risk distance</legend>
+      <div className="grid-fields-wide gap-2">
+        <MiniInput
+          id={`${idPrefix}risk-atr-multiple`}
+          label="ATRs from the entry price"
+          inputMode="decimal"
+          value={value.atrMultiple}
+          error={issueAt(['entry', 'risk', 'atrMultiple'])}
+          onChange={(e) => set({ atrMultiple: e.target.value.trim() })}
+        />
+        <MiniInput
+          id={`${idPrefix}risk-atr-period`}
+          label="ATR period (daily bars)"
+          type="number"
+          min={1}
+          max={500}
+          step={1}
+          value={Number.isFinite(value.atrPeriod) ? String(value.atrPeriod) : ''}
+          error={issueAt(['entry', 'risk', 'atrPeriod'])}
+          onChange={(e) =>
+            set({ atrPeriod: e.target.value === '' ? Number.NaN : Number(e.target.value) })
+          }
+        />
+      </div>
+      <p id={`${idPrefix}risk-distance-help`} className="mt-1 text-xs text-ink-muted">
+        Entered once for this Entry{uses.length > 0 ? `, and used by ${uses.join(' and ')}` : ''}.
+        The ATR is read on the entry day.
+      </p>
     </fieldset>
   );
 }
 
 /**
- * Rules that exit alongside the Exit conditions (v1.2 item 4): the first to
- * trigger exits. They run on every bar, whatever the schedule.
+ * Every way a position exits, in one list (ADR 0049): the Exit condition
+ * above, the holding-period exit, the ATR stop and, with a Selection group,
+ * the rebalance. Whichever comes first exits. They run on every bar,
+ * whatever the schedule.
  */
 export function ExitRulesEditor({
   definition,
@@ -354,24 +429,33 @@ export function ExitRulesEditor({
   const setRules = (next: ExitRule[]) => {
     const { rules: _r, ...exit } = definition.exit;
     void _r;
-    onChange({ ...definition, exit: next.length > 0 ? { ...exit, rules: next } : exit });
+    const hasStop = next.some((r) => r.kind === 'atrStop');
+    // An ATR stop reads the Entry's risk distance: give a new one the default.
+    const entry =
+      hasStop && !definition.entry.risk
+        ? { ...definition.entry, risk: { ...DEFAULT_RISK_DISTANCE } }
+        : definition.entry;
+    onChange({ ...definition, entry, exit: next.length > 0 ? { ...exit, rules: next } : exit });
   };
   const hasTimeStop = rules.some((r) => r.kind === 'timeStop');
   const hasAtrStop = rules.some((r) => r.kind === 'atrStop');
-  const patch = (i: number, p: Partial<ExitRule>) =>
-    setRules(rules.map((x, j) => (j === i ? ({ ...x, ...p } as ExitRule) : x)));
+  const replace = (i: number, r: ExitRule) => setRules(rules.map((x, j) => (j === i ? r : x)));
   const remove = (i: number) => setRules(rules.filter((_, j) => j !== i));
   const asInt = (v: string) => (v === '' ? Number.NaN : Number(v));
+  const mode = slotModeOf(definition);
+  const rebalances = mode === 'selection' || (mode === 'legs' && isScheduled(definition));
+  const distance = definition.entry.risk ?? DEFAULT_RISK_DISTANCE;
   return (
     <div className="mt-4">
-      <h3 className="mb-1 text-base font-semibold text-cond">Exit rules</h3>
+      <h3 className="mb-1 text-base font-semibold text-cond">Exits</h3>
       <p className="mb-2 text-sm text-ink-muted">
-        Combined with the Exit conditions by OR: whichever triggers first exits. Checked at every
-        bar close, never held for the schedule.
+        Whichever comes first exits: the Exit condition above or one of these. Checked at every bar
+        close, never held for the schedule.
       </p>
-      {rules.length > 0 && (
-        <ul className="space-y-2">
-          {rules.map((r, i) => (
+      <ul className="space-y-2">
+        {rules.map((r, i) => {
+          const own = r.kind === 'atrStop' ? r.override : undefined;
+          return (
             <li
               key={r.id}
               className="flex flex-wrap items-end gap-2 rounded-md border border-line bg-surface p-2"
@@ -380,7 +464,7 @@ export function ExitRulesEditor({
                 <>
                   <MiniInput
                     id={`rule-${r.id}-bars`}
-                    label="Exit after this many trading days held"
+                    label="Holding-period exit: trading days held"
                     type="number"
                     min={1}
                     max={2520}
@@ -388,7 +472,7 @@ export function ExitRulesEditor({
                     disabled={!editable}
                     value={Number.isFinite(r.barsHeld) ? String(r.barsHeld) : ''}
                     error={issueAt(['exit', 'rules', i, 'barsHeld'])}
-                    onChange={(e) => patch(i, { barsHeld: asInt(e.target.value) })}
+                    onChange={(e) => replace(i, { ...r, barsHeld: asInt(e.target.value) })}
                   />
                   <p className="flex-1 pb-1 text-xs text-ink-muted">
                     Counts the day the position opened. With daily bars, 5 days exits at the sixth
@@ -396,38 +480,71 @@ export function ExitRulesEditor({
                   </p>
                 </>
               ) : (
-                <>
-                  <MiniInput
-                    id={`rule-${r.id}-mult`}
-                    label="ATR stop: ATRs from the entry price"
-                    inputMode="decimal"
-                    disabled={!editable}
-                    value={r.atrMultiple}
-                    error={issueAt(['exit', 'rules', i, 'atrMultiple'])}
-                    onChange={(e) => patch(i, { atrMultiple: e.target.value.trim() })}
-                  />
-                  <MiniInput
-                    id={`rule-${r.id}-period`}
-                    label="ATR period (daily bars)"
-                    type="number"
-                    min={1}
-                    max={500}
-                    step={1}
-                    disabled={!editable}
-                    value={Number.isFinite(r.atrPeriod) ? String(r.atrPeriod) : ''}
-                    error={issueAt(['exit', 'rules', i, 'atrPeriod'])}
-                    onChange={(e) => patch(i, { atrPeriod: asInt(e.target.value) })}
-                  />
-                  <p className="flex-1 pb-1 text-xs text-ink-muted">
-                    The stop is set once, at entry: the entry price minus (long) or plus (short)
-                    this many ATRs, using the ATR on the entry day. It exits at the next open after
-                    a daily close beyond it. It does not trail.
+                <div className="w-full space-y-2">
+                  <p className="text-sm font-semibold">ATR stop</p>
+                  <label className="flex items-center gap-1.5 text-sm">
+                    <input
+                      type="checkbox"
+                      disabled={!editable}
+                      checked={!r.override}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          const { override: _o, ...rest } = r;
+                          void _o;
+                          replace(i, rest);
+                        } else replace(i, { ...r, override: { ...distance } });
+                      }}
+                    />
+                    Use the Entry&rsquo;s risk distance ({distance.atrMultiple} × ATR(
+                    {distance.atrPeriod}))
+                  </label>
+                  {own && (
+                    <div className="grid-fields-wide gap-2">
+                      <MiniInput
+                        id={`rule-${r.id}-mult`}
+                        label="Own distance: ATRs from the entry price"
+                        inputMode="decimal"
+                        disabled={!editable}
+                        value={own.atrMultiple}
+                        error={issueAt(['exit', 'rules', i, 'override', 'atrMultiple'])}
+                        onChange={(e) =>
+                          replace(i, {
+                            ...r,
+                            override: { ...own, atrMultiple: e.target.value.trim() },
+                          })
+                        }
+                      />
+                      <MiniInput
+                        id={`rule-${r.id}-period`}
+                        label="Own ATR period (daily bars)"
+                        type="number"
+                        min={1}
+                        max={500}
+                        step={1}
+                        disabled={!editable}
+                        value={Number.isFinite(own.atrPeriod) ? String(own.atrPeriod) : ''}
+                        error={issueAt(['exit', 'rules', i, 'override', 'atrPeriod'])}
+                        onChange={(e) =>
+                          replace(i, {
+                            ...r,
+                            override: { ...own, atrPeriod: asInt(e.target.value) },
+                          })
+                        }
+                      />
+                    </div>
+                  )}
+                  <p className="text-xs text-ink-muted">
+                    Set once, at entry: the entry price minus (long) or plus (short) the distance,
+                    using the ATR on the entry day. It exits at the next open after a daily close
+                    beyond it. It does not trail.
                   </p>
-                </>
+                </div>
               )}
               {editable && (
                 <RowButton
-                  label={r.kind === 'timeStop' ? 'Remove the time stop' : 'Remove the ATR stop'}
+                  label={
+                    r.kind === 'timeStop' ? 'Remove the holding-period exit' : 'Remove the ATR stop'
+                  }
                   className="text-danger"
                   onClick={() => remove(i)}
                 >
@@ -435,19 +552,34 @@ export function ExitRulesEditor({
                 </RowButton>
               )}
             </li>
-          ))}
-        </ul>
-      )}
+          );
+        })}
+        {rebalances && (
+          <li
+            className="rounded-md border border-dashed border-line bg-surface p-2"
+            aria-label="Rebalance exits (always on)"
+          >
+            <p className="text-sm font-semibold">Rebalance exits</p>
+            <p className="text-xs text-ink-muted">
+              Sells whatever leaves the top N at the next rebalance. Always on with a Selection
+              group; nothing to set.
+            </p>
+          </li>
+        )}
+      </ul>
       {editable && (
         <div className="mt-1 flex flex-wrap gap-2">
           {!hasTimeStop && (
-            <RowButton label="Add a time stop" onClick={() => setRules([...rules, timeStopRule()])}>
-              + Exit after N trading days held
+            <RowButton
+              label="Add a holding-period exit"
+              onClick={() => setRules([...rules, timeStopRule()])}
+            >
+              + Holding-period exit
             </RowButton>
           )}
           {!hasAtrStop && (
             <RowButton label="Add an ATR stop" onClick={() => setRules([...rules, atrStopRule()])}>
-              + Stop N ATRs from the entry price
+              + ATR stop
             </RowButton>
           )}
         </div>
@@ -488,9 +620,9 @@ export function ScheduleField({
         ))}
       </MiniSelect>
       <p id="schedule-help" className="mt-1 text-xs text-ink-muted">
-        The schedule gates entries and re-selection, never risk exits: Exit conditions, the time
-        stop and risk limits still run at every bar. A scheduled date is evaluated once, after that
-        day&rsquo;s NYSE close.
+        The schedule gates entries and re-selection, never exits: Exit conditions, the
+        holding-period exit and risk limits still run at every bar. A scheduled date is evaluated
+        once, after that day&rsquo;s NYSE close.
       </p>
     </div>
   );

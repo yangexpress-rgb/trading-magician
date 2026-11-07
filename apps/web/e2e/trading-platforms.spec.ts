@@ -22,14 +22,14 @@ const whileTrue = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
 
 /** Never enters (price below 1), so it runs without placing orders. */
 const idle =
-  (extendedHours = false) =>
+  () =>
   (ids: Record<string, string>, account: string) => {
     const a = ids['DEMO-A']!;
     return {
       entry: {
         condition: group('eg', comparison('in', a)),
         trigger: whileTrue,
-        orders: [{ ...leg('buy', 'Buy DEMO-A', a, account, 'buy'), extendedHours }],
+        orders: [leg('buy', 'Buy DEMO-A', a, account, 'buy')],
       },
       exit: {
         condition: group('xg', comparison('out', a)),
@@ -63,13 +63,26 @@ test('connects a second paper account, makes it the default and turns one off sa
   });
   expect(started.status()).toBe(200);
 
-  // The demo account cannot place extended-hours orders, and validation says so.
-  const late = await createStrategyWithRules(page, baseURL!, 'After hours', idle(true));
+  // The demo account cannot place extended-hours orders, and validation says so:
+  // extended hours is the strategy's market-hours setting (ADR 0049).
+  const late = await createStrategyWithRules(page, baseURL!, 'After hours', idle());
+  const lateDraft = await (await page.request.get(`/api/v1/strategies/${late.id}`)).json();
+  const extended = await page.request.patch(`/api/v1/strategies/${late.id}`, {
+    headers,
+    data: {
+      rowVersion: lateDraft.rowVersion,
+      definition: {
+        ...lateDraft.definition,
+        execution: { ...lateDraft.definition.execution, marketHoursPolicy: 'extended_if_supported' },
+      },
+    },
+  });
+  expect(extended.status()).toBe(200);
   const lateCheck = await (
     await page.request.post(`/api/v1/strategies/${late.id}/validate`, { headers })
   ).json();
-  expect(lateCheck.errors.map((e: { message: string }) => e.message)).toContain(
-    '"Demo paper account" doesn\'t support extended-hours orders',
+  expect(lateCheck.warnings.map((e: { message: string }) => e.message)).toContain(
+    '"Buy DEMO-A" waits for the regular session: "Demo paper account" doesn\'t trade extended hours',
   );
 
   await page.goto('/settings/accounts');

@@ -1,5 +1,6 @@
 import {
   CONTEXT_INSTRUMENT_ID,
+  DEFAULT_TRIGGER,
   getMetric,
   randomId,
   refillExitOrders,
@@ -29,7 +30,43 @@ export function defaultSelection(instrumentIds: readonly string[]): Selection {
     ranking: { metric: 'return', params: spec ? resolveMetricParams(spec, {}) : {} },
     direction: 'desc',
     count: { type: 'fixed', value: Math.min(3, Math.max(1, instrumentIds.length || 3)) },
-    weighting: 'equal',
+  };
+}
+
+/**
+ * Enter only the best of the Entry legs by a metric (ADR 0049): a Selection
+ * group whose universe is these legs, top 1. Each leg's own conditions are
+ * its pre-filter; the legs, their instruments and their Exit stay as they are.
+ */
+export function toLegsSelection(def: StrategyDefinition): StrategyDefinition {
+  const spec = getMetric('return');
+  const { trigger: _t, ...exit } = def.exit;
+  void _t;
+  return {
+    ...def,
+    entry: {
+      ...def.entry,
+      kind: 'selection',
+      selection: {
+        universe: { type: 'legs' },
+        ranking: { metric: 'return', params: spec ? resolveMetricParams(spec, {}) : {} },
+        direction: 'desc',
+        count: { type: 'fixed', value: 1 },
+      },
+    },
+    exit,
+  };
+}
+
+/** Enter every leg that qualifies: back to plain fixed legs, keeping each leg's conditions. */
+export function fromLegsSelection(def: StrategyDefinition): StrategyDefinition {
+  const { kind: _k, selection: _s, ...entry } = def.entry;
+  void _k;
+  void _s;
+  return {
+    ...def,
+    entry,
+    exit: { ...def.exit, trigger: def.exit.trigger ?? { ...DEFAULT_TRIGGER } },
   };
 }
 
@@ -63,16 +100,19 @@ export function toSelectionGroup(
   } as PlannedOrder;
   const { legCondition: _lc, ...leg } = template;
   void _lc;
-  const { fireMode: _fm, ...entry } = def.entry;
-  void _fm;
+  const { trigger: _t, ...exit } = def.exit;
+  void _t;
+  const kept = def.entry.selection;
   const next: StrategyDefinition = {
     ...def,
     entry: {
-      ...entry,
+      ...def.entry,
       kind: 'selection',
-      selection: def.entry.selection ?? defaultSelection(instrumentIds),
+      selection: kept && kept.universe.type !== 'legs' ? kept : defaultSelection(instrumentIds),
       orders: [leg],
     },
+    // A Selection group has no Exit trigger: its Exit condition exits directly (ADR 0049).
+    exit: { ...exit, mirrorEntry: true },
     execution: {
       ...def.execution,
       multiLegPolicy: 'concurrent',
@@ -91,14 +131,21 @@ export function toFixedLegs(def: StrategyDefinition, instrumentId: string): Stra
   void _s;
   const bind = (o: PlannedOrder): PlannedOrder =>
     o.instrumentId === CONTEXT_INSTRUMENT_ID ? { ...o, instrumentId } : o;
-  return refillExitOrders({ ...def, entry: { ...entry, orders: def.entry.orders.map(bind) } });
+  return refillExitOrders({
+    ...def,
+    entry: { ...entry, orders: def.entry.orders.map(bind) },
+    exit: { ...def.exit, trigger: def.exit.trigger ?? { ...DEFAULT_TRIGGER }, mirrorEntry: true },
+  });
 }
 
 export function timeStopRule(barsHeld = 5): ExitRule {
   return { kind: 'timeStop', id: randomId(), barsHeld };
 }
 
-/** A fixed stop 2 ATR(20)s from the entry price (v1.2 item 9). */
-export function atrStopRule(atrMultiple = '2', atrPeriod = 20): ExitRule {
-  return { kind: 'atrStop', id: randomId(), atrPeriod, atrMultiple };
+/** A fixed stop at the Entry's risk distance from the entry price (ADR 0049). */
+export function atrStopRule(): ExitRule {
+  return { kind: 'atrStop', id: randomId() };
 }
+
+/** The risk distance a new Entry starts with: 2 × ATR(20) (v1.2 item 9). */
+export const DEFAULT_RISK_DISTANCE = { atrPeriod: 20, atrMultiple: '2' } as const;

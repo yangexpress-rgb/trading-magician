@@ -116,12 +116,27 @@ describe('strategy text', () => {
           orderType: 'limit',
           limitPrice: { kind: 'constant', id: 'p', value: '99.5' },
           timeInForce: 'gtc',
-          extendedHours: true,
         }),
         symbol,
         'USD',
       ),
-    ).toBe('Sell short USD 500 of DEMO-B · Limit at 99.5 · Good till cancelled · extended hours');
+    ).toBe('Sell short USD 500 of DEMO-B · Limit at 99.5 · Good till cancelled');
+    expect(
+      describeLeg(
+        leg({
+          quantity: {
+            type: 'risk',
+            value: '1',
+            rounding: 'down',
+            amountIn: 'pct_equity',
+            distanceFrom: 'atr',
+          },
+        }),
+        symbol,
+        'USD',
+        { atrPeriod: 20, atrMultiple: '2' },
+      ),
+    ).toBe('Buy 1% of equity at risk in DEMO-A, sized for a stop 2 × ATR(20) away · Market · Day');
   });
 
   it('describes relative timing against a phase event or another leg', () => {
@@ -135,9 +150,9 @@ describe('strategy text', () => {
             unit: 'min',
             reference: { kind: 'leg', legId: 'l0', event: 'filled' },
           },
-          timingOnly: true,
         }),
         (id) => (id === 'l0' ? 'Short B' : undefined),
+        true,
       ),
     ).toBe('5 minutes after “Short B” filled (timing only)');
   });

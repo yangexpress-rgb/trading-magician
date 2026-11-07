@@ -35,7 +35,6 @@ const trigger = { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 };
 /** Long a 20-day breakout of DEMO-A, out below the 10-day low. */
 const longBreakout = (a: string, accountId: string) => ({
   entry: {
-    direction: 'long',
     condition: group('eg', {
       kind: 'comparison',
       id: 'up',
@@ -65,7 +64,7 @@ test('Highest starts one bar back, with help on which bars count', async ({ page
     longBreakout(ids['DEMO-A']!, account),
   );
   await page.goto(`/strategy-lab/${s.id}`);
-  const entry = page.getByRole('region', { name: 'Entry conditions' });
+  const entry = page.getByRole('region', { name: 'Entry trigger' });
   // The saved rule reads one bar back, and says why, with its own period.
   await expect(
     entry.getByText(/Highest value\(20\) of high" means a close above the previous 20 bars'/),
@@ -91,7 +90,10 @@ test('a long and a short entry group: built, validated, back tested with directi
   await page.goto(`/strategy-lab/${s.id}`);
   await page.getByRole('button', { name: 'Add an entry group' }).click();
   const g2 = page.getByRole('region', { name: 'Entry group 2: Group 2' });
-  await expect(g2.getByLabel('Direction')).toHaveValue('short');
+  // Each further group sits behind one summary row; its direction comes from its legs.
+  await expect(g2.getByText(/Short · 1 Entry leg, 1 Exit leg/)).toBeVisible();
+  await g2.locator('summary').click();
+  await expect(g2.getByText('Short: Entry sells short, Exit buys to cover')).toBeVisible();
   await expect(
     g2.getByRole('region', { name: /^Entry leg 1/ }).getByLabel('Side', { exact: true }),
   ).toHaveValue('sell_short');
@@ -214,16 +216,19 @@ test('risk % of equity sized from ATR, with an ATR stop, explained per trade', a
     longBreakout(ids['DEMO-A']!, account),
   );
 
-  // In the builder: Entry leg 1 risks 1% of equity with the stop 1 ATR(20) away,
-  // and the Exit gets an ATR stop at the same distance.
+  // In the builder: Entry leg 1 risks 1% of equity over the Entry's one risk
+  // distance, 1 ATR(20), and the Exit's ATR stop uses the same distance (ADR 0049).
   await page.goto(`/strategy-lab/${s.id}`);
   const entryLeg = page.getByRole('region', { name: /^Entry leg 1/ }).first();
-  await entryLeg.getByLabel('Quantity in').selectOption('risk_atr');
+  await entryLeg.getByLabel('Quantity in').selectOption('risk');
+  await expect(entryLeg.getByLabel('Risk', { exact: true })).toHaveValue('pct_equity');
+  await expect(entryLeg.getByLabel('Down to')).toHaveValue('atr');
   await expect(entryLeg.getByLabel('Risk (% of equity)')).toHaveValue('1');
-  await expect(entryLeg.getByLabel('ATR period (daily bars)')).toHaveValue('20');
-  await entryLeg.getByLabel('Stop distance (ATRs)').fill('1');
+  const distance = page.getByRole('group', { name: 'Risk distance' }).first();
+  await expect(distance.getByLabel('ATR period (daily bars)')).toHaveValue('20');
+  await distance.getByLabel('ATRs from the entry price').fill('1');
   await page.getByRole('button', { name: 'Add an ATR stop' }).click();
-  await page.getByLabel('ATR stop: ATRs from the entry price').fill('1');
+  await expect(page.getByLabel(/Use the Entry.s risk distance \(1 × ATR\(20\)\)/)).toBeChecked();
   await page.getByRole('button', { name: 'Save draft' }).click();
   await expect(page.locator('#save-state')).toHaveText('All changes saved');
   const v = await (

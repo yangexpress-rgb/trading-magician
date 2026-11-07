@@ -42,10 +42,15 @@ export function TimingEditor({
   /** Every other leg in the strategy, as reference choices. */
   legs: { id: string; label: string; phase: PhaseName }[];
   path: Path;
-  onChange: (patch: Pick<PlannedOrder, 'timing' | 'timingOnly'>) => void;
+  onChange: (patch: Pick<PlannedOrder, 'timing'>) => void;
 }) {
-  const { timeZone, issueAt, editable } = useEditor();
+  const { timeZone, issueAt, editable, slotMode } = useEditor();
   const t = order.timing;
+  // With a Selection group or per-leg conditions each instrument trades on its
+  // own, so only immediate and phase-relative timing apply (ADR 0049).
+  const slots = slotMode !== 'none';
+  const modes = MODES.filter((m) => !slots || m.mode !== 'exact' || t.mode === 'exact');
+  const refLegs = slots ? [] : legs;
   const id = (f: string) => `${order.id}-timing-${f}`;
   const err = (...rest: (string | number)[]) => issueAt([...path, ...rest]);
   const zones = useMemo(
@@ -69,7 +74,7 @@ export function TimingEditor({
                 event: phase === 'entry' ? 'entry_trigger' : 'entry_submitted',
               },
             };
-    onChange({ timing, timingOnly: order.timingOnly });
+    onChange({ timing });
   };
 
   return (
@@ -80,7 +85,7 @@ export function TimingEditor({
         role="radiogroup"
         aria-label="When this order becomes eligible"
       >
-        {MODES.map((m) => (
+        {modes.map((m) => (
           <label key={m.mode} className="flex items-center gap-1.5 text-sm">
             <input
               type="radio"
@@ -105,7 +110,6 @@ export function TimingEditor({
             onChange={(e) =>
               onChange({
                 timing: { ...t, at: zonedWallTimeToIso(e.target.value, t.zone) ?? e.target.value },
-                timingOnly: order.timingOnly,
               })
             }
           />
@@ -120,7 +124,6 @@ export function TimingEditor({
               const zone = e.target.value;
               onChange({
                 timing: { ...t, zone, at: (local && zonedWallTimeToIso(local, zone)) || t.at },
-                timingOnly: order.timingOnly,
               });
             }}
           >
@@ -149,7 +152,6 @@ export function TimingEditor({
                   ...t,
                   amount: e.target.value === '' ? Number.NaN : Number(e.target.value),
                 },
-                timingOnly: order.timingOnly,
               })
             }
           />
@@ -160,7 +162,6 @@ export function TimingEditor({
             onChange={(e) =>
               onChange({
                 timing: { ...t, unit: e.target.value as typeof t.unit },
-                timingOnly: order.timingOnly,
               })
             }
           >
@@ -190,7 +191,7 @@ export function TimingEditor({
                       legId: a ?? '',
                       event: b as (typeof LEG_EVENTS)[number],
                     };
-              onChange({ timing: { ...t, reference }, timingOnly: order.timingOnly });
+              onChange({ timing: { ...t, reference } });
             }}
           >
             <optgroup label="Strategy events">
@@ -200,9 +201,9 @@ export function TimingEditor({
                 </option>
               ))}
             </optgroup>
-            {legs.length > 0 && (
+            {refLegs.length > 0 && (
               <optgroup label="Another leg">
-                {legs.flatMap((l) =>
+                {refLegs.flatMap((l) =>
                   LEG_EVENTS.map((ev) => (
                     <option key={`${l.id}:${ev}`} value={`leg:${l.id}:${ev}`}>
                       {l.label} ({l.phase === 'entry' ? 'Entry' : 'Exit'}) {LEG_EVENT_LABELS[ev]}
@@ -222,15 +223,10 @@ export function TimingEditor({
       )}
 
       {t.mode !== 'immediate' && (
-        <label className="mt-2 flex items-center gap-1.5 text-sm">
-          <input
-            type="checkbox"
-            checked={order.timingOnly}
-            onChange={(e) => onChange({ timing: t, timingOnly: e.target.checked })}
-          />
-          Timing only: don&rsquo;t also wait for the {phase === 'entry' ? 'Entry' : 'Exit'}{' '}
-          conditions
-        </label>
+        <p className="mt-2 text-xs text-ink-muted">
+          Timed legs also wait for the {phase === 'entry' ? 'Entry' : 'Exit'} conditions, unless
+          &ldquo;Allow timed entries without conditions&rdquo; is on in Execution.
+        </p>
       )}
     </fieldset>
   );

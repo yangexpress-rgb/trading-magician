@@ -60,10 +60,10 @@ test('define, validate, test, start on paper, stop, revise and review versions',
   );
 
   // Define both phases: a pair entered together and exited together.
-  for (const phase of ['Entry', 'Exit'] as const) {
+  for (const region of ['Entry trigger', 'Exit condition'] as const) {
     await page
-      .getByRole('region', { name: `${phase} conditions` })
-      .getByRole('button', { name: `Add condition to ${phase} conditions` })
+      .getByRole('region', { name: region })
+      .getByRole('button', { name: `Add condition to ${region}` })
       .click();
   }
   await addLeg(page, 'Entry', 1, { name: 'Long A', symbol: 'DEMO-A', side: 'Buy', quantity: '10' });
@@ -73,7 +73,8 @@ test('define, validate, test, start on paper, stop, revise and review versions',
     side: 'Sell short',
     quantity: '10',
   });
-  // Exit is pre-filled with the opposite legs; only the names change here.
+  // Exit is pre-filled with the opposite legs; only the names change here, by hand.
+  await page.getByLabel('Mirror Entry legs').uncheck();
   const sellA = page.getByRole('region', { name: 'Exit leg 1', exact: true });
   await expect(sellA.getByLabel('Side')).toHaveValue('sell');
   await sellA.getByLabel('Leg name').fill('Sell A');

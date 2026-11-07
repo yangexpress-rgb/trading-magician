@@ -8,7 +8,7 @@ import {
   MARKET_HOURS_LABELS,
   MULTI_LEG_LABELS,
   RISK_FIELDS,
-  TRIGGER_LABELS,
+  describeTrigger,
 } from '@/lib/strategy-text';
 
 const PHASE_TITLE: Record<PhaseName, string> = { entry: 'Entry', exit: 'Exit' };
@@ -58,7 +58,7 @@ export function VersionSummary({
             </p>
             <p className="mt-1 text-sm">
               <span className="text-ink-muted">Fires: </span>
-              {TRIGGER_LABELS[p.trigger.mode]}
+              {describeTrigger(p.trigger)}
             </p>
             {p.orders.length === 0 ? (
               <p className="mt-3 text-sm text-ink-muted">No orders.</p>
@@ -67,10 +67,10 @@ export function VersionSummary({
                 {p.orders.map((o) => (
                   <li key={o.id} className="rounded-md border border-line p-3 text-sm">
                     <p className="font-medium">{o.legLabel}</p>
-                    <p>{describeLeg(o, symbol, baseCurrency)}</p>
+                    <p>{describeLeg(o, symbol, baseCurrency, definition.entry.risk)}</p>
                     <p className="text-ink-muted">
                       {accounts.get(o.accountId) ?? 'Unknown account'} · Timing:{' '}
-                      {describeTiming(o, labelOf)}
+                      {describeTiming(o, labelOf, ex.timingOnly)}
                     </p>
                   </li>
                 ))}
