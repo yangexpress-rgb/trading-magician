@@ -114,6 +114,9 @@ export function describeExpr(expr: Expr, symbol: SymbolLookup): string {
         ? spec.params.map((p) => expr.params[p.name] ?? p.default).join(', ')
         : '';
       const field = spec?.defaultField === null ? '' : ` ${FIELD_LABELS[expr.field].toLowerCase()}`;
+      // Highest/Lowest show their window's offset as a parameter (v1.2 item 7).
+      if (spec?.builderOffset !== undefined)
+        return `${expr.name}(${params}, offset ${expr.offset}) of ${instrumentText(expr.instrumentId, symbol)}${field}`;
       const ago = expr.offset ? ` ${expr.offset} bars ago` : '';
       return `${expr.name}(${params}) of ${instrumentText(expr.instrumentId, symbol)}${field}${ago}`;
     }

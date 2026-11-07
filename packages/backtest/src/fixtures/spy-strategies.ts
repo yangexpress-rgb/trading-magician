@@ -40,6 +40,7 @@ const indicator = (
   name: string,
   params: IndicatorExpr['params'],
   field: IndicatorExpr['field'] = 'close',
+  offset = 0,
 ): IndicatorExpr => ({
   kind: 'indicator',
   id: id('i'),
@@ -50,7 +51,7 @@ const indicator = (
   interval: '1d',
   adjustment: 'split_and_dividend',
   session: 'regular',
-  offset: 0,
+  offset,
 });
 
 const constant = (value: string): Expr => ({ kind: 'constant', id: id('c'), value });
@@ -114,6 +115,16 @@ export const breakoutDonchian = () =>
   build(
     cmp(market(), 'gt', indicator('HIGHEST', { period: 20 }, 'high')),
     cmp(market(), 'lt', indicator('LOWEST', { period: 10 }, 'low')),
+  );
+
+/**
+ * The same breakout as the v1.2 builder builds it (item 7): Highest and Lowest
+ * one bar back, so the window is the 20 (10) bars before the bar checked.
+ */
+export const breakoutDonchianPriorBars = () =>
+  build(
+    cmp(market(), 'gt', indicator('HIGHEST', { period: 20 }, 'high', 1)),
+    cmp(market(), 'lt', indicator('LOWEST', { period: 10 }, 'low', 1)),
   );
 
 /** A deterministic SPY-like random walk: ~2.5 years of daily bars from 2023-01-03. */

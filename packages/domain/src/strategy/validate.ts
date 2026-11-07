@@ -282,6 +282,46 @@ function containsSeries(e: Expr): boolean {
   return false;
 }
 
+const SAME_BAR_FIELDS = new Set(['open', 'high', 'low', 'close']);
+
+/**
+ * v1.2 item 7: "close is above HIGHEST(high, n)" with the window ending on the
+ * current bar can never be true (a bar's high is never below its own close),
+ * and likewise "below LOWEST(low, n)". Returns the warning, or undefined.
+ */
+function impossibleBreakout(c: Comparison): string | undefined {
+  const above = c.operator === 'gt' || c.operator === 'crosses_above';
+  const below = c.operator === 'lt' || c.operator === 'crosses_below';
+  if (!above && !below) return undefined;
+  const pairs: [Expr | undefined, Expr | undefined, boolean][] = [
+    [c.left, c.right, above],
+    [c.right, c.left, below],
+  ];
+  for (const [price, extreme, priceAbove] of pairs) {
+    if (price?.kind !== 'market' || extreme?.kind !== 'indicator') continue;
+    if (!SAME_BAR_FIELDS.has(price.field)) continue;
+    const name = priceAbove ? 'HIGHEST' : 'LOWEST';
+    const field = priceAbove ? 'high' : 'low';
+    if (extreme.name !== name || extreme.field !== field) continue;
+    if (
+      price.instrumentId !== extreme.instrumentId ||
+      price.interval !== extreme.interval ||
+      price.adjustment !== extreme.adjustment ||
+      price.session !== extreme.session ||
+      price.offset < extreme.offset ||
+      price.offset > extreme.offset + Number(extreme.params.period ?? 20) - 1
+    )
+      continue;
+    const label = name === 'HIGHEST' ? 'Highest value' : 'Lowest value';
+    return (
+      `This can never be true: ${label} includes the bar being checked, and its ${field} is never ` +
+      `${priceAbove ? 'below' : 'above'} its own ${price.field}. Set ${label}'s "Bars ago" to ` +
+      `${price.offset + 1} to compare with the bars before it`
+    );
+  }
+  return undefined;
+}
+
 function checkComparison(
   c: Comparison,
   path: (string | number)[],
@@ -326,6 +366,8 @@ function checkComparison(
       c.id,
     );
   }
+  const never = impossibleBreakout(c);
+  if (never) add('warning', 'breakout_includes_current_bar', never, path, c.id);
   const hasSeries = sides.some(([e]) => e && containsSeries(e));
   if (!hasSeries) {
     if (c.operator === 'crosses_above' || c.operator === 'crosses_below') {

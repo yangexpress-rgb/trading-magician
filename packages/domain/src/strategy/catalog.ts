@@ -48,6 +48,13 @@ export interface IndicatorSpec {
   defaultField: MarketField | null;
   /** Bars of history needed before the first value, given resolved params. */
   lookback: (params: Record<string, number | string>) => number;
+  /**
+   * "Bars ago" the builder starts a new expression with when this indicator is
+   * picked (v1.2 item 7). Absent means 0. Saved expressions keep their own.
+   */
+  builderOffset?: number;
+  /** Builder help text: which bars the value covers. */
+  help?: string;
 }
 
 const period = (def: number, max = 1000): IndicatorParamSpec => ({
@@ -119,6 +126,12 @@ export const INDICATORS: readonly IndicatorSpec[] = [
     params: [period(20)],
     defaultField: 'high',
     lookback: (p) => Number(p.period),
+    builderOffset: 1,
+    help:
+      'The highest value over the Period bars ending "Bars ago" bars before the bar being checked. ' +
+      'With Bars ago 1 (the default) the current bar is left out, so "close is above Highest value(20) of high" ' +
+      "means a close above the previous 20 bars' highest high: a breakout. With Bars ago 0 the window includes " +
+      'the current bar, whose high is never below its own close, so that rule can never be true.',
   },
   {
     name: 'LOWEST',
@@ -126,6 +139,12 @@ export const INDICATORS: readonly IndicatorSpec[] = [
     params: [period(20)],
     defaultField: 'low',
     lookback: (p) => Number(p.period),
+    builderOffset: 1,
+    help:
+      'The lowest value over the Period bars ending "Bars ago" bars before the bar being checked. ' +
+      'With Bars ago 1 (the default) the current bar is left out, so "close is below Lowest value(10) of low" ' +
+      "means a close below the previous 10 bars' lowest low. With Bars ago 0 the window includes the current " +
+      'bar, whose low is never above its own close, so that rule can never be true.',
   },
   {
     name: 'ROC',

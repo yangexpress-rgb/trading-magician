@@ -34,6 +34,21 @@ describe('strategy text', () => {
     ).toBe('DEMO-B close 2 bars ago');
   });
 
+  it('writes the window offset of Highest and Lowest as a parameter (v1.2 item 7)', () => {
+    const hi: Expr = {
+      kind: 'indicator',
+      id: 'h',
+      name: 'HIGHEST',
+      params: { period: 20 },
+      instrumentId: 'a',
+      ...series,
+      field: 'high',
+      offset: 1,
+    };
+    expect(describeExpr(hi, symbol)).toBe('HIGHEST(20, offset 1) of DEMO-A high');
+    expect(describeExpr({ ...hi, offset: 0 }, symbol)).toBe('HIGHEST(20, offset 0) of DEMO-A high');
+  });
+
   it('describes calculations', () => {
     expect(
       describeExpr(
