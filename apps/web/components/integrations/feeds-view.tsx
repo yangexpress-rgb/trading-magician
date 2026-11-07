@@ -324,8 +324,9 @@ export function FeedsView({
           Where the options signals in strategy conditions come from: expected move, implied
           volatility, IV rank, skew, term structure, put/call ratios and gamma exposure, worked out
           by the app from CBOE’s delayed option chains, once a day after the close. The chains are
-          recorded for everyone; this feed turns them on for your strategies. Options are never
-          traded and no chain is shown.
+          recorded for everyone; this feed turns them on for your strategies, the screener and
+          Quantitative Research. Options are never traded, and only the app’s own computed values
+          are shown, never CBOE’s quotes or greeks.
         </p>
         {data && optionsFeeds.length === 0 && (
           <div className="rounded-lg border border-dashed border-line p-4 text-sm">

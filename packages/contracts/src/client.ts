@@ -48,7 +48,10 @@ import type {
 import type {
   CompanyReportDto,
   CreateCompanyReportRequest,
+  CreateOptionChainRequest,
   CreatePriceChartRequest,
+  OptionChainDto,
+  OptionHistoryDto,
   CreateStockScreenRequest,
   PriceChartDto,
   StockScreenDataDto,
@@ -269,6 +272,14 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
         call<CompanyReportDto>('POST', '/research/company-reports', body),
       getCompany: (id: string) =>
         call<CompanyReportDto>('GET', `/research/company-reports/${enc(id)}`),
+      /** Asks the worker for a symbol's live option chain (15-minute cache); poll `getOptionChain`. */
+      optionChain: (body: CreateOptionChainRequest) =>
+        call<OptionChainDto>('POST', '/research/option-chains', body),
+      getOptionChain: (symbol: string) =>
+        call<OptionChainDto>('GET', `/research/option-chains/${enc(symbol)}`),
+      /** The symbol's recorded daily IV30 and latest signal row. */
+      optionHistory: (symbol: string) =>
+        call<OptionHistoryDto>('GET', `/research/option-chains/${enc(symbol)}/history`),
     },
   };
 }

@@ -9,6 +9,7 @@ import {
   INDEX_BADGE,
   isIndicatorOnlyClass,
   type ChartInterval,
+  type ConePoint,
   type ChartRange,
 } from '@tm/domain';
 import { Alert, Badge, Card, cx } from '@tm/ui';
@@ -28,6 +29,7 @@ import {
   toBars,
 } from '@/lib/research-text';
 import { CompanyPanel } from './company-panel';
+import { OptionsPanel } from './options-panel';
 import { PriceChart, type ChartStyle } from './price-chart';
 import { StockPicker } from './stock-picker';
 
@@ -58,12 +60,15 @@ export function ResearchWorkspace({
   initial,
   canSearchMarket,
   companyFeed = null,
+  optionsFeed = null,
 }: {
   instruments: InstrumentOptionDto[];
   initial: ResearchSelection;
   canSearchMarket: boolean;
   /** The company data feed in use, by name (ADR 0031); null when there is none. */
   companyFeed?: string | null;
+  /** The options feed in use, by name (ADR 0048); null when there is none. */
+  optionsFeed?: string | null;
 }) {
   const router = useRouter();
   const [instruments, setInstruments] = useState(initialInstruments);
@@ -71,6 +76,8 @@ export function ResearchWorkspace({
   const [chart, setChart] = useState<PriceChartDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cone, setCone] = useState<ConePoint[] | null>(null);
+  const [showCone, setShowCone] = useState(true);
   const request = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -282,6 +289,7 @@ export function ResearchWorkspace({
                     range={showing.range}
                     style={sel.style}
                     dimmed={loading || showing.instrument.id !== selected.id}
+                    cone={showCone && showing.instrument.id === selected.id ? cone : null}
                   />
                 ) : (
                   showing &&
@@ -300,6 +308,27 @@ export function ResearchWorkspace({
                       {INTERVAL_LABELS[showing.interval]} bars, regular session, split-adjusted.
                       {summary && ` Last bar ${formatBarTime(summary.lastAt, showing.interval)}.`}
                     </span>
+                    {cone && (
+                      <span className="flex items-center gap-2">
+                        <label className="flex items-center gap-1">
+                          <input
+                            type="checkbox"
+                            checked={showCone}
+                            onChange={(e) => setShowCone(e.target.checked)}
+                          />
+                          Expected move from options
+                        </label>
+                        {showCone && showing.interval !== '1d' && (
+                          <button
+                            type="button"
+                            className="underline"
+                            onClick={() => update({ range: '3m', interval: '1d' })}
+                          >
+                            Show it on 3 months of daily bars
+                          </button>
+                        )}
+                      </span>
+                    )}
                     {showing.warnings.map((w) => (
                       <span key={w} className="basis-full">
                         {w}
@@ -311,6 +340,9 @@ export function ResearchWorkspace({
             )}
           </Card>
         </section>
+        {selected && !dailyOnly && (
+          <OptionsPanel instrument={selected} optionsFeed={optionsFeed} onCone={setCone} />
+        )}
         {selected && !dailyOnly && (
           <CompanyPanel
             instrument={selected}
