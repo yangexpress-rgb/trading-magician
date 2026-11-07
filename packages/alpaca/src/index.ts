@@ -45,3 +45,11 @@ export {
   type Fetched,
   type ScreenFetchOptions,
 } from './screen';
+export {
+  fetchOptionBars,
+  fetchOptionContracts,
+  type AlpacaOptionContract,
+  type ContractQuery,
+  type OptionBar,
+  type OptionContractRef,
+} from './options';

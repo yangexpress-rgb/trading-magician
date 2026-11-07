@@ -35,6 +35,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { activeFundamentalsFeed } from './company-reports';
+import { addOptionUnderlyings } from './options';
 import { demoDataEnabled } from './demo';
 import { recordAudit } from './audit';
 import { preferredLegAccountId } from './leg-accounts';
@@ -541,6 +542,9 @@ async function rebuildInstrumentIndex(
       role: u.role,
     })),
   );
+  // The auto-add rule (options data brief v2 §2): a US stock or ETF in a strategy
+  // joins the options universe, so its recording and history rebuild start.
+  await addOptionUnderlyings(tx, [...known]);
 }
 
 async function insertVersion(

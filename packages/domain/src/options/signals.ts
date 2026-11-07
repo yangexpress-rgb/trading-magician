@@ -147,3 +147,21 @@ export function isMonthlyExpiry(date: string): boolean {
   }
   return false;
 }
+
+/** The underlyings recorded from the start (brief §2); the universe grows from here. */
+export const OPTION_SEED_SYMBOLS = [
+  'SPY',
+  'QQQ',
+  'DIA',
+  'IWM',
+  'AAPL',
+  'MSFT',
+  'NVDA',
+  'AMZN',
+  'META',
+  'GOOGL',
+  'TSLA',
+  'AMD',
+  'NFLX',
+  'AVGO',
+] as const;

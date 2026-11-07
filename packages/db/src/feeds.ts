@@ -4,6 +4,7 @@ import {
   FAILOVER,
   isFundamentalsProvider,
   isMarketDataProvider,
+  isOptionsProvider,
   isProviderId,
   PROVIDERS,
   providerCoversVenue,
@@ -289,8 +290,13 @@ async function checkFeedInput(tx: Transaction, input: FeedInput) {
     throw new IntegrationError('bad_request', 'Choose a supported provider');
   }
   const info = PROVIDERS[input.provider];
-  // Price feeds and company data feeds (ADR 0031) share this table; brokers do not.
-  if (!isMarketDataProvider(input.provider) && !isFundamentalsProvider(input.provider)) {
+  // Price feeds, company data feeds (ADR 0031) and options feeds (ADR 0047) share
+  // this table; brokers do not.
+  if (
+    !isMarketDataProvider(input.provider) &&
+    !isFundamentalsProvider(input.provider) &&
+    !isOptionsProvider(input.provider)
+  ) {
     throw new IntegrationError('bad_request', `${info.name} does not provide market data`);
   }
   const supported: readonly string[] = info.assetClasses;

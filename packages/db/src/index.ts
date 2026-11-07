@@ -90,3 +90,4 @@ export * from './account-deletion';
 export * from './operator-accounts';
 export * from './admin';
 export * from './leg-accounts';
+export * from './options';

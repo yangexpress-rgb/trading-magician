@@ -30,6 +30,12 @@ import { fakeCboeFetch } from './cboe-fake';
 import { fakeCustomTransport } from './custom-rest-fake';
 import { startRuntimeLoop, type RuntimeLoop } from './runtime';
 import { startValuationLoop, type ValuationLoop } from './valuations';
+import { AlpacaClient, fetchOptionBars, fetchOptionContracts, lookupAlpacaAsset } from '@tm/alpaca';
+import { cboeOptionsSource } from './options/cboe-options';
+import { fakeCboeOptionsFetch } from './options/cboe-options-fake';
+import { optionsFeedProvider } from './options/feed';
+import { startOptionsLoop, type OptionsLoop } from './options/loop';
+import { marketInputs } from './options/market-inputs';
 
 const env = loadWorkerEnv();
 const reporter = createErrorReporter({
@@ -59,6 +65,7 @@ let screens: StockScreenLoop | undefined;
 let companies: CompanyReportLoop | undefined;
 let brokerChecks: BrokerCheckLoop | undefined;
 let valuations: ValuationLoop | undefined;
+let optionsLoop: OptionsLoop | undefined;
 let billing: BillingLoop | undefined;
 let heartbeat: HeartbeatLoop | undefined;
 let fakeTicker: ReturnType<typeof setInterval> | undefined;
@@ -174,6 +181,7 @@ if (databaseUrl) {
     db: handle.db,
     providers,
     fundamentals,
+    options: { cboe_options: optionsFeedProvider() },
     privateKey: credentialKey,
     logger,
     customTransport,
@@ -230,6 +238,77 @@ if (databaseUrl) {
     logger,
     pollMs: env.BACKTEST_POLL_MS,
   });
+  if (env.OPTIONS_RECORDING === 'on') {
+    // Options data (ADR 0047) is recorded once for every tenant, so the closes and
+    // the history rebuild go through the app's own Alpaca key, never a tenant's.
+    const appKey = env.ALPACA_FAKE
+      ? new FakeAlpaca({ now: () => new Date() }).credentials
+      : env.OPTIONS_ALPACA_KEY_ID && env.OPTIONS_ALPACA_SECRET_KEY
+        ? { keyId: env.OPTIONS_ALPACA_KEY_ID, secretKey: env.OPTIONS_ALPACA_SECRET_KEY }
+        : undefined;
+    const client = appKey
+      ? new AlpacaClient({
+          credentials: appKey,
+          fetch: alpacaOptions.fetch,
+          ...(alpacaOptions.fake
+            ? {
+                tradingUrl: alpacaOptions.fake.tradingUrl,
+                dataUrl: alpacaOptions.fake.dataUrl,
+                allowLocal: true,
+              }
+            : {}),
+        })
+      : undefined;
+    if (!appKey) {
+      logger.warn(
+        'OPTIONS_ALPACA_KEY_ID is not set: option chains are stored, but signals wait for an Alpaca close and the history rebuild waits',
+      );
+    }
+    const history = appKey
+      ? providers.alpaca?.history({
+          now: () => new Date(),
+          credential: { provider: 'alpaca', environment: 'paper', fields: { ...appKey } },
+          patient: true,
+        })
+      : undefined;
+    optionsLoop = startOptionsLoop({
+      db,
+      logger,
+      historyDays: env.OPTIONS_HISTORY_DAYS,
+      chains: cboeOptionsSource({
+        fetch: env.CBOE_OPTIONS_FAKE ? fakeCboeOptionsFetch(() => new Date()) : undefined,
+        baseUrl: env.CBOE_OPTIONS_URL,
+      }),
+      inputs: marketInputs({
+        history,
+        fredUrl: env.FRED_CSV_URL,
+        fixedRate: env.CBOE_OPTIONS_FAKE ? 0.04 : undefined,
+      }),
+      rebuild: client
+        ? {
+            contracts: (q) => fetchOptionContracts(client, q),
+            bars: (symbols, from, to) => fetchOptionBars(client, symbols, from, to),
+          }
+        : undefined,
+      lookup: client
+        ? async (symbol) => {
+            const found = await lookupAlpacaAsset(client, symbol);
+            return (
+              found && {
+                assetClass: found.assetClass,
+                symbol: found.symbol,
+                venue: found.venue,
+                displayName: found.displayName,
+                providerId: found.providerId,
+                shortable: found.shortable,
+              }
+            );
+          }
+        : undefined,
+    });
+    if (env.CBOE_OPTIONS_FAKE) logger.warn('CBOE options files come from a local fake');
+    logger.info('options recording started');
+  }
   companies = startCompanyReportLoop({
     db,
     fundamentals,
@@ -261,6 +340,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         companies?.stop(),
         brokerChecks?.stop(),
         valuations?.stop(),
+        optionsLoop?.stop(),
         billing?.stop(),
         heartbeat?.stop(),
       ]);

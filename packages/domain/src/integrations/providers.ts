@@ -15,10 +15,11 @@ export interface ProviderInfo {
   name: string;
   /**
    * What a connection to this provider can be used for: prices (market
-   * data), trading (broker), or company financials and profiles
-   * (fundamentals, ADR 0031), which have no routes.
+   * data), trading (broker), company financials and profiles
+   * (fundamentals, ADR 0031), or daily option-chain snapshots (options,
+   * ADR 0047); the last two have no routes.
    */
-  offers: readonly ('market_data' | 'broker' | 'fundamentals')[];
+  offers: readonly ('market_data' | 'broker' | 'fundamentals' | 'options')[];
   /** Asset classes it can price or trade (US stocks and ETFs, and indices to watch). */
   assetClasses: readonly string[];
   /**
@@ -84,6 +85,14 @@ export const PROVIDERS = {
     dataTypes: ['bars'],
     credentialFields: [],
   },
+  cboe_options: {
+    id: 'cboe_options',
+    name: 'CBOE delayed options (daily)',
+    offers: ['options'],
+    assetClasses: ['stock', 'etf'],
+    coverage: 'us',
+    credentialFields: [],
+  },
   sec: {
     id: 'sec',
     name: 'SEC EDGAR',
@@ -139,7 +148,17 @@ export function providerDataTypes(id: string): readonly ('bars' | 'quotes')[] {
   return info.dataTypes ?? ['bars', 'quotes'];
 }
 
+/**
+ * Whether a provider gives option-chain snapshots (options data brief v2,
+ * ADR 0047): condition inputs for the app's own derived signals, never prices
+ * to route or a chain to show.
+ */
+export function isOptionsProvider(id: string): id is ProviderId {
+  return isProviderId(id) && (PROVIDERS[id].offers as readonly string[]).includes('options');
+}
+
 export const FUNDAMENTALS_PROVIDER_IDS = PROVIDER_IDS.filter(isFundamentalsProvider);
+export const OPTIONS_PROVIDER_IDS = PROVIDER_IDS.filter(isOptionsProvider);
 export const MARKET_DATA_PROVIDER_IDS = PROVIDER_IDS.filter(isMarketDataProvider);
 
 /** The venue code of the invented demo instruments. */
