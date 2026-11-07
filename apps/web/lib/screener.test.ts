@@ -7,6 +7,7 @@ import {
   EMPTY_FILTERS,
   filterRows,
   formatCell,
+  hasOptionFigures,
   parseAmount,
   screenPresets,
   sectorOf,
@@ -48,6 +49,13 @@ function row(symbol: string, values: Partial<ScreenRow> = {}): ScreenRow {
     dividendYieldPct: null,
     priceToBook: null,
     evEbitda: null,
+    iv30Pct: null,
+    ivRank: null,
+    expectedMove1wPct: null,
+    ivRvRatio: null,
+    skewPts: null,
+    termStructure: null,
+    putCallOi: null,
     avgVolume20: 1000,
     relVolume: 1,
     lastAt: null,
@@ -199,5 +207,15 @@ describe('screener formatting and export', () => {
     expect(junk.sort.key).toBe('dollarVolume');
     expect(junk.filters.ranges).toEqual({});
     expect(junk.filters.type).toBe('all');
+  });
+});
+
+describe('options columns', () => {
+  it('stay hidden until a row has options figures, and filter like any column', () => {
+    expect(hasOptionFigures(rows)).toBe(false);
+    const withOptions = [row('SPY', { iv30Pct: 14.2, ivRank: 30 }), row('QQQ', { iv30Pct: 19.8 })];
+    expect(hasOptionFigures(withOptions)).toBe(true);
+    expect(COLUMN_BY_KEY.get('iv30Pct')?.hint).toMatch(/daily options recording/);
+    expect(COLUMN_BY_KEY.get('iv30Pct')?.hint).not.toMatch(/0\.20 is 20%/);
   });
 });

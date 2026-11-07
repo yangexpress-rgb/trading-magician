@@ -23,6 +23,7 @@ import {
   formatCell,
   isSigned,
   hasCompanyFigures,
+  hasOptionFigures,
   NUMBER_COLUMNS,
   parseAmount,
   screenPresets,
@@ -197,8 +198,11 @@ export function StockScreener({
   const visible = matched.slice(shownPage * pageSize, (shownPage + 1) * pageSize);
   // Company columns stay out of the way until a company data feed fills them (ADR 0031).
   const companyFigures = hasCompanyFigures(rows);
+  // Options columns likewise, until the options feed and the daily recording fill them (ADR 0048).
+  const optionFigures = hasOptionFigures(rows);
   const shownColumns = NUMBER_COLUMNS.filter(
-    (c) => columns.includes(c.key) && (!c.company || companyFigures),
+    (c) =>
+      columns.includes(c.key) && (!c.company || companyFigures) && (!c.options || optionFigures),
   );
   const iex = (screen?.warnings ?? []).some((w) => /IEX/.test(w));
   const presets = useMemo(() => screenPresets(iex), [iex]);
@@ -618,6 +622,16 @@ export function StockScreener({
                 Settings › Data feeds
               </Link>
               .
+            </span>
+          )}
+          {!optionFigures && (
+            <span className="basis-full">
+              For IV30, IV rank, expected move and other options columns, add the CBOE delayed
+              options feed under{' '}
+              <Link className="underline" href="/settings/data-feeds">
+                Settings › Data feeds
+              </Link>
+              . They cover the stocks and ETFs in the daily options recording.
             </span>
           )}
           <span>

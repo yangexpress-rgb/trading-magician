@@ -1,5 +1,9 @@
 import {
+  addSeedUnderlyings,
   createFeed,
+  latestSignalsBySymbol,
+  registerInstrument,
+  saveOptionSignal,
   getLiveChain,
   IntegrationError,
   provisionWorkspace,
@@ -9,7 +13,14 @@ import {
   type Transaction,
 } from '@tm/db';
 import { createTestDatabase, type TestDatabase } from '@tm/db/testing';
-import { CboeOptionsFormatError, expectedMoveCone, type Bar } from '@tm/domain';
+import {
+  CboeOptionsFormatError,
+  expectedMoveCone,
+  OPTION_SIGNAL_FIELDS,
+  screenOptionColumns,
+  type Bar,
+  type OptionSignalValues,
+} from '@tm/domain';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { cboeOptionsSource, type ChainSource } from '../src/options/cboe-options';
 import { fakeCboeOptionsFetch } from '../src/options/cboe-options-fake';
@@ -132,5 +143,59 @@ describe('the live chain', () => {
     await expect(asUser((tx) => requestLiveChain(tx, 'not a ticker!'))).rejects.toBeInstanceOf(
       IntegrationError,
     );
+  });
+});
+
+describe('the screener’s options columns (brief §10 item 9)', () => {
+  it('read each recorded underlying’s latest daily signal, in screener units', async () => {
+    const qqq = await t.worker.db.transaction((tx) =>
+      registerInstrument(tx, {
+        assetClass: 'etf',
+        symbol: 'QQQ',
+        venue: 'NASDAQ',
+        displayName: 'Invesco QQQ Trust',
+        provider: 'alpaca',
+        providerId: 'qqq-live-test',
+      }),
+    );
+    await addSeedUnderlyings(t.worker.db, [qqq]);
+    const nulls = Object.fromEntries(
+      OPTION_SIGNAL_FIELDS.map((f) => [f, null]),
+    ) as OptionSignalValues;
+    for (const [day, iv] of [
+      ['2026-11-05', 0.18],
+      ['2026-11-06', 0.21],
+    ] as const) {
+      await saveOptionSignal(t.worker.db, {
+        underlyingId: qqq,
+        asOfDate: day,
+        values: {
+          ...nulls,
+          iv30: iv,
+          iv_rank_252d: 42.5,
+          expected_move_5d_pct: 0.0246,
+          skew_30d: 0.031,
+        },
+        ivHistoryDays: 200,
+        expiries: [],
+        underlyingClose: 500,
+        riskFreeRate: 0.04,
+        dividendYield: 0,
+        source: 'recorded',
+        feed: 'cboe',
+        computedAt: new Date(),
+      });
+    }
+    const latest = await asUser((tx) => latestSignalsBySymbol(tx, '2026-10-20'));
+    expect(latest.get('QQQ')?.date).toBe('2026-11-06');
+    expect(screenOptionColumns(latest.get('QQQ')!.values)).toEqual({
+      iv30Pct: 21,
+      ivRank: 42.5,
+      expectedMove1wPct: 2.46,
+      ivRvRatio: null,
+      skewPts: 3.1,
+      termStructure: null,
+      putCallOi: null,
+    });
   });
 });

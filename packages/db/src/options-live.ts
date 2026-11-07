@@ -234,3 +234,30 @@ export async function pruneLiveChains(db: Database): Promise<number> {
     .returning({ symbol: optionLiveChains.symbol });
   return rows.length;
 }
+
+/**
+ * The latest signal of every recorded underlying on or after `sinceDate`, by
+ * symbol: the screener's options columns (brief §10 item 9).
+ */
+export async function latestSignalsBySymbol(
+  db: Db,
+  sinceDate: string,
+): Promise<Map<string, { date: string; values: OptionSignalValues }>> {
+  const rows = await db
+    .selectDistinctOn([optionDailySignals.underlyingId], {
+      symbol: instruments.symbol,
+      signal: optionDailySignals,
+    })
+    .from(optionDailySignals)
+    .innerJoin(optionUniverse, eq(optionUniverse.underlyingId, optionDailySignals.underlyingId))
+    .innerJoin(instruments, eq(instruments.id, optionDailySignals.underlyingId))
+    .where(gte(optionDailySignals.asOfDate, sinceDate))
+    .orderBy(optionDailySignals.underlyingId, desc(optionDailySignals.asOfDate));
+  const out = new Map<string, { date: string; values: OptionSignalValues }>();
+  for (const r of rows) {
+    const prev = out.get(r.symbol);
+    if (prev && prev.date >= r.signal.asOfDate) continue;
+    out.set(r.symbol, { date: r.signal.asOfDate, values: signalRowValues(r.signal) });
+  }
+  return out;
+}

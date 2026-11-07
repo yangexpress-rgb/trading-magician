@@ -17,6 +17,8 @@ export interface NumberColumnSpec {
   shown: boolean;
   /** From the company data feed (ADR 0031) rather than prices; hidden while no row has it. */
   company?: true;
+  /** From the daily options recording (ADR 0048); hidden while no row has it. */
+  options?: true;
 }
 
 export const NUMBER_COLUMNS: readonly NumberColumnSpec[] = [
@@ -222,6 +224,62 @@ export const NUMBER_COLUMNS: readonly NumberColumnSpec[] = [
     shown: false,
     company: true,
   },
+  {
+    key: 'iv30Pct',
+    label: 'IV30 %',
+    hint: optionsHint('iv30'),
+    format: 'pct',
+    shown: true,
+    options: true,
+  },
+  {
+    key: 'ivRank',
+    label: 'IV rank',
+    hint: optionsHint('iv_rank_252d'),
+    format: 'ratio',
+    shown: true,
+    options: true,
+  },
+  {
+    key: 'expectedMove1wPct',
+    label: 'Expected move 1 week %',
+    hint: optionsHint('expected_move_5d_pct'),
+    format: 'pct',
+    shown: true,
+    options: true,
+  },
+  {
+    key: 'ivRvRatio',
+    label: 'IV / realised vol',
+    hint: optionsHint('iv_rv_ratio'),
+    format: 'ratio',
+    shown: false,
+    options: true,
+  },
+  {
+    key: 'skewPts',
+    label: 'Skew (vol pts)',
+    hint: optionsHint('skew_30d'),
+    format: 'ratio',
+    shown: false,
+    options: true,
+  },
+  {
+    key: 'termStructure',
+    label: 'Term structure',
+    hint: optionsHint('term_structure'),
+    format: 'ratio',
+    shown: false,
+    options: true,
+  },
+  {
+    key: 'putCallOi',
+    label: 'Put/call OI',
+    hint: optionsHint('put_call_oi'),
+    format: 'ratio',
+    shown: false,
+    options: true,
+  },
 ];
 
 /** The metric registry's own definition, so the screener says what strategies compute (v1.2 item 6). */
@@ -230,6 +288,19 @@ function registryHint(metric: string): string {
   const help = (getMetric(metric)?.help ?? '').replace(/ \d\.\d+ is \d+%\.$/, '');
   return `${help} From the latest filings, as strategies read them.`;
 }
+
+/** The registry's options help, in the screener's units (percent and volatility points). */
+function optionsHint(field: string): string {
+  const help = (getMetric(`options.${field}`)?.help ?? '').replace(
+    / \d\.\d+ is \d+(%| volatility points)\.$/,
+    '',
+  );
+  return `${help} From the latest daily options recording (CBOE delayed chains, computed by the app); recorded stocks and ETFs only.`;
+}
+
+/** Whether a screen carries any options figures, so the options columns are worth showing. */
+export const hasOptionFigures = (rows: readonly ScreenRow[] | null | undefined) =>
+  !!rows?.some((r) => r.iv30Pct !== null || r.expectedMove1wPct !== null);
 
 /** Whether a screen carries any company figures, so the company columns are worth showing. */
 export const hasCompanyFigures = (rows: readonly ScreenRow[] | null | undefined) =>
