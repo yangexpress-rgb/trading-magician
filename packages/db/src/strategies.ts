@@ -35,7 +35,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { activeFundamentalsFeed } from './company-reports';
-import { addOptionUnderlyings } from './options';
+import { activeOptionsFeed, addOptionUnderlyings, listOptionUniverse } from './options';
 import { demoDataEnabled } from './demo';
 import { recordAudit } from './audit';
 import { preferredLegAccountId } from './leg-accounts';
@@ -448,6 +448,10 @@ export async function loadValidationContext(
     ),
     hasFeed: (assetClass, dataType) => routes.has(`${assetClass}:${dataType}`),
     hasCompanyFeed: (await activeFundamentalsFeed(tx)) !== undefined,
+    options: {
+      feedOn: (await activeOptionsFeed(tx)) !== undefined,
+      universe: new Set((await listOptionUniverse(tx)).map((u) => u.underlyingId)),
+    },
     demoInstrumentsRemoved: !demoDataEnabled(),
     now,
   };

@@ -2,6 +2,11 @@ import {
   barField,
   dailyClose,
   latestObservation,
+  nyDate,
+  signalAt,
+  type OptionPoint,
+  type OptionSignal,
+  type OptionSignalField,
   type FundamentalField,
   type FundamentalObservation,
   type FundamentalPoint,
@@ -12,7 +17,7 @@ import {
   type MarketExpr,
   type SeriesResolver,
 } from '@tm/domain';
-import type Decimal from 'decimal.js';
+import Decimal from 'decimal.js';
 import { seriesKey } from './data';
 
 type SeriesExpr = MarketExpr | IndicatorExpr;
@@ -56,6 +61,8 @@ export class MarketView implements SeriesResolver {
       string,
       readonly FundamentalObservation[]
     > = new Map(),
+    /** End-of-day options signals by underlying id (options brief v2 §5.3), sorted by as-of date. */
+    private readonly options: ReadonlyMap<string, readonly OptionSignal[]> = new Map(),
   ) {
     this.watchOnly = watchOnly;
     const ends = new Map<string, Set<number>>();
@@ -155,6 +162,32 @@ export class MarketView implements SeriesResolver {
       asOf = Date.parse(bar.end);
     }
     return latestObservation(list, field, asOf);
+  }
+
+  /**
+   * An underlying's options signal as known at the end of the bar `barsBack`
+   * daily bars ago (now, for 0): the latest one whose day had closed by then,
+   * no more than 5 trading days old (options data brief v2 §5.3).
+   */
+  option(
+    instrumentId: string,
+    field: OptionSignalField,
+    barsBack: number,
+  ): OptionPoint | undefined {
+    const list = this.options.get(instrumentId);
+    if (!list) return undefined;
+    let asOf = this.now;
+    if (barsBack > 0) {
+      const key = seriesKey(dailyClose(instrumentId, 0, 'none'));
+      const at = (this.pointers.get(key) ?? -1) - barsBack;
+      const bar = at >= 0 ? this.series.get(key)?.[at] : undefined;
+      if (!bar) return undefined;
+      asOf = Date.parse(bar.end);
+    }
+    const signal = signalAt(list, asOf, (ms) => nyDate(new Date(ms)));
+    const value = signal?.values[field];
+    if (!signal || value === null || value === undefined) return undefined;
+    return { value: new Decimal(value), asOfDate: signal.asOfDate, source: signal.source };
   }
 
   /** A series' value on its last bar ending at or before `timeMs` (never after now). */

@@ -165,6 +165,12 @@ export interface ConditionCheck {
   /** Crosses only: the values one bar earlier. */
   prevLeft?: string | null;
   prevRight?: string | null;
+  /**
+   * Options metrics only (options brief v2 §5.3): the as-of date of each
+   * end-of-day signal read, with "(rebuilt)"
+   * after a date whose signal came from the approximate history rebuild.
+   */
+  optionsAsOf?: string[];
 }
 
 /**

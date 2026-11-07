@@ -8,6 +8,8 @@ import {
   getMetric,
   INDICATORS,
   isFundamentalMetric,
+  isOptionsMetric,
+  isRankingMetric,
   METRICS,
   resolveMetricParams,
   STAT_FUNCTIONS,
@@ -40,8 +42,11 @@ import { InstrumentSelect } from './instrument-select';
 
 type Path = readonly (string | number)[];
 type Kind = Expr['kind'];
-/** The Type choices: a fundamental metric is a registry metric listed on its own (v1.2 item 6). */
-type UiKind = Kind | 'fundamental';
+/**
+ * The Type choices: fundamental (v1.2 item 6) and options (options brief v2 §6)
+ * metrics are registry metrics listed on their own.
+ */
+type UiKind = Kind | 'fundamental' | 'options';
 
 const KIND_LABELS: Record<UiKind, string> = {
   constant: 'Fixed value',
@@ -51,13 +56,23 @@ const KIND_LABELS: Record<UiKind, string> = {
   calc: 'Calculation',
   metric: 'Metric (price-based, shared registry)',
   fundamental: 'Fundamental metric (company filings)',
+  options: 'Options metric (end-of-day)',
   stat: 'Statistic (std. dev., z-score, Bollinger, BandWidth)',
 };
 
-type MetricCategoryFilter = 'price' | 'fundamental';
+type MetricCategoryFilter = 'price' | 'fundamental' | 'options';
 
-const uiKindOf = (expr: Expr): UiKind =>
-  expr.kind === 'metric' && isFundamentalMetric(expr.metric) ? 'fundamental' : expr.kind;
+const categoryOf = (metric: string): MetricCategoryFilter =>
+  isFundamentalMetric(metric) ? 'fundamental' : isOptionsMetric(metric) ? 'options' : 'price';
+
+const uiKindOf = (expr: Expr): UiKind => {
+  if (expr.kind !== 'metric') return expr.kind;
+  const category = categoryOf(expr.metric);
+  return category === 'price' ? 'metric' : category;
+};
+
+/** The options metric a new options value starts on: the 5-day expected move (brief §4.1). */
+const DEFAULT_OPTIONS_METRIC = 'options.expected_move_5d_pct';
 
 export const STAT_LABELS: Record<StatFunction, string> = {
   STDDEV: 'Standard deviation',
@@ -184,7 +199,7 @@ export function ExpressionEditor({
   path: Path;
   depth?: number;
 }) {
-  const { instruments, issueAt, editable, slotMode } = useEditor();
+  const { instruments, issueAt, editable, slotMode, optionUnderlyings = [] } = useEditor();
   const fallbackInstrument =
     slotMode !== 'none' ? CONTEXT_INSTRUMENT_ID : (instruments[0]?.id ?? '');
   const id = (field: string) => `${expr.id}-${field}`;
@@ -214,6 +229,18 @@ export function ExpressionEditor({
             if (kind === 'fundamental') {
               const metric = newExpr('metric', fallbackInstrument, expr);
               onChange({ ...metric, ...defaultMetricRef('pe') } as Expr);
+              return;
+            }
+            if (kind === 'options') {
+              // Only recorded underlyings have options signals; keep the pick if it is one.
+              const metric = newExpr('metric', fallbackInstrument, expr) as MetricExpr;
+              const recorded =
+                metric.instrumentId === CONTEXT_INSTRUMENT_ID ||
+                optionUnderlyings.some((u) => u.id === metric.instrumentId);
+              const instrumentId = recorded
+                ? metric.instrumentId
+                : (optionUnderlyings[0]?.id ?? metric.instrumentId);
+              onChange({ ...metric, ...defaultMetricRef(DEFAULT_OPTIONS_METRIC), instrumentId });
               return;
             }
             onChange(newExpr(kind, fallbackInstrument, expr));
@@ -255,7 +282,7 @@ export function ExpressionEditor({
             onChange={onChange}
             id={id}
             err={err}
-            category={isFundamentalMetric(expr.metric) ? 'fundamental' : 'price'}
+            category={categoryOf(expr.metric)}
           />
         )}
 
@@ -682,23 +709,96 @@ function MetricFields({
       : [instruments.find((i) => i.id === expr.instrumentId)?.assetClass ?? 'stock'];
   return (
     <>
-      <InstrumentSelect
-        id={id('instrument')}
-        value={expr.instrumentId}
-        error={err('instrumentId')}
-        onChange={(instrumentId) => onChange({ ...expr, instrumentId })}
-      />
+      {category === 'options' ? (
+        <OptionsUnderlyingSelect
+          id={id('instrument')}
+          value={expr.instrumentId}
+          error={err('instrumentId')}
+          onChange={(instrumentId) => onChange({ ...expr, instrumentId })}
+        />
+      ) : (
+        <InstrumentSelect
+          id={id('instrument')}
+          value={expr.instrumentId}
+          error={err('instrumentId')}
+          onChange={(instrumentId) => onChange({ ...expr, instrumentId })}
+        />
+      )}
       <MetricRefFields
         value={{ metric: expr.metric, params: expr.params }}
         classes={classes}
         id={id}
         error={err('metric') ?? err('params')}
         category={category}
-        label={category === 'fundamental' ? 'Fundamental metric' : 'Metric'}
+        label={
+          category === 'fundamental'
+            ? 'Fundamental metric'
+            : category === 'options'
+              ? 'Options metric'
+              : 'Metric'
+        }
         onChange={(ref) => onChange({ ...expr, metric: ref.metric, params: ref.params })}
       />
+      {category === 'options' && <OptionsFreshness instrumentId={expr.instrumentId} />}
     </>
   );
+}
+
+/**
+ * The underlying of an options metric: only those in the options recording
+ * (options brief v2 §6), plus "This instrument" for per-leg or Selection
+ * rules. A stock or ETF joins the recording when a saved strategy trades it.
+ */
+function OptionsUnderlyingSelect({
+  id,
+  value,
+  error,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  error: string | undefined;
+  onChange: (instrumentId: string) => void;
+}) {
+  const { instruments, slotMode, optionUnderlyings = [] } = useEditor();
+  const listed = value === CONTEXT_INSTRUMENT_ID || optionUnderlyings.some((u) => u.id === value);
+  const current = instruments.find((i) => i.id === value);
+  return (
+    <MiniSelect
+      id={id}
+      label="Underlying"
+      value={value}
+      error={error}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {!listed && (
+        <option value={value}>
+          {current ? `${current.symbol} (not recorded yet)` : 'Choose an underlying'}
+        </option>
+      )}
+      {slotMode !== 'none' && <option value={CONTEXT_INSTRUMENT_ID}>This instrument</option>}
+      {optionUnderlyings.map((u) => (
+        <option key={u.id} value={u.id}>
+          {u.symbol}
+        </option>
+      ))}
+    </MiniSelect>
+  );
+}
+
+/** How fresh an underlying's options data is: the as-of date of its latest signal. */
+function OptionsFreshness({ instrumentId }: { instrumentId: string }) {
+  const { optionUnderlyings = [] } = useEditor();
+  const u = optionUnderlyings.find((x) => x.id === instrumentId);
+  const text =
+    instrumentId === CONTEXT_INSTRUMENT_ID
+      ? 'Reads each instrument’s latest end-of-day options signal; unknown where it has none.'
+      : !u
+        ? 'Not in the options recording yet: saving the strategy adds it, and data starts with the next recorded session.'
+        : u.latestAsOf
+          ? `Latest options signal: ${u.latestAsOf} (end of day, from CBOE delayed quotes).`
+          : 'No options signal stored yet: data starts with the next recorded session.';
+  return <p className="col-span-full text-xs text-ink-muted">{text}</p>;
 }
 
 /** Metric picker and parameters, shared by conditions, ranking and fire mode. */
@@ -716,14 +816,17 @@ export function MetricRefFields({
   id: (field: string) => string;
   error?: string | undefined;
   label?: string;
-  /** Only price-based or only fundamental metrics; both, grouped, when absent (ranking). */
+  /**
+   * Only one category's metrics; price-based and fundamental, grouped, when
+   * absent (ranking and fire mode, which don't take options metrics yet).
+   */
   category?: MetricCategoryFilter | undefined;
   onChange: (ref: MetricRef) => void;
 }) {
   const { instruments } = useEditor();
   const spec = getMetric(value.metric);
-  const offered = metricsForClasses(classes).filter(
-    (m) => !category || (category === 'fundamental') === isFundamentalMetric(m.id),
+  const offered = metricsForClasses(classes).filter((m) =>
+    category ? categoryOf(m.id) === category : isRankingMetric(m.id),
   );
   const groups = [
     { label: 'Price-based', metrics: offered.filter((m) => !isFundamentalMetric(m.id)) },

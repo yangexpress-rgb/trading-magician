@@ -2,7 +2,9 @@ import {
   evaluateComparison,
   evaluateCondition,
   evaluateExpr,
+  optionMetricField,
   type ConditionNode,
+  type Expr,
   type Phase,
   type SeriesResolver,
   type TriggerState,
@@ -47,8 +49,26 @@ function checksFor(node: ConditionNode, r: SeriesResolver, out: ConditionCheck[]
     check.prevLeft = num(evaluateExpr(node.left, r, 1));
     check.prevRight = node.right ? num(evaluateExpr(node.right, r, 1)) : null;
   }
+  const asOf = optionDates([node.left, node.right, node.upper], r);
+  if (asOf.length > 0) check.optionsAsOf = asOf;
   out.push(check);
   return truth;
+}
+
+/** The as-of dates of the options signals a comparison read on this bar. */
+function optionDates(exprs: (Expr | undefined)[], r: SeriesResolver): string[] {
+  const dates = new Set<string>();
+  const visit = (e: Expr | undefined) => {
+    if (!e) return;
+    if (e.kind === 'metric') {
+      const field = optionMetricField(e.metric);
+      const p = field ? r.option?.(e.instrumentId, field, 0) : undefined;
+      if (p) dates.add(p.source === 'rebuilt' ? `${p.asOfDate} (rebuilt)` : p.asOfDate);
+    } else if (e.kind === 'calc') e.args.forEach(visit);
+    else if (e.kind === 'stat') visit(e.input);
+  };
+  exprs.forEach(visit);
+  return [...dates];
 }
 
 /** Why a true condition did not fire, from the trigger state before and after the step. */

@@ -6,6 +6,7 @@ import {
   type FundamentalObservation,
   type FundamentalPoint,
 } from '../market/point-in-time';
+import type { OptionSignalField, OptionSignalSource } from '../options/signals';
 import type { IndicatorParamSpec, PriceAdjustment } from './catalog';
 import type { IndicatorExpr, MarketExpr, MetricExpr, MetricRef } from './schema';
 
@@ -25,6 +26,12 @@ import type { IndicatorExpr, MarketExpr, MetricExpr, MetricRef } from './schema'
  * Fundamental metrics (item 6, ADR 0043) are in the same registry with
  * `category: 'fundamental'`: they combine the latest filing-backed value the
  * reader can see at that bar (point in time) with that day's price.
+ *
+ * Options metrics (options data brief v2 §6, ADR 0047) have `category:
+ * 'options'`: each reads one field of the underlying's end-of-day options
+ * signal, the latest one published by that bar's time and no more than 5
+ * trading days old. They are condition inputs only; ranking and fire mode
+ * don't offer them yet (Phase 2).
  */
 
 /** Trading bars in a month of daily bars: 1, 3, 6 and 12 months are 21, 63, 126 and 252. */
@@ -43,6 +50,21 @@ export interface MetricReader {
   ): FundamentalPoint | undefined;
   /** A series' value at an instant (its latest bar ending at or before it). */
   valueAt?(expr: MarketExpr | IndicatorExpr, timeMs: number): Decimal | undefined;
+  /** An underlying's end-of-day options signal as known at that bar; absent without options data. */
+  option?(
+    instrumentId: string,
+    field: OptionSignalField,
+    barsBack: number,
+  ): OptionPoint | undefined;
+}
+
+/** One options signal value, with the trading day it was worked out for. */
+export interface OptionPoint {
+  value: Decimal;
+  /** The signal's as-of date (YYYY-MM-DD), shown in the condition log. */
+  asOfDate: string;
+  /** Recorded from the day's chain, or rebuilt from option bars (approximate). */
+  source: OptionSignalSource;
 }
 
 export interface MetricParamSpec extends Omit<IndicatorParamSpec, 'kind'> {
@@ -55,7 +77,7 @@ export interface MetricSpec {
   label: string;
   /** One line for the builder's help text. */
   help: string;
-  category: 'price' | 'fundamental';
+  category: 'price' | 'fundamental' | 'options';
   /** How a value reads: a fraction (0.12 is 12%), a plain number, or US dollars. */
   unit: 'fraction' | 'number' | 'usd';
   params: readonly MetricParamSpec[];
@@ -454,11 +476,169 @@ const FUNDAMENTAL_METRICS: readonly MetricSpec[] = [
   ),
 ];
 
-export const METRICS: readonly MetricSpec[] = [...PRICE_METRICS, ...FUNDAMENTAL_METRICS];
+/** Options signals are recorded for US stocks and ETFs (brief §2). */
+const OPTION_CLASSES = ['stock', 'etf'] as const;
+
+/** The options metric id of a signal field, e.g. `options.iv30`. */
+export const optionMetricId = (field: OptionSignalField) => `options.${field}`;
+
+function optionsMetric(
+  field: OptionSignalField,
+  label: string,
+  help: string,
+  unit: MetricSpec['unit'],
+): MetricSpec {
+  return {
+    id: optionMetricId(field),
+    label,
+    help,
+    category: 'options',
+    unit,
+    params: [],
+    assetClasses: OPTION_CLASSES,
+    // The underlying's own daily closes date each bar back, as fundamentals do.
+    requirements: (instrumentId) => [rawClose(instrumentId)],
+    compute: (instrumentId, _params, r, barsBack) =>
+      r.option?.(instrumentId, field, barsBack)?.value,
+  };
+}
+
+const GEX_CAVEAT =
+  'Assumes dealers are short every put and long every call, which nobody can check: a positioning gauge, not a measured dealer book.';
+
+const OPTIONS_METRICS: readonly MetricSpec[] = [
+  optionsMetric(
+    'iv30',
+    'IV30',
+    "30-day implied volatility, annualised: the ATM IVs of the expiries either side of 30 days interpolated in variance. The app's own computation from the day's delayed chain. 0.20 is 20%.",
+    'fraction',
+  ),
+  optionsMetric(
+    'atm_iv',
+    'ATM IV (nearest expiry)',
+    'Mean of the at-the-money call and put implied volatility at the nearest expiry at least 2 days out. 0.20 is 20%.',
+    'fraction',
+  ),
+  optionsMetric(
+    'expected_move_1d_pct',
+    'Expected move, 1 day (%)',
+    'IV30 × √(1 ÷ 365): the one-standard-deviation move priced for one day, as a share of the price. 0.01 is 1%.',
+    'fraction',
+  ),
+  optionsMetric(
+    'expected_move_1d_usd',
+    'Expected move, 1 day ($)',
+    'Close × IV30 × √(1 ÷ 365), in dollars per share.',
+    'usd',
+  ),
+  optionsMetric(
+    'expected_move_5d_pct',
+    'Expected move, 5 days (%)',
+    'IV30 × √(5 ÷ 365): the one-standard-deviation move priced for a trading week, as a share of the price. 0.02 is 2%.',
+    'fraction',
+  ),
+  optionsMetric(
+    'expected_move_5d_usd',
+    'Expected move, 5 days ($)',
+    'Close × IV30 × √(5 ÷ 365), in dollars per share.',
+    'usd',
+  ),
+  optionsMetric(
+    'straddle_move_pct',
+    'Straddle move (%)',
+    'At-the-money call mid + put mid at the nearest expiry, ÷ the close: what the market charges for any move by that expiry. 0.03 is 3%.',
+    'fraction',
+  ),
+  optionsMetric(
+    'iv_rank_252d',
+    'IV rank (1 year)',
+    "Where today's IV30 sits between its 1-year low (0) and high (100). Unknown until 120 days of IV30 history exist.",
+    'number',
+  ),
+  optionsMetric(
+    'iv_percentile_252d',
+    'IV percentile (1 year)',
+    "Share of the last year's days (0–100) whose IV30 was at or below today's. Unknown until 120 days of IV30 history exist.",
+    'number',
+  ),
+  optionsMetric(
+    'iv_rv_ratio',
+    'IV / realised volatility',
+    'IV30 ÷ 20-day realised volatility. Above 1, options are priced rich against how the stock has moved; below 1, cheap.',
+    'number',
+  ),
+  optionsMetric(
+    'skew_30d',
+    'Skew (25-delta, 30 days)',
+    '30-day IV of the 25-delta put minus that of the 25-delta call. Positive when puts are priced richer (downside hedging). 0.04 is 4 volatility points.',
+    'fraction',
+  ),
+  optionsMetric(
+    'term_structure',
+    'Term structure',
+    'ATM IV at the nearest expiry at least 7 days out ÷ IV30. Above 1, near-term stress or an event is priced in (the app does not know earnings dates).',
+    'number',
+  ),
+  optionsMetric(
+    'put_call_volume',
+    'Put/call volume ratio',
+    'Put volume ÷ call volume at the nearest expiry, that day.',
+    'number',
+  ),
+  optionsMetric(
+    'put_call_oi',
+    'Put/call open-interest ratio',
+    'Put open interest ÷ call open interest at the nearest expiry.',
+    'number',
+  ),
+  optionsMetric(
+    'net_gex',
+    'Net gamma exposure',
+    `Call GEX − put GEX, in dollars of hedge flow per 1% move. Positive: moves tend to be damped; negative: amplified. ${GEX_CAVEAT}`,
+    'usd',
+  ),
+  optionsMetric(
+    'call_gex',
+    'Call gamma exposure',
+    `Σ call gamma × open interest × 100 × close² ÷ 100, in dollars per 1% move. ${GEX_CAVEAT}`,
+    'usd',
+  ),
+  optionsMetric(
+    'put_gex',
+    'Put gamma exposure',
+    `Σ put gamma × open interest × 100 × close² ÷ 100, in dollars per 1% move. ${GEX_CAVEAT}`,
+    'usd',
+  ),
+];
+
+export const METRICS: readonly MetricSpec[] = [
+  ...PRICE_METRICS,
+  ...FUNDAMENTAL_METRICS,
+  ...OPTIONS_METRICS,
+];
 
 /** Whether a metric reads company filings (a company data feed is then needed). */
 export function isFundamentalMetric(id: string): boolean {
   return getMetric(id)?.category === 'fundamental';
+}
+
+/** Whether a metric reads the end-of-day options signals (the options feed is then needed). */
+export function isOptionsMetric(id: string): boolean {
+  return getMetric(id)?.category === 'options';
+}
+
+/** The signal field an options metric reads, e.g. `iv30` for `options.iv30`. */
+export function optionMetricField(id: string): OptionSignalField | undefined {
+  return isOptionsMetric(id) ? (id.slice('options.'.length) as OptionSignalField) : undefined;
+}
+
+/**
+ * Whether a metric can rank a Selection group or pick the best leg in fire
+ * mode. Options metrics can't yet (brief §6: Phase 2).
+ */
+export function isRankingMetric(id: string): boolean {
+  const m = getMetric(id);
+  return m !== undefined && m.category !== 'options';
 }
 
 const BY_ID = new Map(METRICS.map((m) => [m.id, m]));

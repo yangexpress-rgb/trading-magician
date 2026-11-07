@@ -16,6 +16,7 @@ import {
   idempotencyKey,
   insertCycle,
   intentsByClientOrderId,
+  loadOptionSignals,
   loadRuntimeWork,
   lockPaperBroker,
   markOrderFailed,
@@ -50,7 +51,9 @@ import {
   type CredentialKey,
 } from '@tm/db';
 import {
+  addDays,
   fundamentalInstruments,
+  optionInstruments,
   activeFromFor,
   collarBreach,
   holdsForOpenCollar,
@@ -648,10 +651,16 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       );
     }
   }
+  // Options metrics read the latest end-of-day signal (options brief v2 §5.3): at
+  // most one change a day, unknown when the latest is over 5 trading days old.
+  const underlyings = optionInstruments(def, members);
+  if (underlyings.length > 0)
+    data.options = await loadOptionSignals(tx, underlyings, addDays(nyDate(now), -14));
   const view = new MarketView(
     data.series,
     watchOnlyInstruments(work.instruments),
     data.fundamentals,
+    data.options,
   );
   view.advance(t);
   let dataTime = 0;

@@ -694,3 +694,36 @@ export async function activeOptionsFeed(tx: Db) {
     .orderBy(asc(dataFeedConnections.createdAt));
   return feeds.find((f) => isOptionsProvider(f.provider));
 }
+
+/** An underlying the builder's options picker offers, with its latest signal date (brief §6). */
+export interface OptionUnderlyingOption {
+  id: string;
+  symbol: string;
+  displayName: string;
+  assetClass: string;
+  venue: string;
+  kind: 'tradable' | 'indicator_only';
+  /** The as-of date of its latest end-of-day signal, or null before the first one. */
+  latestAsOf: string | null;
+}
+
+/** The recorded universe as picker options, by symbol. */
+export async function optionUnderlyingOptions(db: Db): Promise<OptionUnderlyingOption[]> {
+  const rows = await db
+    .select({
+      id: instruments.id,
+      symbol: instruments.symbol,
+      displayName: instruments.displayName,
+      assetClass: instruments.assetClass,
+      venue: instruments.venue,
+      kind: instruments.kind,
+      latestAsOf: sql<
+        string | null
+      >`(select max(s.as_of_date)::text from option_daily_signal s where s.underlying_id = ${optionUniverse.underlyingId})`,
+    })
+    .from(optionUniverse)
+    .innerJoin(instruments, eq(instruments.id, optionUniverse.underlyingId))
+    .where(eq(optionUniverse.active, true))
+    .orderBy(asc(instruments.symbol));
+  return rows.map((r) => ({ ...r, kind: r.kind as OptionUnderlyingOption['kind'] }));
+}
