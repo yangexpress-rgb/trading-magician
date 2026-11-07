@@ -50,6 +50,7 @@ import {
   type CredentialKey,
 } from '@tm/db';
 import {
+  fundamentalInstruments,
   activeFromFor,
   collarBreach,
   holdsForOpenCollar,
@@ -105,6 +106,7 @@ import { accountResolver, createAccountRouter } from './account-router';
 import type { BrokerRegistry } from './brokers';
 import { createRoutedHistory } from './routed-history';
 import { createRoutedQuotes } from './routed-quotes';
+import { NO_COMPANY_FEED, type FundamentalsLoader } from './fundamentals';
 
 /**
  * The paper runtime (Design v1.0 §6.5–6.9, §8; ADR 0012). Each pass over a
@@ -139,6 +141,8 @@ export interface RuntimeWorkerOptions {
   leaseSeconds?: number;
   /** Tests only: wraps the broker the pass talks to, e.g. to inject faults. */
   wrapBroker?: (broker: BrokerAdapter) => BrokerAdapter;
+  /** Point-in-time company filings, for strategies with fundamental metrics (v1.2 item 6). */
+  fundamentals?: FundamentalsLoader;
 }
 
 const ZERO = new Decimal(0);
@@ -260,7 +264,17 @@ export async function runRuntimePass(
     if (work.status === 'running') work = await watchFeed(tx, work, quotes, now);
 
     if (work.status !== 'stopped') {
-      await planPass(tx, { work, broker, history, quotes, now, logger, health, accounts });
+      await planPass(tx, {
+        work,
+        broker,
+        history,
+        quotes,
+        now,
+        logger,
+        health,
+        accounts,
+        fundamentals: options.fundamentals,
+      });
       if (work.status === 'running') await watchRejects(tx, work);
     } else {
       await saveRuntimeState(tx, work.id, work.state, now);
@@ -539,6 +553,7 @@ interface PassContext {
   health: PassHealth;
   /** Each account's platform and capabilities (ADR 0018). */
   accounts: ReadonlyMap<string, AccountRouting>;
+  fundamentals?: FundamentalsLoader | undefined;
 }
 
 async function planPass(tx: Transaction, ctx: PassContext) {
@@ -607,7 +622,33 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     planSeries(def, evaluationInputs(now), members, watchOnlyInstruments(work.instruments)),
     work.instruments,
   );
-  const view = new MarketView(data.series, watchOnlyInstruments(work.instruments));
+  // Fundamental metrics read company filings as known now (v1.2 item 6); without
+  // them those metrics are unknown, so conditions on them don't qualify.
+  const companies = fundamentalInstruments(def, members);
+  if (companies.length > 0) {
+    try {
+      if (!ctx.fundamentals) throw new Error(NO_COMPANY_FEED);
+      const loaded = await ctx.fundamentals(
+        work.userId,
+        companies.flatMap((id) => {
+          const ref = work.instruments.get(id);
+          return ref ? [{ id, symbol: ref.symbol }] : [];
+        }),
+      );
+      data.fundamentals = loaded.byId;
+    } catch (error) {
+      const e = error as { name?: string; message?: string };
+      ctx.logger.warn(
+        { runtimeId: work.id, err: { name: e.name, message: e.message } },
+        'fundamentals unavailable',
+      );
+    }
+  }
+  const view = new MarketView(
+    data.series,
+    watchOnlyInstruments(work.instruments),
+    data.fundamentals,
+  );
   view.advance(t);
   let dataTime = 0;
   for (const e of seriesExprs(def, members)) {

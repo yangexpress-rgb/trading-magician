@@ -22,6 +22,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { alpacaProvider } from '../src/alpaca';
 import { runCompanyReports } from '../src/company-reports';
 import { runFeedChecks } from '../src/feed-checks';
+import { fundamentalsLoader } from '../src/fundamentals';
 import { demoProvider, type FundamentalsRegistry, type ProviderRegistry } from '../src/providers';
 import { secProvider } from '../src/sec';
 import { runStockScreens } from '../src/stock-screens';
@@ -173,7 +174,7 @@ describe('company data feeds', () => {
     expect(checked?.lastError).toMatch(/contact email/);
   });
 
-  it('adds market cap, P/E and earnings to the screener', async () => {
+  it('adds market cap, P/E, earnings and dividend yield to the screener', async () => {
     await as(user, async (tx) => {
       const credential = await createCredential(tx, {
         userId: user,
@@ -191,7 +192,14 @@ describe('company data feeds', () => {
       });
     });
     const started = await as(user, (tx) => requestStockScreen(tx, { userId: user }));
-    await runStockScreens({ db: t.worker.db, ...opts });
+    // P/E, dividend yield, P/B and EV/EBITDA come from point-in-time filings (v1.2 item 6).
+    const filings = fundamentalsLoader({
+      db: t.worker.db,
+      fundamentals,
+      privateKey: keys.privateKey,
+      now: () => NOW,
+    });
+    await runStockScreens({ db: t.worker.db, ...opts, filings });
     const done = await as(user, (tx) => getStockScreenData(tx, started.id));
     expect(done.status).toBe('ready');
     expect(done.warnings.join(' ')).toMatch(/calendar 2025, from SEC EDGAR/);
@@ -199,6 +207,12 @@ describe('company data feeds', () => {
     const a = rows.find((r) => r.symbol === 'ZTSTA')!;
     expect(a.marketCap).toBe(Math.round(a.last! * 250_000_000));
     expect(a.pe).toBeGreaterThan(0);
+    // Test Alpha pays no dividend; Test Beta declares one.
+    expect(a.dividendYieldPct).toBeNull();
+    const b = rows.find((r) => r.symbol === 'ZTSTB')!;
+    expect(b.dividendYieldPct).toBeGreaterThan(0);
+    expect(b.priceToBook).toBeGreaterThan(0);
+    expect(b.evEbitda).toBeGreaterThan(0);
     expect(a.revenueGrowthPct).toBeCloseTo(12, 0);
     expect(a.netMarginPct).toBeCloseTo(18, 0);
     // ETFs have no company figures.

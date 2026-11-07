@@ -1,5 +1,10 @@
 import {
   barField,
+  dailyClose,
+  latestObservation,
+  type FundamentalField,
+  type FundamentalObservation,
+  type FundamentalPoint,
   indicatorSeries,
   type Bar,
   type IndicatorExpr,
@@ -46,6 +51,11 @@ export class MarketView implements SeriesResolver {
     private readonly series: ReadonlyMap<string, Bar[]>,
     /** Instrument ids of indicator-only instruments. */
     watchOnly: ReadonlySet<string> = new Set(),
+    /** Point-in-time company filings by instrument id (v1.2 item 6), sorted by availability. */
+    private readonly fundamentals: ReadonlyMap<
+      string,
+      readonly FundamentalObservation[]
+    > = new Map(),
   ) {
     this.watchOnly = watchOnly;
     const ends = new Map<string, Set<number>>();
@@ -122,5 +132,49 @@ export class MarketView implements SeriesResolver {
       this.indicators.set(ikey, values);
     }
     return values[at];
+  }
+
+  /**
+   * A company's filing-backed value as the market knew it at the end of the
+   * bar `barsBack` daily bars ago (now, for 0): only filings accepted by then
+   * count (v1.2 item 6, principle 2).
+   */
+  fundamental(
+    instrumentId: string,
+    field: FundamentalField,
+    barsBack: number,
+  ): FundamentalPoint | undefined {
+    const list = this.fundamentals.get(instrumentId);
+    if (!list) return undefined;
+    let asOf = this.now;
+    if (barsBack > 0) {
+      const key = seriesKey(dailyClose(instrumentId, 0, 'none'));
+      const at = (this.pointers.get(key) ?? -1) - barsBack;
+      const bar = at >= 0 ? this.series.get(key)?.[at] : undefined;
+      if (!bar) return undefined;
+      asOf = Date.parse(bar.end);
+    }
+    return latestObservation(list, field, asOf);
+  }
+
+  /** A series' value on its last bar ending at or before `timeMs` (never after now). */
+  valueAt(expr: SeriesExpr, timeMs: number): Decimal | undefined {
+    if (expr.kind !== 'market') return undefined;
+    const bars = this.series.get(seriesKey(expr));
+    const last = this.pointers.get(seriesKey(expr)) ?? -1;
+    if (!bars || last < 0) return undefined;
+    const t = Math.min(timeMs, this.now);
+    let lo = 0;
+    let hi = last;
+    let found = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (Date.parse((bars[mid] as Bar).end) <= t) {
+        found = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    const bar = found >= 0 ? bars[found] : undefined;
+    return bar && barField(bar, expr.field);
   }
 }

@@ -19,7 +19,7 @@ import { checkTiming } from './timing';
 import { exprDepth, treeDepth, walkComparisons, walkExpr, walkExpressions } from './tree';
 import { CONTEXT_INSTRUMENT_ID } from './evaluate';
 import { checkMetricRef, getMetric, metricReferences } from './metrics';
-import { hasComparisons, paperRunBlocker, slotModeOf } from './selection';
+import { hasComparisons, paperRunBlocker, slotModeOf, usesFundamentals } from './selection';
 import type { MetricRef } from './schema';
 
 /**
@@ -74,6 +74,8 @@ export interface ValidationContext {
   accounts: ReadonlyMap<string, AccountInfo>;
   /** Whether an active feed route covers this asset class and data type. */
   hasFeed: (assetClass: string, dataType: 'quotes' | 'bars') => boolean;
+  /** Whether an active company data feed (SEC EDGAR) is on, for fundamental metrics (v1.2 item 6). */
+  hasCompanyFeed?: boolean;
   now: Date;
   /** Latest successful back test for this strategy; arrives with Phase 2. */
   backtest?: { definitionHash: string; completedAt: Date } | null;
@@ -119,6 +121,7 @@ export function validateStrategy(
   checkPositionValues(def, add);
   checkExecution(def, add);
   checkRisk(def, ctx, add);
+  checkFundamentals(def, ctx, add);
 
   for (const p of checkTiming(def)) {
     const index = def[p.phase].orders.findIndex((o) => o.id === p.legId);
@@ -499,6 +502,17 @@ function checkMetric(
       nodeId,
     );
   }
+}
+
+/** Fundamental metrics read company filings, which come from a company data feed (v1.2 item 6). */
+function checkFundamentals(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
+  if (!usesFundamentals(def) || ctx.hasCompanyFeed) return;
+  add(
+    'error',
+    'missing_company_feed',
+    'Fundamental metrics read company filings: add an SEC EDGAR company data feed in Settings › Data feeds',
+    ['entry'],
+  );
 }
 
 // ---------------------------------------------------------------------------

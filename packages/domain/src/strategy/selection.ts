@@ -6,7 +6,13 @@ import {
   type SeriesResolver,
   type Truth,
 } from './evaluate';
-import { computeMetric, metricExprRef, metricReferences, metricRequirements } from './metrics';
+import {
+  computeMetric,
+  isFundamentalMetric,
+  metricExprRef,
+  metricReferences,
+  metricRequirements,
+} from './metrics';
 import type {
   ConditionGroup,
   Expr,
@@ -423,6 +429,36 @@ export function definitionSeries(
     for (const id of contexts) out.push(...metricRequirements(ref, id));
   }
   return out;
+}
+
+/**
+ * Instruments whose company filings a definition reads through fundamental
+ * metrics (v1.2 item 6), "this instrument" expanded to every member or leg.
+ * Empty when the strategy uses no fundamental metric.
+ */
+export function fundamentalInstruments(
+  def: StrategyDefinition,
+  members: readonly string[] = [],
+): string[] {
+  const contexts = contextInstruments(def, members);
+  const ids = new Set<string>();
+  const add = (id: string) => {
+    if (id === CONTEXT_INSTRUMENT_ID) for (const c of contexts) ids.add(c);
+    else ids.add(id);
+  };
+  for (const e of definitionExpressions(def))
+    if (e.kind === 'metric' && isFundamentalMetric(e.metric)) add(e.instrumentId);
+  for (const ref of definitionMetrics(def))
+    if (isFundamentalMetric(ref.metric)) for (const id of contexts) ids.add(id);
+  return [...ids];
+}
+
+/** Whether a definition uses any fundamental metric (it then needs a company data feed). */
+export function usesFundamentals(def: StrategyDefinition): boolean {
+  return (
+    definitionExpressions(def).some((e) => e.kind === 'metric' && isFundamentalMetric(e.metric)) ||
+    definitionMetrics(def).some((r) => isFundamentalMetric(r.metric))
+  );
 }
 
 /** Instruments a definition reads besides its legs: benchmarks and fixed references. */

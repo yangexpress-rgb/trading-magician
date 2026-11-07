@@ -1,4 +1,4 @@
-import { SP500_SECTORS, type ScreenNumberColumn, type ScreenRow } from '@tm/domain';
+import { getMetric, SP500_SECTORS, type ScreenNumberColumn, type ScreenRow } from '@tm/domain';
 
 /**
  * The stock screener's columns, filters, sorting and presets (ADR 0030).
@@ -153,9 +153,33 @@ export const NUMBER_COLUMNS: readonly NumberColumnSpec[] = [
   {
     key: 'pe',
     label: 'P/E',
-    hint: 'Last price over diluted earnings per share for the latest calendar year (blank when earnings are not positive)',
+    hint: registryHint('pe'),
     format: 'ratio',
     shown: true,
+    company: true,
+  },
+  {
+    key: 'dividendYieldPct',
+    label: 'Dividend yield %',
+    hint: registryHint('dividend_yield'),
+    format: 'pct',
+    shown: true,
+    company: true,
+  },
+  {
+    key: 'priceToBook',
+    label: 'Price-to-book',
+    hint: registryHint('price_to_book'),
+    format: 'ratio',
+    shown: false,
+    company: true,
+  },
+  {
+    key: 'evEbitda',
+    label: 'EV/EBITDA',
+    hint: registryHint('ev_ebitda'),
+    format: 'ratio',
+    shown: false,
     company: true,
   },
   {
@@ -199,6 +223,13 @@ export const NUMBER_COLUMNS: readonly NumberColumnSpec[] = [
     company: true,
   },
 ];
+
+/** The metric registry's own definition, so the screener says what strategies compute (v1.2 item 6). */
+function registryHint(metric: string): string {
+  // The screener shows yields in percent, so the registry's "0.03 is 3%" note is left out.
+  const help = (getMetric(metric)?.help ?? '').replace(/ \d\.\d+ is \d+%\.$/, '');
+  return `${help} From the latest filings, as strategies read them.`;
+}
 
 /** Whether a screen carries any company figures, so the company columns are worth showing. */
 export const hasCompanyFigures = (rows: readonly ScreenRow[] | null | undefined) =>

@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { computeMetric, metricExprRef, populationStdDev, sampleStdDev } from './metrics';
+import type { FundamentalField, FundamentalPoint } from '../market/point-in-time';
 import type {
   Comparison,
   ConditionNode,
@@ -49,6 +50,18 @@ export interface SeriesResolver {
    * Resolvers without a cycle (Entry rules, previews) leave it out.
    */
   position?(instrumentId: string): PositionSnapshot | undefined;
+  /**
+   * A company's fundamental value as known at the bar `barsBack` bars ago
+   * (v1.2 item 6): the latest observation whose filing was accepted by then.
+   * Resolvers without fundamentals leave it out, and such metrics are unknown.
+   */
+  fundamental?(
+    instrumentId: string,
+    field: FundamentalField,
+    barsBack: number,
+  ): FundamentalPoint | undefined;
+  /** A series' value at an instant: its latest bar ending at or before it. */
+  valueAt?(expr: SeriesExpr, timeMs: number): Decimal | undefined;
 }
 
 /** The bar series a position expression is marked against: its interval's close. */
@@ -76,9 +89,17 @@ export function seriesOf(e: Expr): SeriesExpr | undefined {
 export function withContext(r: SeriesResolver, instrumentId: string): SeriesResolver {
   const bind = <T extends SeriesExpr>(e: T): T =>
     e.instrumentId === CONTEXT_INSTRUMENT_ID ? { ...e, instrumentId } : e;
+  const bindId = (id: string) => (id === CONTEXT_INSTRUMENT_ID ? instrumentId : id);
   return {
     value: (expr, barsBack) => r.value(bind(expr), barsBack),
     isStale: (expr) => r.isStale(bind(expr)),
+    ...(r.fundamental
+      ? {
+          fundamental: (id: string, field: FundamentalField, barsBack: number) =>
+            r.fundamental?.(bindId(id), field, barsBack),
+        }
+      : {}),
+    ...(r.valueAt ? { valueAt: (expr: SeriesExpr, t: number) => r.valueAt?.(bind(expr), t) } : {}),
     ...(r.position
       ? {
           position: (id: string) => r.position?.(id === CONTEXT_INSTRUMENT_ID ? instrumentId : id),
@@ -95,6 +116,13 @@ export function withPositions(
   return {
     value: (expr, barsBack) => r.value(expr, barsBack),
     isStale: (expr) => r.isStale(expr),
+    ...(r.fundamental
+      ? {
+          fundamental: (id: string, field: FundamentalField, barsBack: number) =>
+            r.fundamental?.(id, field, barsBack),
+        }
+      : {}),
+    ...(r.valueAt ? { valueAt: (expr: SeriesExpr, t: number) => r.valueAt?.(expr, t) } : {}),
     position,
   };
 }

@@ -17,8 +17,14 @@ import {
   type BacktestRunStatus,
   type Database,
 } from '@tm/db';
-import { listMembers, UnsupportedBarRequestError, type HistoricalDataProvider } from '@tm/domain';
+import {
+  fundamentalInstruments,
+  listMembers,
+  UnsupportedBarRequestError,
+  type HistoricalDataProvider,
+} from '@tm/domain';
 import type { Logger } from 'pino';
+import { NO_COMPANY_FEED, type FundamentalsLoader } from './fundamentals';
 
 /**
  * Runs queued back tests (Design v1.0 §7.2, ADR 0009). One run at a time per
@@ -38,6 +44,8 @@ export interface BacktestWorkerOptions {
   maxAttempts?: number;
   /** Resolves a built-in universe (the S&P 500) for a tenant (Design v1.2 item 1). */
   resolveUniverse?: (userId: string) => Promise<{ ids: string[]; warnings: string[] }>;
+  /** Point-in-time company filings, for strategies with fundamental metrics (v1.2 item 6). */
+  fundamentals?: FundamentalsLoader;
 }
 
 export type ProcessOutcome = 'idle' | 'lost' | BacktestRunStatus;
@@ -99,6 +107,26 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
       },
     );
     data.warnings.push(...universeWarnings);
+    const companies = fundamentalInstruments(work.definition, members);
+    if (companies.length > 0) {
+      if (!options.fundamentals) throw new UnsupportedBarRequestError(NO_COMPANY_FEED);
+      const loaded = await options.fundamentals(
+        userId,
+        companies.flatMap((id) => {
+          const ref = instruments.get(id);
+          return ref ? [{ id, symbol: ref.symbol }] : [];
+        }),
+        {
+          onProgress: async () => {
+            if (Date.now() - lastRenew < (leaseSeconds * 1000) / 3) return;
+            lastRenew = Date.now();
+            await inTenant((tx) => renewLease(tx, runId, workerId, leaseSeconds));
+          },
+        },
+      );
+      data.fundamentals = loaded.byId;
+      data.warnings.push(...loaded.warnings);
+    }
     const lease = await inTenant((tx) => renewLease(tx, runId, workerId, leaseSeconds));
     if (!lease) return 'lost';
     if (lease.cancelRequested) {

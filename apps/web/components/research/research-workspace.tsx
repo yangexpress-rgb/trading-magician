@@ -78,31 +78,36 @@ export function ResearchWorkspace({
   /** An index: daily bars only, no company behind it (v1.2 item 5). */
   const dailyOnly = !!selected && isIndicatorOnlyClass(selected.assetClass);
 
-  const update = useCallback(
-    (patch: Partial<ResearchSelection>) => {
-      setSel((cur) => {
-        const next = { ...cur, ...patch };
-        // Hourly bars only go back 3 months; a longer range falls back to daily.
-        // Each range opens on bars it offers: a day on 5-minute bars, longer ranges on daily.
-        if (patch.range && patch.range !== cur.range && !patch.interval) {
-          next.interval =
-            patch.range === '1d' ||
-            cur.range === '1d' ||
-            !chartIntervalAllowed(next.range, next.interval)
-              ? defaultChartInterval(next.range)
-              : next.interval;
-        }
-        const q = new URLSearchParams();
-        if (next.instrumentId) q.set('instrument', next.instrumentId);
-        q.set('range', next.range);
-        q.set('interval', next.interval);
-        if (next.style !== 'line') q.set('style', next.style);
-        router.replace(`/research?${q.toString()}`, { scroll: false });
-        return next;
-      });
-    },
-    [router],
-  );
+  const update = useCallback((patch: Partial<ResearchSelection>) => {
+    setSel((cur) => {
+      const next = { ...cur, ...patch };
+      // Hourly bars only go back 3 months; a longer range falls back to daily.
+      // Each range opens on bars it offers: a day on 5-minute bars, longer ranges on daily.
+      if (patch.range && patch.range !== cur.range && !patch.interval) {
+        next.interval =
+          patch.range === '1d' ||
+          cur.range === '1d' ||
+          !chartIntervalAllowed(next.range, next.interval)
+            ? defaultChartInterval(next.range)
+            : next.interval;
+      }
+      return next;
+    });
+    changed.current = true;
+  }, []);
+
+  // The URL follows the view once the person changes it. Done in an effect, not in the
+  // state updater, which React may run while rendering (that updated the Router mid-render).
+  const changed = useRef(false);
+  useEffect(() => {
+    if (!changed.current) return;
+    const q = new URLSearchParams();
+    if (sel.instrumentId) q.set('instrument', sel.instrumentId);
+    q.set('range', sel.range);
+    q.set('interval', sel.interval);
+    if (sel.style !== 'line') q.set('style', sel.style);
+    router.replace(`/research?${q.toString()}`, { scroll: false });
+  }, [router, sel.instrumentId, sel.range, sel.interval, sel.style]);
 
   useEffect(() => () => clearTimeout(timer.current), []);
 

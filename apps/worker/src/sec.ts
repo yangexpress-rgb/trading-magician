@@ -1,6 +1,7 @@
 import {
   checkSec,
   fetchCompanyReport,
+  fetchPointInTime,
   fetchScreenFacts,
   fetchTickers,
   normalizeTicker,
@@ -88,5 +89,12 @@ export function secProvider(options: SecProviderOptions = {}): FundamentalsProvi
         fetchScreenFacts(client, await tickerMap(client, nowMs), ctx.now()),
       );
     },
+    companies: async (ctx) => {
+      const listings = await tickerMap(clientFor(ctx), ctx.now().getTime());
+      const out = new Map<string, number>();
+      for (const [symbol, l] of listings) out.set(symbol, Number(l.cik));
+      return out;
+    },
+    pointInTime: (ctx, cik) => fetchPointInTime(clientFor(ctx), cik),
   };
 }

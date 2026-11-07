@@ -15,6 +15,7 @@ import {
 } from '@tm/db';
 import {
   BrokerUnavailableError,
+  fundamentalSnapshot,
   providerCoversVenue,
   resolveRoute,
   screenFundamentals,
@@ -22,7 +23,10 @@ import {
   screenSession,
   SP500_SECTORS,
   toScreenTuple,
+  type FundamentalObservation,
+  type ScreenFilingMetrics,
 } from '@tm/domain';
+import type { FundamentalsLoader } from './fundamentals';
 import type { Logger } from 'pino';
 import {
   withTimeout,
@@ -50,6 +54,8 @@ export interface StockScreenOptions {
   providers: ProviderRegistry;
   /** Company data feeds, for market cap, P/E and other company columns (ADR 0031). */
   fundamentals?: FundamentalsRegistry | undefined;
+  /** Point-in-time filings for P/E, dividend yield, P/B and EV/EBITDA (v1.2 item 6). */
+  filings?: FundamentalsLoader | undefined;
   privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'info' | 'warn'>;
   now?: () => Date;
@@ -150,11 +156,25 @@ export async function runStockScreens(options: StockScreenOptions): Promise<numb
       const session = screenSession(result.sources);
       const warnings = [...result.warnings];
       const facts = company ? await companyFacts(company, options, warnings) : undefined;
+      const filed = company
+        ? await filingObservations(
+            options,
+            userId,
+            result.sources.map((src) => src.symbol),
+            warnings,
+          )
+        : undefined;
+      const asOf = now().getTime();
       const rows = session
         ? result.sources.map((s) => {
             const row = screenRow({ ...s, instrumentId: known.get(s.symbol) ?? null }, session);
             const f = facts?.get(s.symbol);
-            return toScreenTuple(f ? { ...row, ...screenFundamentals(f, row.last) } : row);
+            const obs = filed?.get(s.symbol);
+            return toScreenTuple(
+              f || obs
+                ? { ...row, ...screenFundamentals(f, row.last, filingMetrics(row.last, obs, asOf)) }
+                : row,
+            );
           })
         : [];
       await inTenant((tx) =>
@@ -222,7 +242,7 @@ async function companyFacts(
       'The company figures',
     );
     warnings.push(
-      `Market cap, P/E, revenue and earnings are for calendar ${year}, from ${company.name}; market cap is the last price times the year's diluted shares.`,
+      `Market cap, revenue and earnings are for calendar ${year}, from ${company.name}; market cap is the last price times the year's diluted shares. P/E (trailing twelve months), dividend yield, price-to-book and EV/EBITDA use the latest filings, as strategies do.`,
     );
     return facts;
   } catch (error) {
@@ -233,6 +253,61 @@ async function companyFacts(
     warnings.push(`${company.name} could not give company figures, so those columns are blank.`);
     return undefined;
   }
+}
+
+/** Seconds a screen spends fetching filings before it shows what is stored. */
+export const SCREEN_FILINGS_BUDGET_MS = 60_000;
+
+/**
+ * Point-in-time filings for the screen's companies (v1.2 item 6). Companies
+ * not synced today are fetched for up to a minute; the screen then shows
+ * what is stored and says how many are still loading, so the columns fill
+ * in over the next screens (an all-stocks screen has about 11,000).
+ */
+async function filingObservations(
+  options: StockScreenOptions,
+  userId: string,
+  symbols: string[],
+  warnings: string[],
+): Promise<Map<string, FundamentalObservation[]> | undefined> {
+  if (!options.filings) return undefined;
+  try {
+    const loaded = await options.filings(
+      userId,
+      symbols.map((symbol) => ({ id: symbol, symbol })),
+      { budgetMs: SCREEN_FILINGS_BUDGET_MS, perSymbolWarnings: false },
+    );
+    if (loaded.unsynced > 0) {
+      warnings.push(
+        `Filings for ${loaded.unsynced.toLocaleString('en-US')} companies are still loading from SEC EDGAR; their P/E, dividend yield, price-to-book and EV/EBITDA fill in as you screen again.`,
+      );
+    }
+    return loaded.byId;
+  } catch (error) {
+    options.logger.warn({ err: { name: (error as Error).name } }, 'filings for the screen failed');
+    warnings.push(
+      'Company filings could not be loaded, so P/E, dividend yield, price-to-book and EV/EBITDA are blank.',
+    );
+    return undefined;
+  }
+}
+
+/** The registry's filing-based metrics for one row, as the screener shows them. */
+function filingMetrics(
+  last: number | null,
+  observations: FundamentalObservation[] | undefined,
+  asOfMs: number,
+): ScreenFilingMetrics {
+  const value = (metric: string, scale = 1) => {
+    const v = fundamentalSnapshot(metric, last, observations, asOfMs);
+    return v ? v.times(scale).toNumber() : null;
+  };
+  return {
+    pe: value('pe'),
+    dividendYieldPct: value('dividend_yield', 100),
+    priceToBook: value('price_to_book'),
+    evEbitda: value('ev_ebitda'),
+  };
 }
 
 export interface StockScreenLoop {

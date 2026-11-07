@@ -7,6 +7,7 @@ import {
   type Bar,
   type CompanyReport,
   type CustomRestConfig,
+  type FundamentalObservation,
   type HistoricalDataProvider,
   type LiveQuoteProvider,
   type ScreenDay,
@@ -79,6 +80,10 @@ export interface FundamentalsProvider {
   report(ctx: ProviderContext, symbol: string): Promise<CompanyReport | undefined>;
   /** Figures for the screener, by symbol. */
   screenFacts(ctx: ProviderContext): Promise<{ year: number; facts: Map<string, ScreenFacts> }>;
+  /** Company ids (SEC CIKs) by symbol, for point-in-time fundamentals (v1.2 item 6). */
+  companies?(ctx: ProviderContext): Promise<Map<string, number>>;
+  /** A company's point-in-time observations; undefined when it files no financials. */
+  pointInTime?(ctx: ProviderContext, cik: number): Promise<FundamentalObservation[] | undefined>;
 }
 
 export type FundamentalsRegistry = Partial<Record<string, FundamentalsProvider>>;

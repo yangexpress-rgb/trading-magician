@@ -22,6 +22,7 @@ import { startStockScreenLoop, type StockScreenLoop } from './stock-screens';
 import { startCompanyReportLoop, type CompanyReportLoop } from './company-reports';
 import { demoProvider, type FundamentalsRegistry, type ProviderRegistry } from './providers';
 import { secProvider, type SecProviderOptions } from './sec';
+import { fundamentalsLoader } from './fundamentals';
 import { createRoutedHistory } from './routed-history';
 import { customRestProvider } from './custom-rest';
 import { cboeProvider } from './cboe';
@@ -121,6 +122,12 @@ if (databaseUrl) {
   }
   const fundamentals: FundamentalsRegistry = { sec: secProvider(secOptions) };
   const db = handle.db;
+  const companyFilings = fundamentalsLoader({
+    db,
+    fundamentals,
+    privateKey: credentialKey,
+    logger,
+  });
   loop = startBacktestLoop({
     db,
     provider: (userId) =>
@@ -139,6 +146,7 @@ if (databaseUrl) {
         privateKey: credentialKey,
         now: () => new Date(),
       }),
+    fundamentals: companyFilings,
     workerId,
     logger,
     pollMs: env.BACKTEST_POLL_MS,
@@ -153,6 +161,7 @@ if (databaseUrl) {
     providers,
     brokers,
     privateKey: credentialKey,
+    fundamentals: companyFilings,
     logger,
     pollMs: env.RUNTIME_POLL_MS,
   });
@@ -213,6 +222,7 @@ if (databaseUrl) {
     db,
     providers,
     fundamentals,
+    filings: companyFilings,
     privateKey: credentialKey,
     logger,
     pollMs: env.BACKTEST_POLL_MS,

@@ -45,6 +45,8 @@ export interface SecSubmissions {
       form: string[];
       primaryDocument: string[];
       primaryDocDescription: string[];
+      /** When EDGAR accepted each filing (New York wall time written with a Z). */
+      acceptanceDateTime?: string[];
     };
   };
 }

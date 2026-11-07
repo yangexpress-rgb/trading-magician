@@ -34,6 +34,7 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm';
+import { activeFundamentalsFeed } from './company-reports';
 import { recordAudit } from './audit';
 import { preferredLegAccountId } from './leg-accounts';
 import { assertWithinLimit } from './entitlements';
@@ -437,6 +438,7 @@ export async function loadValidationContext(
       ]),
     ),
     hasFeed: (assetClass, dataType) => routes.has(`${assetClass}:${dataType}`),
+    hasCompanyFeed: (await activeFundamentalsFeed(tx)) !== undefined,
     now,
   };
 }
