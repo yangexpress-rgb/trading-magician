@@ -429,6 +429,13 @@ const COLUMN: Record<
   max_pain: 'maxPain',
 };
 
+/** A stored signal row's values by field name. */
+export function signalRowValues(row: typeof optionDailySignals.$inferSelect): OptionSignalValues {
+  return Object.fromEntries(
+    OPTION_SIGNAL_FIELDS.map((f) => [f, toNum(row[COLUMN[f]] as string | null)]),
+  ) as OptionSignalValues;
+}
+
 export interface SignalInput {
   underlyingId: string;
   asOfDate: string;

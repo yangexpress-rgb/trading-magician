@@ -63,6 +63,8 @@ export interface CboeChain {
   rows: CboeOptionRow[];
   /** Rows left out as malformed or impossible. */
   skipped: number;
+  /** The underlying's price the file was taken at (`current_price`), when it gives one. */
+  underlyingPrice?: number | undefined;
 }
 
 export class CboeOptionsFormatError extends Error {
@@ -169,7 +171,9 @@ export function parseCboeOptions(json: unknown): CboeChain {
       openInterest: f.openInterest === null ? null : Math.round(f.openInterest),
     });
   }
-  return { fileTimestamp, rows, skipped };
+  const price = num(data.current_price);
+  const underlyingPrice = typeof price === 'number' && price > 0 ? price : undefined;
+  return { fileTimestamp, rows, skipped, ...(underlyingPrice ? { underlyingPrice } : {}) };
 }
 
 /** The last trading day strictly before `date`. */
