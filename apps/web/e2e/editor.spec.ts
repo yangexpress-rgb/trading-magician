@@ -67,6 +67,10 @@ test('SMA(30, DEMO-A) < SMA(30, DEMO-B) saves, reloads and validates identically
   ] as const) {
     const s = side(c1, name);
     await s.getByLabel('Type', { exact: true }).selectOption({ label: 'Indicator' });
+    // RSI and Bollinger bands are offered once, as a metric and statistics (ADR 0049).
+    await expect(
+      s.getByLabel('Indicator').locator('option', { hasText: /RSI|BBANDS/ }),
+    ).toHaveCount(0);
     await s.getByLabel('Indicator').selectOption({ label: 'Simple moving average (SMA)' });
     await s.getByLabel('Instrument').selectOption({ label: label! });
     await s.getByLabel('Period').fill('30');
