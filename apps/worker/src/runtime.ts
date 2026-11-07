@@ -116,6 +116,7 @@ import type { BrokerRegistry } from './brokers';
 import { createRoutedHistory } from './routed-history';
 import { createRoutedQuotes } from './routed-quotes';
 import { NO_COMPANY_FEED, type FundamentalsLoader } from './fundamentals';
+import { equityLimits } from './equity-limits';
 
 /**
  * The paper runtime (Design v1.0 §6.5–6.9, §8; ADR 0012). Each pass over a
@@ -584,29 +585,23 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     return quoteCache.get(instrumentId);
   };
   const markOf = async (id: string) => (await quoteFor(id))?.last;
-  let gross = ZERO;
-  let net = ZERO;
-  for (const [id, q] of work.book.positions) {
-    if (q.isZero()) continue;
-    const px = await markOf(id);
-    if (!px) continue;
-    gross = gross.plus(q.abs().times(px));
-    net = net.plus(q.times(px));
-  }
-  const equity = new Decimal(PAPER_STARTING_CAPITAL).plus(work.book.cash).plus(net);
+  const marks = new Map<string, Decimal | undefined>();
+  for (const [id, q] of work.book.positions) if (!q.isZero()) marks.set(id, await markOf(id));
   const today = nyDate(now);
-  if (state.day?.date !== today) state.day = { date: today, startEquity: equity.toString() };
-  const peak = Decimal.max(equity, state.peakEquity ?? equity);
-  state.peakEquity = peak.toString();
-  const dailyLossHit = Boolean(
-    def.risk.dailyLossLimit &&
-    new Decimal(state.day.startEquity).minus(equity).gte(def.risk.dailyLossLimit),
-  );
-  const drawdownHit = Boolean(
-    def.risk.maxDrawdownPct &&
-    peak.gt(0) &&
-    peak.minus(equity).div(peak).times(100).gte(def.risk.maxDrawdownPct),
-  );
+  const limits = equityLimits({
+    startingCapital: PAPER_STARTING_CAPITAL,
+    cash: work.book.cash,
+    positions: work.book.positions,
+    marks,
+    today,
+    day: state.day,
+    peakEquity: state.peakEquity,
+    dailyLossLimit: def.risk.dailyLossLimit,
+    maxDrawdownPct: def.risk.maxDrawdownPct,
+  });
+  const { equity, gross, dailyLossHit, drawdownHit } = limits;
+  state.day = limits.day;
+  state.peakEquity = limits.peakEquity;
   const halted = work.halted || work.status !== 'running';
   if (dailyLossHit || drawdownHit) {
     // Entries stop for the day or until reviewed; Exit orders still run (§8.6).
@@ -698,7 +693,8 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   const groupLabel = (c: { cycle: { group?: string | undefined } }) =>
     c.cycle.group ? def.groups?.find((g) => g.id === c.cycle.group)?.label : undefined;
 
-  const entryHalted = halted || dailyLossHit || drawdownHit;
+  // Without a mark for every holding, equity is not known: no new entries this pass.
+  const entryHalted = halted || dailyLossHit || drawdownHit || !limits.complete;
   const cycles: ActiveCycle[] = [...work.cycles];
   let entryTruth: { truth: Truth } | undefined;
   let entryEventId: string | undefined;

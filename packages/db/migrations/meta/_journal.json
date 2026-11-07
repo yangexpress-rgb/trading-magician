@@ -421,6 +421,13 @@
       "when": 1794025899483,
       "tag": "0059_trade_risk_sizing",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1794046158820,
+      "tag": "0060_account_purge_custom_feeds",
+      "breakpoints": true
     }
   ]
 }

@@ -36,6 +36,17 @@ export interface ReconcileResult {
   incidentId?: string | undefined;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Whether an instrument id is one of the app's own. A broker reports a holding
+ * the app has no instrument for under a stand-in id such as `alpaca:NKE`.
+ */
+const isAppInstrument = (id: string) => UUID.test(id);
+
+/** The symbol in a stand-in id (`alpaca:NKE` → `NKE`). */
+const standInSymbol = (id: string) => id.slice(id.indexOf(':') + 1) || '?';
+
 export async function reconcileAccount(
   tx: Transaction,
   broker: BrokerAdapter,
@@ -90,16 +101,19 @@ export async function reconcileAccount(
       .filter(([, q]) => !q.isZero()),
   );
   const ids = [...new Set([...app.keys(), ...held.keys()])];
-  const symbols = new Map(
-    ids.length === 0
+  // Only the app's own ids can be looked up; a stand-in carries its symbol.
+  const known = ids.filter(isAppInstrument);
+  const symbols = new Map<string, string>(
+    known.length === 0
       ? []
       : (
           await tx
             .select({ id: instruments.id, symbol: instruments.symbol })
             .from(instruments)
-            .where(inArray(instruments.id, ids))
+            .where(inArray(instruments.id, known))
         ).map((i) => [i.id, i.symbol]),
   );
+  for (const id of ids) if (!isAppInstrument(id)) symbols.set(id, standInSymbol(id));
   for (const id of ids) {
     const a = app.get(id) ?? new Decimal(0);
     const b = held.get(id) ?? new Decimal(0);
@@ -128,9 +142,14 @@ export async function reconcileAccount(
   if (mismatches.length === 0) return { healed, mismatches };
 
   // Pause whatever trades the instruments or orders involved (§8.5, §8.6).
-  const instrumentIds = mismatches.flatMap((m) => (m.kind === 'position' ? [m.instrumentId] : []));
+  const positionIds = mismatches.flatMap((m) => (m.kind === 'position' ? [m.instrumentId] : []));
+  const instrumentIds = positionIds.filter(isAppInstrument);
   const intentIds = mismatches.flatMap((m) => (m.kind === 'missing_at_broker' ? [m.intentId] : []));
-  const unknown = mismatches.some((m) => m.kind === 'unknown_order');
+  // An order the app did not place, or a holding it has no instrument for, could
+  // belong to anything on the account.
+  const unknown =
+    mismatches.some((m) => m.kind === 'unknown_order') ||
+    positionIds.some((id) => !isAppInstrument(id));
   const scope = or(
     instrumentIds.length ? inArray(orderIntents.instrumentId, instrumentIds) : undefined,
     intentIds.length ? inArray(orderIntents.id, intentIds) : undefined,
@@ -143,7 +162,6 @@ export async function reconcileAccount(
       and(
         eq(orderIntents.accountId, accountId),
         eq(strategyRuntimes.status, 'running'),
-        // A broker order the app did not place could belong to anything on the account.
         unknown ? undefined : scope,
       ),
     );

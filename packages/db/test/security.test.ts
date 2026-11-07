@@ -332,3 +332,58 @@ describe('timestamps', () => {
     expect(after!.updatedAt.getTime()).toBeGreaterThan(before!.updatedAt.getTime());
   });
 });
+
+describe('row-level security across the whole schema (review M5)', () => {
+  // Tables with a user_id column the app may read without tenant row-level
+  // security, each with its reason. Anything else fails below.
+  const UNSCOPED = new Map([
+    ['billing_event', 'webhook event ids already applied; review finding L2'],
+  ]);
+
+  it('confines every table with a user id to its tenant, or keeps it from the app', async () => {
+    const rows = await t.ownerSql`
+      select c.relname as name, c.relrowsecurity as rls, c.relforcerowsecurity as forced,
+             has_table_privilege('tm_app', c.oid, 'SELECT, INSERT, UPDATE, DELETE') as app,
+             (select count(*)::int from pg_policies p
+               where p.schemaname = 'public' and p.tablename = c.relname
+                 and 'tm_app' = any(p.roles)) as app_policies
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public' and c.relkind = 'r'
+         and exists (select 1 from pg_attribute a
+                      where a.attrelid = c.oid and a.attname = 'user_id' and not a.attisdropped)`;
+    expect(rows.length).toBeGreaterThan(40);
+    const problems = rows
+      .filter((r) => r.app && !UNSCOPED.has(r.name as string))
+      .filter((r) => !r.rls || !r.forced || r.app_policies === 0)
+      .map((r) => r.name as string);
+    expect(problems).toEqual([]);
+  });
+
+  it("keys every policy for the app on the session's tenant", async () => {
+    const rows = await t.ownerSql`
+      select tablename, policyname, qual, with_check from pg_policies
+       where schemaname = 'public' and 'tm_app' = any(roles)`;
+    const loose = rows
+      .filter(
+        (r) =>
+          !String(r.qual ?? r.with_check).includes('app_current_user_id()') ||
+          (r.with_check !== null && !String(r.with_check).includes('app_current_user_id()')),
+      )
+      .map((r) => `${r.tablename}.${r.policyname}`);
+    expect(loose).toEqual([]);
+  });
+
+  it('pins search_path on every SECURITY DEFINER function and keeps them from PUBLIC', async () => {
+    const rows = await t.ownerSql`
+      select p.proname as name,
+             exists (select 1 from unnest(coalesce(p.proconfig, '{}')) s
+                      where s like 'search_path=%') as pinned,
+             has_function_privilege('public', p.oid, 'EXECUTE') as public_exec
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.prosecdef`;
+    expect(rows.length).toBeGreaterThan(20);
+    expect(rows.filter((r) => !r.pinned || r.public_exec).map((r) => r.name)).toEqual([]);
+  });
+});
