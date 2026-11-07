@@ -166,9 +166,18 @@ test('shows a paper strategy’s cycles, figures and data quality', async ({ pag
   ).toBeVisible();
   await expect(page.getByText(/This range has 1 session of history/)).toBeVisible();
 
-  // Filters narrow the view and are kept in the address.
-  await page.getByLabel('Asset class', { exact: true }).selectOption({ label: 'ETFs' });
-  await expect(page).toHaveURL(/class=etf/);
+  // Filters narrow the view and are kept in the address. The asset classes
+  // offered are the ones traded, from the instrument store (v1.2 item 10).
+  await expect(page.getByLabel('Asset class', { exact: true }).locator('option')).toHaveText([
+    'All asset classes',
+    'Stocks',
+  ]);
+  await page.getByLabel('Asset class', { exact: true }).selectOption({ label: 'Stocks' });
+  await expect(page).toHaveURL(/class=stock/);
+  await expect(
+    page.getByRole('table', { name: 'Contribution by asset' }).getByRole('row', { name: /DEMO-A/ }),
+  ).toBeVisible();
+  await page.goto(page.url().replace('class=stock', 'class=etf'));
   await expect(page.getByText('No trades in this view.')).toBeVisible();
   await page
     .getByLabel('Asset class', { exact: true })

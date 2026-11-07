@@ -17,7 +17,8 @@ import {
   users,
 } from '../src/schema';
 import { seedReferenceData } from '../src/seed';
-import { createStrategy } from '../src/strategies';
+import { listDemoReferences, removeUnusedDemoData } from '../src/demo-references';
+import { createStrategy, deleteStrategy, validateStoredStrategy } from '../src/strategies';
 import { withTenant } from '../src/tenant';
 import { createTestDatabase, type TestDatabase } from './harness';
 
@@ -164,5 +165,55 @@ describe('with demo data off', () => {
     } finally {
       process.env.DEMO_DATA = before;
     }
+  });
+});
+
+/** Design v1.2 item 10: what is left is listed, flagged on its strategies, and removable once unused. */
+describe('leftover demo instruments', () => {
+  const withDemoOff = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const before = process.env.DEMO_DATA;
+    process.env.DEMO_DATA = 'off';
+    try {
+      return await fn();
+    } finally {
+      process.env.DEMO_DATA = before;
+    }
+  };
+
+  it('lists who still uses a demo instrument', async () => {
+    const { instruments: count, references } = await listDemoReferences(t.owner.db);
+    expect(count).toBe(1);
+    expect(references).toEqual([
+      {
+        symbol: 'DEMO-A',
+        email: 'keeper@example.test',
+        strategies: ['On DEMO-A'],
+        orders: 0,
+        positions: 0,
+      },
+    ]);
+  });
+
+  it('marks a strategy on one invalid, naming it', async () => {
+    const [s] = await as(keeper, (tx) => tx.query.strategies.findMany());
+    const { validation } = await withDemoOff(() =>
+      as(keeper, (tx) => validateStoredStrategy(tx, s!.id)),
+    );
+    expect(validation.errors.find((e) => e.code === 'removed_instrument')?.message).toMatch(
+      /references a removed instrument \(DEMO-A\)/,
+    );
+  });
+
+  it('removes it only once nothing uses it, and never while demo data is on', async () => {
+    await expect(removeUnusedDemoData(t.owner.db)).rejects.toThrow(/Demo data is on/);
+    expect(await withDemoOff(() => removeUnusedDemoData(t.owner.db))).toBe(0);
+    const [s] = await as(keeper, (tx) => tx.query.strategies.findMany());
+    await as(keeper, (tx) => deleteStrategy(tx, keeper, s!.id, { rowVersion: s!.rowVersion }));
+    expect(await withDemoOff(() => removeUnusedDemoData(t.owner.db))).toBe(1);
+    expect(await listDemoReferences(t.owner.db)).toEqual({
+      instruments: 0,
+      feeds: 0,
+      references: [],
+    });
   });
 });

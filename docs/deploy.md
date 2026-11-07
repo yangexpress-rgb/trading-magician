@@ -6,7 +6,7 @@ build from the same `Dockerfile`; their start commands live in `deploy/railway/w
 `deploy/railway/worker.json`.
 
 Every web deploy first runs migrations, the seed (a no-op unless `DEMO_DATA=on`, which only
-the tests set; ADR 0039) and `db:setup-logins` (the
+the tests set and which Railway ignores; ADRs 0039, 0046) and `db:setup-logins` (the
 `preDeployCommand`). All three are safe to repeat. Railway runs that command without a shell,
 so it is wrapped in `sh -c '…'`; without the wrapper only the migration runs and the database
 logins are never created (the worker then logs `password authentication failed for user
@@ -329,3 +329,9 @@ and sign in.
 - **Your own domain.** Add it under the web service's Networking, then change `APP_URL`.
 - **Owner connection.** `DATABASE_URL` stays on the web service only because Railway runs the
   pre-deploy step with that service's variables. The running app never connects with it.
+
+## Leftover demo instruments
+
+`pnpm --filter @tm/db demo:check` (owner connection) lists any demo instruments still in the
+database and whose strategies, orders or positions use them. `demo:remove-unused` deletes the
+ones nothing uses any more (ADR 0046).

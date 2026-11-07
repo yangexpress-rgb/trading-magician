@@ -37,7 +37,23 @@ export const DEMO_ACCOUNT_CAPABILITIES = {
  * default: real deployments use real feeds only, with no demo instruments and
  * no demo feed. The automated tests turn it on (`DEMO_DATA=on`) so they can
  * run without any provider.
+ *
+ * Design v1.2 item 10: it is test data only, so `DEMO_DATA=on` is ignored on a
+ * hosted deployment (Railway) or an app served anywhere but this machine.
+ * Nothing can seed demo instruments into a real database.
  */
 export function demoDataEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  return env.DEMO_DATA === 'on';
+  if (env.DEMO_DATA !== 'on') return false;
+  if (env.RAILWAY_ENVIRONMENT_NAME || env.RAILWAY_ENVIRONMENT || env.RAILWAY_PROJECT_ID)
+    return false;
+  return env.APP_URL === undefined || isLocalUrl(env.APP_URL);
+}
+
+function isLocalUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+  } catch {
+    return false;
+  }
 }

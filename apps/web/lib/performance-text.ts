@@ -1,4 +1,4 @@
-import type { PerformanceSummaryDto } from '@tm/contracts';
+import { PERFORMANCE_ASSET_CLASSES, type PerformanceSummaryDto } from '@tm/contracts';
 import { formatMoney, formatPct, formatSignedMoney, type MetricTile } from './backtest-text';
 
 /**
@@ -154,4 +154,14 @@ export function describePositionDifference(p: {
   if (broker === 0) return `${p.symbol}: the app counts ${p.app}, the broker holds none`;
   const gap = broker - app;
   return `${p.symbol}: the app counts ${p.app}, the broker holds ${p.broker} (${gap > 0 ? `${gap} outside the app` : `${-gap} fewer at the broker`})`;
+}
+
+/**
+ * The Asset class filter offers the classes this person has traded, read from
+ * the instrument store, plus the one chosen now (v1.2 item 10).
+ */
+export function assetChoices(traded: readonly string[] | undefined, chosen: string | undefined) {
+  const known = new Set<string>(PERFORMANCE_ASSET_CLASSES);
+  const all = new Set([...(traded ?? []), ...(chosen ? [chosen] : [])]);
+  return [...all].filter((c) => known.has(c)).sort();
 }

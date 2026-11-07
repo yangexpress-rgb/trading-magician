@@ -109,6 +109,8 @@ export interface PerformanceSummaryDto {
     returnOnPeakCapitalPct: string | null;
   }[];
   byAsset: { instrumentId: string; symbol: string; assetClass: string; net: string }[];
+  /** Asset classes this person has traded, from the instrument store: the filter's choices (v1.2 item 10). */
+  assetClasses: string[];
   dataQuality: {
     lastValuedAt: string | null;
     /** Open holdings valued at a stale or missing price at the last valuation. */
