@@ -20,9 +20,10 @@ export const cboeOptionsPath = (symbol: string) =>
  * The licensing position (brief §8), next to the provider as for the VIX:
  * CBOE's delayed data is free for internal use only. Redistributing the chain
  * needs a Data Agreement, and data derived from it is fee-liable under Cboe's
- * policy. So the app stores chains only to compute its own signals and never
- * shows a chain, a quote or a greek to anyone. Reviewing the terms for a paid
- * service is a launch-gate item.
+ * policy. So the app stores chains only to compute its own values and never
+ * shows CBOE's quotes or greeks; screens show the app's own computed IVs,
+ * greeks and signals, with open interest and volume (ADR 0048). Reviewing
+ * the terms for a paid service is a launch-gate item.
  */
 export const CBOE_OPTIONS_DISPLAY_TERMS: IndexDataTerms = {
   owner: 'Cboe Global Markets',
@@ -31,7 +32,8 @@ export const CBOE_OPTIONS_DISPLAY_TERMS: IndexDataTerms = {
   note:
     "Cboe's delayed options quotes are free for internal use only. Redistributing the chain needs a " +
     'Data Agreement and derived data is fee-liable under Cboe policy. The app shows only its own ' +
-    'derived signals; review the terms (or license the data) before a paid launch.',
+    'computed values (signals, IVs, greeks) with open interest and volume; review the terms (or ' +
+    'license the data) before a paid launch.',
 };
 
 /** One contract of the chain as the file gives it. */
