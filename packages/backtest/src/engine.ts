@@ -1205,7 +1205,10 @@ export function simulate({
         });
         g.entry = planned.state;
         const d = planned.decision;
-        const target = d.kind === 'add_batch' || d.kind === 'trigger_cycle' ? cycles[Number(d.cycleId) - 1] : undefined;
+        const target =
+          d.kind === 'add_batch' || d.kind === 'trigger_cycle'
+            ? cycles[Number(d.cycleId) - 1]
+            : undefined;
         if (d.kind === 'new_cycle') newCycle(now, d.triggered, undefined, 1, g.key);
         else if (d.kind === 'add_batch' && target) addEntryBatch(target);
         else if (d.kind === 'trigger_cycle' && target) {
@@ -1588,8 +1591,7 @@ export function simulate({
   }
 
   function selectionLog(): SelectionLog {
-    const ref =
-      mode === 'selection' ? def.entry.selection?.ranking : rankedLegs(def)?.ranking;
+    const ref = mode === 'selection' ? def.entry.selection?.ranking : rankedLegs(def)?.ranking;
     return {
       kind: mode === 'selection' ? 'ranking' : 'legs',
       metric: ref ? { metric: ref.metric, params: ref.params } : null,

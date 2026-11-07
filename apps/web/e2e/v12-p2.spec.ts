@@ -192,6 +192,7 @@ test('an entry group can be removed again', async ({ page, baseURL }) => {
   page.on('dialog', () => {
     throw new Error('Remove group must not open a browser dialog');
   });
+  await g2.locator('summary').click();
   await g2.getByRole('button', { name: 'Remove group' }).click();
   await g2.getByRole('button', { name: 'Keep it' }).click();
   await expect(g2).toBeVisible();

@@ -7,7 +7,12 @@ import {
   type FundamentalPoint,
 } from '../market/point-in-time';
 import type { OptionSignalField, OptionSignalSource } from '../options/signals';
-import { BAR_INTERVALS, type BarInterval, type IndicatorParamSpec, type PriceAdjustment } from './catalog';
+import {
+  BAR_INTERVALS,
+  type BarInterval,
+  type IndicatorParamSpec,
+  type PriceAdjustment,
+} from './catalog';
 import type { IndicatorExpr, MarketExpr, MetricExpr, MetricRef } from './schema';
 
 /**

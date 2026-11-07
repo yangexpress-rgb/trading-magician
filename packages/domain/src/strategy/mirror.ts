@@ -77,7 +77,8 @@ export function mirrorEntryOrders(
  * legs" switch on the Exit card (ADR 0049). On, every Entry edit regenerates
  * them; off, they are hand-built and Entry edits leave them alone.
  */
-export const mirrorsEntry = (exit: { mirrorEntry?: boolean | undefined }) => exit.mirrorEntry === true;
+export const mirrorsEntry = (exit: { mirrorEntry?: boolean | undefined }) =>
+  exit.mirrorEntry === true;
 
 /**
  * Re-fill Exit legs from Entry, reusing the existing Exit leg ids in order so

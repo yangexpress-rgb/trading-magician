@@ -67,9 +67,10 @@ export function atrStopOf(def: Pick<StrategyDefinition, 'exit'>): AtrStopRule | 
  * override when the person set one, else the Entry's risk distance, the same
  * one risk-sized legs size from. Undefined when neither is set.
  */
-export function atrStopDistance(
-  part: { entry: Pick<EntryPhase, 'risk'>; exit: Pick<ExitPhase, 'rules'> },
-): RiskDistance | undefined {
+export function atrStopDistance(part: {
+  entry: Pick<EntryPhase, 'risk'>;
+  exit: Pick<ExitPhase, 'rules'>;
+}): RiskDistance | undefined {
   const rule = part.exit.rules?.find((r): r is AtrStopRule => r.kind === 'atrStop');
   if (!rule) return undefined;
   return rule.override ?? part.entry.risk;

@@ -97,8 +97,7 @@ export function sizeOrder({
       }
       const perUnitRisk = stopPrice ? ref.minus(stopPrice).abs() : ZERO;
       if (perUnitRisk.isZero()) return { ok: false, code: 'no_stop_distance' };
-      const amount =
-        order.quantity.amountIn === 'pct_equity' ? equity.times(v).div(100) : v;
+      const amount = order.quantity.amountIn === 'pct_equity' ? equity.times(v).div(100) : v;
       qty = amount.div(perUnitRisk);
       break;
     }
@@ -164,9 +163,8 @@ function sizeByAtr({
   const distance = atrShown.times(multiple);
   if (distance.lte(0)) return { ok: false, code: 'no_stop_distance' };
   const dollars = order.quantity.amountIn === 'dollars';
-  const riskQty = (dollars
-    ? new Decimal(order.quantity.value)
-    : equityShown.times(order.quantity.value).div(100)
+  const riskQty = (
+    dollars ? new Decimal(order.quantity.value) : equityShown.times(order.quantity.value).div(100)
   )
     .div(distance)
     .div(lotSize)

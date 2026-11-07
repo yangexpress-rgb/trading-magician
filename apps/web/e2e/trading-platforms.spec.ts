@@ -21,23 +21,21 @@ const comparison = (id: string, instrumentId: string) => ({
 const whileTrue = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
 
 /** Never enters (price below 1), so it runs without placing orders. */
-const idle =
-  () =>
-  (ids: Record<string, string>, account: string) => {
-    const a = ids['DEMO-A']!;
-    return {
-      entry: {
-        condition: group('eg', comparison('in', a)),
-        trigger: whileTrue,
-        orders: [leg('buy', 'Buy DEMO-A', a, account, 'buy')],
-      },
-      exit: {
-        condition: group('xg', comparison('out', a)),
-        trigger: whileTrue,
-        orders: [leg('close', 'Close DEMO-A', a, account, 'close')],
-      },
-    };
+const idle = () => (ids: Record<string, string>, account: string) => {
+  const a = ids['DEMO-A']!;
+  return {
+    entry: {
+      condition: group('eg', comparison('in', a)),
+      trigger: whileTrue,
+      orders: [leg('buy', 'Buy DEMO-A', a, account, 'buy')],
+    },
+    exit: {
+      condition: group('xg', comparison('out', a)),
+      trigger: whileTrue,
+      orders: [leg('close', 'Close DEMO-A', a, account, 'close')],
+    },
   };
+};
 
 test('connects a second paper account, makes it the default and turns one off safely', async ({
   page,
@@ -73,7 +71,10 @@ test('connects a second paper account, makes it the default and turns one off sa
       rowVersion: lateDraft.rowVersion,
       definition: {
         ...lateDraft.definition,
-        execution: { ...lateDraft.definition.execution, marketHoursPolicy: 'extended_if_supported' },
+        execution: {
+          ...lateDraft.definition.execution,
+          marketHoursPolicy: 'extended_if_supported',
+        },
       },
     },
   });

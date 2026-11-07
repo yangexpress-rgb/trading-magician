@@ -408,7 +408,11 @@ export const triggerSchema = z.object({
   confirmationBars: z.number().int().min(0).max(100).default(0),
 });
 export type Trigger = z.infer<typeof triggerSchema>;
-export const DEFAULT_TRIGGER: Trigger = { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 };
+export const DEFAULT_TRIGGER: Trigger = {
+  mode: 'on_transition',
+  cooldownBars: 0,
+  confirmationBars: 0,
+};
 
 export const phaseSchema = z.object({
   condition: conditionGroupSchema,

@@ -188,7 +188,12 @@ export function migrateV1(input: Json): { doc: Json; notes: MigrationNote[] } {
             amountIn: 'dollars',
             distanceFrom: 'stop_price',
           };
-          note('risk_quantity', 'same', where, 'Risk sized (dollars at risk, stop price) → Risk: dollars, from the stop price');
+          note(
+            'risk_quantity',
+            'same',
+            where,
+            'Risk sized (dollars at risk, stop price) → Risk: dollars, from the stop price',
+          );
         } else if (q.type === 'risk_atr') {
           if (phase === 'entry' && q.atrPeriod !== undefined && q.atrMultiple !== undefined) {
             const mine = { atrPeriod: Number(q.atrPeriod), atrMultiple: String(q.atrMultiple) };
@@ -211,7 +216,12 @@ export function migrateV1(input: Json): { doc: Json; notes: MigrationNote[] } {
             amountIn: 'pct_equity',
             distanceFrom: 'atr',
           };
-          note('risk_quantity', 'same', where, 'Risk (ATR) → Risk: % of equity, from the ATR risk distance');
+          note(
+            'risk_quantity',
+            'same',
+            where,
+            'Risk (ATR) → Risk: % of equity, from the ATR risk distance',
+          );
         }
       });
     const rules = arr(exit.rules);
@@ -269,19 +279,28 @@ export function migrateV1(input: Json): { doc: Json; notes: MigrationNote[] } {
         'Fire mode "best by metric" → a Selection group of these legs, ranked by the same metric, highest first, top 1; leg conditions are each leg\'s pre-filter',
       );
     } else if (fire) {
-      note('fire_mode_dropped', 'same', `${at}entry`, `Fire mode "${String(fire.mode)}" had no effect and is gone`);
+      note(
+        'fire_mode_dropped',
+        'same',
+        `${at}entry`,
+        `Fire mode "${String(fire.mode)}" had no effect and is gone`,
+      );
     }
     delete entry.fireMode;
     if (isObj(entry.selection) && 'weighting' in entry.selection) {
       delete entry.selection.weighting;
-      note('weighting_dropped', 'same', `${at}entry.selection`, 'Equal weight is the only weighting; the field is gone');
+      note(
+        'weighting_dropped',
+        'same',
+        `${at}entry.selection`,
+        'Equal weight is the only weighting; the field is gone',
+      );
     }
 
     // -- Direction is derived from the legs (§2.11).
     if (entry.direction !== undefined) {
       const sides = arr(entry.orders).map((o) => (isObj(o) ? o.side : undefined));
-      const derived =
-        sides.length > 0 && sides.every((s) => s === 'sell_short') ? 'short' : 'long';
+      const derived = sides.length > 0 && sides.every((s) => s === 'sell_short') ? 'short' : 'long';
       note(
         derived === entry.direction ? 'direction_derived' : 'direction_mismatch',
         derived === entry.direction ? 'same' : 'changes',
@@ -300,7 +319,12 @@ export function migrateV1(input: Json): { doc: Json; notes: MigrationNote[] } {
       const sec = Number(t.cooldownSec ?? 0);
       if (phase === 'exit' && slot) {
         if (isDefaultTrigger(t))
-          note('slot_exit_trigger', 'same', `${at}exit.trigger`, 'The hidden Exit trigger is gone: the Exit condition is checked directly on every bar');
+          note(
+            'slot_exit_trigger',
+            'same',
+            `${at}exit.trigger`,
+            'The hidden Exit trigger is gone: the Exit condition is checked directly on every bar',
+          );
         else
           note(
             'slot_exit_trigger_changed',
@@ -338,7 +362,12 @@ export function migrateV1(input: Json): { doc: Json; notes: MigrationNote[] } {
   if (isObj(doc.risk) && 'maxOpenPositions' in doc.risk) {
     doc.risk.maxInstrumentsHeld = doc.risk.maxOpenPositions;
     delete doc.risk.maxOpenPositions;
-    note('max_instruments_held', 'same', 'risk', 'Maximum open positions → Maximum instruments held');
+    note(
+      'max_instruments_held',
+      'same',
+      'risk',
+      'Maximum open positions → Maximum instruments held',
+    );
   }
 
   // -- One computation per name (§2.2): RSI is the registry metric, Bollinger the statistic.
@@ -356,7 +385,8 @@ function rewriteExpressions(doc: Json, notes: MigrationNote[]) {
     const replaced = convertExpr(e, where, notes);
     if (replaced) holder[key] = replaced;
     const now = holder[key] as Json;
-    if (now.kind === 'calc') arr(now.args).forEach((_, i) => visit(now.args as unknown as Json, String(i), where));
+    if (now.kind === 'calc')
+      arr(now.args).forEach((_, i) => visit(now.args as unknown as Json, String(i), where));
     if (now.kind === 'stat') visit(now, 'input', where);
   };
   const tree = (node: unknown, where: string) => {
@@ -398,7 +428,11 @@ function convertExpr(e: Json, where: string, notes: MigrationNote[]): Json | und
   const session = e.session ?? 'regular';
   const offset = Number(e.offset ?? 0);
   if (e.name === 'RSI') {
-    if ((e.field ?? 'close') === 'close' && adjustment === 'split_and_dividend' && session === 'regular') {
+    if (
+      (e.field ?? 'close') === 'close' &&
+      adjustment === 'split_and_dividend' &&
+      session === 'regular'
+    ) {
       notes.push({
         code: 'rsi_metric',
         effect: 'same',
@@ -431,7 +465,8 @@ function convertExpr(e: Json, where: string, notes: MigrationNote[]): Json | und
         code: 'bollinger_statistic',
         effect: 'same',
         where,
-        message: 'Bollinger band indicator → the Bollinger statistic of the same price (same period, deviations and bars ago)',
+        message:
+          'Bollinger band indicator → the Bollinger statistic of the same price (same period, deviations and bars ago)',
       });
       return {
         kind: 'stat',
@@ -512,7 +547,13 @@ function v1Mirror(entry: Json[]): Json[] {
       timingOnly: false,
     });
   }
-  const taken = new Set(entry.map((e) => String(e.legLabel ?? '').trim().toLowerCase()));
+  const taken = new Set(
+    entry.map((e) =>
+      String(e.legLabel ?? '')
+        .trim()
+        .toLowerCase(),
+    ),
+  );
   for (const o of out) {
     let label = String(o.legLabel);
     for (let n = 2; taken.has(label.toLowerCase()); n++) {
