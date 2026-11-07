@@ -15,6 +15,7 @@ import {
   type StrategyDefinition,
 } from './schema';
 import { extendedHoursEligible } from './extended-hours';
+import { groupDefinition } from './groups';
 import { checkTiming } from './timing';
 import { exprDepth, treeDepth, walkComparisons, walkExpr, walkExpressions } from './tree';
 import { CONTEXT_INSTRUMENT_ID } from './evaluate';
@@ -47,6 +48,8 @@ export interface InstrumentInfo {
   lotSize: string;
   /** Listing venue; demo instruments have their own (ADR 0016). */
   venue?: string | undefined;
+  /** Whether the broker lends it for short selling; absent or null when unknown (v1.2 item 8). */
+  shortable?: boolean | null | undefined;
 }
 
 export interface AccountCapabilities {
@@ -128,6 +131,24 @@ export function validateStrategy(
     add('error', p.code, p.message, [p.phase, 'orders', index, 'timing'], p.legId);
   }
 
+  // Entry groups (v1.2 item 8): each is checked as the strategy's own Entry and Exit are.
+  (def.groups ?? []).forEach((g, i) => {
+    const gdef = groupDefinition(def, g.id);
+    const at: Add = (severity, code, message, path, nodeId) =>
+      add(severity, code, message, ['groups', i, ...path], nodeId);
+    for (const phase of ['entry', 'exit'] as const) {
+      checkCondition(gdef, phase, ctx, at);
+      checkOrders(gdef, phase, ctx, at);
+    }
+    checkExitExposure(gdef, at);
+    checkPositionValues(gdef, at);
+    for (const p of checkTiming(gdef)) {
+      const index = gdef[p.phase].orders.findIndex((o) => o.id === p.legId);
+      at('error', p.code, p.message, [p.phase, 'orders', index, 'timing'], p.legId);
+    }
+  });
+
+  checkGroups(def, ctx, add);
   checkBacktest(ctx, add);
 
   return {
@@ -160,31 +181,45 @@ function checkUniqueIds(def: StrategyDefinition, add: Add) {
     if (seen.has(r.id)) add('error', 'duplicate_id', 'The definition has duplicate ids', [], r.id);
     seen.add(r.id);
   }
-  for (const phase of ['entry', 'exit'] as const) {
-    visitNode(def[phase].condition);
-    def[phase].orders.forEach((o, i) => {
-      if (seen.has(o.id))
-        add(
-          'error',
-          'duplicate_id',
-          'The definition has duplicate ids',
-          [phase, 'orders', i],
-          o.id,
-        );
-      seen.add(o.id);
-      const label = o.legLabel.trim().toLowerCase();
-      labels.set(label, (labels.get(label) ?? 0) + 1);
-      if (labels.get(label) === 2) {
-        add(
-          'error',
-          'duplicate_leg_label',
-          `Two legs are named "${o.legLabel}"; give each leg its own name`,
-          [phase, 'orders', i, 'legLabel'],
-          o.id,
-        );
-      }
-    });
+  const parts = [
+    { p: def as { entry: StrategyDefinition['entry']; exit: StrategyDefinition['exit'] }, at: [] },
+    ...(def.groups ?? []).map((g, i) => ({ p: g, at: ['groups', i] as (string | number)[] })),
+  ];
+  for (const g of def.groups ?? []) {
+    if (seen.has(g.id)) add('error', 'duplicate_id', 'The definition has duplicate ids', [], g.id);
+    seen.add(g.id);
+    for (const r of g.exit.rules ?? []) {
+      if (seen.has(r.id))
+        add('error', 'duplicate_id', 'The definition has duplicate ids', [], r.id);
+      seen.add(r.id);
+    }
   }
+  for (const { p: part, at } of parts)
+    for (const phase of ['entry', 'exit'] as const) {
+      visitNode(part[phase].condition);
+      part[phase].orders.forEach((o, i) => {
+        if (seen.has(o.id))
+          add(
+            'error',
+            'duplicate_id',
+            'The definition has duplicate ids',
+            [...at, phase, 'orders', i],
+            o.id,
+          );
+        seen.add(o.id);
+        const label = o.legLabel.trim().toLowerCase();
+        labels.set(label, (labels.get(label) ?? 0) + 1);
+        if (labels.get(label) === 2) {
+          add(
+            'error',
+            'duplicate_leg_label',
+            `Two legs are named "${o.legLabel}"; give each leg its own name`,
+            [...at, phase, 'orders', i, 'legLabel'],
+            o.id,
+          );
+        }
+      });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -280,6 +315,77 @@ function isSeries(e: Expr): boolean {
 function containsSeries(e: Expr): boolean {
   for (const x of walkExpr(e)) if (isSeries(x)) return true;
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Entry groups and direction (v1.2 item 8)
+
+function checkGroups(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
+  const groups = def.groups ?? [];
+  const all = [
+    { entry: def.entry, path: [] as (string | number)[], label: 'Entry' },
+    ...groups.map((g, i) => ({ entry: g.entry, path: ['groups', i], label: g.label })),
+  ];
+  for (const { entry, path, label } of all) {
+    // A stated direction must match what the Entry legs do.
+    if (entry.direction) {
+      const side = entry.direction === 'long' ? 'buy' : 'sell_short';
+      entry.orders.forEach((o, i) => {
+        if (o.side !== side)
+          add(
+            'error',
+            'direction_side_mismatch',
+            entry.direction === 'long'
+              ? `"${label}" goes long: its Entry leg "${o.legLabel}" must Buy`
+              : `"${label}" goes short: its Entry leg "${o.legLabel}" must Sell short`,
+            [...path, 'entry', 'orders', i, 'side'],
+            o.id,
+          );
+      });
+    }
+    // Shorting needs an instrument the broker lends (unknown is allowed; back tests say so).
+    entry.orders.forEach((o, i) => {
+      const instrument = ctx.instruments.get(o.instrumentId);
+      if (o.side === 'sell_short' && instrument?.shortable === false)
+        add(
+          'error',
+          'not_shortable',
+          `${instrument.symbol} can't be sold short: the broker doesn't lend it`,
+          [...path, 'entry', 'orders', i, 'instrumentId'],
+          o.id,
+        );
+    });
+  }
+  if (groups.length === 0) return;
+
+  if (
+    slotModeOf(def) !== 'none' ||
+    groups.some((g) => slotModeOf(groupDefinition(def, g.id)) !== 'none')
+  )
+    add(
+      'error',
+      'groups_fixed_legs_only',
+      'Entry groups trade fixed instruments: remove the Selection group, per-leg conditions or "best by metric" before adding another entry group',
+      ['groups'],
+    );
+  if (def.execution.reentry.mode !== 'single_cycle')
+    add(
+      'error',
+      'groups_single_position',
+      'A strategy with several entry groups holds one position at a time: set Re-entry to "One cycle at a time"',
+      ['execution', 'reentry', 'mode'],
+    );
+  const labels = new Set<string>(['group 1']);
+  groups.forEach((g, i) => {
+    const key = g.label.trim().toLowerCase();
+    if (labels.has(key))
+      add('error', 'duplicate_group_label', `Two entry groups are named "${g.label}"`, [
+        'groups',
+        i,
+        'label',
+      ]);
+    labels.add(key);
+  });
 }
 
 const SAME_BAR_FIELDS = new Set(['open', 'high', 'low', 'close']);

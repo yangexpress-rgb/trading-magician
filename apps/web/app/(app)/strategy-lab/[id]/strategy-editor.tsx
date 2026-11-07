@@ -3,7 +3,10 @@
 import { ApiError } from '@tm/contracts';
 import {
   canonicalJson,
+  directionOf,
+  hasGroups,
   slotModeOf,
+  type SlotMode,
   strategyDefinitionSchema,
   type ConditionGroup,
   type PhaseName,
@@ -25,6 +28,13 @@ import { InstrumentFinder } from '@/components/strategy/instrument-finder';
 import { BackTestPanel, useValidation, ValidationPanel } from '@/components/strategy/lifecycle';
 import { OrdersEditor } from '@/components/strategy/orders-editor';
 import { EntryStructure, ExitRulesEditor } from '@/components/strategy/slots-editor';
+import {
+  addGroup,
+  DirectionField,
+  GroupHeader,
+  GroupScope,
+  MAX_GROUPS,
+} from '@/components/strategy/entry-groups';
 import { ExecutionAndRisk, TriggerSettings } from '@/components/strategy/settings-editor';
 import { apiClient } from '@/lib/api-client';
 
@@ -100,8 +110,6 @@ export function StrategyEditor({
     },
     [],
   );
-  const setPhaseCondition = (phase: PhaseName) => (condition: ConditionGroup) =>
-    edit((d) => ({ ...d, [phase]: { ...d[phase], condition } }));
 
   async function onSave() {
     if (issues.size > 0) {
@@ -229,57 +237,43 @@ export function StrategyEditor({
             )
           }
         />
-        {(['entry', 'exit'] as const).map((phase) => {
-          const title = phase === 'entry' ? 'Entry' : 'Exit';
-          return (
-            <Card
-              key={phase}
-              className={
-                phase === 'entry'
-                  ? 'border-l-4 border-l-entry bg-entry-soft!'
-                  : 'border-l-4 border-l-exit bg-exit-soft!'
-              }
-            >
-              <h2
-                id={`${phase}-heading`}
-                className={cx(
-                  'text-lg font-semibold',
-                  phase === 'entry' ? 'text-entry' : 'text-exit',
-                )}
-              >
-                {title}
-              </h2>
-              <p className="mb-3 text-sm text-ink-muted">
-                {phase === 'entry'
-                  ? 'The strategy enters when these conditions qualify.'
-                  : 'After Entry fills, the strategy exits when these conditions qualify.'}
-              </p>
-              {phase === 'entry' && <EntryStructure definition={definition} onChange={edit} />}
-              <h3 className="mb-2 text-base font-semibold text-cond">{title} conditions</h3>
-              <ConditionTreeEditor
-                root={definition[phase].condition}
-                onChange={setPhaseCondition(phase)}
-                label={`${title} conditions`}
-                path={[phase, 'condition']}
-              />
-              {phase === 'exit' && <ExitRulesEditor definition={definition} onChange={edit} />}
-              {slotMode === 'none' ? (
-                <TriggerSettings
-                  phase={phase}
-                  value={definition[phase].trigger}
-                  onChange={(trigger) => edit((d) => ({ ...d, [phase]: { ...d[phase], trigger } }))}
+        <PhaseCards
+          definition={definition}
+          onChange={edit}
+          slotMode={slotMode}
+          groupTitle={hasGroups(definition) ? 'Group 1' : undefined}
+        />
+        {(definition.groups ?? []).map((g, i) => (
+          <section
+            key={g.id}
+            aria-label={`Entry group ${i + 2}: ${g.label}`}
+            className="space-y-4 rounded-lg border border-line p-3"
+          >
+            <GroupHeader definition={definition} index={i} onChange={edit} />
+            <GroupScope definition={definition} index={i} onChange={edit}>
+              {(own, set) => (
+                <PhaseCards
+                  definition={own}
+                  onChange={set}
+                  slotMode="none"
+                  groupTitle={g.label}
+                  idPrefix={`group-${g.id}-`}
                 />
-              ) : (
-                <p className="mt-3 text-xs text-ink-muted">
-                  Trigger options don&rsquo;t apply here: with{' '}
-                  {slotMode === 'selection' ? 'a Selection group' : 'per-leg conditions'} each
-                  instrument is evaluated on its own at every scheduled evaluation.
-                </p>
               )}
-              <OrdersEditor definition={definition} phase={phase} onChange={edit} />
-            </Card>
-          );
-        })}
+            </GroupScope>
+          </section>
+        ))}
+        {editable && slotMode === 'none' && (definition.groups?.length ?? 0) < MAX_GROUPS && (
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="secondary" size="sm" onClick={() => edit((d) => addGroup(d))}>
+              Add an entry group
+            </Button>
+            <p className="text-sm text-ink-muted">
+              For example a short breakdown beside a long breakout. The strategy holds one position
+              at a time: a group enters only while no position is open, and never flips one.
+            </p>
+          </div>
+        )}
         <ExecutionAndRisk definition={definition} onChange={edit} />
         <ValidationPanel
           validation={validation}
@@ -304,5 +298,97 @@ export function StrategyEditor({
         {children}
       </div>
     </EditorContext.Provider>
+  );
+}
+
+/**
+ * One entry group's Entry and Exit cards: the strategy's own, or a further
+ * group's (v1.2 item 8) edited on that group's own definition.
+ */
+function PhaseCards({
+  definition,
+  onChange,
+  slotMode,
+  groupTitle,
+  idPrefix = '',
+}: {
+  definition: StrategyDefinition;
+  onChange: (def: StrategyDefinition) => void;
+  slotMode: SlotMode;
+  /** Set when the strategy has several entry groups. */
+  groupTitle?: string | undefined;
+  idPrefix?: string;
+}) {
+  const own = idPrefix === '';
+  const direction = directionOf(definition.entry) === 'long' ? 'Long' : 'Short';
+  const setPhaseCondition = (phase: PhaseName) => (condition: ConditionGroup) =>
+    onChange({ ...definition, [phase]: { ...definition[phase], condition } });
+  return (
+    <>
+      {(['entry', 'exit'] as const).map((phase) => {
+        const title = phase === 'entry' ? 'Entry' : 'Exit';
+        const heading = groupTitle ? `${title}: ${groupTitle} (${direction})` : title;
+        return (
+          <Card
+            key={phase}
+            className={
+              phase === 'entry'
+                ? 'border-l-4 border-l-entry bg-entry-soft!'
+                : 'border-l-4 border-l-exit bg-exit-soft!'
+            }
+          >
+            <h2
+              id={`${idPrefix}${phase}-heading`}
+              className={cx(
+                'text-lg font-semibold',
+                phase === 'entry' ? 'text-entry' : 'text-exit',
+              )}
+            >
+              {heading}
+            </h2>
+            <p className="mb-3 text-sm text-ink-muted">
+              {phase === 'entry'
+                ? 'The strategy enters when these conditions qualify.'
+                : 'After Entry fills, the strategy exits when these conditions qualify.'}
+            </p>
+            {phase === 'entry' && slotMode === 'none' && (
+              <DirectionField
+                definition={definition}
+                onChange={onChange}
+                id={`${idPrefix}entry-direction`}
+              />
+            )}
+            {phase === 'entry' && own && (
+              <EntryStructure definition={definition} onChange={onChange} />
+            )}
+            <h3 className="mb-2 text-base font-semibold text-cond">{title} conditions</h3>
+            <ConditionTreeEditor
+              root={definition[phase].condition}
+              onChange={setPhaseCondition(phase)}
+              label={groupTitle ? `${title} conditions: ${groupTitle}` : `${title} conditions`}
+              path={[phase, 'condition']}
+            />
+            {phase === 'exit' && <ExitRulesEditor definition={definition} onChange={onChange} />}
+            {slotMode === 'none' ? (
+              <TriggerSettings
+                idPrefix={idPrefix}
+                phase={phase}
+                value={definition[phase].trigger}
+                onChange={(trigger) =>
+                  onChange({ ...definition, [phase]: { ...definition[phase], trigger } })
+                }
+              />
+            ) : (
+              <p className="mt-3 text-xs text-ink-muted">
+                Trigger options don&rsquo;t apply here: with{' '}
+                {slotMode === 'selection' ? 'a Selection group' : 'per-leg conditions'} each
+                instrument is evaluated on its own at every scheduled evaluation.
+              </p>
+            )}
+            <OrdersEditor definition={definition} phase={phase} onChange={onChange} />
+          </Card>
+        );
+      })}
+    </>
   );
 }

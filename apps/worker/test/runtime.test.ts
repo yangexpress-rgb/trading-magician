@@ -939,3 +939,66 @@ describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, ti
     await stopAll();
   });
 });
+
+describe('paper runtime: long and short entry groups (v1.2 item 8)', () => {
+  const twoSided = (longEntry: StrategyDefinition['entry']['condition']) => {
+    const def = createDefinition();
+    def.entry.direction = 'long';
+    def.entry.condition = longEntry;
+    def.entry.trigger = { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 };
+    def.entry.orders = [leg('buy', { legLabel: 'Buy A' })];
+    def.exit.condition = never();
+    def.exit.orders = [leg('sell', { legLabel: 'Sell A', side: 'close' })];
+    def.groups = [
+      {
+        id: 'short-1',
+        label: 'Short A group',
+        entry: {
+          direction: 'short',
+          condition: always('sin'),
+          trigger: { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 },
+          orders: [leg('short', { legLabel: 'Short A', side: 'sell_short' })],
+        },
+        exit: {
+          condition: always('sout'),
+          trigger: { mode: 'while_true', cooldownSec: 0, confirmationBars: 0 },
+          orders: [leg('cover', { legLabel: 'Cover A', side: 'close' })],
+        },
+      },
+    ];
+    return def;
+  };
+
+  it('opens the short group when only it qualifies, and exits by its own Exit', async () => {
+    clock = Date.parse('2026-11-04T15:31:00Z');
+    const notYet = structuredClone(never());
+    notYet.id = 'not-yet-g';
+    notYet.children = notYet.children.map((c) => ({ ...c, id: `not-yet-${c.id}` }));
+    const { runtimeId } = await startPaper('Two-sided short', twoSided(notYet));
+    await pass();
+    expect((await orders(runtimeId)).map((x) => [x.legLabel, x.side])).toEqual([
+      ['Short A', 'sell_short'],
+    ]);
+    const [c] = await cycles(runtimeId);
+    expect((c!.state as { group?: string }).group).toBe('short-1');
+    clock += 5_000;
+    await pass(); // filled
+    clock += 3_600_000;
+    await pass(); // the group's Exit holds
+    expect((await orders(runtimeId)).map((x) => x.legLabel)).toEqual(['Short A', 'Cover A']);
+    await stopAll();
+  });
+
+  it('never flips: the short group waits while the long position is open', async () => {
+    clock = Date.parse('2026-11-05T15:31:00Z');
+    const { runtimeId } = await startPaper('Two-sided long', twoSided(always('lin')));
+    await pass();
+    clock += 5_000;
+    await pass();
+    clock += 3_600_000;
+    await pass();
+    expect((await orders(runtimeId)).map((x) => x.legLabel)).toEqual(['Buy A']);
+    expect(await cycles(runtimeId)).toHaveLength(1);
+    await stopAll();
+  });
+});

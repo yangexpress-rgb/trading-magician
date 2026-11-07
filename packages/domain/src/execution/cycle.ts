@@ -60,6 +60,8 @@ export interface CycleState {
   slot?: StrategySlot | undefined;
   /** Why the current Exit round started, when not the Exit condition (v1.2). */
   exitReason?: 'rebalance' | 'time_stop' | undefined;
+  /** The entry group that opened it (v1.2 item 8); absent for the strategy's own Entry. */
+  group?: string | undefined;
 }
 
 export const legKey = (phase: LegPhase, legId: string, attempt: number) =>

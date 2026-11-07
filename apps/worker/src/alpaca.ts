@@ -65,6 +65,7 @@ const toListing = (found: DiscoveredInstrument) => ({
   venue: found.venue,
   displayName: found.displayName,
   providerId: found.providerId,
+  shortable: found.shortable,
 });
 
 export function alpacaProvider(options: AlpacaProviderOptions = {}): MarketDataProvider {

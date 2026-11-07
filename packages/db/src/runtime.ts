@@ -59,6 +59,8 @@ export interface RuntimeState {
   staleSince?: number | undefined;
   /** The calendar period last evaluated on a non-daily schedule, e.g. "2026-03" (v1.2 item 4). */
   lastSchedulePeriod?: string | undefined;
+  /** Entry trigger state of each further entry group, by group id (v1.2 item 8). */
+  groupTriggers?: Record<string, RuntimeTriggerState> | undefined;
 }
 
 export interface WorkingOrder {
@@ -343,6 +345,7 @@ export async function loadRuntimeWork(
           symbol: instruments.symbol,
           assetClass: instruments.assetClass,
           lotSize: instruments.lotSize,
+          shortable: instruments.shortable,
         })
         .from(instruments)
         .where(inArray(instruments.id, [...ids]))
@@ -350,7 +353,12 @@ export async function loadRuntimeWork(
   const instrumentMap = new Map(
     instrumentRows.map((r) => [
       r.id,
-      { symbol: r.symbol, assetClass: r.assetClass, lotSize: r.lotSize },
+      {
+        symbol: r.symbol,
+        assetClass: r.assetClass,
+        lotSize: r.lotSize,
+        ...(r.shortable !== null ? { shortable: r.shortable } : {}),
+      },
     ]),
   );
 

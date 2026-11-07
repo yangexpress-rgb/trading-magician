@@ -399,6 +399,7 @@ export async function loadValidationContext(
       assetClass: instruments.assetClass,
       lotSize: instruments.lotSize,
       venue: instruments.venue,
+      shortable: instruments.shortable,
     })
     .from(instruments);
   const accountRows = await tx
@@ -423,7 +424,13 @@ export async function loadValidationContext(
     instruments: new Map<string, InstrumentInfo>(
       instrumentRows.map((i) => [
         i.id,
-        { symbol: i.symbol, assetClass: i.assetClass, lotSize: i.lotSize, venue: i.venue },
+        {
+          symbol: i.symbol,
+          assetClass: i.assetClass,
+          lotSize: i.lotSize,
+          venue: i.venue,
+          shortable: i.shortable,
+        },
       ]),
     ),
     accounts: new Map<string, AccountInfo>(

@@ -270,6 +270,16 @@ export function describeIssueLocation(
   def: StrategyDefinition,
 ): string {
   const [head, section, index] = path;
+  // An entry group's problem (v1.2 item 8): "Short breakdown: Entry leg 1 (Short SPY)".
+  if (head === 'groups' && typeof section === 'number') {
+    const group = def.groups?.[section];
+    if (!group) return 'Entry groups';
+    const rest = path.slice(2);
+    if (rest.length === 0 || rest[0] === 'label') return `Entry group "${group.label}"`;
+    const inner = { ...def, entry: group.entry, exit: group.exit, groups: undefined };
+    return `${group.label}: ${describeIssueLocation(rest, inner)}`;
+  }
+  if (head === 'groups') return 'Entry groups';
   if (head === 'entry' || head === 'exit') {
     const phase = PHASE_NAMES[head];
     if (section === 'orders' && typeof index === 'number') {

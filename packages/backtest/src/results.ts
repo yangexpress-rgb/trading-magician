@@ -53,6 +53,9 @@ export interface BacktestTrade {
   returnPct: string | null;
   /** Which rule closed the cycle, for strategies using v1.2 rules. */
   exitReason?: 'condition' | 'rebalance' | 'time_stop';
+  /** Two-sided strategies (v1.2 item 8): the direction and entry group of the trade. */
+  direction?: 'long' | 'short';
+  group?: string;
 }
 
 /**
@@ -259,6 +262,16 @@ export interface BacktestResult {
   warnings: BacktestWarning[];
   /** How the Entry and Exit conditions evaluated. Absent on runs from before it was recorded. */
   conditions?: { entry: PhaseConditionReport; exit: PhaseConditionReport };
+  /** The other entry groups' conditions (v1.2 item 8); `conditions` holds the first group's. */
+  groupConditions?: {
+    id: string;
+    label: string;
+    direction: 'long' | 'short';
+    entry: PhaseConditionReport;
+    exit: PhaseConditionReport;
+    /** The group's own Entry and Exit leg ids, to tell its orders apart. */
+    legIds: string[];
+  }[];
   /** Every planned order of every cycle, in the order it was due. Absent on older runs. */
   orders?: BacktestOrder[];
   /** Symbols by instrument id, for wording conditions. */

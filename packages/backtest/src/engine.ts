@@ -1,5 +1,8 @@
 import {
   checkPreTradeRisk,
+  entryGroups,
+  isTwoSided,
+  type GroupKey,
   evaluateCondition,
   hasComparisons,
   planSlots,
@@ -165,6 +168,8 @@ interface Cycle {
   def: StrategyDefinition;
   /** The universe member or leg this cycle holds, for Selection groups and per-leg conditions. */
   slot?: Slot;
+  /** The entry group that opened it (v1.2 item 8); null for the strategy's own Entry. */
+  group: GroupKey;
   /** Why the cycle exited, when v1.2 exit reasons apply. */
   exitReason?: 'condition' | 'rebalance' | 'time_stop';
   state: 'entering' | 'open' | 'exiting' | 'closed' | 'aborted';
@@ -286,6 +291,21 @@ export function simulate({
   const allLegs: LegState[] = [];
   const entryConditions = new ConditionRecorder(def.entry.condition, def.entry.trigger);
   const exitConditions = new ConditionRecorder(def.exit.condition, def.exit.trigger);
+  /** Entry groups (v1.2 item 8): the strategy's own first, then each of `groups`. */
+  const twoSided = isTwoSided(def);
+  const groups = entryGroups(def).map((g) =>
+    g.key === null
+      ? { ...g, trigger: entryTrigger, entryRec: entryConditions, exitRec: exitConditions }
+      : {
+          ...g,
+          trigger: { prev: undefined, consecutive: 0, fired: 0 } as TriggerState,
+          entryRec: new ConditionRecorder(g.definition.entry.condition, g.definition.entry.trigger),
+          exitRec: new ConditionRecorder(g.definition.exit.condition, g.definition.exit.trigger),
+        },
+  );
+  const ownGroup = groups[0];
+  if (!ownGroup) throw new Error('A strategy always has its own entry group');
+  const groupOf = (c: Cycle) => groups.find((g) => g.key === c.group) ?? ownGroup;
   let orderSeq = 0;
   let submitted = 0;
   let commissionTotal = ZERO;
@@ -713,11 +733,20 @@ export function simulate({
 
   const activeCycles = () => cycles.filter((c) => c.state !== 'closed' && c.state !== 'aborted');
 
-  function newCycle(now: number, triggered: boolean, slot?: Slot, count = 1): Cycle {
+  function newCycle(
+    now: number,
+    triggered: boolean,
+    slot?: Slot,
+    count = 1,
+    group: GroupKey = null,
+  ): Cycle {
     const c: Cycle = {
       no: cycles.length + 1,
-      def: slot ? slotDefinition(def, slot, count) : def,
+      def: slot
+        ? slotDefinition(def, slot, count)
+        : (groups.find((g) => g.key === group)?.definition ?? def),
       ...(slot ? { slot } : {}),
+      group,
       state: 'entering',
       events: new Map(),
       legEvents: new Map(),
@@ -1046,34 +1075,45 @@ export function simulate({
     if (evaluateEntry) entryEvaluations += 1;
 
     if (mode === 'none' && evaluateEntry) {
-      const entryRow = entryConditions.record(iso(now), view);
-      const entryTruth = entryRow.truth ?? undefined;
-      if (entryTruth === undefined) unknownEntrySteps += 1;
-      const entryBefore = { ...entryTrigger };
-      const fires = stepTrigger(entryTrigger, entryTruth, now, def.entry.trigger);
-      const active = activeCycles();
-      if (fires && dailyHalt) entryConditions.markFired(entryRow, 'daily_loss');
-      else if (fires && drawdownHalt) entryConditions.markFired(entryRow, 'drawdown');
-      else if (fires) {
-        const mode = ex.reentry.mode;
-        const current = active.at(-1);
-        let acted = true;
-        if (current && current.entryTriggeredAt === undefined && current.state === 'entering') {
-          current.entryTriggeredAt = now;
-          current.events.set('entry_trigger', now);
-        } else if (active.length === 0 || mode === 'independent_cycles') {
-          newCycle(now, true);
-        } else if (
-          mode === 'pyramid' &&
-          current &&
-          current.state === 'open' &&
-          current.entries < (ex.reentry.cap ?? 1)
-        ) {
-          addEntryBatch(current);
-        } else acted = false;
-        entryConditions.markFired(entryRow, acted ? 'fired' : 'cycle_open');
-      } else if (entryTruth === true) {
-        entryRow.outcome = whyNotFired(entryBefore, entryTrigger, now, def.entry.trigger);
+      for (const g of groups) {
+        const gdef = g.definition;
+        const entryRow = g.entryRec.record(iso(now), view);
+        const entryTruth = entryRow.truth ?? undefined;
+        if (entryTruth === undefined && g.key === null) unknownEntrySteps += 1;
+        const entryBefore = { ...g.trigger };
+        const fires = stepTrigger(g.trigger, entryTruth, now, gdef.entry.trigger);
+        const active = activeCycles();
+        if (fires && dailyHalt) g.entryRec.markFired(entryRow, 'daily_loss');
+        else if (fires && drawdownHalt) g.entryRec.markFired(entryRow, 'drawdown');
+        else if (fires) {
+          const mode = ex.reentry.mode;
+          const current = active.at(-1);
+          let acted = true;
+          if (groups.length > 1) {
+            // One position at a time across groups, and no flipping (v1.2 item 8).
+            if (active.length === 0) newCycle(now, true, undefined, 1, g.key);
+            else acted = false;
+          } else if (
+            current &&
+            current.entryTriggeredAt === undefined &&
+            current.state === 'entering'
+          ) {
+            current.entryTriggeredAt = now;
+            current.events.set('entry_trigger', now);
+          } else if (active.length === 0 || mode === 'independent_cycles') {
+            newCycle(now, true);
+          } else if (
+            mode === 'pyramid' &&
+            current &&
+            current.state === 'open' &&
+            current.entries < (ex.reentry.cap ?? 1)
+          ) {
+            addEntryBatch(current);
+          } else acted = false;
+          g.entryRec.markFired(entryRow, acted ? 'fired' : 'cycle_open');
+        } else if (entryTruth === true) {
+          entryRow.outcome = whyNotFired(entryBefore, g.trigger, now, gdef.entry.trigger);
+        }
       }
     } else if (mode !== 'none' && evaluateEntry) {
       selectSlots(now, period);
@@ -1096,21 +1136,22 @@ export function simulate({
     for (const c of activeCycles()) {
       scheduleLegs(c, c.entryLegs, c.entryTriggeredAt, now);
       if (c.state === 'open') {
-        const row = exitConditions.record(iso(now), cycleView(c), c.no);
+        const exitRec = groupOf(c).exitRec;
+        const row = exitRec.record(iso(now), cycleView(c), c.no);
         const truth = row.truth ?? undefined;
         const before = { ...c.exitTrigger };
-        if (stepTrigger(c.exitTrigger, truth, now, def.exit.trigger)) {
-          exitConditions.markFired(row);
+        if (stepTrigger(c.exitTrigger, truth, now, c.def.exit.trigger)) {
+          exitRec.markFired(row);
           c.state = 'exiting';
           if (v12) c.exitReason = 'condition';
           c.events.set('entry_trigger', c.events.get('entry_trigger') ?? now);
           c.legEvents.set('exit:trigger', now);
         } else if (truth === true) {
-          row.outcome = whyNotFired(before, c.exitTrigger, now, def.exit.trigger);
+          row.outcome = whyNotFired(before, c.exitTrigger, now, c.def.exit.trigger);
         }
         if (c.exitLegs.length === 0) c.exitLegs = exitLegsFor(c);
         // The time stop, combined with the Exit condition by OR (v1.2 item 4).
-        if (c.state === 'open' && timeStopReached(def, c.events.get('entry_partial_fill'), now))
+        if (c.state === 'open' && timeStopReached(c.def, c.events.get('entry_partial_fill'), now))
           forceExit(c, now, 'time_stop');
       }
       if (c.state === 'open' || c.state === 'exiting') {
@@ -1219,6 +1260,8 @@ export function simulate({
           ? net.div(c.entryValue).times(HUNDRED).toDecimalPlaces(2).toString()
           : null,
         ...(v12 && status === 'closed' ? { exitReason: c.exitReason ?? 'condition' } : {}),
+        // Two-sided strategies say which group and direction each trade took (v1.2 item 8).
+        ...(twoSided ? { direction: groupOf(c).direction, group: groupOf(c).label } : {}),
       };
     });
 
@@ -1346,11 +1389,23 @@ export function simulate({
 
   return {
     conditions: { entry: entryConditions.report(), exit: exitConditions.report() },
+    ...(groups.length > 1
+      ? {
+          groupConditions: groups.slice(1).map((g) => ({
+            id: g.key as string,
+            label: g.label,
+            direction: g.direction,
+            entry: g.entryRec.report(),
+            exit: g.exitRec.report(),
+            legIds: [...g.definition.entry.orders, ...g.definition.exit.orders].map((o) => o.id),
+          })),
+        }
+      : {}),
     orders: orderReport(),
     symbols: Object.fromEntries([...usedInstruments].map((id) => [id, symbol(id)])),
     engineVersion: ENGINE_VERSION,
     dataVersions: data.dataVersions,
-    assumptions: describeAssumptions(inputs),
+    assumptions: [...describeAssumptions(inputs), ...shortAssumptions()],
     sharpeMethod: SHARPE_METHOD,
     metrics: computeMetrics({
       initial,
@@ -1369,6 +1424,24 @@ export function simulate({
     warnings: warnings.list(),
     ...(mode !== 'none' ? { selections: selectionLog() } : {}),
   };
+
+  /** What a back test with short entries assumes (v1.2 item 8). */
+  function shortAssumptions(): string[] {
+    const shorted = new Set<string>();
+    for (const g of groups)
+      for (const o of g.definition.entry.orders)
+        if (o.side === 'sell_short') shorted.add(o.instrumentId);
+    if (shorted.size === 0) return [];
+    const unknown = [...shorted].filter((id) => instruments.get(id)?.shortable == null);
+    return [
+      'Short trades make (entry price − exit price) × quantity, less costs; margin requirements, margin calls and forced buy-ins are not modelled',
+      ...(unknown.length > 0
+        ? [
+            `Whether ${unknown.map(symbol).join(', ')} can be borrowed is unknown, so the test assumes ${unknown.length === 1 ? 'it' : 'they'} can be sold short`,
+          ]
+        : []),
+    ];
+  }
 
   function selectionLog(): SelectionLog {
     const ref =

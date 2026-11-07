@@ -71,6 +71,9 @@ export interface BacktestTradeRow {
   legs: BacktestResult['trades'][number]['legs'];
   /** Why the cycle exited; absent on runs from before v1.2. */
   exitReason?: BacktestResult['trades'][number]['exitReason'];
+  /** Two-sided strategies (v1.2 item 8). */
+  direction?: 'long' | 'short';
+  group?: string;
 }
 
 const summaryColumns = {
@@ -221,13 +224,18 @@ export async function listBacktestTrades(
       returnPct: backtestTrades.returnPct,
       legs: backtestTrades.legs,
       exitReason: backtestTrades.exitReason,
+      direction: backtestTrades.direction,
+      entryGroup: backtestTrades.entryGroup,
     })
     .from(backtestTrades)
     .where(eq(backtestTrades.runId, runId))
     .orderBy(backtestTrades.cycle);
-  return rows.map(({ exitReason, ...r }) =>
-    exitReason ? { ...r, exitReason } : r,
-  ) as BacktestTradeRow[];
+  return rows.map(({ exitReason, direction, entryGroup, ...r }) => ({
+    ...r,
+    ...(exitReason ? { exitReason } : {}),
+    ...(direction ? { direction } : {}),
+    ...(entryGroup ? { group: entryGroup } : {}),
+  })) as BacktestTradeRow[];
 }
 
 async function getRunStatus(tx: Transaction, runId: string) {
@@ -336,15 +344,14 @@ export async function loadRunWork(
             symbol: instruments.symbol,
             assetClass: instruments.assetClass,
             lotSize: instruments.lotSize,
+            shortable: instruments.shortable,
           })
           .from(instruments)
           .where(inArray(instruments.id, [...ids]));
   return {
     inputs: row.inputs as BacktestInputs,
     definition: definition,
-    instruments: new Map(
-      rows.map((r) => [r.id, { symbol: r.symbol, assetClass: r.assetClass, lotSize: r.lotSize }]),
-    ),
+    instruments: new Map(rows.map((r) => [r.id, instrumentRef(r)])),
     cancelRequested: row.cancelRequested,
   };
 }
@@ -406,6 +413,8 @@ export async function completeRun(
         returnPct: t.returnPct,
         legs: t.legs,
         exitReason: t.exitReason ?? null,
+        direction: t.direction ?? null,
+        entryGroup: t.group ?? null,
       })),
     );
   }
@@ -447,6 +456,18 @@ export async function failRun(
   return rows.length > 0;
 }
 
+const instrumentRef = (r: {
+  symbol: string;
+  assetClass: string;
+  lotSize: string;
+  shortable: boolean | null;
+}): InstrumentRef => ({
+  symbol: r.symbol,
+  assetClass: r.assetClass,
+  lotSize: r.lotSize,
+  ...(r.shortable !== null ? { shortable: r.shortable } : {}),
+});
+
 /** Symbol, asset class and lot size of instruments, e.g. a resolved universe's members. */
 export async function instrumentRefs(
   tx: Transaction,
@@ -459,10 +480,9 @@ export async function instrumentRefs(
       symbol: instruments.symbol,
       assetClass: instruments.assetClass,
       lotSize: instruments.lotSize,
+      shortable: instruments.shortable,
     })
     .from(instruments)
     .where(inArray(instruments.id, [...ids]));
-  return new Map(
-    rows.map((r) => [r.id, { symbol: r.symbol, assetClass: r.assetClass, lotSize: r.lotSize }]),
-  );
+  return new Map(rows.map((r) => [r.id, instrumentRef(r)]));
 }

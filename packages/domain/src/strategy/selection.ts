@@ -345,14 +345,24 @@ export function conditionTrees(def: StrategyDefinition): { tree: ConditionGroup;
     if (o.legCondition) out.push({ tree: o.legCondition, where: `leg:${o.id}` });
   if (def.entry.selection?.preFilter)
     out.push({ tree: def.entry.selection.preFilter, where: 'preFilter' });
+  // Entry groups (v1.2 item 8).
+  for (const g of def.groups ?? []) {
+    out.push({ tree: g.entry.condition, where: `group:${g.id}:entry` });
+    out.push({ tree: g.exit.condition, where: `group:${g.id}:exit` });
+  }
   return out;
+}
+
+/** Entry and Exit orders of the strategy and of every entry group. */
+function everyOrder(def: StrategyDefinition): PlannedOrder[] {
+  return [def, ...(def.groups ?? [])].flatMap((p) => [...p.entry.orders, ...p.exit.orders]);
 }
 
 /** Every expression in conditions and order prices. */
 export function definitionExpressions(def: StrategyDefinition): Expr[] {
   const all: Expr[] = [];
   for (const { tree } of conditionTrees(def)) all.push(...walkExpressions(tree));
-  for (const o of [...def.entry.orders, ...def.exit.orders]) {
+  for (const o of everyOrder(def)) {
     if (o.limitPrice) all.push(...walkExpr(o.limitPrice));
     if (o.stopPrice) all.push(...walkExpr(o.stopPrice));
   }
@@ -421,7 +431,7 @@ export function definitionSeries(
     for (const c of walkComparisons(tree)) {
       for (const side of [c.left, c.right, c.upper]) if (side) visit(side, 0);
     }
-  for (const o of [...def.entry.orders, ...def.exit.orders]) {
+  for (const o of everyOrder(def)) {
     if (o.limitPrice) visit(o.limitPrice, 0);
     if (o.stopPrice) visit(o.stopPrice, 0);
   }
