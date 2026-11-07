@@ -491,6 +491,9 @@ export function optionInstruments(
     if (e.instrumentId === CONTEXT_INSTRUMENT_ID) for (const c of contexts) ids.add(c);
     else ids.add(e.instrumentId);
   }
+  // Ranking a Selection group, or picking the best leg, reads every member or leg.
+  if (definitionMetrics(def).some((r) => isOptionsMetric(r.metric)))
+    for (const c of contexts) ids.add(c);
   return [...ids];
 }
 

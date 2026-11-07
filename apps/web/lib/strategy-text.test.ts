@@ -154,3 +154,16 @@ describe('strategy text', () => {
     expect(describeIssueLocation([], def)).toBe('Strategy');
   });
 });
+
+describe('metrics without parameters', () => {
+  it('reads without empty parentheses', () => {
+    const m = {
+      kind: 'metric' as const,
+      id: 'm',
+      metric: 'options.expected_move_5d_pct',
+      params: {},
+      instrumentId: 'a',
+    };
+    expect(describeExpr(m, symbol)).toBe('Expected move, 5 days (%) of DEMO-A');
+  });
+});

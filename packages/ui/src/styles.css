@@ -35,6 +35,9 @@
   --color-cond-soft: var(--tm-cond-soft);
   --color-order: var(--tm-order);
   --color-order-soft: var(--tm-order-soft);
+  /* Chart series in fixed order (validated for colour-vision deficiency): calls, then puts. */
+  --color-series-1: var(--tm-series-1);
+  --color-series-2: var(--tm-series-2);
 }
 
 :root {
@@ -67,6 +70,8 @@
   --tm-cond-soft: #eef6fc;
   --tm-order: #b45309;
   --tm-order-soft: #fdf7ec;
+  --tm-series-1: #2a78d6;
+  --tm-series-2: #eb6834;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -99,6 +104,8 @@
     --tm-cond-soft: #10202e;
     --tm-order: #fcd34d;
     --tm-order-soft: #231d10;
+    --tm-series-1: #3987e5;
+    --tm-series-2: #d95926;
   }
 }
 

@@ -2038,3 +2038,32 @@ export const optionExpirySignals = pgTable(
     check('option_expiry_signal_source', sql`${t.source} in ('recorded', 'rebuilt')`),
   ],
 );
+
+/**
+ * The live chain for Research › Options (brief §10 item 8, ADR 0048): one row
+ * per symbol, kept for 15 minutes. The app asks for it through
+ * `request_option_chain` (it can't write here), the worker fetches the chain,
+ * computes IV and greeks and stores the view: computed values, open interest
+ * and volume only, never a source quote or greek. Public data, no tenant.
+ */
+export const optionLiveChains = pgTable(
+  'option_live_chain',
+  {
+    symbol: text('symbol').primaryKey(),
+    /** pending (asked for), ready (view stored) or failed (message says why). */
+    status: text('status').notNull().default('pending'),
+    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    attempts: integer('attempts').notNull().default(0),
+    /** When the worker stored the view or gave up. */
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    /** The chain file's own time. */
+    chainTime: timestamp('chain_time', { withTimezone: true }),
+    view: jsonb('view'),
+    message: text('message'),
+  },
+  (t) => [
+    check('option_live_chain_status', sql`${t.status} in ('pending', 'ready', 'failed')`),
+    check('option_live_chain_symbol', sql`${t.symbol} ~ '^[A-Z][A-Z0-9.]{0,9}$'`),
+  ],
+);

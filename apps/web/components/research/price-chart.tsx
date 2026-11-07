@@ -1,6 +1,11 @@
 'use client';
 
-import type { ChartInterval, ChartRange } from '@tm/domain';
+import {
+  tradingDaysBetween,
+  type ChartInterval,
+  type ChartRange,
+  type ConePoint,
+} from '@tm/domain';
 import { Table, Td, Th } from '@tm/ui';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
@@ -38,6 +43,7 @@ export function PriceChart({
   range,
   style,
   dimmed = false,
+  cone = null,
 }: {
   symbol: string;
   bars: readonly Bar[];
@@ -45,6 +51,11 @@ export function PriceChart({
   range: ChartRange;
   style: ChartStyle;
   dimmed?: boolean;
+  /**
+   * The expected-move cone from the options panel (ADR 0048), drawn to the
+   * right of the last bar on daily charts only: one slot per trading day ahead.
+   */
+  cone?: readonly ConePoint[] | null;
 }) {
   const id = useId();
   const box = useRef<HTMLDivElement>(null);
@@ -64,6 +75,20 @@ export function PriceChart({
   useEffect(() => setActive(null), [bars]);
 
   const plotW = width - LEFT - RIGHT;
+  // The cone starts at the last bar's close and runs one slot per trading day after the
+  // chain's day, as percentage moves, so a chain a few minutes newer than the bars still fits.
+  const conePts = useMemo(() => {
+    const last = bars.at(-1);
+    const start = cone?.[0];
+    if (!cone || !start || cone.length < 2 || interval !== '1d' || !last) return null;
+    return cone.map((p) => ({
+      ...p,
+      ahead: tradingDaysBetween(start.date, p.date),
+      upper: last.close * (p.upper / start.upper),
+      lower: last.close * (p.lower / start.lower),
+    }));
+  }, [cone, bars, interval]);
+  const extra = conePts ? Math.max(0, ...conePts.map((p) => p.ahead)) : 0;
   const geo = useMemo(() => {
     let lo = Infinity;
     let hi = -Infinity;
@@ -75,16 +100,20 @@ export function PriceChart({
       if (h > hi) hi = h;
       if (b.volume > maxVol) maxVol = b.volume;
     }
+    for (const p of conePts ?? []) {
+      if (p.lower < lo) lo = p.lower;
+      if (p.upper > hi) hi = p.upper;
+    }
     const ticks = niceTicks(lo, hi, 5);
     const min = ticks[0] ?? lo;
     const max = ticks.at(-1) ?? hi;
-    const step = plotW / Math.max(1, bars.length);
+    const step = plotW / Math.max(1, bars.length + extra);
     const x = (i: number) => LEFT + step * (i + 0.5);
     const y = (v: number) => TOP + PRICE_H - ((v - min) / (max - min || 1)) * PRICE_H;
     const volTop = TOP + PRICE_H + GAP;
     const vy = (v: number) => volTop + VOLUME_H - (maxVol ? (v / maxVol) * VOLUME_H : 0);
     return { ticks, step, x, y, vy, volTop, maxVol };
-  }, [bars, plotW, style]);
+  }, [bars, plotW, style, conePts, extra]);
 
   const linePath = useMemo(
     () =>
@@ -104,6 +133,7 @@ export function PriceChart({
     const rect = el.getBoundingClientRect();
     const px = ((clientX - rect.left) / rect.width) * width;
     const i = Math.floor((px - LEFT) / geo.step);
+    // The cone's slots have no bar: the readout stays on the last one.
     return Math.max(0, Math.min(bars.length - 1, i));
   }
 
@@ -271,6 +301,49 @@ export function PriceChart({
             })
           )}
 
+          {/* The expected-move cone: ±1 standard deviation at each expiry's ATM IV. */}
+          {conePts && (
+            <g pointerEvents="none" data-testid="expected-move-cone">
+              <path
+                d={
+                  conePts
+                    .map(
+                      (p, i) =>
+                        `${i === 0 ? 'M' : 'L'}${geo.x(bars.length - 1 + p.ahead).toFixed(1)},${geo.y(p.upper).toFixed(1)}`,
+                    )
+                    .join('') +
+                  [...conePts]
+                    .reverse()
+                    .map(
+                      (p) =>
+                        `L${geo.x(bars.length - 1 + p.ahead).toFixed(1)},${geo.y(p.lower).toFixed(1)}`,
+                    )
+                    .join('') +
+                  'Z'
+                }
+                className="fill-series-1/15 stroke-series-1"
+                strokeWidth={1}
+                strokeDasharray="4 3"
+              />
+              <text
+                x={geo.x(bars.length - 1 + extra) - 2}
+                y={geo.y((conePts.at(-1) as ConePoint).upper) - 6}
+                textAnchor="end"
+                className="fill-ink-muted text-[11px]"
+              >
+                Expected move
+              </text>
+              <text
+                x={LEFT + plotW}
+                y={HEIGHT - 6}
+                textAnchor="end"
+                className="fill-ink-muted text-[11px]"
+              >
+                {(conePts.at(-1) as ConePoint).date}
+              </text>
+            </g>
+          )}
+
           {/* Volume. */}
           {bars.map((b, i) => (
             <rect
@@ -287,7 +360,8 @@ export function PriceChart({
           {timeTicks.map((i, n) => {
             const b = bars[i];
             if (!b) return null;
-            const anchor = n === 0 ? 'start' : n === timeTicks.length - 1 ? 'end' : 'middle';
+            const anchor =
+              n === 0 ? 'start' : n === timeTicks.length - 1 && !extra ? 'end' : 'middle';
             return (
               <text
                 key={i}
@@ -349,6 +423,8 @@ export function PriceChart({
       </div>
       <p id={`${id}-keys`} className="mt-1 text-xs text-ink-muted">
         Point at the chart, or focus it and use the arrow keys, to read any bar.
+        {conePts &&
+          ` The shaded cone is the options market’s expected move from the last close (one standard deviation, at each expiry’s implied volatility) out to ${(conePts.at(-1) as ConePoint).date}: ${formatPrice((conePts.at(-1) as ConePoint).lower)} to ${formatPrice((conePts.at(-1) as ConePoint).upper)}.`}
         {style === 'candles' &&
           ' Hollow candles closed higher than they opened; filled ones lower.'}
       </p>

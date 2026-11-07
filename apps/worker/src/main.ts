@@ -34,6 +34,7 @@ import { AlpacaClient, fetchOptionBars, fetchOptionContracts, lookupAlpacaAsset 
 import { cboeOptionsSource } from './options/cboe-options';
 import { fakeCboeOptionsFetch } from './options/cboe-options-fake';
 import { optionsFeedProvider } from './options/feed';
+import { startLiveChainLoop, type LiveChainLoop } from './options/live-chain';
 import { startOptionsLoop, type OptionsLoop } from './options/loop';
 import { marketInputs } from './options/market-inputs';
 
@@ -66,6 +67,7 @@ let companies: CompanyReportLoop | undefined;
 let brokerChecks: BrokerCheckLoop | undefined;
 let valuations: ValuationLoop | undefined;
 let optionsLoop: OptionsLoop | undefined;
+let liveChains: LiveChainLoop | undefined;
 let billing: BillingLoop | undefined;
 let heartbeat: HeartbeatLoop | undefined;
 let fakeTicker: ReturnType<typeof setInterval> | undefined;
@@ -238,7 +240,7 @@ if (databaseUrl) {
     logger,
     pollMs: env.BACKTEST_POLL_MS,
   });
-  if (env.OPTIONS_RECORDING === 'on') {
+  {
     // Options data (ADR 0047) is recorded once for every tenant, so the closes and
     // the history rebuild go through the app's own Alpaca key, never a tenant's.
     const appKey = env.ALPACA_FAKE
@@ -271,43 +273,49 @@ if (databaseUrl) {
           patient: true,
         })
       : undefined;
-    optionsLoop = startOptionsLoop({
-      db,
-      logger,
-      historyDays: env.OPTIONS_HISTORY_DAYS,
-      chains: cboeOptionsSource({
-        fetch: env.CBOE_OPTIONS_FAKE ? fakeCboeOptionsFetch(() => new Date()) : undefined,
-        baseUrl: env.CBOE_OPTIONS_URL,
-      }),
-      inputs: marketInputs({
-        history,
-        fredUrl: env.FRED_CSV_URL,
-        fixedRate: env.CBOE_OPTIONS_FAKE ? 0.04 : undefined,
-      }),
-      rebuild: client
-        ? {
-            contracts: (q) => fetchOptionContracts(client, q),
-            bars: (symbols, from, to) => fetchOptionBars(client, symbols, from, to),
-          }
-        : undefined,
-      lookup: client
-        ? async (symbol) => {
-            const found = await lookupAlpacaAsset(client, symbol);
-            return (
-              found && {
-                assetClass: found.assetClass,
-                symbol: found.symbol,
-                venue: found.venue,
-                displayName: found.displayName,
-                providerId: found.providerId,
-                shortable: found.shortable,
-              }
-            );
-          }
-        : undefined,
+    const chains = cboeOptionsSource({
+      fetch: env.CBOE_OPTIONS_FAKE ? fakeCboeOptionsFetch(() => new Date()) : undefined,
+      baseUrl: env.CBOE_OPTIONS_URL,
     });
+    const inputs = marketInputs({
+      history,
+      fredUrl: env.FRED_CSV_URL,
+      fixedRate: env.CBOE_OPTIONS_FAKE ? 0.04 : undefined,
+    });
+    // Research › Options asks for live chains whether or not the daily recording runs (ADR 0048).
+    liveChains = startLiveChainLoop({ db, chains, inputs, logger });
+    if (env.OPTIONS_RECORDING === 'on') {
+      optionsLoop = startOptionsLoop({
+        db,
+        logger,
+        historyDays: env.OPTIONS_HISTORY_DAYS,
+        chains,
+        inputs,
+        rebuild: client
+          ? {
+              contracts: (q) => fetchOptionContracts(client, q),
+              bars: (symbols, from, to) => fetchOptionBars(client, symbols, from, to),
+            }
+          : undefined,
+        lookup: client
+          ? async (symbol) => {
+              const found = await lookupAlpacaAsset(client, symbol);
+              return (
+                found && {
+                  assetClass: found.assetClass,
+                  symbol: found.symbol,
+                  venue: found.venue,
+                  displayName: found.displayName,
+                  providerId: found.providerId,
+                  shortable: found.shortable,
+                }
+              );
+            }
+          : undefined,
+      });
+      logger.info('options recording started');
+    }
     if (env.CBOE_OPTIONS_FAKE) logger.warn('CBOE options files come from a local fake');
-    logger.info('options recording started');
   }
   companies = startCompanyReportLoop({
     db,
@@ -341,6 +349,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         brokerChecks?.stop(),
         valuations?.stop(),
         optionsLoop?.stop(),
+        liveChains?.stop(),
         billing?.stop(),
         heartbeat?.stop(),
       ]);

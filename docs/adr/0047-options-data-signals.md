@@ -1,6 +1,6 @@
 # ADR 0047: End-of-day options signals from CBOE delayed chains
 
-- **Status:** accepted
+- **Status:** accepted; ranking, fire mode and the display of computed values changed by ADR 0048
 - **Date:** 2026-11-07
 - **Design refs:** §6.4, §6.10, §7.2, §7.3, §8, §9.2, §13.2, §13.6, §16.4; design v1.2 rows N50
   to N59, open points O32 to O41; options data brief v2 (Phase 1). Builds on ADRs 0040 (metric

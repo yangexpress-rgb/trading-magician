@@ -1,4 +1,10 @@
-import { activeFundamentalsFeed, listTenantInstruments, loadRouting, withTenant } from '@tm/db';
+import {
+  activeFundamentalsFeed,
+  activeOptionsFeed,
+  listTenantInstruments,
+  loadRouting,
+  withTenant,
+} from '@tm/db';
 import {
   CHART_INTERVALS,
   CHART_RANGES,
@@ -29,7 +35,7 @@ export default async function ResearchPage({
 }) {
   const params = await searchParams;
   const tenant = await requireTenant();
-  const { instruments, canSearchMarket, companyFeed } = await withTenant(
+  const { instruments, canSearchMarket, companyFeed, optionsFeed } = await withTenant(
     appDb(),
     tenant,
     async (tx) => ({
@@ -44,6 +50,8 @@ export default async function ResearchPage({
       ),
       // Company financials come from a company data feed, such as SEC EDGAR (ADR 0031).
       companyFeed: (await activeFundamentalsFeed(tx))?.name ?? null,
+      // Options data comes from the keyless CBOE options feed (ADR 0047, 0048).
+      optionsFeed: (await activeOptionsFeed(tx))?.name ?? null,
     }),
   );
   const wanted = one(params.instrument);
@@ -65,13 +73,14 @@ export default async function ResearchPage({
     <>
       <PageHeader
         title="Quantitative Research"
-        description="Pick a stock or ETF and study its price history and company financials."
+        description="Pick a stock or ETF and study its price history, options and company financials."
       />
       <ResearchNav />
       <ResearchWorkspace
         instruments={instruments}
         canSearchMarket={canSearchMarket}
         companyFeed={companyFeed}
+        optionsFeed={optionsFeed}
         initial={{
           instrumentId,
           range,

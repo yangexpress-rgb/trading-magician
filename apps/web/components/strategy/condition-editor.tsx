@@ -129,8 +129,11 @@ function GroupEditor({
   index?: number;
   siblings?: number;
 }) {
-  const { instruments, issueAt, editable } = useEditor();
-  const symbol = (id: string) => instruments.find((i) => i.id === id)?.symbol;
+  const { instruments, issueAt, editable, optionUnderlyings = [] } = useEditor();
+  // A recorded options underlying may not be in the person's own list until saved.
+  const symbol = (id: string) =>
+    instruments.find((i) => i.id === id)?.symbol ??
+    optionUnderlyings.find((u) => u.id === id)?.symbol;
   const word = group.op === 'and' ? 'AND' : 'OR';
   const error = issueAt(path);
 

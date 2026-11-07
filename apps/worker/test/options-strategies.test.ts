@@ -9,13 +9,13 @@ import {
   saveOptionSignal,
   schema,
   startBacktest,
-  StrategyError,
   validateStoredStrategy,
   withTenant,
   type Transaction,
 } from '@tm/db';
 import { createTestDatabase, type TestDatabase } from '@tm/db/testing';
 import {
+  CONTEXT_INSTRUMENT_ID,
   createDefinition,
   OPTION_SIGNAL_FIELDS,
   regularSession,
@@ -33,12 +33,14 @@ import { processNextRun } from '../src/backtests';
  * Options metrics in strategies (options data brief v2 §5.3, §6): the
  * builder's condition validates against the options feed and universe (F5),
  * back tests read the signals point in time, log the signal date used, and
- * fail by name before the first signal (F4).
+ * fail by name before the first signal (F4). Since Phase 2 an options metric
+ * also ranks a Selection group and picks the best leg in fire mode.
  */
 
 let t: TestDatabase;
 let userId: string;
 let spy: string;
+let qqq: string;
 let account: string;
 
 const asUser = <T>(fn: (tx: Transaction) => Promise<T>) => withTenant(t.app.db, { userId }, fn);
@@ -121,7 +123,17 @@ beforeAll(async () => {
       providerId: 'spy-test',
     }),
   );
-  await addSeedUnderlyings(t.worker.db, [spy]);
+  qqq = await t.worker.db.transaction((tx) =>
+    registerInstrument(tx, {
+      assetClass: 'etf',
+      symbol: 'QQQ',
+      venue: 'NASDAQ',
+      displayName: 'Invesco QQQ Trust',
+      provider: 'alpaca',
+      providerId: 'qqq-test',
+    }),
+  );
+  await addSeedUnderlyings(t.worker.db, [spy, qqq]);
   const nulls = Object.fromEntries(
     OPTION_SIGNAL_FIELDS.map((f) => [f, null]),
   ) as OptionSignalValues;
@@ -135,6 +147,24 @@ beforeAll(async () => {
       ivHistoryDays: 0,
       expiries: [],
       underlyingClose: 500,
+      riskFreeRate: 0.04,
+      dividendYield: 0,
+      source: d < '2026-09-01' ? 'rebuilt' : 'recorded',
+      feed: d < '2026-09-01' ? 'alpaca_bars' : 'cboe',
+      computedAt: new Date(),
+    });
+    // QQQ: the same days, an expected move 1 point wider and IV30 to match.
+    await saveOptionSignal(t.worker.db, {
+      underlyingId: qqq,
+      asOfDate: d,
+      values: {
+        ...nulls,
+        expected_move_5d_pct: moveOn(i) + 0.01,
+        iv30: (moveOn(i) + 0.01) * Math.sqrt(365 / 5),
+      },
+      ivHistoryDays: 0,
+      expiries: [],
+      underlyingClose: 400,
       riskFreeRate: 0.04,
       dividendYield: 0,
       source: d < '2026-09-01' ? 'rebuilt' : 'recorded',
@@ -253,19 +283,62 @@ describe('an options condition in a strategy (F5)', () => {
     expect(done.error).toBe(`No options data for SPY before ${FIRST}`);
   });
 
-  it("won't rank a Selection group by an options metric yet", async () => {
+  it('ranks a Selection group by an options metric (brief §10 item 10)', async () => {
     const def = expectedMoveRule();
+    def.entry.kind = 'selection';
+    def.entry.condition.children = [];
+    def.exit.condition.children = [];
+    def.entry.selection = {
+      universe: { type: 'list', instrumentIds: [spy, qqq] },
+      ranking: { metric: 'options.expected_move_5d_pct', params: {} },
+      direction: 'desc',
+      count: { type: 'fixed', value: 1 },
+      weighting: 'equal',
+    } as NonNullable<StrategyDefinition['entry']['selection']>;
+    const leg = def.entry.orders[0]!;
+    def.entry.orders = [{ ...leg, legLabel: 'Buy each', instrumentId: CONTEXT_INSTRUMENT_ID }];
+    def.exit.orders = [
+      { ...def.exit.orders[0]!, legLabel: 'Close each', instrumentId: CONTEXT_INSTRUMENT_ID },
+    ];
+    const s = await asUser((tx) =>
+      createStrategy(tx, userId, { name: 'Widest expected move', definition: def }),
+    );
+    const v = await asUser((tx) => validateStoredStrategy(tx, s.id));
+    expect(v.validation.errors).toEqual([]);
+    const run = await asUser((tx) =>
+      startBacktest(tx, userId, s.id, {
+        ...DEFAULT_BACKTEST_INPUTS,
+        from: '2026-09-01',
+        to: '2026-09-11',
+      }),
+    );
+    expect(await processNextRun({ db: t.app.db, provider, workerId: 'w', logger: quiet })).toBe(
+      'completed',
+    );
+    const done = await asUser((tx) => getBacktest(tx, run.id));
+    const rounds = done.result?.selections?.rounds ?? [];
+    expect(rounds.length).toBeGreaterThan(0);
+    // QQQ's expected move is always 1 point wider than SPY's, so it ranks first.
+    const ranked = rounds.find((r) => r.rows.every((row) => row[1] !== null))!;
+    expect(ranked.rows.find((row) => row[0] === 'QQQ')?.[3]).toBe(1);
+    expect(ranked.rows.find((row) => row[0] === 'SPY')?.[3]).toBe(2);
+  });
+
+  it('picks the best leg by an options metric in fire mode', async () => {
+    const def = expectedMoveRule();
+    def.entry.condition.children = [];
     def.entry.fireMode = {
       mode: 'bestByMetric',
-      metric: { metric: 'options.iv_rank_252d', params: {} },
+      metric: { metric: 'options.iv30', params: {} },
     } as StrategyDefinition['entry']['fireMode'];
+    const buy = def.entry.orders[0]!;
+    def.entry.orders = [buy, { ...buy, id: 'buy-qqq', legLabel: 'Buy QQQ', instrumentId: qqq }];
+    const sell = def.exit.orders[0]!;
+    def.exit.orders = [sell, { ...sell, id: 'sell-qqq', legLabel: 'Sell QQQ', instrumentId: qqq }];
     const s = await asUser((tx) =>
-      createStrategy(tx, userId, { name: 'Fire by IV rank', definition: def }),
+      createStrategy(tx, userId, { name: 'Fire by IV30', definition: def }),
     );
-    const v = await asUser((tx) => validateStoredStrategy(tx, s.id)).catch((e: unknown) => {
-      if (e instanceof StrategyError) throw new Error(e.message);
-      throw e;
-    });
-    expect(codes(v)).toContain('metric_not_rankable');
+    const v = await asUser((tx) => validateStoredStrategy(tx, s.id));
+    expect(v.validation.errors).toEqual([]);
   });
 });

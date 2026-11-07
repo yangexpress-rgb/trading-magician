@@ -4,6 +4,9 @@ import {
   type ChartInterval,
   type ChartRange,
   type CompanyReport,
+  type LiveChainView,
+  type OptionSignalSource,
+  type OptionSignalValues,
   type ScreenRowTuple,
 } from '@tm/domain';
 import { z } from 'zod';
@@ -99,4 +102,38 @@ export interface CompanyReportDto {
   report: CompanyReport | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Quantitative Research: options (options data brief v2 §7, §10 item 8; ADR 0048)
+
+export const createOptionChainRequest = z.object({
+  /** A US stock or ETF ticker, e.g. SPY or BRK.B. */
+  symbol: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z][A-Z0-9.-]{0,9}$/, 'Enter a US ticker'),
+});
+export type CreateOptionChainRequest = z.infer<typeof createOptionChainRequest>;
+
+/** A symbol's live chain: computed by the app, kept 15 minutes. */
+export interface OptionChainDto {
+  symbol: string;
+  status: 'pending' | 'ready' | 'failed';
+  message: string | null;
+  /** The view; a previous one stays here while a refresh is pending. */
+  view: LiveChainView | null;
+  requestedAt: string;
+  finishedAt: string | null;
+  freshUntil: string | null;
+}
+
+/** A symbol's recorded daily options history (the daily recording, ADR 0047). */
+export interface OptionHistoryDto {
+  symbol: string;
+  /** False when the symbol is not in the recorded universe (no history). */
+  recorded: boolean;
+  points: { date: string; iv30: number | null; source: OptionSignalSource }[];
+  latest: { date: string; values: OptionSignalValues; source: OptionSignalSource } | null;
 }

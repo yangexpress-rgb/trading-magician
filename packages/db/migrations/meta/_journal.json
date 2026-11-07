@@ -456,6 +456,13 @@
       "when": 1794078217604,
       "tag": "0064_options_data",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1794083199057,
+      "tag": "0065_options_live_chain",
+      "breakpoints": true
     }
   ]
 }

@@ -130,7 +130,8 @@ export function describeExpr(expr: Expr, symbol: SymbolLookup): string {
             })
             .join(', ')
         : '';
-      return `${spec?.label ?? expr.metric}(${params}) of ${instrumentText(expr.instrumentId, symbol)}`;
+      // Metrics without parameters (fundamental and options ones) read without "()".
+      return `${spec?.label ?? expr.metric}${params ? `(${params})` : ''} of ${instrumentText(expr.instrumentId, symbol)}`;
     }
     case 'stat': {
       const mult =
