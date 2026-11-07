@@ -14,6 +14,12 @@ export {
   demoDataEnabled,
 } from './demo';
 export { listDemoReferences, removeUnusedDemoData, type DemoReference } from './demo-references';
+export {
+  formatMigrationReport,
+  NEW_CHECKS,
+  strategyMigrationReport,
+  type MigrationReportEntry,
+} from './migration-report';
 export { loadOwnerDbEnv, loadRuntimeDbEnv } from './env';
 export { provisionWorkspace, type ProvisionInput } from './provision';
 export * as schema from './schema';

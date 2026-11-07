@@ -18,6 +18,7 @@ import {
   updateStrategy,
   validateStoredStrategy,
 } from '../src/strategies';
+import { formatMigrationReport, strategyMigrationReport } from '../src/migration-report';
 import { withTenant } from '../src/tenant';
 import { createTestDatabase, type TestDatabase } from './harness';
 
@@ -370,9 +371,9 @@ describe('lifecycle', () => {
     );
     expect(blocked.details).toMatchObject({ reason: 'validation_errors' });
 
-    // The demo account has no extended-hours session, so that is an error, not a warning.
+    // An Entry leg that does not open a position is an error, not a warning.
     const def = readyDefinition();
-    def.entry.orders[0]!.extendedHours = true;
+    def.entry.orders[0]!.side = 'sell';
     s = await asA((tx) =>
       updateStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, definition: def }),
     );
@@ -507,5 +508,50 @@ describe('account deletion', () => {
         (select count(*)::int from audit_event where user_id = ${userC}) as audits`;
     expect(counts).toMatchObject({ strategies: 0, versions: 0 });
     expect(counts?.audits).toBeGreaterThan(0);
+  });
+});
+
+describe('Strategy Lab simplification: migration report (ADR 0049)', () => {
+  it('lists every schema 1 strategy, what it converts and every grandfathered Exit-leg stop', async () => {
+    const s = await asA((tx) =>
+      createStrategy(tx, userA, { name: 'Saved before', definition: readyDefinition() }),
+    );
+    // Store the draft as schema 1 saved it: per-leg boxes, seconds and an Exit stop order.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a raw schema 1 document
+    const v1 = JSON.parse(JSON.stringify(readyDefinition())) as Record<string, any>;
+    v1.schemaVersion = 1;
+    delete v1.exit.mirrorEntry;
+    for (const o of [...v1.entry.orders, ...v1.exit.orders])
+      Object.assign(o, { extendedHours: false, timingOnly: false });
+    for (const t of [v1.entry.trigger, v1.exit.trigger]) {
+      delete t.cooldownBars;
+      t.cooldownSec = 0;
+    }
+    v1.risk.maxOpenPositions = v1.risk.maxInstrumentsHeld;
+    delete v1.risk.maxInstrumentsHeld;
+    Object.assign(v1.exit.orders[0], {
+      orderType: 'stop',
+      stopPrice: { kind: 'constant', id: 'sp', value: '90' },
+    });
+    await t.owner.db
+      .update(strategies)
+      .set({ draftDefinition: v1, draftSchemaVersion: 1 })
+      .where(eq(strategies.id, s.id));
+
+    // It still reads, and still validates, as schema 2.
+    const loaded = await asA((tx) => getStrategy(tx, s.id));
+    expect(loaded.definition.schemaVersion).toBe(2);
+    expect(loaded.definition.exit.orders[0]!.orderType).toBe('stop');
+
+    const report = await strategyMigrationReport(t.owner.db);
+    const mine = report.filter((e) => e.strategyId === s.id);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.errors).toEqual([]);
+    expect(mine[0]!.notes.map((n) => n.code)).toEqual(
+      expect.arrayContaining(['exit_leg_stop', 'mirror_off']),
+    );
+    const text = formatMigrationReport(report);
+    expect(text).toContain('## Grandfathered Exit-leg stop orders');
+    expect(text).toMatch(/Saved before \(draft\) · a@example\.test · exit\.orders\[0\]/);
   });
 });
