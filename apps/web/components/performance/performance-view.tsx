@@ -2,7 +2,6 @@
 
 import {
   ApiError,
-  PERFORMANCE_ASSET_CLASSES,
   type PerformanceQuery,
   type PerformanceSummaryDto,
   type PerformanceTimeseriesDto,
@@ -30,6 +29,7 @@ import { formatDay, formatMoney, formatPct, formatSignedMoney } from '@/lib/back
 import { subscribeLive } from '@/lib/live-events';
 import {
   ASSET_CLASS_LABELS,
+  assetChoices,
   describePositionDifference,
   performanceSearch,
   performanceTiles,
@@ -361,9 +361,9 @@ export function PerformanceView({
           onChange={(e) => set({ assetClass: e.target.value || undefined })}
         >
           <option value="">All asset classes</option>
-          {PERFORMANCE_ASSET_CLASSES.map((c) => (
+          {assetChoices(data?.summary.assetClasses, filters.assetClass).map((c) => (
             <option key={c} value={c}>
-              {ASSET_CLASS_LABELS[c]}
+              {ASSET_CLASS_LABELS[c] ?? c}
             </option>
           ))}
         </SelectField>

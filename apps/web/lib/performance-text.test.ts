@@ -1,6 +1,7 @@
 import type { PerformanceSummaryDto } from '@tm/contracts';
 import { describe, expect, it } from 'vitest';
 import {
+  assetChoices,
   describePositionDifference,
   performanceSearch,
   performanceTiles,
@@ -42,6 +43,7 @@ const summary = (over: Partial<PerformanceSummaryDto> = {}): PerformanceSummaryD
   },
   byStrategy: [],
   byAsset: [],
+  assetClasses: ['stock'],
   dataQuality: { lastValuedAt: null, staleMarks: 0, differences: [] },
   ...over,
 });
@@ -118,5 +120,16 @@ describe('describePositionDifference', () => {
     expect(describePositionDifference({ symbol: 'ZTSTX', app: '4', broker: '0' })).toBe(
       'ZTSTX: the app counts 4, the broker holds none',
     );
+  });
+});
+
+describe('asset class filter choices (v1.2 item 10)', () => {
+  it('offers only what was traded, from the instrument store, plus the current choice', () => {
+    expect(assetChoices(['stock', 'etf'], undefined)).toEqual(['etf', 'stock']);
+    expect(assetChoices(['stock'], 'etf')).toEqual(['etf', 'stock']);
+    expect(assetChoices([], undefined)).toEqual([]);
+    expect(assetChoices(undefined, undefined)).toEqual([]);
+    // Indices are watched, never traded, so they are no choice here.
+    expect(assetChoices(['index', 'stock'], undefined)).toEqual(['stock']);
   });
 });

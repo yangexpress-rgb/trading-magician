@@ -17,6 +17,8 @@
     "db:setup-logins": "tsx scripts/setup-logins.ts",
     "credentials:keygen": "tsx scripts/credentials-keygen.ts",
     "db:seed": "tsx scripts/seed.ts",
+    "demo:check": "tsx scripts/demo-check.ts",
+    "demo:remove-unused": "tsx scripts/demo-check.ts remove",
     "invites:mint": "tsx scripts/invites.ts mint",
     "invites:list": "tsx scripts/invites.ts list",
     "invites:release": "tsx scripts/invites.ts release",

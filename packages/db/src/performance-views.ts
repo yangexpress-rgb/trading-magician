@@ -380,6 +380,12 @@ export interface PerformanceSummary {
     returnOnPeakCapitalPct: string | null;
   }[];
   byAsset: { instrumentId: string; symbol: string; assetClass: string; net: string }[];
+  /**
+   * Asset classes of every instrument this person's books hold or held, from
+   * the instrument store, whatever the filters: the Asset class filter's
+   * choices (v1.2 item 10).
+   */
+  assetClasses: string[];
   dataQuality: {
     lastValuedAt: string | null;
     staleMarks: number;
@@ -512,6 +518,14 @@ export async function performanceSummary(
       returnOnPeakCapitalPct: returnOn(t.net, peak),
     };
   });
+  const assetClasses = (
+    await tx
+      .selectDistinct({ assetClass: instruments.assetClass })
+      .from(bookValuations)
+      .innerJoin(instruments, eq(instruments.id, bookValuations.instrumentId))
+  )
+    .map((r) => r.assetClass as string)
+    .sort();
   const byAsset = [...groupBy(books, (b) => b.instrumentId).entries()].map(([id, g]) => ({
     instrumentId: id,
     symbol: g.rows[0]?.symbol ?? '?',
@@ -582,6 +596,7 @@ export async function performanceSummary(
     },
     byStrategy: byStrategy.sort((a, b) => new Decimal(b.net).cmp(a.net)),
     byAsset: byAsset.sort((a, b) => new Decimal(b.net).cmp(a.net)),
+    assetClasses,
     dataQuality: {
       lastValuedAt: lastValuedAt?.toISOString() ?? null,
       staleMarks: latest.reduce((n, a) => n + a.staleMarks, 0),

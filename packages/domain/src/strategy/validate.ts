@@ -17,7 +17,14 @@ import {
 import { extendedHoursEligible } from './extended-hours';
 import { groupDefinition } from './groups';
 import { checkTiming } from './timing';
-import { exprDepth, treeDepth, walkComparisons, walkExpr, walkExpressions } from './tree';
+import {
+  collectInstrumentUses,
+  exprDepth,
+  treeDepth,
+  walkComparisons,
+  walkExpr,
+  walkExpressions,
+} from './tree';
 import { CONTEXT_INSTRUMENT_ID } from './evaluate';
 import { checkMetricRef, getMetric, metricReferences } from './metrics';
 import { hasComparisons, paperRunBlocker, slotModeOf, usesFundamentals } from './selection';
@@ -79,6 +86,12 @@ export interface ValidationContext {
   hasFeed: (assetClass: string, dataType: 'quotes' | 'bars') => boolean;
   /** Whether an active company data feed (SEC EDGAR) is on, for fundamental metrics (v1.2 item 6). */
   hasCompanyFeed?: boolean;
+  /**
+   * Demo instruments are removed (v1.2 item 10): true wherever demo data is
+   * off. A strategy still using one is invalid, naming it, instead of failing
+   * later for want of data.
+   */
+  demoInstrumentsRemoved?: boolean;
   now: Date;
   /** Latest successful back test for this strategy; arrives with Phase 2. */
   backtest?: { definitionHash: string; completedAt: Date } | null;
@@ -125,6 +138,7 @@ export function validateStrategy(
   checkExecution(def, add);
   checkRisk(def, ctx, add);
   checkFundamentals(def, ctx, add);
+  checkRemovedInstruments(def, ctx, add);
 
   for (const p of checkTiming(def)) {
     const index = def[p.phase].orders.findIndex((o) => o.id === p.legId);
@@ -316,6 +330,26 @@ function isSeries(e: Expr): boolean {
 function containsSeries(e: Expr): boolean {
   for (const x of walkExpr(e)) if (isSeries(x)) return true;
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Removed demo instruments (v1.2 item 10)
+
+function checkRemovedInstruments(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
+  if (!ctx.demoInstrumentsRemoved) return;
+  const symbols = new Set<string>();
+  for (const u of collectInstrumentUses(def)) {
+    const info = ctx.instruments.get(u.instrumentId);
+    if (info?.venue === DEMO_VENUE_CODE) symbols.add(info.symbol);
+  }
+  if (symbols.size === 0) return;
+  const list = [...symbols].sort().join(', ');
+  add(
+    'error',
+    'removed_instrument',
+    `This strategy references a removed instrument (${list}): the demo instruments have no data feed any more. Replace ${symbols.size === 1 ? 'it' : 'them'} with real stocks or ETFs.`,
+    [],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -600,7 +634,13 @@ function checkExpr(
       }
     }
     if (!instrument) {
-      add('error', 'unknown_instrument', 'Choose a valid instrument', [...p, 'instrumentId'], e.id);
+      add(
+        'error',
+        'unknown_instrument',
+        'This references a removed instrument: choose another',
+        [...p, 'instrumentId'],
+        e.id,
+      );
     } else {
       const dataType = e.kind === 'market' && QUOTE_FIELDS.includes(e.field) ? 'quotes' : 'bars';
       const index = isIndicatorOnlyClass(instrument.assetClass);
@@ -1009,7 +1049,7 @@ function checkOrders(def: StrategyDefinition, phase: PhaseName, ctx: ValidationC
       add(
         'error',
         'unknown_instrument',
-        `Choose a valid instrument for "${o.legLabel}"`,
+        `"${o.legLabel}" references a removed instrument: choose another`,
         [...path, 'instrumentId'],
         o.id,
       );
