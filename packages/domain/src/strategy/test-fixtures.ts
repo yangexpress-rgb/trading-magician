@@ -46,7 +46,14 @@ export function context(overrides: Partial<ValidationContext> = {}): ValidationC
   const accounts = new Map<string, AccountInfo>([
     [PAPER_ACCOUNT, { nickname: 'Paper', mode: 'paper', isActive: true, capabilities: CAPS }],
   ]);
-  return { instruments, accounts, hasFeed: () => true, now: NOW, ...overrides };
+  return {
+    instruments,
+    accounts,
+    hasFeed: () => true,
+    hasCompanyFeed: true,
+    now: NOW,
+    ...overrides,
+  };
 }
 
 export const constant = (value: string, id = `c${value}`): ConstantExpr => ({

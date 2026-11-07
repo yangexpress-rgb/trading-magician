@@ -13,6 +13,7 @@ import {
   numeric,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -1795,5 +1796,45 @@ export const notifications = pgTable(
     check('notification_title_length', sql`char_length(${t.title}) <= 200`),
     check('notification_body_length', sql`char_length(${t.body}) <= 1000`),
     check('notification_link_relative', sql`${t.link} like '/%' and ${t.link} not like '//%'`),
+  ],
+);
+
+/**
+ * Point-in-time fundamentals (Design v1.2 item 6, ADR 0043): one row per
+ * value a company's filings made known, from the filing's acceptance time.
+ * Filings are public, so the rows are kept once for every tenant; only the
+ * worker (tm_secrets) reads and writes them. A restatement is a new row.
+ */
+export const fundamentalCompanies = pgTable(
+  'fundamental_company',
+  {
+    cik: integer('cik').primaryKey(),
+    symbol: text('symbol').notNull(),
+    syncedAt: timestamp('synced_at', { withTimezone: true }).notNull(),
+    /** 'ok', or 'missing' when EDGAR has no company facts for it. */
+    status: text('status').notNull(),
+  },
+  (t) => [
+    index('fundamental_company_symbol_idx').on(t.symbol),
+    check('fundamental_company_status', sql`${t.status} in ('ok', 'missing')`),
+  ],
+);
+
+export const fundamentalObservations = pgTable(
+  'fundamental_observation',
+  {
+    cik: integer('cik')
+      .notNull()
+      .references(() => fundamentalCompanies.cik, { onDelete: 'cascade' }),
+    field: text('field').notNull(),
+    value: numeric('value').notNull(),
+    periodEnd: date('period_end').notNull(),
+    availableFrom: timestamp('available_from', { withTimezone: true }).notNull(),
+    accession: text('accession').notNull(),
+    form: text('form').notNull(),
+  },
+  (t) => [
+    primaryKey({ name: 'fundamental_observation_pk', columns: [t.cik, t.field, t.accession] }),
+    index('fundamental_observation_lookup_idx').on(t.cik, t.availableFrom),
   ],
 );

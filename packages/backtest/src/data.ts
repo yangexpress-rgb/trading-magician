@@ -9,6 +9,7 @@ import {
   resolveIndicatorParams,
   type Bar,
   type BarInterval,
+  type FundamentalObservation,
   type HistoricalDataProvider,
   type IndicatorExpr,
   type MarketExpr,
@@ -40,6 +41,8 @@ export interface LoadedData {
   series: Map<string, Bar[]>;
   dataVersions: string[];
   warnings: string[];
+  /** Point-in-time company filings by instrument id (v1.2 item 6), when the strategy reads any. */
+  fundamentals?: Map<string, FundamentalObservation[]>;
 }
 
 type SeriesExpr = MarketExpr | IndicatorExpr;

@@ -35,6 +35,8 @@ interface FakeCompany {
   growth: number;
   margin: number;
   shares: number;
+  /** Dividends declared per share in the oldest year (0 for none); later years rise 5%. */
+  dividend: number;
 }
 
 export const FAKE_SEC_COMPANIES: readonly FakeCompany[] = [
@@ -52,6 +54,7 @@ export const FAKE_SEC_COMPANIES: readonly FakeCompany[] = [
     growth: 0.12,
     margin: 0.18,
     shares: 250_000_000,
+    dividend: 0,
   },
   {
     cik: 9_900_002,
@@ -67,6 +70,7 @@ export const FAKE_SEC_COMPANIES: readonly FakeCompany[] = [
     growth: 0.04,
     margin: 0.09,
     shares: 900_000_000,
+    dividend: 8.2,
   },
 ];
 
@@ -96,7 +100,12 @@ interface FakeYear {
   eps: number;
   equity: number;
   shares: number;
+  dividend: number;
 }
+
+/** Each 10-K reports the year and the one before, as real ones do. */
+const withPrior = <T extends { start: string; end: string }>(list: T[], i: number) =>
+  i > 0 ? [list[i - 1] as T, list[i] as T] : [list[i] as T];
 
 export class FakeSec {
   readonly requests: string[] = [];
@@ -129,6 +138,7 @@ export class FakeSec {
         eps: Math.round((netIncome / c.shares) * 100) / 100,
         equity: Math.round(revenue * 0.6),
         shares: c.shares,
+        dividend: Math.round(c.dividend * 1.05 ** (y - (thisYear - 6)) * 100) / 100,
       });
     }
     return out.slice(-5);
@@ -157,6 +167,19 @@ export class FakeSec {
         form: '10-K',
         filed: y.filed,
       }));
+    // Dividends per share as filed: each 10-K has its year and the year before.
+    const dividends: SecFact[] = years.flatMap((y, i) =>
+      withPrior(years, i).map((p) => ({
+        start: p.start,
+        end: p.end,
+        val: p.dividend,
+        accn: y.accn,
+        fy: y.fy,
+        fp: 'FY',
+        form: '10-K',
+        filed: y.filed,
+      })),
+    );
     const concept = (label: string, unit: string, facts: SecFact[]) => ({
       label,
       description: null,
@@ -207,6 +230,20 @@ export class FakeSec {
             'USD',
             duration((y) => y.netIncome),
           ),
+          DepreciationDepletionAndAmortization: concept(
+            'Depreciation, Depletion and Amortization',
+            'USD',
+            duration((y) => Math.round(y.revenue * 0.04)),
+          ),
+          ...(c.dividend > 0
+            ? {
+                CommonStockDividendsPerShareDeclared: concept(
+                  'Common Stock, Dividends, Per Share, Declared',
+                  'USD/shares',
+                  dividends,
+                ),
+              }
+            : {}),
           EarningsPerShareDiluted: concept(
             'Earnings Per Share, Diluted',
             'USD/shares',
@@ -293,6 +330,8 @@ export class FakeSec {
             (y) => `${c.ticker.toLowerCase()}-${y.end.replace(/-/g, '')}.htm`,
           ),
           primaryDocDescription: years.map(() => '10-K'),
+          // Accepted at 16:05 New York time (EDGAR writes the wall time with a Z).
+          acceptanceDateTime: years.map((y) => `${y.filed}T16:05:00.000Z`),
         },
       },
     };

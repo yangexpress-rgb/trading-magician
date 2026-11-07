@@ -7,6 +7,7 @@ import {
   getIndicator,
   getMetric,
   INDICATORS,
+  isFundamentalMetric,
   METRICS,
   resolveMetricParams,
   STAT_FUNCTIONS,
@@ -39,16 +40,24 @@ import { InstrumentSelect } from './instrument-select';
 
 type Path = readonly (string | number)[];
 type Kind = Expr['kind'];
+/** The Type choices: a fundamental metric is a registry metric listed on its own (v1.2 item 6). */
+type UiKind = Kind | 'fundamental';
 
-const KIND_LABELS: Record<Kind, string> = {
+const KIND_LABELS: Record<UiKind, string> = {
   constant: 'Fixed value',
   market: 'Market data',
   indicator: 'Indicator',
   position: 'Position (after Entry fills)',
   calc: 'Calculation',
-  metric: 'Metric (shared registry)',
+  metric: 'Metric (price-based, shared registry)',
+  fundamental: 'Fundamental metric (company filings)',
   stat: 'Statistic (std. dev., z-score, Bollinger, BandWidth)',
 };
+
+type MetricCategoryFilter = 'price' | 'fundamental';
+
+const uiKindOf = (expr: Expr): UiKind =>
+  expr.kind === 'metric' && isFundamentalMetric(expr.metric) ? 'fundamental' : expr.kind;
 
 export const STAT_LABELS: Record<StatFunction, string> = {
   STDDEV: 'Standard deviation',
@@ -181,7 +190,7 @@ export function ExpressionEditor({
   const id = (field: string) => `${expr.id}-${field}`;
   const err = (...rest: (string | number)[]) => issueAt([...path, ...rest]);
   // Position values exist only once Entry has filled, so only Exit offers them.
-  const kinds = (Object.keys(KIND_LABELS) as Kind[]).filter(
+  const kinds = (Object.keys(KIND_LABELS) as UiKind[]).filter(
     (k) => k !== 'position' || path[0] === 'exit' || expr.kind === 'position',
   );
 
@@ -198,10 +207,15 @@ export function ExpressionEditor({
         <MiniSelect
           id={id('kind')}
           label="Type"
-          value={expr.kind}
+          value={uiKindOf(expr)}
           onChange={(e) => {
-            const kind = e.target.value as Kind;
+            const kind = e.target.value as UiKind;
             if ((kind === 'calc' || kind === 'stat') && depth >= MAX_NESTING) return;
+            if (kind === 'fundamental') {
+              const metric = newExpr('metric', fallbackInstrument, expr);
+              onChange({ ...metric, ...defaultMetricRef('pe') } as Expr);
+              return;
+            }
             onChange(newExpr(kind, fallbackInstrument, expr));
           }}
         >
@@ -236,7 +250,13 @@ export function ExpressionEditor({
         )}
 
         {expr.kind === 'metric' && (
-          <MetricFields expr={expr} onChange={onChange} id={id} err={err} />
+          <MetricFields
+            expr={expr}
+            onChange={onChange}
+            id={id}
+            err={err}
+            category={isFundamentalMetric(expr.metric) ? 'fundamental' : 'price'}
+          />
         )}
 
         {expr.kind === 'stat' && (
@@ -623,11 +643,13 @@ function MetricFields({
   onChange,
   id,
   err,
+  category,
 }: {
   expr: MetricExpr;
   onChange: (expr: Expr) => void;
   id: (field: string) => string;
   err: (...rest: (string | number)[]) => string | undefined;
+  category: MetricCategoryFilter;
 }) {
   const { instruments, universeClasses } = useEditor();
   const classes =
@@ -647,6 +669,8 @@ function MetricFields({
         classes={classes}
         id={id}
         error={err('metric') ?? err('params')}
+        category={category}
+        label={category === 'fundamental' ? 'Fundamental metric' : 'Metric'}
         onChange={(ref) => onChange({ ...expr, metric: ref.metric, params: ref.params })}
       />
     </>
@@ -660,6 +684,7 @@ export function MetricRefFields({
   id,
   error,
   label = 'Metric',
+  category,
   onChange,
 }: {
   value: MetricRef;
@@ -667,11 +692,22 @@ export function MetricRefFields({
   id: (field: string) => string;
   error?: string | undefined;
   label?: string;
+  /** Only price-based or only fundamental metrics; both, grouped, when absent (ranking). */
+  category?: MetricCategoryFilter | undefined;
   onChange: (ref: MetricRef) => void;
 }) {
   const { instruments } = useEditor();
   const spec = getMetric(value.metric);
-  const offered = metricsForClasses(classes);
+  const offered = metricsForClasses(classes).filter(
+    (m) => !category || (category === 'fundamental') === isFundamentalMetric(m.id),
+  );
+  const groups = [
+    { label: 'Price-based', metrics: offered.filter((m) => !isFundamentalMetric(m.id)) },
+    {
+      label: 'Fundamental (company filings)',
+      metrics: offered.filter((m) => isFundamentalMetric(m.id)),
+    },
+  ].filter((g) => g.metrics.length > 0);
   return (
     <>
       <MiniSelect
@@ -697,11 +733,21 @@ export function MetricRefFields({
             {spec ? `${spec.label} (not for these instruments)` : `${value.metric} (unsupported)`}
           </option>
         )}
-        {offered.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label}
-          </option>
-        ))}
+        {category
+          ? offered.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))
+          : groups.map((g) => (
+              <optgroup key={g.label} label={g.label}>
+                {g.metrics.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
       </MiniSelect>
       {spec?.params.map((p) => {
         const v = value.params[p.name] ?? p.default;

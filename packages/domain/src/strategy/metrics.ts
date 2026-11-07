@@ -1,5 +1,12 @@
 import Decimal from 'decimal.js';
-import type { IndicatorParamSpec } from './catalog';
+import {
+  FUNDAMENTAL_MAX_AGE_DAYS,
+  latestObservation,
+  type FundamentalField,
+  type FundamentalObservation,
+  type FundamentalPoint,
+} from '../market/point-in-time';
+import type { IndicatorParamSpec, PriceAdjustment } from './catalog';
 import type { IndicatorExpr, MarketExpr, MetricExpr, MetricRef } from './schema';
 
 /**
@@ -15,8 +22,9 @@ import type { IndicatorExpr, MarketExpr, MetricExpr, MetricRef } from './schema'
  * (principle 4): a null makes a condition false and leaves an instrument out
  * of a ranking.
  *
- * Fundamental metrics (item 6) plug into the same registry later with
- * `category: 'fundamental'`.
+ * Fundamental metrics (item 6, ADR 0043) are in the same registry with
+ * `category: 'fundamental'`: they combine the latest filing-backed value the
+ * reader can see at that bar (point in time) with that day's price.
  */
 
 /** Trading bars in a month of daily bars: 1, 3, 6 and 12 months are 21, 63, 126 and 252. */
@@ -27,6 +35,14 @@ export const TRADING_DAYS_PER_YEAR = 252;
 /** Reads a daily series value `barsBack` bars before the bar being evaluated. */
 export interface MetricReader {
   value(expr: MarketExpr | IndicatorExpr, barsBack: number): Decimal | undefined;
+  /** A company's filing-backed value as known at that bar; absent without fundamentals. */
+  fundamental?(
+    instrumentId: string,
+    field: FundamentalField,
+    barsBack: number,
+  ): FundamentalPoint | undefined;
+  /** A series' value at an instant (its latest bar ending at or before it). */
+  valueAt?(expr: MarketExpr | IndicatorExpr, timeMs: number): Decimal | undefined;
 }
 
 export interface MetricParamSpec extends Omit<IndicatorParamSpec, 'kind'> {
@@ -40,8 +56,8 @@ export interface MetricSpec {
   /** One line for the builder's help text. */
   help: string;
   category: 'price' | 'fundamental';
-  /** How a value reads: a fraction (0.12 is 12%) or a plain number. */
-  unit: 'fraction' | 'number';
+  /** How a value reads: a fraction (0.12 is 12%), a plain number, or US dollars. */
+  unit: 'fraction' | 'number' | 'usd';
   params: readonly MetricParamSpec[];
   /** Asset classes the metric can be computed for; the metric picker lists only these. */
   assetClasses: readonly string[];
@@ -61,14 +77,18 @@ export type DailySeries = MarketExpr | IndicatorExpr;
 const PRICE_CLASSES = ['stock', 'etf', 'index'] as const;
 
 /** The daily close series of an instrument, `offset` bars back. */
-export function dailyClose(instrumentId: string, offset = 0): MarketExpr {
+export function dailyClose(
+  instrumentId: string,
+  offset = 0,
+  adjustment: PriceAdjustment = 'split_and_dividend',
+): MarketExpr {
   return {
     kind: 'market',
-    id: `metric:close:${instrumentId}`,
+    id: `metric:close:${adjustment}:${instrumentId}`,
     instrumentId,
     field: 'close',
     interval: '1d',
-    adjustment: 'split_and_dividend',
+    adjustment,
     session: 'regular',
     offset,
   };
@@ -151,7 +171,7 @@ export function populationStdDev(xs: readonly Decimal[]): Decimal | undefined {
     .sqrt();
 }
 
-export const METRICS: readonly MetricSpec[] = [
+const PRICE_METRICS: readonly MetricSpec[] = [
   {
     id: 'return',
     label: 'Return',
@@ -243,6 +263,204 @@ export const METRICS: readonly MetricSpec[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Fundamental metrics (v1.2 item 6, ADR 0043)
+
+/** Bars of daily history kept for working out a filing's share basis (about 15 months). */
+const FILING_LOOKBACK_BARS = Math.ceil((FUNDAMENTAL_MAX_AGE_DAYS * 252) / 365) + 10;
+
+/** Fundamentals are reported by companies: US stocks, not ETFs or indices. */
+const COMPANY_CLASSES = ['stock'] as const;
+
+const rawClose = (id: string, offset = 0) => dailyClose(id, offset, 'none');
+const splitClose = (id: string, offset = 0) => dailyClose(id, offset, 'split_only');
+
+/** Every fundamental metric reads the traded price and the split-adjusted one, far enough back. */
+const fundamentalRequirements = (id: string): DailySeries[] => [
+  rawClose(id, FILING_LOOKBACK_BARS),
+  splitClose(id, FILING_LOOKBACK_BARS),
+];
+
+/**
+ * How many of today's shares one share at `sinceMs` has become: 4 after a
+ * 4-for-1 split in between, 1 without a split. It is the ratio of the traded
+ * price to the split-adjusted price then, over the same ratio today. A
+ * reader without price history (the screener's latest prices) has had no
+ * split to report since the latest filing, and gives 1.
+ */
+export function sharesPerOldShare(
+  instrumentId: string,
+  sinceMs: number,
+  r: MetricReader,
+  barsBack: number,
+): Decimal | undefined {
+  if (!r.valueAt) return new Decimal(1);
+  const rawNow = r.value(rawClose(instrumentId), barsBack);
+  const adjNow = r.value(splitClose(instrumentId), barsBack);
+  const rawThen = r.valueAt(rawClose(instrumentId), sinceMs);
+  const adjThen = r.valueAt(splitClose(instrumentId), sinceMs);
+  if (!rawNow || !adjNow || !rawThen || !adjThen || adjNow.isZero() || adjThen.isZero())
+    return undefined;
+  const now = rawNow.div(adjNow);
+  if (now.isZero()) return undefined;
+  return rawThen.div(adjThen).div(now);
+}
+
+interface FundamentalInputs {
+  price: Decimal;
+  get(field: FundamentalField): FundamentalPoint | undefined;
+  /** A per-share value on today's share basis. */
+  perShare(field: FundamentalField): Decimal | undefined;
+  /** Market capitalisation: price × shares outstanding on today's basis. */
+  marketCap(): Decimal | undefined;
+}
+
+function fundamentalInputs(
+  id: string,
+  r: MetricReader,
+  barsBack: number,
+): FundamentalInputs | undefined {
+  if (!r.fundamental) return undefined;
+  const price = r.value(rawClose(id), barsBack);
+  if (!price || price.lte(0)) return undefined;
+  const get = (field: FundamentalField) => r.fundamental?.(id, field, barsBack);
+  return {
+    price,
+    get,
+    perShare(field) {
+      const p = get(field);
+      if (!p) return undefined;
+      const k = sharesPerOldShare(id, Date.parse(p.availableFrom), r, barsBack);
+      return k && !k.isZero() ? p.value.div(k) : undefined;
+    },
+    marketCap() {
+      const p = get('shares');
+      if (!p || p.value.lte(0)) return undefined;
+      const k = sharesPerOldShare(id, Date.parse(p.availableFrom), r, barsBack);
+      return k ? price.times(p.value).times(k) : undefined;
+    },
+  };
+}
+
+function fundamentalMetric(
+  id: string,
+  label: string,
+  help: string,
+  unit: MetricSpec['unit'],
+  compute: (f: FundamentalInputs) => Decimal | undefined,
+): MetricSpec {
+  return {
+    id,
+    label,
+    help,
+    category: 'fundamental',
+    unit,
+    params: [],
+    assetClasses: COMPANY_CLASSES,
+    requirements: (instrumentId) => fundamentalRequirements(instrumentId),
+    compute: (instrumentId, _params, r, barsBack) => {
+      const f = fundamentalInputs(instrumentId, r, barsBack);
+      return f ? compute(f) : undefined;
+    },
+  };
+}
+
+const plain = (field: FundamentalField) => (f: FundamentalInputs) => f.get(field)?.value;
+/** An optional balance-sheet amount: a company with none of it does not report it. */
+const orZero = (f: FundamentalInputs, field: FundamentalField) =>
+  f.get(field)?.value ?? new Decimal(0);
+
+const FUNDAMENTAL_METRICS: readonly MetricSpec[] = [
+  fundamentalMetric(
+    'pe',
+    'P/E ratio',
+    'Price per share ÷ diluted EPS over the last twelve months. Unknown when EPS is zero or negative, so a loss-maker never looks cheap.',
+    'number',
+    (f) => {
+      const eps = f.perShare('eps_ttm');
+      return eps && eps.gt(0) ? f.price.div(eps) : undefined;
+    },
+  ),
+  fundamentalMetric(
+    'earnings_yield',
+    'Earnings yield',
+    'Diluted EPS over the last twelve months ÷ price per share. Negative for a loss. 0.05 is 5%.',
+    'fraction',
+    (f) => f.perShare('eps_ttm')?.div(f.price),
+  ),
+  fundamentalMetric(
+    'dividend_yield',
+    'Dividend yield',
+    'Cash dividends declared per share over the last twelve months ÷ price per share. Unknown for a company whose filings report no dividends per share. 0.03 is 3%.',
+    'fraction',
+    (f) => f.perShare('dps_ttm')?.div(f.price),
+  ),
+  fundamentalMetric(
+    'price_to_book',
+    'Price-to-book',
+    "Price per share ÷ book value per share (shareholders' equity ÷ shares outstanding, latest balance sheet). Unknown when equity is zero or negative.",
+    'number',
+    (f) => {
+      const equity = f.get('equity')?.value;
+      const cap = f.marketCap();
+      return equity && cap && equity.gt(0) ? cap.div(equity) : undefined;
+    },
+  ),
+  fundamentalMetric(
+    'ev_ebitda',
+    'EV/EBITDA',
+    'Enterprise value (market cap + debt + preferred + minority interest − cash, latest balance sheet) ÷ EBITDA over the last twelve months (operating income + depreciation and amortization). Unknown when EBITDA is zero or negative.',
+    'number',
+    (f) => {
+      const cap = f.marketCap();
+      const cash = f.get('cash')?.value;
+      const ebitda = f.get('ebitda_ttm')?.value;
+      if (!cap || !cash || !ebitda || ebitda.lte(0)) return undefined;
+      const ev = cap
+        .plus(orZero(f, 'debt'))
+        .plus(orZero(f, 'preferred'))
+        .plus(orZero(f, 'minority_interest'))
+        .minus(cash);
+      return ev.div(ebitda);
+    },
+  ),
+  fundamentalMetric(
+    'dividend_streak',
+    'Dividend-growth streak',
+    'Consecutive years in which annual dividends per share rose over the year before, ending with the latest complete fiscal year.',
+    'number',
+    plain('dividend_streak'),
+  ),
+  fundamentalMetric(
+    'revenue_ttm',
+    'Revenue (TTM)',
+    'Revenue over the last twelve months, as filed.',
+    'usd',
+    plain('revenue_ttm'),
+  ),
+  fundamentalMetric(
+    'net_income_ttm',
+    'Net income (TTM)',
+    'Net income over the last twelve months, as filed.',
+    'usd',
+    plain('net_income_ttm'),
+  ),
+  fundamentalMetric(
+    'eps_ttm',
+    'EPS (TTM)',
+    "Diluted earnings per share over the last twelve months, on today's share basis.",
+    'number',
+    (f) => f.perShare('eps_ttm'),
+  ),
+];
+
+export const METRICS: readonly MetricSpec[] = [...PRICE_METRICS, ...FUNDAMENTAL_METRICS];
+
+/** Whether a metric reads company filings (a company data feed is then needed). */
+export function isFundamentalMetric(id: string): boolean {
+  return getMetric(id)?.category === 'fundamental';
+}
+
 const BY_ID = new Map(METRICS.map((m) => [m.id, m]));
 
 export function getMetric(id: string): MetricSpec | undefined {
@@ -332,7 +550,33 @@ export function metricRequirements(ref: MetricRef, instrumentId: string): DailyS
 export function formatMetric(ref: MetricRef, value: Decimal | undefined): string {
   if (!value) return '—';
   const spec = getMetric(ref.metric);
-  return spec?.unit === 'fraction'
-    ? `${value.times(100).toDecimalPlaces(2).toString()}%`
-    : value.toDecimalPlaces(2).toString();
+  if (spec?.unit === 'fraction') return `${value.times(100).toDecimalPlaces(2).toString()}%`;
+  if (spec?.unit === 'usd') {
+    const abs = value.abs();
+    const [div, suffix] = abs.gte(1e9) ? [1e9, 'B'] : abs.gte(1e6) ? [1e6, 'M'] : [1, ''];
+    return `${value.isNeg() ? '−' : ''}$${abs.div(div).toDecimalPlaces(2).toString()}${suffix}`;
+  }
+  return value.toDecimalPlaces(2).toString();
+}
+
+/**
+ * A fundamental metric's value from a latest price and a company's stored
+ * filings, as known at `asOfMs`: what the Research screener shows, through
+ * the same registry definition strategies use (v1.2 item 6, principle 3).
+ * The screener has no price history here, so no split is assumed between
+ * the latest filing and now (design v1.2 open point O20).
+ */
+export function fundamentalSnapshot(
+  metricId: string,
+  price: number | null,
+  observations: readonly FundamentalObservation[] | undefined,
+  asOfMs: number,
+): Decimal | undefined {
+  if (price === null || !Number.isFinite(price) || !observations) return undefined;
+  const last = new Decimal(price);
+  const reader: MetricReader = {
+    value: (expr) => (expr.kind === 'market' && expr.field === 'close' ? last : undefined),
+    fundamental: (_id, field) => latestObservation(observations, field, asOfMs),
+  };
+  return computeMetric({ metric: metricId, params: {} }, 'screen', reader);
 }

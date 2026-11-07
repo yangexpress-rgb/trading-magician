@@ -95,7 +95,7 @@ test('per-leg conditions, a z-score and a registry metric in the builder', async
   const right = legConditions.getByRole('group', { name: 'Right side', exact: true });
   await right
     .getByLabel('Type', { exact: true })
-    .selectOption({ label: 'Metric (shared registry)' });
+    .selectOption({ label: 'Metric (price-based, shared registry)' });
   await expect(right.getByLabel('Metric')).toHaveValue('return');
 
   await page.getByLabel('When several legs qualify').selectOption('bestByMetric');

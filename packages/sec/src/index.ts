@@ -25,3 +25,10 @@ export {
   type SecListing,
 } from './edgar';
 export type * from './types';
+export {
+  acceptanceTimes,
+  fetchPointInTime,
+  filedDateAvailability,
+  pointInTimeObservations,
+  trailingTwelveMonths,
+} from './point-in-time';

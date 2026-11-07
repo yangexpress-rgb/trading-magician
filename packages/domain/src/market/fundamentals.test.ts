@@ -108,21 +108,36 @@ describe('company metrics', () => {
 });
 
 describe('screener company columns', () => {
-  it('works out market cap, P/E and margins from a year of figures', () => {
-    expect(
-      screenFundamentals(
-        { year: 2025, revenue: 1000, revenuePrior: 900, netIncome: 100, eps: 1, shares: 100 },
-        25,
-      ),
-    ).toEqual({
+  it('works out market cap and margins from a year of figures, and takes P/E from filings', () => {
+    const facts = {
+      year: 2025,
+      revenue: 1000,
+      revenuePrior: 900,
+      netIncome: 100,
+      eps: 1,
+      shares: 100,
+    };
+    expect(screenFundamentals(facts, 25)).toEqual({
       marketCap: 2500,
-      pe: 25,
+      // P/E, dividend yield, P/B and EV/EBITDA come from the registry over filings (v1.2 item 6).
+      pe: null,
+      dividendYieldPct: null,
+      priceToBook: null,
+      evEbitda: null,
       revenue: 1000,
       revenueGrowthPct: 11.11,
       netIncome: 100,
       netMarginPct: 10,
       eps: 1,
     });
+    expect(
+      screenFundamentals(facts, 25, {
+        pe: 20,
+        dividendYieldPct: 3.2,
+        priceToBook: 4,
+        evEbitda: 11,
+      }),
+    ).toMatchObject({ pe: 20, dividendYieldPct: 3.2, priceToBook: 4, evEbitda: 11 });
   });
 
   it('round-trips the company columns, and reads older tuples as having none', () => {

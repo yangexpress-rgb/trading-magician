@@ -194,16 +194,37 @@ export const SCREEN_FUNDAMENTAL_COLUMNS = [
   'netIncome',
   'netMarginPct',
   'eps',
+  // v1.2 item 6: from the metric registry and point-in-time filings, like strategies.
+  'dividendYieldPct',
+  'priceToBook',
+  'evEbitda',
 ] as const;
 export type ScreenFundamentalColumn = (typeof SCREEN_FUNDAMENTAL_COLUMNS)[number];
 
+/** Registry metrics a screen row reads from point-in-time filings (v1.2 item 6). */
+export interface ScreenFilingMetrics {
+  pe: number | null;
+  dividendYieldPct: number | null;
+  priceToBook: number | null;
+  evEbitda: number | null;
+}
+
+/**
+ * The company columns. P/E, dividend yield, price-to-book and EV/EBITDA come
+ * from the metric registry over point-in-time filings (`filing`), the same
+ * definitions strategies use; they are blank where no filings are stored.
+ */
 export function screenFundamentals(
   facts: ScreenFacts | undefined,
   last: number | null,
+  filing?: ScreenFilingMetrics,
 ): Record<ScreenFundamentalColumn, number | null> {
   return {
     marketCap: marketCapOf(last, facts?.shares),
-    pe: peOf(last, facts?.eps),
+    pe: filing?.pe ?? null,
+    dividendYieldPct: filing?.dividendYieldPct ?? null,
+    priceToBook: filing?.priceToBook ?? null,
+    evEbitda: filing?.evEbitda ?? null,
     revenue: facts?.revenue ?? null,
     revenueGrowthPct: growth(facts?.revenue, facts?.revenuePrior),
     netIncome: facts?.netIncome ?? null,
