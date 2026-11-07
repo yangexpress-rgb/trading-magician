@@ -336,7 +336,9 @@ and sign in.
 - **Options data (ADR 0047).** The worker records option chains once a day for everyone. Give it
   the app's own Alpaca paper key as `OPTIONS_ALPACA_KEY_ID` and `OPTIONS_ALPACA_SECRET_KEY` (both
   or neither): it reads the underlyings' daily closes, rebuilds history from option bars and finds
-  the seed symbols with it. Without it the chains are stored but no signal is worked out. Optional:
+  the seed symbols with it. Without those variables the worker uses the platform admin's Alpaca
+  paper feed key instead (ADR 0050; read at start, so restart the worker after changing that feed).
+  With neither, the chains are stored but no signal is worked out. Optional:
   `CBOE_OPTIONS_URL` (default `https://cdn.cboe.com/api/global/delayed_quotes/options`, https only),
   `OPTIONS_HISTORY_DAYS` (default 400) and `OPTIONS_RECORDING=off` to stop the recording. Each
   person then adds "CBOE delayed options (daily)" under Settings › Data feeds to use the options

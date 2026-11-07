@@ -9,6 +9,7 @@ import {
 } from '@tm/domain';
 import { and, asc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import type { Database, Transaction } from './client';
+import { withTenant } from './tenant';
 import {
   dataFeedConnections,
   instruments,
@@ -733,4 +734,33 @@ export async function optionUnderlyingOptions(db: Db): Promise<OptionUnderlyingO
     .where(eq(optionUniverse.active, true))
     .orderBy(asc(instruments.symbol));
   return rows.map((r) => ({ ...r, kind: r.kind as OptionUnderlyingOption['kind'] }));
+}
+
+/**
+ * The fallback for the options recording's Alpaca key (ADR 0050): each
+ * platform admin's oldest active Alpaca feed with a stored credential, admins
+ * oldest first. Worker only (tm_secrets); the caller opens the credential.
+ */
+export async function adminAlpacaFeeds(
+  db: Database,
+): Promise<{ userId: string; feedId: string; credentialId: string }[]> {
+  const admins = await db.execute<{ user_id: string }>(
+    sql`select user_id from options_key_admins()`,
+  );
+  const out: { userId: string; feedId: string; credentialId: string }[] = [];
+  for (const { user_id: userId } of admins) {
+    const feeds = await withTenant(db, { userId }, (tx) =>
+      tx
+        .select({ id: dataFeedConnections.id, credentialRef: dataFeedConnections.credentialRef })
+        .from(dataFeedConnections)
+        .where(
+          and(eq(dataFeedConnections.provider, 'alpaca'), eq(dataFeedConnections.isActive, true)),
+        )
+        .orderBy(asc(dataFeedConnections.createdAt)),
+    );
+    const feed = feeds.find((f) => f.credentialRef);
+    if (feed?.credentialRef)
+      out.push({ userId, feedId: feed.id, credentialId: feed.credentialRef });
+  }
+  return out;
 }

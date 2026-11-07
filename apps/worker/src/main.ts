@@ -34,6 +34,7 @@ import { AlpacaClient, fetchOptionBars, fetchOptionContracts, lookupAlpacaAsset 
 import { cboeOptionsSource } from './options/cboe-options';
 import { fakeCboeOptionsFetch } from './options/cboe-options-fake';
 import { optionsFeedProvider } from './options/feed';
+import { resolveOptionsAlpacaKey } from './options/app-key';
 import { startLiveChainLoop, type LiveChainLoop } from './options/live-chain';
 import { startOptionsLoop, type OptionsLoop } from './options/loop';
 import { marketInputs } from './options/market-inputs';
@@ -242,12 +243,23 @@ if (databaseUrl) {
   });
   {
     // Options data (ADR 0047) is recorded once for every tenant, so the closes and
-    // the history rebuild go through the app's own Alpaca key, never a tenant's.
+    // the history rebuild go through one key: the worker's own, or else a platform
+    // admin's Alpaca paper feed (ADR 0050).
+    const resolved = env.ALPACA_FAKE
+      ? undefined
+      : await resolveOptionsAlpacaKey({
+          db,
+          env: { keyId: env.OPTIONS_ALPACA_KEY_ID, secretKey: env.OPTIONS_ALPACA_SECRET_KEY },
+          privateKey: credentialKey,
+          logger,
+        });
     const appKey = env.ALPACA_FAKE
       ? new FakeAlpaca({ now: () => new Date() }).credentials
-      : env.OPTIONS_ALPACA_KEY_ID && env.OPTIONS_ALPACA_SECRET_KEY
-        ? { keyId: env.OPTIONS_ALPACA_KEY_ID, secretKey: env.OPTIONS_ALPACA_SECRET_KEY }
+      : resolved
+        ? { keyId: resolved.keyId, secretKey: resolved.secretKey }
         : undefined;
+    if (resolved?.source === 'admin_feed')
+      logger.info("options data uses the platform admin's Alpaca paper feed key");
     const client = appKey
       ? new AlpacaClient({
           credentials: appKey,
@@ -263,7 +275,7 @@ if (databaseUrl) {
       : undefined;
     if (!appKey) {
       logger.warn(
-        'OPTIONS_ALPACA_KEY_ID is not set: option chains are stored, but signals wait for an Alpaca close and the history rebuild waits',
+        'No Alpaca key for options data (OPTIONS_ALPACA_KEY_ID unset and no admin Alpaca feed): option chains are stored, but signals wait for an Alpaca close and the history rebuild waits',
       );
     }
     const history = appKey
