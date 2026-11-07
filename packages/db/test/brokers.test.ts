@@ -434,3 +434,29 @@ describe('accounts', () => {
     expect((await as(userA, listPlatforms)).map((p) => p.id)).not.toContain(platform.id);
   });
 });
+
+describe('instrument shortability (v1.2 item 8)', () => {
+  it('keeps what the provider last said, and keeps it when a later lookup does not say', async () => {
+    const shortable = async () =>
+      (await t.owner.db.select().from(instruments).where(eq(instruments.id, usA)))[0]?.shortable;
+    expect(await shortable()).toBeNull();
+    const again = (value?: boolean) =>
+      asWorker(userA, (tx) =>
+        registerInstrument(tx, {
+          assetClass: 'stock',
+          symbol: 'ZTSTA',
+          venue: 'NASDAQ',
+          displayName: 'Test Company A',
+          provider: 'alpaca',
+          providerId: 'asset-ztsta',
+          ...(value === undefined ? {} : { shortable: value }),
+        }),
+      );
+    expect(await again(false)).toBe(usA);
+    expect(await shortable()).toBe(false);
+    await again();
+    expect(await shortable()).toBe(false);
+    await again(true);
+    expect(await shortable()).toBe(true);
+  });
+});

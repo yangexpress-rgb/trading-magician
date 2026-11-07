@@ -505,6 +505,7 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                 <thead>
                   <tr>
                     <Th>Cycle</Th>
+                    <Th>Direction</Th>
                     <Th>Entry</Th>
                     <Th>Exit</Th>
                     <Th>Legs</Th>
@@ -518,6 +519,10 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                       <Td>
                         <div>{t.cycle}</div>
                         <div className="text-xs text-ink-muted">{TRADE_STATUS[t.status]}</div>
+                      </Td>
+                      <Td>
+                        <div>{tradeDirection(t) === 'short' ? 'Short' : 'Long'}</div>
+                        {t.group && <div className="text-xs text-ink-muted">{t.group}</div>}
                       </Td>
                       <Td className="whitespace-nowrap">
                         {formatMarketTime(t.entryTime, interval)}
@@ -620,4 +625,14 @@ function Charts({ run }: { run: BacktestRunDto }) {
       />
     </div>
   );
+}
+
+/**
+ * A trade's direction (v1.2 item 8): as the back test recorded it, else from
+ * its Entry legs (a short sale opens a short), for runs from before item 8.
+ */
+export function tradeDirection(t: BacktestTradeDto): 'long' | 'short' {
+  if (t.direction) return t.direction;
+  const entries = t.legs.filter((l) => l.phase === 'entry');
+  return entries.length > 0 && entries.every((l) => l.side === 'sell_short') ? 'short' : 'long';
 }

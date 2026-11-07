@@ -183,7 +183,11 @@ export interface InstrumentUse {
  * left out.
  */
 export function collectInstrumentUses(def: StrategyDefinition): InstrumentUse[] {
-  const uses: InstrumentUse[] = [];
+  // Entry groups (v1.2 item 8) use instruments as the strategy's own Entry and Exit do.
+  const more = (def.groups ?? []).flatMap((g) =>
+    collectInstrumentUses({ ...def, entry: g.entry, exit: g.exit, groups: undefined }),
+  );
+  const uses: InstrumentUse[] = [...more];
   const context = '00000000-0000-0000-0000-000000000000';
   const addExpr = (e: Expr, phase: PhaseName) => {
     if ('instrumentId' in e && e.instrumentId !== context)
@@ -235,8 +239,9 @@ export function collectInstrumentUses(def: StrategyDefinition): InstrumentUse[] 
 }
 
 export function allOrders(def: StrategyDefinition): (PlannedOrder & { phase: PhaseName })[] {
+  const phases = [def, ...(def.groups ?? [])];
   return [
-    ...def.entry.orders.map((o) => ({ ...o, phase: 'entry' as const })),
-    ...def.exit.orders.map((o) => ({ ...o, phase: 'exit' as const })),
+    ...phases.flatMap((p) => p.entry.orders.map((o) => ({ ...o, phase: 'entry' as const }))),
+    ...phases.flatMap((p) => p.exit.orders.map((o) => ({ ...o, phase: 'exit' as const }))),
   ];
 }

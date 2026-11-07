@@ -127,6 +127,33 @@ export const breakoutDonchianPriorBars = () =>
     cmp(market(), 'lt', indicator('LOWEST', { period: 10 }, 'low', 1)),
   );
 
+/**
+ * Design v1.2 item 8: a long 20-day breakout and a short 20-day breakdown on
+ * SPY in one strategy, each with its matching 10-day exit.
+ */
+export function longShortBreakout(): StrategyDefinition {
+  const def = build(
+    cmp(market(), 'gt', indicator('HIGHEST', { period: 20 }, 'high', 1)),
+    cmp(market(), 'lt', indicator('LOWEST', { period: 10 }, 'low', 1)),
+  );
+  def.entry.direction = 'long';
+  const short = build(
+    cmp(market(), 'lt', indicator('LOWEST', { period: 20 }, 'low', 1)),
+    cmp(market(), 'gt', indicator('HIGHEST', { period: 10 }, 'high', 1)),
+  );
+  const shortLeg = { ...order('short-spy', 'sell_short'), legLabel: 'Short SPY' };
+  shortLeg.quantity = { type: 'pct_equity', value: '20', rounding: 'down' };
+  def.groups = [
+    {
+      id: 'short-group',
+      label: 'Short breakdown',
+      entry: { ...short.entry, direction: 'short', orders: [shortLeg] },
+      exit: { ...short.exit, orders: [{ ...order('cover-spy', 'close'), legLabel: 'Cover SPY' }] },
+    },
+  ];
+  return def;
+}
+
 /** A deterministic SPY-like random walk: ~2.5 years of daily bars from 2023-01-03. */
 export function spyBars(count = 640, seed = 7): Bar[] {
   let s = seed;

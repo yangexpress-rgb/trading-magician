@@ -451,7 +451,16 @@ export const fireModeSchema = z.discriminatedUnion('mode', [
 ]);
 export type FireMode = z.infer<typeof fireModeSchema>;
 
+export const POSITION_DIRECTIONS = ['long', 'short'] as const;
+export type PositionDirection = (typeof POSITION_DIRECTIONS)[number];
+
 export const entryPhaseSchema = phaseSchema.extend({
+  /**
+   * v1.2 item 8: whether this entry group opens a long or a short position.
+   * Absent on older definitions: then read from the Entry legs (all
+   * "Sell short" is short, anything else long); see `directionOf`.
+   */
+  direction: z.enum(POSITION_DIRECTIONS).optional(),
   /** `fixed` when absent: the legs name their instruments, as in v1.1. */
   kind: z.enum(['fixed', 'selection']).optional(),
   selection: selectionSchema.optional(),
@@ -475,6 +484,19 @@ export const exitPhaseSchema = phaseSchema.extend({
   rules: z.array(exitRuleSchema).max(5).optional(),
 });
 export type ExitPhase = z.infer<typeof exitPhaseSchema>;
+
+/**
+ * v1.2 item 8: another entry group, with its own direction, Entry and Exit.
+ * The strategy's own Entry and Exit are the first group; these follow it.
+ * Exits belong to their group, as the strategy's Exit belongs to its Entry.
+ */
+export const entryGroupSchema = z.object({
+  id,
+  label: z.string().trim().min(1, 'Name this group').max(40),
+  entry: entryPhaseSchema,
+  exit: exitPhaseSchema,
+});
+export type EntryGroup = z.infer<typeof entryGroupSchema>;
 
 export const SCHEDULE_FREQUENCIES = [
   'daily',
@@ -534,6 +556,8 @@ export const strategyDefinitionSchema = z.object({
   risk: riskProfileSchema,
   /** Absent means daily: every bar, as in v1.1. */
   schedule: scheduleSchema.optional(),
+  /** More entry groups after the strategy's own Entry and Exit (v1.2 item 8). */
+  groups: z.array(entryGroupSchema).max(3).optional(),
 });
 export type StrategyDefinition = z.infer<typeof strategyDefinitionSchema>;
 export type PhaseName = 'entry' | 'exit';

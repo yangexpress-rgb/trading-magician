@@ -54,27 +54,51 @@ export function PhaseReports({ run }: { run: BacktestRunDto }) {
   }
   const symbols = result.symbols ?? {};
   const symbol = (id: string) => symbols[id];
+  // Entry groups (v1.2 item 8): each group's conditions and its own orders.
+  const groups = result.groupConditions ?? [];
+  const otherLegs = new Set(groups.flatMap((g) => g.legIds));
+  const parts = [
+    {
+      key: 'own',
+      title: groups.length > 0 ? 'Group 1' : undefined,
+      conditions,
+      orders: orders.filter((o) => !otherLegs.has(o.legId)),
+    },
+    ...groups.map((g) => {
+      const legs = new Set(g.legIds);
+      return {
+        key: g.id,
+        title: `${g.label} (${g.direction === 'short' ? 'Short' : 'Long'})`,
+        conditions: { entry: g.entry, exit: g.exit },
+        orders: orders.filter((o) => legs.has(o.legId)),
+      };
+    }),
+  ];
   return (
     <div className="space-y-6">
-      {(['entry', 'exit'] as const).map((phase) => (
-        <PhaseReport
-          key={phase}
-          phase={phase}
-          report={conditions[phase]}
-          orders={orders.filter((o) =>
-            phase === 'entry' ? o.phase === 'entry' : o.phase !== 'entry',
-          )}
-          symbol={symbol}
-          interval={run.inputs.interval}
-          slots={!!result.selections}
-        />
-      ))}
+      {parts.flatMap((part) =>
+        (['entry', 'exit'] as const).map((phase) => (
+          <PhaseReport
+            key={`${part.key}-${phase}`}
+            phase={phase}
+            groupTitle={part.title}
+            report={part.conditions[phase]}
+            orders={part.orders.filter((o) =>
+              phase === 'entry' ? o.phase === 'entry' : o.phase !== 'entry',
+            )}
+            symbol={symbol}
+            interval={run.inputs.interval}
+            slots={!!result.selections}
+          />
+        )),
+      )}
     </div>
   );
 }
 
 function PhaseReport({
   phase,
+  groupTitle,
   report,
   orders,
   symbol,
@@ -82,6 +106,8 @@ function PhaseReport({
   slots,
 }: {
   phase: 'entry' | 'exit';
+  /** Set when the strategy has several entry groups (v1.2 item 8). */
+  groupTitle?: string | undefined;
   report: PhaseConditionReport;
   orders: BacktestOrder[];
   symbol: (id: string) => string | undefined;
@@ -90,6 +116,7 @@ function PhaseReport({
 }) {
   const id = useId();
   const title = phase === 'entry' ? 'Entry' : 'Exit';
+  const heading = groupTitle ? `${title}: ${groupTitle}` : title;
   return (
     <Card
       aria-labelledby={id}
@@ -102,7 +129,7 @@ function PhaseReport({
         id={id}
         className={cx('text-lg font-semibold', phase === 'entry' ? 'text-entry' : 'text-exit')}
       >
-        {title}
+        {heading}
       </h3>
       <p className="mb-4 text-sm">
         {slots && phase === 'entry' && report.evaluated === 0
@@ -110,14 +137,14 @@ function PhaseReport({
           : summarizeConditions(phase, report)}
       </p>
       <ConditionReport
-        title={`${title} conditions`}
+        title={groupTitle ? `${title} conditions: ${groupTitle}` : `${title} conditions`}
         report={report}
         symbol={symbol}
         interval={interval}
         showCycle={phase === 'exit'}
       />
       <OrderReport
-        title={`${title} orders`}
+        title={groupTitle ? `${title} orders: ${groupTitle}` : `${title} orders`}
         phase={phase}
         orders={orders}
         report={report}

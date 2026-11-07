@@ -1,4 +1,5 @@
 import {
+  allOrders,
   addDays,
   CONTEXT_INSTRUMENT_ID,
   contextInstruments,
@@ -34,6 +35,8 @@ export interface InstrumentRef {
   symbol: string;
   assetClass: string;
   lotSize: string;
+  /** Whether the broker lends it for shorting; absent or null when unknown (v1.2 item 8). */
+  shortable?: boolean | null;
 }
 
 /** Bars the engine runs on, keyed by `seriesKey`, plus where they came from. */
@@ -68,7 +71,7 @@ export function strategyInstruments(
 ): string[] {
   const ids = new Set<string>([
     ...seriesExprs(def, members).map((e) => e.instrumentId),
-    ...[...def.entry.orders, ...def.exit.orders].map((o) => o.instrumentId),
+    ...allOrders(def).map((o) => o.instrumentId),
     ...contextInstruments(def, members),
     ...referencedInstruments(def),
   ]);

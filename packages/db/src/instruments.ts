@@ -176,6 +176,8 @@ export interface ConfirmedInstrument {
   displayName: string;
   provider: string;
   providerId: string;
+  /** Whether the broker lends it for short selling; absent when the provider doesn't say. */
+  shortable?: boolean | undefined;
 }
 
 /** Worker only (tm_secrets): adds or refreshes a provider-confirmed instrument. */
@@ -184,7 +186,7 @@ export async function registerInstrument(
   found: ConfirmedInstrument,
 ): Promise<string> {
   const [row] = await tx.execute<{ id: string }>(
-    sql`select register_instrument(${found.assetClass}::asset_class, ${found.symbol}, ${found.venue}, ${found.displayName}, ${found.provider}, ${found.providerId}) as id`,
+    sql`select register_instrument(${found.assetClass}::asset_class, ${found.symbol}, ${found.venue}, ${found.displayName}, ${found.provider}, ${found.providerId}, ${found.shortable ?? null}::boolean) as id`,
   );
   if (!row) throw new Error('instrument registration failed');
   return row.id;

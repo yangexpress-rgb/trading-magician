@@ -22,10 +22,13 @@ export function TriggerSettings({
   phase,
   value,
   onChange,
+  idPrefix = '',
 }: {
   phase: PhaseName;
   value: Phase['trigger'];
   onChange: (trigger: Phase['trigger']) => void;
+  /** Keeps ids unique when several entry groups are shown (v1.2 item 8). */
+  idPrefix?: string;
 }) {
   const { issueAt, editable } = useEditor();
   const err = (k: string) => issueAt([phase, 'trigger', k]);
@@ -35,7 +38,7 @@ export function TriggerSettings({
       <fieldset disabled={!editable} className="mt-2 grid-fields-wide gap-2">
         <legend className="sr-only">{phase === 'entry' ? 'Entry' : 'Exit'} trigger options</legend>
         <MiniSelect
-          id={`${phase}-trigger-mode`}
+          id={`${idPrefix}${phase}-trigger-mode`}
           label="Fire"
           value={value.mode}
           onChange={(e) => onChange({ ...value, mode: e.target.value as Phase['trigger']['mode'] })}
@@ -47,7 +50,7 @@ export function TriggerSettings({
           ))}
         </MiniSelect>
         <MiniInput
-          id={`${phase}-trigger-cooldown`}
+          id={`${idPrefix}${phase}-trigger-cooldown`}
           label="Cooldown (seconds)"
           type="number"
           min={0}
@@ -57,7 +60,7 @@ export function TriggerSettings({
           onChange={(e) => onChange({ ...value, cooldownSec: intOrNaN(e.target.value) })}
         />
         <MiniInput
-          id={`${phase}-trigger-confirm`}
+          id={`${idPrefix}${phase}-trigger-confirm`}
           label="Confirmation bars"
           type="number"
           min={0}

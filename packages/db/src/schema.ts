@@ -370,6 +370,8 @@ export const instruments = pgTable(
     isDemo: boolean('is_demo').notNull().default(false),
     /** Indices are indicator-only: conditions read them, no leg or order trades them. */
     kind: instrumentKind('kind').notNull().default('tradable'),
+    /** Whether the broker lends it for short selling, as last seen; null when unknown (v1.2 item 8). */
+    shortable: boolean('shortable'),
     ...timestamps(),
   },
   (t) => [
@@ -1102,6 +1104,9 @@ export const backtestTrades = pgTable(
     legs: jsonb('legs').notNull(),
     /** Why the cycle exited (v1.2): exit condition, time stop or rebalance. Null on older runs. */
     exitReason: text('exit_reason'),
+    /** Two-sided strategies (v1.2 item 8): long or short, and the entry group's name. */
+    direction: text('direction'),
+    entryGroup: text('entry_group'),
   },
   (t) => [
     foreignKey({
@@ -1113,6 +1118,10 @@ export const backtestTrades = pgTable(
     check(
       'backtest_trade_exit_reason',
       sql`${t.exitReason} is null or ${t.exitReason} in ('condition', 'time_stop', 'rebalance')`,
+    ),
+    check(
+      'backtest_trade_direction',
+      sql`${t.direction} is null or ${t.direction} in ('long', 'short')`,
     ),
   ],
 );

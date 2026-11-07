@@ -70,6 +70,8 @@ import {
   selectionCount,
   selectLegs,
   slotDefinition,
+  groupDefinition,
+  newRuntimeTriggerState,
   slotKey,
   slotModeOf,
   withContext,
@@ -662,8 +664,8 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   const period = newData ? scheduledPeriod(def.schedule, t, state.lastSchedulePeriod) : undefined;
   const entryDue = period !== undefined;
   if (entryDue && scheduleOf(def) !== 'daily') state.lastSchedulePeriod = period;
-  const evaluate = (phase: PhaseName, r: SeriesResolver = view): Truth =>
-    evaluateCondition(def[phase].condition, r);
+  const evaluate = (phase: PhaseName, r: SeriesResolver = view, d = def): Truth =>
+    evaluateCondition(d[phase].condition, r);
   /** The view plus a cycle's positions, for Exit rules and Exit order prices. */
   const cycleView = (c: ActiveCycle): SeriesResolver => {
     const r = withPositions(view, (id) => {
@@ -681,7 +683,13 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       : 1;
   /** What a cycle runs: the strategy, or its slot's definition. */
   const cycleDefinition = (c: ActiveCycle): StrategyDefinition =>
-    c.cycle.slot ? slotDefinition(def, c.cycle.slot, count) : def;
+    c.cycle.slot
+      ? slotDefinition(def, c.cycle.slot, count)
+      : c.cycle.group
+        ? groupDefinition(def, c.cycle.group)
+        : def;
+  const groupLabel = (c: { cycle: { group?: string | undefined } }) =>
+    c.cycle.group ? def.groups?.find((g) => g.id === c.cycle.group)?.label : undefined;
 
   const entryHalted = halted || dailyLossHit || drawdownHit;
   const cycles: ActiveCycle[] = [...work.cycles];
@@ -690,13 +698,17 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   const newCycleIds: string[] = [];
   const rebalanceExits = new Set<string>();
 
-  const openCycle = async (cycle: ReturnType<typeof newCycleState>, triggered: boolean) => {
+  const openCycle = async (
+    cycle: ReturnType<typeof newCycleState>,
+    triggered: boolean,
+    eventId = entryEventId,
+  ) => {
     const id = await insertCycle(tx, {
       userId: work.userId,
       runtimeId: work.id,
       seq: work.nextSeq,
       cycle,
-      entryTriggerEventId: triggered ? entryEventId : undefined,
+      entryTriggerEventId: triggered ? eventId : undefined,
       at: now,
     });
     newCycleIds.push(id);
@@ -708,7 +720,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       positions: new Map(),
       cash: ZERO,
       entries: new Map(),
-      entryTriggerEventId: triggered ? (entryEventId ?? null) : null,
+      entryTriggerEventId: triggered ? (eventId ?? null) : null,
       exitTriggerEventId: null,
     });
     const seq = work.nextSeq;
@@ -719,10 +731,15 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       action: 'runtime.entry_triggered',
       resourceType: 'strategy_cycle',
       resourceId: id,
-      context: { runtimeId: work.id, triggerEventId: entryEventId ?? null },
+      context: { runtimeId: work.id, triggerEventId: eventId ?? null },
     });
     if (triggered) {
-      const what = cycle.slot ? ` for ${symbolOf(cycle.slot.instrumentId)}` : '';
+      const label = groupLabel({ cycle });
+      const what = cycle.slot
+        ? ` for ${symbolOf(cycle.slot.instrumentId)}`
+        : label
+          ? ` (${label})`
+          : '';
       await notify(tx, {
         userId: work.userId,
         kind: 'triggered',
@@ -761,6 +778,45 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     } else if (entry.decision.kind === 'add_batch') {
       const target = cycles.find((c) => c.id === (entry.decision as { cycleId: string }).cycleId);
       if (target) target.cycle = { ...target.cycle, entryBatches: target.cycle.entryBatches + 1 };
+    }
+    // Further entry groups (v1.2 item 8), in order: one enters only while no
+    // cycle of any group is open, so a position is never flipped.
+    for (const g of def.groups ?? []) {
+      const gdef = groupDefinition(def, g.id);
+      const truth = newData && entryDue ? { truth: evaluate('entry', view, gdef) } : undefined;
+      const planned = planEntry({
+        definition: gdef,
+        state: state.groupTriggers?.[g.id] ?? newRuntimeTriggerState(),
+        active: cycles
+          .filter((c) => c.cycle.status !== 'closed' && c.cycle.status !== 'aborted')
+          .map((c) => ({ id: c.id, cycle: c.cycle })),
+        now: t,
+        entryTruth: truth,
+        halted: entryHalted,
+      });
+      state.groupTriggers = { ...state.groupTriggers, [g.id]: planned.state };
+      if (!truth) continue;
+      const eventId = randomUUID();
+      const opened =
+        planned.decision.kind === 'new_cycle'
+          ? await openCycle(
+              { ...newCycleState(planned.decision.triggered ? t : undefined), group: g.id },
+              planned.decision.triggered,
+              eventId,
+            )
+          : undefined;
+      await recordTriggerEvent(tx, {
+        id: eventId,
+        userId: work.userId,
+        runtimeId: work.id,
+        cycleId: opened,
+        phase: 'entry',
+        dataTime: new Date(dataTime),
+        evaluatedAt: now,
+        result: truth.truth,
+        qualified: planned.decision.kind !== 'none',
+        values: leafValues(gdef.entry.condition, view),
+      });
     }
   } else if (entryDue) {
     // Selection groups and per-leg conditions (v1.2 items 1, 2), as the back test does.
@@ -830,7 +886,9 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   for (const c of cycles) {
     const cycleDef = cycleDefinition(c);
     const exitTruth =
-      newData && c.cycle.status === 'open' ? { truth: evaluate('exit', cycleView(c)) } : undefined;
+      newData && c.cycle.status === 'open'
+        ? { truth: evaluate('exit', cycleView(c), cycleDef) }
+        : undefined;
     const plan = planCycle({
       definition: cycleDef,
       cycle: c.cycle,
@@ -851,7 +909,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         evaluatedAt: now,
         result: exitTruth.truth,
         qualified: plan.notes.includes('exit_triggered'),
-        values: leafValues(def.exit.condition, cycleView(c)),
+        values: leafValues(cycleDef.exit.condition, cycleView(c)),
       });
     }
 
@@ -889,7 +947,11 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         attempt: leg.attempt,
         dueAt: new Date(leg.dueAt),
         referenceKind: leg.reference.kind,
-        referenceId: referenceId(leg, c, entryEventId),
+        referenceId: referenceId(
+          leg,
+          c,
+          c.cycle.group ? (c.entryTriggerEventId ?? undefined) : entryEventId,
+        ),
       });
     }
 

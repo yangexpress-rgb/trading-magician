@@ -64,6 +64,9 @@ export interface BacktestTradeDto {
   legs: BacktestTradeLeg[];
   /** Why the cycle exited (v1.2); absent on older runs. */
   exitReason?: 'condition' | 'rebalance' | 'time_stop';
+  /** Two-sided strategies (v1.2 item 8): long or short, and the entry group's name. */
+  direction?: 'long' | 'short';
+  group?: string;
 }
 
 export interface BacktestListDto {

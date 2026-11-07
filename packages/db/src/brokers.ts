@@ -539,10 +539,13 @@ async function migrateStrategies(tx: Transaction, userId: string, from: string, 
     const def = structuredClone(r.definition) as {
       entry: { orders: Leg[] };
       exit: { orders: Leg[] };
+      groups?: { entry: { orders: Leg[] }; exit: { orders: Leg[] } }[];
     };
-    for (const leg of [...def.entry.orders, ...def.exit.orders]) {
-      if (leg.accountId === from) leg.accountId = to;
-    }
+    // The strategy's own legs and its entry groups' (v1.2 item 8).
+    for (const p of [def, ...(def.groups ?? [])])
+      for (const leg of [...p.entry.orders, ...p.exit.orders]) {
+        if (leg.accountId === from) leg.accountId = to;
+      }
     await updateStrategy(tx, userId, r.id, {
       rowVersion: r.rowVersion,
       definition: def as never,
