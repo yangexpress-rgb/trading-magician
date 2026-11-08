@@ -70,7 +70,7 @@ test('a switch whose chart is slow or fails never shows the previous instrumentâ
     .first()
     .click();
   await expect(page.getByRole('heading', { level: 2, name: /DEMO-A/ })).toBeVisible();
-  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.getByText('The prices could not be loaded.')).toBeVisible();
   await expect(chart).toHaveCount(0);
   await expect(page.getByTestId('chart-readout')).toHaveCount(0);
 });
