@@ -81,6 +81,14 @@ import type {
   RegisterLibraryEntryRequest,
 } from './library';
 import type {
+  AcceptedShareDto,
+  ShareDetailDto,
+  ShareListDto,
+  ShareMemberDto,
+  ShareStatusDto,
+  CreateShareRequest,
+} from './sharing';
+import type {
   CreateStrategyRequest,
   ListStrategiesQuery,
   PublishVersionDto,
@@ -224,6 +232,20 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
         call<ExecutionStatusDto>('POST', `/execution/runtimes/${enc(runtimeId)}/resume`),
       resolveIncident: (incidentId: string, body: { note?: string } = {}) =>
         call<ExecutionStatusDto>('POST', `/execution/incidents/${enc(incidentId)}/resolve`, body),
+    },
+    shares: {
+      list: (q: { box?: 'received' | 'sent'; status?: ShareStatusDto } = {}) =>
+        call<ShareListDto>('GET', `/shares${query(q)}`),
+      get: (id: string) => call<ShareDetailDto>('GET', `/shares/${enc(id)}`),
+      create: (body: CreateShareRequest) => call<ShareListDto>('POST', '/shares', body),
+      accept: (id: string) => call<AcceptedShareDto>('POST', `/shares/${enc(id)}/accept`),
+      decline: (id: string) => call<undefined>('POST', `/shares/${enc(id)}/decline`),
+      withdraw: (id: string) => call<undefined>('POST', `/shares/${enc(id)}/withdraw`),
+    },
+    members: {
+      lookup: (q: string) =>
+        call<{ member: ShareMemberDto | null }>('GET', `/members/lookup${query({ q })}`),
+      list: () => call<{ items: ShareMemberDto[] }>('GET', '/members'),
     },
     notifications: {
       list: (q: { unread?: boolean; limit?: number } = {}) =>

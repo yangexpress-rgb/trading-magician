@@ -1,5 +1,6 @@
 import {
   AdminIcon,
+  Badge,
   ChartIcon,
   LabIcon,
   LibraryIcon,
@@ -33,10 +34,13 @@ const ADMIN_NAV = { href: '/admin', label: 'Admin', icon: <AdminIcon /> } as con
 export function AppShell({
   email,
   isAdmin = false,
+  pendingShares = 0,
   children,
 }: {
   email: string;
   isAdmin?: boolean;
+  /** Shares waiting for the person's answer (ADR 0056). */
+  pendingShares?: number;
   children: ReactNode;
 }) {
   const nav = isAdmin ? [...PRIMARY_NAV, ADMIN_NAV] : PRIMARY_NAV;
@@ -69,8 +73,21 @@ export function AppShell({
             ))}
           </ul>
         </nav>
-        <div className="px-2 pb-2">
+        <div className="flex flex-wrap px-2 pb-2 md:flex-col">
           <NotificationsLink />
+          <NavLink
+            href="/sharing"
+            className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm text-ink-muted hover:bg-surface-2 hover:text-ink"
+            activeClassName="bg-surface-2 font-semibold !text-ink"
+          >
+            Sharing
+            {pendingShares > 0 && (
+              <Badge tone="info" icon={false}>
+                {pendingShares}
+                <span className="sr-only"> waiting for your answer</span>
+              </Badge>
+            )}
+          </NavLink>
         </div>
         <div className="hidden px-4 py-4 text-xs text-ink-muted md:absolute md:bottom-0 md:block md:w-full">
           <p className="truncate" title={email}>

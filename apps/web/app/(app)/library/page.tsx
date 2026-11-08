@@ -62,6 +62,7 @@ export default async function LibraryPage({
     maturity: one('maturity'),
     data: one('data'),
     status: one('status'),
+    mine: one('mine'),
     sort: one('sort'),
     direction: one('direction') ?? (one('sort') === 'registered' ? 'desc' : 'asc'),
   });
@@ -78,6 +79,8 @@ export default async function LibraryPage({
       maturity: q.maturity,
       dataNeed: q.data,
       status: q.status,
+      mine: q.mine,
+      viewerId: tenant.userId,
       sort: q.sort,
       direction: q.direction,
     })),
@@ -94,6 +97,7 @@ export default async function LibraryPage({
     q.side ||
     q.maturity ||
     q.data ||
+    q.mine ||
     q.status !== 'all',
   );
 
@@ -182,6 +186,11 @@ export default async function LibraryPage({
           <option value="all">Registered and retired</option>
           <option value="registered">Registered</option>
           <option value="retired">Retired</option>
+        </SelectField>
+        <SelectField label="Whose" name="mine" defaultValue={q.mine ?? ''}>
+          <option value="">Everyone’s</option>
+          <option value="registered">Registered by me</option>
+          <option value="shared">Shared with me</option>
         </SelectField>
         <SelectField label="Sort by" name="sort" defaultValue={q.sort}>
           {Object.entries(SORTS).map(([value, label]) => (

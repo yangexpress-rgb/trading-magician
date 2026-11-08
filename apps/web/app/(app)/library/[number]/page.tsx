@@ -20,6 +20,9 @@ import { notFound, redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { Markdown } from '@/components/library/markdown';
 import { RetireButton } from '@/components/library/retire-button';
+import { ShareButton } from '@/components/sharing/share-button';
+import { SharedBy } from '@/components/sharing/shared-by';
+import { isAdmin } from '@/lib/server/admin';
 import {
   ACTOR_LABELS,
   BUILT_LABELS,
@@ -96,6 +99,7 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
             ].join(' · ')}{' '}
             — letters read under convention {e.conventionVersion}, which issued this number.
           </p>
+          <SharedBy sharedBy={e.sharedBy} copiedFrom={e.copiedFrom} prefs={prefs} />
         </div>
         <div className="flex gap-2">
           <Link
@@ -104,6 +108,13 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
           >
             Edit
           </Link>
+          {!retired && (
+            <ShareButton
+              source={{ kind: 'library', number: e.registrationNumber }}
+              label={`${e.registrationNumber} ${e.name}`}
+              isAdmin={await isAdmin()}
+            />
+          )}
           {!retired && (
             <RetireButton registrationNumber={e.registrationNumber} rowVersion={e.rowVersion} />
           )}

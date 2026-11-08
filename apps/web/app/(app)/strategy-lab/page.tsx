@@ -24,6 +24,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { StrategyStatusBadge } from '@/components/strategy-status-badge';
 import { formatPct } from '@/lib/backtest-text';
+import { isAdmin } from '@/lib/server/admin';
 import { appDb } from '@/lib/server/db';
 import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
@@ -58,6 +59,7 @@ export default async function StrategyLabPage({
     status: one('status'),
     instrumentId: one('asset'),
     archived: one('archived'),
+    shared: one('shared'),
     sort: one('sort'),
     direction: one('sort') === 'name' ? 'asc' : 'desc',
   });
@@ -74,6 +76,7 @@ export default async function StrategyLabPage({
         statuses: q.status,
         instrumentId: q.instrumentId,
         archived: q.archived,
+        shared: q.shared,
         sort: q.sort,
         direction: q.direction,
         updatedFrom: days ? new Date(Date.now() - days * 86_400_000) : undefined,
@@ -98,7 +101,10 @@ export default async function StrategyLabPage({
       })),
     }),
   );
-  const filtered = Boolean(q.q || q.status || q.instrumentId || days || q.archived !== 'exclude');
+  const filtered = Boolean(
+    q.q || q.status || q.instrumentId || days || q.archived !== 'exclude' || q.shared,
+  );
+  const admin = await isAdmin();
 
   return (
     <>
@@ -158,6 +164,10 @@ export default async function StrategyLabPage({
             <option value="include">All</option>
           </SelectField>
         </div>
+        <SelectField label="Origin" name="shared" defaultValue={q.shared ? '1' : ''}>
+          <option value="">Any</option>
+          <option value="1">Shared with me</option>
+        </SelectField>
         <div className="col-span-full flex gap-2">
           <button type="submit" className={buttonClasses('secondary', 'sm')}>
             Apply filters
@@ -222,6 +232,11 @@ export default async function StrategyLabPage({
                         Archived
                       </Badge>
                     )}
+                    {s.shared && (
+                      <Badge tone="info" icon={false} className="ml-2">
+                        Shared
+                      </Badge>
+                    )}
                     {s.tags.length > 0 && (
                       <p className="mt-0.5 text-xs text-ink-muted">{s.tags.join(' · ')}</p>
                     )}
@@ -246,7 +261,9 @@ export default async function StrategyLabPage({
                         status: s.status,
                         archived: s.archivedAt !== null,
                         rowVersion: s.rowVersion,
+                        libraryNumber: s.libraryNumber,
                       }}
+                      isAdmin={admin}
                     />
                   </Td>
                 </tr>

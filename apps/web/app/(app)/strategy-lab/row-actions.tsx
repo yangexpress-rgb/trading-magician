@@ -5,6 +5,7 @@ import type { StrategyStatus } from '@tm/domain';
 import { Alert, Button, Dialog, TextField } from '@tm/ui';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { ShareButton } from '@/components/sharing/share-button';
 import { apiClient } from '@/lib/api-client';
 
 interface RowStrategy {
@@ -13,6 +14,8 @@ interface RowStrategy {
   status: StrategyStatus;
   archived: boolean;
   rowVersion: number;
+  /** Its Library number; only numbered strategies can be shared (ADR 0056). */
+  libraryNumber: string | null;
 }
 
 type Mode = 'rename' | 'delete' | null;
@@ -23,7 +26,13 @@ const message = (e: unknown) =>
     : 'Something went wrong. Try again.';
 
 /** Library row actions (§6.1): rename, duplicate, archive or restore, delete. */
-export function RowActions({ strategy }: { strategy: RowStrategy }) {
+export function RowActions({
+  strategy,
+  isAdmin = false,
+}: {
+  strategy: RowStrategy;
+  isAdmin?: boolean;
+}) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>(null);
   const [pending, setPending] = useState(false);
@@ -56,6 +65,15 @@ export function RowActions({ strategy }: { strategy: RowStrategy }) {
       >
         Rename
       </Button>
+      {strategy.libraryNumber && (
+        <ShareButton
+          source={{ kind: 'lab', strategyId: strategy.id }}
+          label={`${strategy.libraryNumber} ${strategy.name}`}
+          isAdmin={isAdmin}
+          variant="ghost"
+          size="sm"
+        />
+      )}
       <Button
         size="sm"
         variant="ghost"

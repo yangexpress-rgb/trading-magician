@@ -218,6 +218,9 @@ export const NOTIFICATION_KINDS = [
   'risk_pause',
   'reconciliation_mismatch',
   'billing',
+  'share_received',
+  'share_accepted',
+  'share_declined',
 ] as const;
 export type NotificationKindDto = (typeof NOTIFICATION_KINDS)[number];
 

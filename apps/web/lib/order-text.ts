@@ -162,4 +162,7 @@ export const NOTIFICATION_LABELS: Record<NotificationKindDto, { label: string; t
   risk_pause: { label: 'Paused', tone: 'warn' },
   reconciliation_mismatch: { label: 'Mismatch', tone: 'danger' },
   billing: { label: 'Billing', tone: 'info' },
+  share_received: { label: 'Shared with you', tone: 'info' },
+  share_accepted: { label: 'Share accepted', tone: 'ok' },
+  share_declined: { label: 'Share declined', tone: 'neutral' },
 };
