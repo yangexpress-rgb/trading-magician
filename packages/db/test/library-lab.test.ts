@@ -291,6 +291,8 @@ describe('Strategy Lab numbering', () => {
       'Renamed rotation': 'SMS-0002',
       'Trend — SPY SMA200': 'SDS-0021',
     });
+    const found = await asA((tx) => listStrategies(tx, { search: 'sds-0021' }));
+    expect(found.items.map((i) => i.name)).toEqual(['Trend — SPY SMA200']);
   });
 
   it('deleting a linked strategy reverts its entry; the record and number stay', async () => {
