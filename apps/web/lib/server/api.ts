@@ -228,11 +228,10 @@ export function api<P extends Record<string, string> = Record<string, never>>(
         return errorResponse('unavailable', 'Secure credential storage is not set up correctly');
       }
       if (error instanceof LibraryError) {
-        return errorResponse(
-          error.code,
-          error.message,
-          error.issues ? { issues: error.issues } : {},
-        );
+        return errorResponse(error.code, error.message, {
+          ...(error.issues ? { issues: error.issues } : {}),
+          ...(error.details !== undefined ? { details: error.details } : {}),
+        });
       }
       if (error instanceof StrategyError) {
         return errorResponse(error.code, error.message, {

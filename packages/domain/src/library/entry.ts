@@ -350,6 +350,49 @@ export const LIBRARY_V2_FIELD_NAMES = [
   'dataNeeds',
   'universe',
 ] as const;
+export type LibraryV2FieldName = (typeof LIBRARY_V2_FIELD_NAMES)[number];
+
+/** How the edit form and its errors name each v2 field. */
+export const LIBRARY_V2_FIELD_LABELS: Record<LibraryV2FieldName, string> = {
+  direction: 'Direction',
+  parameters: 'Parameters',
+  positionSizing: 'Position sizing',
+  stopLoss: 'Stop loss',
+  rebalanceSchedule: 'Rebalance schedule',
+  maturity: 'Maturity',
+  keyRisks: 'Key risks',
+  dataNeeds: 'Data needs',
+  universe: 'Universe',
+};
+
+/**
+ * True when a v2 field holds nothing: what a form that failed to load the
+ * field would send. Maturity's empty value is its default, Researched; a
+ * method, schedule or kind is empty at Not specified with no detail.
+ */
+export function isEmptyLibraryV2Value(field: LibraryV2FieldName, value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  switch (field) {
+    case 'parameters':
+    case 'dataNeeds':
+      return Array.isArray(value) && value.length === 0;
+    case 'keyRisks':
+      return typeof value === 'string' && value.trim() === '';
+    case 'direction':
+      return value === '';
+    case 'maturity':
+      return value === 'researched';
+    case 'positionSizing':
+    case 'stopLoss':
+    case 'rebalanceSchedule':
+    case 'universe': {
+      const v = value as Record<string, unknown>;
+      const choice = v.method ?? v.schedule ?? v.kind;
+      const detail = typeof v.detail === 'string' ? v.detail.trim() : '';
+      return (choice === undefined || choice === 'unspecified') && detail === '';
+    }
+  }
+}
 
 /** Fields every entry carries, whether registering or editing. */
 export const libraryEntryFields = z
@@ -391,6 +434,15 @@ export const editLibraryEntrySchema = libraryEntryFields
   .extend({
     changeNote: text('Change note', 500),
     rowVersion: z.number().int().positive(),
+    /**
+     * The v2 fields the editor emptied on purpose. A save that empties a
+     * stored field not named here is refused: the form most likely failed to
+     * load it, and saving would wipe it silently.
+     */
+    clearedFields: z
+      .array(z.enum(LIBRARY_V2_FIELD_NAMES))
+      .max(LIBRARY_V2_FIELD_NAMES.length)
+      .default([]),
   })
   .strict();
 export type EditLibraryEntryInput = z.input<typeof editLibraryEntrySchema>;

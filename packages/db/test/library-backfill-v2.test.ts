@@ -1,11 +1,17 @@
 import { DEFAULT_BACKTEST_INPUTS } from '@tm/backtest';
-import { createDefinition, type StrategyDefinition } from '@tm/domain';
+import {
+  createDefinition,
+  isEmptyLibraryV2Value,
+  type LibraryV2FieldName,
+  type StrategyDefinition,
+} from '@tm/domain';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startBacktest } from '../src/backtests';
 import type { Transaction } from '../src/client';
 import {
   getLibraryEntry,
+  LibraryError,
   listLibraryEntries,
   registerLibraryEntry,
   updateLibraryEntry,
@@ -393,6 +399,99 @@ describe('Editing a v2 field', () => {
       direction: 'long_short',
       universe: { kind: 'list', detail: 'PEP and KO' },
     });
+  });
+
+  it('refuses a save that would clear parameters the form did not load', async () => {
+    const e = (await entryOf('S00005-SD'))!;
+    expect(e.parameters).toEqual([
+      { name: 'Entry channel', value: '20', unit: 'days' },
+      { name: 'Exit channel', value: '10', unit: 'days' },
+    ]);
+    const refused = await asA((tx) =>
+      updateLibraryEntry(tx, userA, 'S00005-SD', {
+        ...editable(e),
+        parameters: [],
+        longDescription: `${e.longDescription} More.`,
+        changeNote: 'Unrelated edit from a form that lost its parameters',
+        rowVersion: e.rowVersion,
+      }),
+    ).then(
+      () => null,
+      (err: unknown) => err,
+    );
+    expect(refused).toBeInstanceOf(LibraryError);
+    expect(refused).toMatchObject({
+      code: 'conflict',
+      details: { reason: 'unloaded_fields', fields: ['parameters'] },
+      issues: [{ path: ['parameters'] }],
+    });
+    expect((refused as LibraryError).message).toMatch(/Parameters did not load/);
+    // Nothing was written.
+    const after = (await entryOf('S00005-SD'))!;
+    expect(after.parameters).toEqual(e.parameters);
+    expect(after.rowVersion).toBe(e.rowVersion);
+    expect(after.longDescription).toBe(e.longDescription);
+  });
+
+  it('refuses to empty any other stored profile field unless it is named as cleared', async () => {
+    const e = (await entryOf('S00004-SD'))!;
+    const emptied = {
+      direction: null,
+      positionSizing: null,
+      stopLoss: null,
+      rebalanceSchedule: null,
+      universe: null,
+      keyRisks: '',
+      dataNeeds: [],
+      maturity: 'researched' as const,
+    };
+    const stored = (Object.keys(emptied) as LibraryV2FieldName[]).filter(
+      (f) => !isEmptyLibraryV2Value(f, (e as unknown as Record<string, unknown>)[f]),
+    );
+    expect(stored.length).toBeGreaterThan(0);
+    const refused = await asA((tx) =>
+      updateLibraryEntry(tx, userA, 'S00004-SD', {
+        ...editable(e),
+        ...emptied,
+        changeNote: 'Lost fields',
+        rowVersion: e.rowVersion,
+      }),
+    ).then(
+      () => null,
+      (err: unknown) => err as LibraryError,
+    );
+    expect(refused?.code).toBe('conflict');
+    expect([...(refused?.details as { fields: string[] }).fields].sort()).toEqual(stored.sort());
+  });
+
+  it('clears parameters when the editor removed them on purpose', async () => {
+    const e = (await entryOf('S00006-SD'))!;
+    expect(e.parameters.length).toBeGreaterThan(0);
+    const saved = await asA((tx) =>
+      updateLibraryEntry(tx, userA, 'S00006-SD', {
+        ...editable(e),
+        parameters: [],
+        clearedFields: ['parameters'],
+        changeNote: 'Remove the parameters',
+        rowVersion: e.rowVersion,
+      }),
+    );
+    expect(saved.changedFields).toEqual(['parameters']);
+    expect((await entryOf('S00006-SD'))!.parameters).toEqual([]);
+  });
+
+  it('an unrelated edit keeps the parameters and does not list them as changed', async () => {
+    const e = (await entryOf('S00005-SD'))!;
+    const saved = await asA((tx) =>
+      updateLibraryEntry(tx, userA, 'S00005-SD', {
+        ...editable(e),
+        longDescription: `${e.longDescription} More.`,
+        changeNote: 'Longer description',
+        rowVersion: e.rowVersion,
+      }),
+    );
+    expect(saved.changedFields).toEqual(['longDescription']);
+    expect((await entryOf('S00005-SD'))!.parameters).toEqual(e.parameters);
   });
 
   it('refuses an eleventh parameter and an unknown data need', async () => {
