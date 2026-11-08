@@ -13,7 +13,7 @@ import {
 
 const PHASE_TITLE: Record<PhaseName, string> = { entry: 'Entry', exit: 'Exit' };
 
-/** Label–value rows; `data` sets every value in the data text role (N127). */
+/** Label–value rows; `data` sets every value in the data text role (N128). */
 function Rows({ rows, data = false }: { rows: [string, string][]; data?: boolean }) {
   return (
     <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[12rem_1fr]">

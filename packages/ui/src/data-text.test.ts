@@ -17,7 +17,7 @@ function host(el: El): El {
 
 const classes = (el: El) => (el.props.className ?? '').split(/\s+/);
 
-describe('data text role (N125–N131)', () => {
+describe('data text role (N126–N132)', () => {
   it('TdNumeric renders a right-aligned cell with tabular figures', () => {
     const td = host(TdNumeric({ children: '+24.93%' }) as El);
     expect(td.type).toBe('td');

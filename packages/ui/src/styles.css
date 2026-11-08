@@ -140,7 +140,7 @@
 
 /*
  * Data text role (design brief "make transactional data look different from
- * titles", N125-N131). Every value the user entered or the app produced
+ * titles", N126-N132). Every value the user entered or the app produced
  * (amounts, prices, quantities, percentages, dates, counts, durations) is set
  * in `text-data`: the same sans stack as titles, but with tabular (fixed-width)
  * figures so digits line up down a column, at medium weight in `ink`.
@@ -171,7 +171,7 @@
 
 /*
  * Numeric form fields: what the user types is right-aligned with tabular
- * figures, so it looks like the data it becomes (N128). Boxes, labels and help
+ * figures, so it looks like the data it becomes (N129). Boxes, labels and help
  * text are unchanged.
  */
 @layer base {

@@ -19,7 +19,7 @@ export function Table({ children, label }: { children: ReactNode; label: string 
 
 /**
  * Column header. `numeric` right-aligns it over a numeric column so the header
- * sits on the same edge as the figures below it (data text role, N125).
+ * sits on the same edge as the figures below it (data text role, N126).
  */
 export function Th({
   children,
@@ -47,7 +47,7 @@ export function Th({
 /**
  * Table cell. `numeric` marks a cell that shows a number (amount, price,
  * quantity, percentage, count): right-aligned in the data text role with
- * tabular figures, so a column of numbers lines up on one edge (N126). Text
+ * tabular figures, so a column of numbers lines up on one edge (N127). Text
  * columns stay left-aligned; no column is centred.
  */
 export function Td({

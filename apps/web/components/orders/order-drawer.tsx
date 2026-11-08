@@ -39,7 +39,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-/** Label–value rows. Terms in `data` show their value in the data text role (N127). */
+/** Label–value rows. Terms in `data` show their value in the data text role (N128). */
 function Pairs({
   rows,
   data = [],

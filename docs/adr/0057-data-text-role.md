@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-08
-- **Design refs:** §5.1, §15; design v1.2 rows N125 to N131, open points O100 to O102; the design
+- **Design refs:** §5.1, §15; design v1.2 rows N126 to N132, open points O101 to O103; the design
   brief "Make transactional data look different from titles" (Yong, 2026-11-08, decisions D1 to
   D7)
 
@@ -36,6 +36,6 @@ decided on its own.
 
 - No webfont, no new colour token, no new font size, no dependency, no data or API change.
   Formatted values read exactly as before.
-- Units stay where the formatters put them (O101); a dedicated data font is left open (O100).
+- Units stay where the formatters put them (O102); a dedicated data font is left open (O101).
 - `apps/web/vitest.config.ts` now compiles JSX and resolves `@/`, so web tests can render a
   component to static markup (used by the back test runs table test).

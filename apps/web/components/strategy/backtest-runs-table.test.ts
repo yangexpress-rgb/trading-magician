@@ -39,7 +39,7 @@ function render(runs: BacktestRunSummaryDto[]): string {
   return renderToStaticMarkup(createElement(RunHistory, { state }));
 }
 
-describe('back test runs table (data text role, N126)', () => {
+describe('back test runs table (data text role, N127)', () => {
   it('sets the Net return column right-aligned with tabular figures, header included', () => {
     const html = render([run('r1', '24.93')]);
     expect(html).toMatch(/<th scope="col" class="[^"]*text-right[^"]*">Net return<\/th>/);

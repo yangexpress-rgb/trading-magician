@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { cx } from './cx';
 
 /**
- * One value with its label (data text role, N129). The label is muted meta
+ * One value with its label (data text role, N130). The label is muted meta
  * text; the value is set in `text-data` (tabular figures), or in
  * `text-data-strong` when it is the single primary figure on a card or page.
  * A missing value shows "—", never 0 or a blank.
