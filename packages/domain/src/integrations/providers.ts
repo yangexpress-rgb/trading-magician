@@ -16,10 +16,11 @@ export interface ProviderInfo {
   /**
    * What a connection to this provider can be used for: prices (market
    * data), trading (broker), company financials and profiles
-   * (fundamentals, ADR 0031), or daily option-chain snapshots (options,
-   * ADR 0047); the last two have no routes.
+   * (fundamentals, ADR 0031), daily option-chain snapshots (options,
+   * ADR 0047), or the forward earnings calendar (earnings, ADR 0058); the
+   * last three have no routes.
    */
-  offers: readonly ('market_data' | 'broker' | 'fundamentals' | 'options')[];
+  offers: readonly ('market_data' | 'broker' | 'fundamentals' | 'options' | 'earnings' | 'deals')[];
   /** Asset classes it can price or trade (US stocks and ETFs, and indices to watch). */
   assetClasses: readonly string[];
   /**
@@ -96,7 +97,7 @@ export const PROVIDERS = {
   sec: {
     id: 'sec',
     name: 'SEC EDGAR',
-    offers: ['fundamentals'],
+    offers: ['fundamentals', 'deals'],
     assetClasses: ['stock'],
     coverage: 'us',
     credentialFields: [
@@ -104,6 +105,36 @@ export const PROVIDERS = {
         name: 'contactEmail',
         label: 'Contact email',
         help: 'EDGAR is free and needs no key, but the SEC asks every app to name a contact. It is sent only to the SEC.',
+      },
+    ],
+  },
+  // Free-tier earnings calendars (free data feeds brief v1 D1, D6; ADR 0058):
+  // convenience data for a prototype, used by the worker only, never shown raw.
+  fmp: {
+    id: 'fmp',
+    name: 'Financial Modeling Prep (earnings calendar, free tier)',
+    offers: ['earnings'],
+    assetClasses: ['stock'],
+    coverage: 'us',
+    credentialFields: [
+      {
+        name: 'apiKey',
+        label: 'API key',
+        help: 'From your FMP dashboard (the free tier is enough). It is sealed and only ever sent to FMP, by the worker.',
+      },
+    ],
+  },
+  finnhub: {
+    id: 'finnhub',
+    name: 'Finnhub (earnings calendar, free tier)',
+    offers: ['earnings'],
+    assetClasses: ['stock'],
+    coverage: 'us',
+    credentialFields: [
+      {
+        name: 'apiKey',
+        label: 'API key',
+        help: 'From your Finnhub dashboard (the free tier is enough). It is sealed and only ever sent to Finnhub, by the worker.',
       },
     ],
   },
@@ -157,7 +188,16 @@ export function isOptionsProvider(id: string): id is ProviderId {
   return isProviderId(id) && (PROVIDERS[id].offers as readonly string[]).includes('options');
 }
 
+/**
+ * Whether a provider gives the forward earnings calendar (ADR 0058): the
+ * worker's nightly fetch reads the platform admin's key; nothing is routed.
+ */
+export function isEarningsProvider(id: string): id is ProviderId {
+  return isProviderId(id) && (PROVIDERS[id].offers as readonly string[]).includes('earnings');
+}
+
 export const FUNDAMENTALS_PROVIDER_IDS = PROVIDER_IDS.filter(isFundamentalsProvider);
+export const EARNINGS_PROVIDER_IDS = PROVIDER_IDS.filter(isEarningsProvider);
 export const OPTIONS_PROVIDER_IDS = PROVIDER_IDS.filter(isOptionsProvider);
 export const MARKET_DATA_PROVIDER_IDS = PROVIDER_IDS.filter(isMarketDataProvider);
 

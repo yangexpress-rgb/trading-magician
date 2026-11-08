@@ -10,6 +10,7 @@ import {
 } from './evaluate';
 import {
   computeMetric,
+  isEventMetric,
   isFundamentalMetric,
   isOptionsMetric,
   metricExprRef,
@@ -515,6 +516,32 @@ export function optionInstruments(
   if (definitionMetrics(def).some((r) => isOptionsMetric(r.metric)))
     for (const c of contexts) ids.add(c);
   return [...ids];
+}
+
+/**
+ * Instruments whose earnings, deal or rate data a definition reads (free
+ * data feeds brief v1 §6), "this instrument" expanded to every member or leg,
+ * with the metric ids read for each.
+ */
+export function eventInstruments(
+  def: StrategyDefinition,
+  members: readonly string[] = [],
+): Map<string, Set<string>> {
+  const contexts = contextInstruments(def, members);
+  const out = new Map<string, Set<string>>();
+  const add = (id: string, metric: string) => {
+    const set = out.get(id) ?? new Set<string>();
+    set.add(metric);
+    out.set(id, set);
+  };
+  for (const e of definitionExpressions(def)) {
+    if (e.kind !== 'metric' || !isEventMetric(e.metric)) continue;
+    if (e.instrumentId === CONTEXT_INSTRUMENT_ID) for (const c of contexts) add(c, e.metric);
+    else add(e.instrumentId, e.metric);
+  }
+  for (const r of definitionMetrics(def))
+    if (isEventMetric(r.metric)) for (const c of contexts) add(c, r.metric);
+  return out;
 }
 
 /** Whether a definition uses any options metric (it then needs the options feed). */

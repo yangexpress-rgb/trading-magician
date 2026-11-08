@@ -10,7 +10,9 @@ import {
 import {
   customHealthCheckSeconds,
   formatDateTime,
+  EARNINGS_PROVIDER_IDS,
   FUNDAMENTALS_PROVIDER_IDS,
+  isEarningsProvider,
   isFundamentalsProvider,
   isOptionsProvider,
   OPTIONS_PROVIDER_IDS,
@@ -43,15 +45,25 @@ import {
   type CustomKeyState,
 } from './custom-feed-fields';
 
-/** Price feeds are routed; company data (ADR 0031) and options data (ADR 0047) feeds are not. */
-type FeedKind = 'prices' | 'company' | 'options';
+/**
+ * Price feeds are routed; company data (ADR 0031), options data (ADR 0047)
+ * and earnings calendar (ADR 0058) feeds are not.
+ */
+type FeedKind = 'prices' | 'company' | 'options' | 'earnings';
 const PROVIDERS_FOR: Record<FeedKind, readonly string[]> = {
   prices: MARKET_DATA_PROVIDER_IDS,
   company: FUNDAMENTALS_PROVIDER_IDS,
   options: OPTIONS_PROVIDER_IDS,
+  earnings: EARNINGS_PROVIDER_IDS,
 };
 const kindOf = (provider: string): FeedKind =>
-  isFundamentalsProvider(provider) ? 'company' : isOptionsProvider(provider) ? 'options' : 'prices';
+  isFundamentalsProvider(provider)
+    ? 'company'
+    : isOptionsProvider(provider)
+      ? 'options'
+      : isEarningsProvider(provider)
+        ? 'earnings'
+        : 'prices';
 
 const message = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
 
@@ -142,6 +154,7 @@ export function FeedsView({
   const priceFeeds = data?.feeds.filter((f) => kindOf(f.provider) === 'prices') ?? [];
   const companyFeeds = data?.feeds.filter((f) => kindOf(f.provider) === 'company') ?? [];
   const optionsFeeds = data?.feeds.filter((f) => kindOf(f.provider) === 'options') ?? [];
+  const earningsFeeds = data?.feeds.filter((f) => kindOf(f.provider) === 'earnings') ?? [];
   // Company pages and the screener use the oldest company data feed that is on.
   const companyInUse = companyFeeds.find((f) => f.isActive)?.id;
 
@@ -149,6 +162,7 @@ export function FeedsView({
     const health = HEALTH_LABELS[f.health];
     const company = kindOf(f.provider) === 'company';
     const options = kindOf(f.provider) === 'options';
+    const earnings = kindOf(f.provider) === 'earnings';
     return (
       <li key={f.id} aria-label={f.name} className="rounded-lg border border-line bg-surface p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -158,6 +172,7 @@ export function FeedsView({
               <Badge tone="neutral">{providerName(f.provider)}</Badge>
               {company && <Badge tone="info">Company data</Badge>}
               {options && <Badge tone="info">Options data</Badge>}
+              {earnings && <Badge tone="info">Earnings calendar</Badge>}
               <Badge tone={f.isActive ? 'ok' : 'neutral'}>{f.isActive ? 'On' : 'Off'}</Badge>
               <Badge tone={f.checking ? 'info' : health.tone}>
                 {f.checking ? 'Testing…' : health.label}
@@ -166,6 +181,8 @@ export function FeedsView({
                 <span>Updated as companies file</span>
               ) : options ? (
                 <span>Delayed · recorded once a day after the close</span>
+              ) : earnings ? (
+                <span>Fetched once a night · free tier · prototype use only</span>
               ) : (
                 <>
                   <span>{f.isRealtime ? 'Real-time' : 'Delayed'}</span>
@@ -178,7 +195,9 @@ export function FeedsView({
                 ? 'Company profiles, five years of annual financials and recent filings for US-listed companies'
                 : options
                   ? 'End-of-day options signals (expected move, IV30, IV rank, skew, gamma exposure) for the recorded US stocks and ETFs, worked out by the app'
-                  : f.assetClasses.map((a) => ASSET_CLASS_LABELS[a] ?? a).join(', ')}
+                  : earnings
+                    ? 'Scheduled earnings dates and consensus estimates for the next 90 days, for "Days to next earnings" and "Earnings surprise (%)"'
+                    : f.assetClasses.map((a) => ASSET_CLASS_LABELS[a] ?? a).join(', ')}
               {f.credential ? ` · ${company ? 'Uses' : 'Signs in with'} ${f.credential.label}` : ''}
             </p>
             {f.config && (
@@ -244,7 +263,7 @@ export function FeedsView({
             </Button>
           </div>
         </div>
-        {!company && !options && data && (
+        {!company && !options && !earnings && data && (
           <FeedRoutes
             feed={f}
             routes={data.routes}
@@ -339,6 +358,37 @@ export function FeedsView({
         {optionsFeeds.length > 0 && (
           <ul aria-label="Options data feeds" className="space-y-3">
             {optionsFeeds.map((f) => renderFeed(f))}
+          </ul>
+        )}
+      </section>
+
+      <section aria-labelledby="earnings-feeds-heading" className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 id="earnings-feeds-heading" className="text-lg font-semibold">
+            Earnings calendar feeds
+          </h2>
+          <Button onClick={() => setAdding('earnings')}>Add an earnings calendar feed</Button>
+        </div>
+        <p className="text-sm text-ink-muted">
+          Earnings releases, the time-series earnings surprise (SUE) and merger deals come from the
+          app’s own record of SEC EDGAR filings and need no feed. A calendar feed adds what is
+          scheduled next and the consensus estimate, from FMP’s or Finnhub’s free tier: convenience
+          data for this prototype, fetched once a night by the worker with a platform admin’s key
+          and never shown raw. Without one, the app runs in EDGAR-only mode and “Days to next
+          earnings” and “Earnings surprise (%)” stay unknown.
+        </p>
+        {data && earningsFeeds.length === 0 && (
+          <div className="rounded-lg border border-dashed border-line p-4 text-sm">
+            <p className="font-medium">EDGAR-only mode</p>
+            <p className="mt-1 text-ink-muted">
+              No earnings calendar feed. Add FMP or Finnhub with a free-tier API key to fill in the
+              forward calendar.
+            </p>
+          </div>
+        )}
+        {earningsFeeds.length > 0 && (
+          <ul aria-label="Earnings calendar feeds" className="space-y-3">
+            {earningsFeeds.map((f) => renderFeed(f))}
           </ul>
         )}
       </section>
@@ -679,7 +729,11 @@ function FeedDialog({
   const keysForProvider = keys.filter((k) => k.provider === provider);
   const addingKey = needsKey && (credentialId === 'new' || keysForProvider.length === 0);
   const company = kind === 'company';
-  const defaultKeyLabel = company ? `${info.name} contact` : `${info.name} paper key`;
+  const defaultKeyLabel = company
+    ? `${info.name} contact`
+    : kind === 'earnings'
+      ? `${info.name.split(' (')[0]} key`
+      : `${info.name} paper key`;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -746,20 +800,24 @@ function FeedDialog({
             ? 'Add a company data feed'
             : kind === 'options'
               ? 'Add an options data feed'
-              : 'Add a data feed'
+              : kind === 'earnings'
+                ? 'Add an earnings calendar feed'
+                : 'Add a data feed'
       }
       description={
         feed
           ? undefined
           : kind === 'options'
             ? 'End-of-day options signals the app works out from CBOE’s delayed option chains, for strategy conditions. It is tested as soon as you save it.'
-            : company
-              ? 'Company profiles and reported financials from public filings. It is tested as soon as you save it.'
-              : custom
-                ? 'Any JSON price API, described here: no code change per provider. Test it with a symbol before saving; the app fetches it on the server, never from your browser.'
-                : provider === 'cboe'
-                  ? 'CBOE’s free daily history of the VIX, for conditions that watch it. Daily bars only, no live prices, and indices are never traded. It is tested as soon as you save it.'
-                  : 'It is tested as soon as you save it.'
+            : kind === 'earnings'
+              ? 'The forward earnings calendar from a free-tier key. The worker fetches the next 90 days once a night with the platform admin’s key; its health shows how that fetch went.'
+              : company
+                ? 'Company profiles and reported financials from public filings. It is tested as soon as you save it.'
+                : custom
+                  ? 'Any JSON price API, described here: no code change per provider. Test it with a symbol before saving; the app fetches it on the server, never from your browser.'
+                  : provider === 'cboe'
+                    ? 'CBOE’s free daily history of the VIX, for conditions that watch it. Daily bars only, no live prices, and indices are never traded. It is tested as soon as you save it.'
+                    : 'It is tested as soon as you save it.'
       }
     >
       <form onSubmit={(e) => void save(e)} className="space-y-3" autoComplete="off">
@@ -797,7 +855,7 @@ function FeedDialog({
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        {!company && kind !== 'options' && (
+        {!company && kind !== 'options' && kind !== 'earnings' && (
           <fieldset>
             <legend className="text-sm font-medium">Asset classes</legend>
             <div className="mt-1 flex gap-4">

@@ -71,6 +71,7 @@ import { ConditionRecorder, whyNotFired } from './explain';
 import { describeAssumptions, type BacktestInputs } from './inputs';
 import { MarketView } from './market';
 import { describeCoverage, optionsCoverage } from './options-coverage';
+import { describeEarningsCoverage } from './events-coverage';
 import { computeMetrics } from './metrics';
 import {
   ENGINE_VERSION,
@@ -285,7 +286,7 @@ export function simulate({
   const v12 = mode !== 'none' || frequency !== 'daily' || (def.exit.rules?.length ?? 0) > 0;
   for (const w of data.warnings) warnings.add(`data:${w}`, w);
   const watchOnly = watchOnlyInstruments(instruments);
-  const view = new MarketView(data.series, watchOnly, data.fundamentals, data.options);
+  const view = new MarketView(data.series, watchOnly, data.fundamentals, data.options, data.events);
   const ex = def.execution;
   const risk = def.risk;
   const slippageBps = new Decimal(inputs.slippageBps);
@@ -330,6 +331,10 @@ export function simulate({
   if (data.options && steps.length > 0)
     for (const c of optionsCoverage(steps, data.options, symbol))
       warnings.add(`options_coverage:${c.instrumentId}`, describeCoverage(c));
+  // Earnings metrics read the latest release: say how many bars had one (ADR 0058).
+  if (data.events && steps.length > 0)
+    for (const c of describeEarningsCoverage(steps, data.events, symbol))
+      warnings.add(`earnings_coverage:${c.instrumentId}`, c.text);
 
   let cash = initial;
   const portfolio = new Map<string, Decimal>();

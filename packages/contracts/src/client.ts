@@ -53,6 +53,8 @@ import type {
   OptionChainDto,
   OptionHistoryDto,
   CreateStockScreenRequest,
+  DealListDto,
+  EarningsDto,
   PriceChartDto,
   StockScreenDataDto,
   StockScreenDto,
@@ -333,6 +335,10 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
       /** The symbol's recorded daily IV30 and latest signal row. */
       optionHistory: (symbol: string) =>
         call<OptionHistoryDto>('GET', `/research/option-chains/${enc(symbol)}/history`),
+      /** A symbol's earnings releases and SUE from EDGAR, and the next scheduled date (ADR 0058). */
+      earnings: (symbol: string) => call<EarningsDto>('GET', `/research/earnings/${enc(symbol)}`),
+      /** The deal tracker's deals; active ones only unless `all`. */
+      deals: (all = false) => call<DealListDto>('GET', `/research/deals${all ? '?all=1' : ''}`),
     },
   };
 }

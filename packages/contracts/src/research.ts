@@ -137,3 +137,64 @@ export interface OptionHistoryDto {
   points: { date: string; iv30: number | null; source: OptionSignalSource }[];
   latest: { date: string; values: OptionSignalValues; source: OptionSignalSource } | null;
 }
+
+/** How far an event job has got (ADR 0058), for the Research views to say what the record covers. */
+export interface EventJobStatusDto {
+  job: string;
+  status: 'pending' | 'running' | 'done' | 'skipped' | 'failed';
+  coveredFrom: string | null;
+  coveredTo: string | null;
+  lastOkAt: string | null;
+  note: string | null;
+}
+
+/** One reported release with its SUE, from the app's record of EDGAR filings (ADR 0058). */
+export interface EarningsReleaseDto {
+  fiscalQuarterEnd: string;
+  announcedAt: string;
+  announcedDate: string;
+  timeKnown: boolean;
+  reportedEps: number | null;
+  estimatedEps: number | null;
+  surprisePct: number | null;
+  epsQMinus4: number | null;
+  diffSd: number | null;
+  sue: number | null;
+  sueSource: 'rebuilt' | 'recorded' | null;
+  filingUrl: string;
+}
+
+/** Research › Earnings for a symbol: its latest releases and the next scheduled date. */
+export interface EarningsDto {
+  symbol: string;
+  releases: EarningsReleaseDto[];
+  /** Null in EDGAR-only mode, or when nothing is scheduled. */
+  next: { date: string; timeHint: string | null; provider: string } | null;
+  /** 'edgar_only' unless the nightly calendar fetch has run. */
+  calendar: 'edgar_only' | 'on';
+  scan: EventJobStatusDto[];
+}
+
+/** One deal of the app's EDGAR tracker (ADR 0058). */
+export interface DealDto {
+  dealId: string;
+  targetSymbol: string | null;
+  targetName: string;
+  acquirerName: string | null;
+  announcedDate: string;
+  offerPrice: number | null;
+  consideration: 'cash' | 'stock' | 'mixed' | 'unknown';
+  status: 'announced' | 'pending' | 'closed' | 'withdrawn';
+  confidence: 'high' | 'low';
+  parseNote: string | null;
+  sourceFilingUrl: string;
+  /** The target's latest stored close and the spread it gives; null when unknown. */
+  close: number | null;
+  closeDate: string | null;
+  spreadPct: number | null;
+}
+
+export interface DealListDto {
+  deals: DealDto[];
+  scan: EventJobStatusDto[];
+}

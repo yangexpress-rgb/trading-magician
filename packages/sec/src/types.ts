@@ -47,7 +47,11 @@ export interface SecSubmissions {
       primaryDocDescription: string[];
       /** When EDGAR accepted each filing (New York wall time written with a Z). */
       acceptanceDateTime?: string[];
+      /** 8-K item numbers per filing, comma-separated ("2.02,9.01"); empty for other forms. */
+      items?: string[];
     };
+    /** Older filings, one file each, when `recent` doesn't reach back far enough. */
+    files?: { name: string; filingCount: number; filingFrom: string; filingTo: string }[];
   };
 }
 
@@ -107,4 +111,27 @@ export interface SecFrame {
     end: string;
     val: number;
   }[];
+}
+
+/** One page of an older submissions file (data.sec.gov/submissions/CIK…-submissions-001.json). */
+export type SecSubmissionsPage = SecSubmissions['filings']['recent'];
+
+/** One hit of EDGAR full-text search (efts.sec.gov/LATEST/search-index). */
+export interface SecSearchHit {
+  /** "<accession>:<file name>" */
+  _id: string;
+  _source: {
+    ciks: string[];
+    display_names: string[];
+    file_date: string;
+    form: string;
+    root_forms?: string[];
+    adsh: string;
+    items?: string[];
+    file_type?: string;
+  };
+}
+
+export interface SecSearchResult {
+  hits: { total: { value: number }; hits: SecSearchHit[] };
 }

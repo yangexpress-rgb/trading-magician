@@ -7,6 +7,7 @@ import {
   type FundamentalPoint,
 } from '../market/point-in-time';
 import type { OptionSignalField, OptionSignalSource } from '../options/signals';
+import type { EventMetricId, EventPoint } from '../events/signals';
 import {
   BAR_INTERVALS,
   type BarInterval,
@@ -61,6 +62,11 @@ export interface MetricReader {
     field: OptionSignalField,
     barsBack: number,
   ): OptionPoint | undefined;
+  /**
+   * An earnings, deal or rate metric (free data feeds brief v1 §4) as known at
+   * that bar; absent without event data.
+   */
+  event?(instrumentId: string, metric: EventMetricId, barsBack: number): EventPoint | undefined;
 }
 
 /** One options signal value, with the trading day it was worked out for. */
@@ -82,7 +88,7 @@ export interface MetricSpec {
   label: string;
   /** One line for the builder's help text. */
   help: string;
-  category: 'price' | 'fundamental' | 'options';
+  category: 'price' | 'fundamental' | 'options' | 'earnings' | 'deals' | 'rates';
   /** How a value reads: a fraction (0.12 is 12%), a plain number, or US dollars. */
   unit: 'fraction' | 'number' | 'usd';
   params: readonly MetricParamSpec[];
@@ -636,11 +642,97 @@ const OPTIONS_METRICS: readonly MetricSpec[] = [
   ),
 ];
 
+function eventMetric(
+  id: EventMetricId,
+  category: 'earnings' | 'deals' | 'rates',
+  label: string,
+  help: string,
+  unit: MetricSpec['unit'],
+  assetClasses: readonly string[],
+): MetricSpec {
+  return {
+    id,
+    label,
+    help,
+    category,
+    unit,
+    params: [],
+    assetClasses,
+    // The instrument's own unadjusted daily closes date each bar back; the deal
+    // spread compares the offer price with that close.
+    requirements: (instrumentId) => [rawClose(instrumentId)],
+    compute: (instrumentId, _params, r, barsBack) => r.event?.(instrumentId, id, barsBack)?.value,
+  };
+}
+
+/**
+ * Earnings, deals and rates (free data feeds brief v1 §4, ADR 0058). Earnings
+ * and deals come from the app's own record of EDGAR filings; the T-bill rate
+ * from FRED. Each is the latest known on or before the bar.
+ */
+const EVENT_METRICS: readonly MetricSpec[] = [
+  eventMetric(
+    'earnings.days_since_earnings',
+    'earnings',
+    'Days since earnings',
+    'Calendar days from the latest earnings release (its 8-K, Item 2.02, on EDGAR) to the bar date. 3 means the release was 3 days ago. Unknown before the first release on record.',
+    'number',
+    ['stock'],
+  ),
+  eventMetric(
+    'earnings.sue_ts',
+    'earnings',
+    'Time-series SUE',
+    'Standardised unexpected earnings of the latest release: (EPS this quarter − EPS the same quarter last year) ÷ the standard deviation of that difference over the 8 quarters before. Unknown until 8 prior differences exist.',
+    'number',
+    ['stock'],
+  ),
+  eventMetric(
+    'earnings.surprise_pct',
+    'earnings',
+    'Earnings surprise (%)',
+    'Reported EPS against the consensus estimate, (reported − estimated) ÷ |estimated|, for the latest release. Unknown without an earnings calendar feed that supplied an estimate. 0.05 is 5%.',
+    'fraction',
+    ['stock'],
+  ),
+  eventMetric(
+    'earnings.next_earnings_days',
+    'earnings',
+    'Days to next earnings',
+    'Calendar days from the bar date to the next scheduled release, from an earnings calendar feed. Unknown without one (EDGAR-only mode).',
+    'number',
+    ['stock'],
+  ),
+  eventMetric(
+    'deals.spread_pct',
+    'deals',
+    'Deal spread (%)',
+    "(Offer price − close) ÷ close for the stock's latest active merger deal (announced or pending), from the app's tracker of EDGAR filings. Unknown without an active deal, a confirmed cash offer price, or after the deal closes or is withdrawn. 0.05 is 5%.",
+    'fraction',
+    ['stock'],
+  ),
+  eventMetric(
+    'rates.tbill_3m',
+    'rates',
+    '3-month T-bill rate',
+    "FRED's 3-month Treasury bill rate (DTB3) on or before the bar date, the same rate the options computation uses. 0.0412 is 4.12%. Compare a return with it for an absolute-momentum hurdle.",
+    'fraction',
+    PRICE_CLASSES,
+  ),
+];
+
 export const METRICS: readonly MetricSpec[] = [
   ...PRICE_METRICS,
   ...FUNDAMENTAL_METRICS,
   ...OPTIONS_METRICS,
+  ...EVENT_METRICS,
 ];
+
+/** Whether a metric reads earnings, deals or rates (event data the worker records, ADR 0058). */
+export function isEventMetric(id: string): boolean {
+  const c = getMetric(id)?.category;
+  return c === 'earnings' || c === 'deals' || c === 'rates';
+}
 
 /** Whether a metric reads company filings (a company data feed is then needed). */
 export function isFundamentalMetric(id: string): boolean {

@@ -41,6 +41,11 @@ export interface MarketInputsOptions {
   fetch?: Fetch | undefined;
   /** Tests only: a fixed rate instead of FRED. */
   fixedRate?: number | undefined;
+  /**
+   * Called with each fresh DTB3 series, so the same fetch also fills
+   * `rates_daily` for back tests (free data feeds brief v1 §5.4, ADR 0058).
+   */
+  onRates?: ((days: { date: string; rate: number }[]) => Promise<void>) | undefined;
 }
 
 const RATE_TTL_MS = 6 * 3600_000;
@@ -64,6 +69,8 @@ export function marketInputs(options: MarketInputsOptions): MarketInputs {
         .filter((d) => Number.isFinite(d.rate));
       if (days.length === 0) throw new Error('FRED sent no DTB3 values');
       rates = { at: Date.now(), days };
+      // Storing is a side effect of the fetch the options computation needs anyway.
+      await options.onRates?.(days).catch(() => undefined);
     } catch {
       // A day-old series beats none; without any, the day waits (no signal from a guessed rate).
       if (!rates) return undefined;

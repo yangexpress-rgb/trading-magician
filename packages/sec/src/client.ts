@@ -10,6 +10,8 @@ import { BrokerUnavailableError } from '@tm/domain';
 
 export const SEC_WWW_URL = 'https://www.sec.gov';
 export const SEC_DATA_URL = 'https://data.sec.gov';
+/** EDGAR full-text search (filings since 2001), used by the deal tracker (ADR 0058). */
+export const SEC_EFTS_URL = 'https://efts.sec.gov';
 
 export type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -22,6 +24,7 @@ export interface SecClientOptions {
   fetch?: Fetch | undefined;
   wwwUrl?: string | undefined;
   dataUrl?: string | undefined;
+  eftsUrl?: string | undefined;
   /** Tests only: allows a local fake in place of the SEC's hosts. */
   allowLocal?: boolean | undefined;
   timeoutMs?: number | undefined;
@@ -64,7 +67,7 @@ export class SecContactError extends Error {
 const EMAIL = /^[^\s@<>()"]{1,64}@[^\s@<>()"]{1,190}\.[A-Za-z]{2,}$/;
 
 /** Hosts the client may call; anything else is a mistake, not a provider. */
-const SEC_HOSTS = new Set(['www.sec.gov', 'data.sec.gov']);
+const SEC_HOSTS = new Set(['www.sec.gov', 'data.sec.gov', 'efts.sec.gov']);
 
 function assertSecUrl(url: string, allowLocal: boolean) {
   const host = new URL(url).hostname;
@@ -87,6 +90,7 @@ async function waitTurn(spacingMs: number) {
 export class SecClient {
   readonly wwwUrl: string;
   readonly dataUrl: string;
+  readonly eftsUrl: string;
   private readonly fetch: Fetch;
   private readonly timeoutMs: number;
   private readonly spacingMs: number;
@@ -97,7 +101,9 @@ export class SecClient {
     if (!EMAIL.test(contact)) throw new SecContactError();
     this.wwwUrl = options.wwwUrl ?? SEC_WWW_URL;
     this.dataUrl = options.dataUrl ?? SEC_DATA_URL;
+    this.eftsUrl = options.eftsUrl ?? SEC_EFTS_URL;
     assertSecUrl(this.wwwUrl, options.allowLocal ?? false);
+    assertSecUrl(this.eftsUrl, options.allowLocal ?? false);
     assertSecUrl(this.dataUrl, options.allowLocal ?? false);
     this.fetch = options.fetch ?? ((url, init) => fetch(url, init));
     this.timeoutMs = options.timeoutMs ?? 20_000;
@@ -128,7 +134,17 @@ export class SecClient {
     return this.get<T>(this.dataUrl, path);
   }
 
-  private async get<T>(base: string, path: string): Promise<T> {
+  /** EDGAR full-text search: www's `/LATEST/search-index` API on efts.sec.gov. */
+  efts<T>(path: string) {
+    return this.get<T>(this.eftsUrl, path);
+  }
+
+  /** A filing document on www.sec.gov as text (HTML or plain), for the deal parser. */
+  async document(path: string): Promise<string> {
+    return this.get<string>(this.wwwUrl, path, 'text');
+  }
+
+  private async get<T>(base: string, path: string, as: 'json' | 'text' = 'json'): Promise<T> {
     await waitTurn(this.spacingMs);
     const url = new URL(path, base).toString();
     const controller = new AbortController();
@@ -138,7 +154,8 @@ export class SecClient {
     try {
       response = await this.fetch(url, {
         method: 'GET',
-        headers: this.headers,
+        headers:
+          as === 'text' ? { ...this.headers, accept: 'text/html, text/plain' } : this.headers,
         signal: controller.signal,
       });
       text = await response.text();
@@ -150,6 +167,7 @@ export class SecClient {
       clearTimeout(timer);
     }
     if (response.ok) {
+      if (as === 'text') return text as T;
       try {
         return JSON.parse(text) as T;
       } catch {

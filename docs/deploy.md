@@ -179,7 +179,7 @@ load test (`load/README.md`) and the real-provider checks (`docs/launch-checks.m
 ### Production must not contain
 
 `CREDENTIALS_PRIVATE_KEY`, `SIGNUP_PLAN`, `SIGNUP_MODE=open`, `PAPER_CLOCK_START`, `ALPACA_FAKE`,
-`SEC_FAKE`, `CUSTOM_REST_FAKE`, `CBOE_OPTIONS_FAKE`, `BILLING_FAKE`, or any Stripe key that does not start with `sk_test_`/`rk_test_`
+`SEC_FAKE`, `EVENTS_FAKE`, `CUSTOM_REST_FAKE`, `CBOE_OPTIONS_FAKE`, `BILLING_FAKE`, or any Stripe key that does not start with `sk_test_`/`rk_test_`
 (the apps refuse a live Stripe key). Check the Variables tab of web and worker before inviting
 anyone.
 
@@ -344,6 +344,13 @@ and sign in.
   person then adds "CBOE delayed options (daily)" under Settings › Data feeds to use the options
   metrics. The chains are for internal use only (`CBOE_OPTIONS_DISPLAY_TERMS`); the launch gate
   lists the terms review.
+- **Earnings, deals and rates (ADR 0058).** The worker reads SEC EDGAR each evening and rebuilds
+  history to February 2024 on first start. It needs a contact for the SEC's User-Agent:
+  `SEC_CONTACT_EMAIL`, or the platform admin's SEC EDGAR feed. The forward earnings calendar is
+  optional: `FMP_API_KEY` or `FINNHUB_API_KEY` (free tiers), or the admin's FMP or Finnhub feed
+  under Settings › Data feeds. `EARNINGS_CALENDAR_PROVIDER` (`fmp` default, `finnhub`, `none`) is
+  the kill switch; with no key the app runs EDGAR-only. `EVENTS_RECORDING=off` stops the jobs.
+  The T-bill rate is stored from the options computation's FRED fetch, with no setting.
 - **Owner connection.** `DATABASE_URL` stays on the web service only because Railway runs the
   pre-deploy step with that service's variables. The running app never connects with it.
 

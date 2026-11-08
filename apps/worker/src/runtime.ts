@@ -16,6 +16,7 @@ import {
   idempotencyKey,
   insertCycle,
   intentsByClientOrderId,
+  loadEventData,
   loadOptionSignals,
   loadRuntimeWork,
   lockPaperBroker,
@@ -53,6 +54,7 @@ import {
 import {
   addDays,
   fundamentalInstruments,
+  eventInstruments,
   optionInstruments,
   activeFromFor,
   collarBreach,
@@ -663,11 +665,15 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   const underlyings = optionInstruments(def, members);
   if (underlyings.length > 0)
     data.options = await loadOptionSignals(tx, underlyings, addDays(nyDate(now), -14));
+  // Earnings, deals and rates: the latest record on or before each bar (ADR 0058).
+  const eventReads = eventInstruments(def, members);
+  if (eventReads.size > 0) data.events = await loadEventData(tx, eventReads);
   const view = new MarketView(
     data.series,
     watchOnlyInstruments(work.instruments),
     data.fundamentals,
     data.options,
+    data.events,
   );
   view.advance(t);
   let dataTime = 0;

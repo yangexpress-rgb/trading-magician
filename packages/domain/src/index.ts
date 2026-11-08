@@ -25,3 +25,4 @@ export * from './performance';
 export * from './billing/plans';
 export * from './options';
 export * from './library';
+export * from './events';

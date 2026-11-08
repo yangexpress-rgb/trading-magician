@@ -2,6 +2,7 @@ import {
   evaluateComparison,
   evaluateCondition,
   evaluateExpr,
+  isEventMetricId,
   optionMetricField,
   type ConditionNode,
   type Expr,
@@ -52,6 +53,8 @@ function checksFor(node: ConditionNode, r: SeriesResolver, out: ConditionCheck[]
   }
   const asOf = optionDates([node.left, node.right, node.upper], r);
   if (asOf.length > 0) check.optionsAsOf = asOf;
+  const events = eventDates([node.left, node.right, node.upper], r);
+  if (events.length > 0) check.eventsAsOf = events;
   out.push(check);
   return truth;
 }
@@ -65,6 +68,32 @@ function optionDates(exprs: (Expr | undefined)[], r: SeriesResolver): string[] {
       const field = optionMetricField(e.metric);
       const p = field ? r.option?.(e.instrumentId, field, 0) : undefined;
       if (p) dates.add(p.source === 'rebuilt' ? `${p.asOfDate} (rebuilt)` : p.asOfDate);
+    } else if (e.kind === 'calc') e.args.forEach(visit);
+    else if (e.kind === 'stat') visit(e.input);
+  };
+  exprs.forEach(visit);
+  return [...dates];
+}
+
+const EVENT_LABEL: Record<string, string> = {
+  earnings: 'earnings',
+  deals: 'deal',
+  rates: 'T-bill',
+};
+
+/** The records the earnings, deal and rate metrics of a comparison read on this bar (ADR 0058). */
+function eventDates(exprs: (Expr | undefined)[], r: SeriesResolver): string[] {
+  const dates = new Set<string>();
+  const visit = (e: Expr | undefined) => {
+    if (!e) return;
+    if (e.kind === 'metric') {
+      if (!isEventMetricId(e.metric)) return;
+      const p = r.event?.(e.instrumentId, e.metric, 0);
+      if (!p) return;
+      const kind = EVENT_LABEL[e.metric.split('.')[0] ?? ''] ?? '';
+      if (p.note === 'rebuilt') dates.add(`${kind} ${p.asOfDate} (rebuilt)`);
+      else if (p.note) dates.add(`${kind} ${p.note} of ${p.asOfDate}`);
+      else dates.add(`${kind} ${p.asOfDate}`);
     } else if (e.kind === 'calc') e.args.forEach(visit);
     else if (e.kind === 'stat') visit(e.input);
   };

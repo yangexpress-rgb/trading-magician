@@ -106,3 +106,4 @@ export { seedStrategyLibrary, STRATEGY_LIBRARY_SEED, type SeedOutcome } from './
 export * from './library-renumber';
 export * from './library-backfill-v2';
 export { LIBRARY_V2_BACKFILL } from './library-backfill-v2-data';
+export * from './events';
