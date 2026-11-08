@@ -4,11 +4,21 @@ import {
   currentConvention,
   editLibraryEntrySchema,
   interpretRegistrationNumber,
+  LIBRARY_V2_FIELD_NAMES,
   parseRegistrationNumber,
   registerLibraryEntrySchema,
   retireLibraryEntrySchema,
   type BuiltStatus,
   type ConventionCode,
+  type DataNeed,
+  type LibraryDirection,
+  type LibraryMaturity,
+  type LibraryParameter,
+  type LibraryUniverse,
+  type NumberLayout,
+  type PositionSizing,
+  type RebalanceScheduleValue,
+  type StopLoss,
   type ConventionPosition,
   type ConventionTables,
   type ConventionVersion,
@@ -23,7 +33,7 @@ import {
   type RegistrationCodes,
   type UsedBy,
 } from '@tm/domain';
-import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { z } from 'zod';
 import type { Transaction } from './client';
 import {
@@ -70,6 +80,11 @@ export interface LibraryEntrySummary {
   shortDescription: string;
   assets: string;
   registeredAt: Date;
+  /** Numbers this entry had before a renumbering (ADR 0055); they still resolve to it. */
+  formerNumbers: string[];
+  direction: LibraryDirection | null;
+  maturity: LibraryMaturity;
+  dataNeeds: DataNeed[];
 }
 
 export interface LibraryRevision {
@@ -82,7 +97,8 @@ export interface LibraryRevision {
   editedBy: ActorLabel;
 }
 
-export type ActorLabel = 'seed' | 'you' | 'member' | 'former_member';
+/** `system`: a migration such as the v2 renumbering or field backfill (ADR 0055). */
+export type ActorLabel = 'seed' | 'you' | 'member' | 'former_member' | 'system';
 
 export interface LibraryEntry extends LibraryEntrySummary {
   longDescription: string;
@@ -95,6 +111,13 @@ export interface LibraryEntry extends LibraryEntrySummary {
   trackRecord: string | null;
   backtestSummary: string | null;
   sources: LibrarySource[];
+  // The fuller record (ADR 0055). Null means Not specified.
+  parameters: LibraryParameter[];
+  positionSizing: PositionSizing | null;
+  stopLoss: StopLoss | null;
+  rebalanceSchedule: RebalanceScheduleValue | null;
+  keyRisks: string | null;
+  universe: LibraryUniverse | null;
   relatedEntries: {
     registrationNumber: string;
     name: string | null;
@@ -124,6 +147,11 @@ export interface LibraryListOptions {
   timeframeCode?: string | undefined;
   category?: LibraryCategory | undefined;
   built?: BuiltStatus | undefined;
+  /** The strategy's direction (long only, ...); `direction` is the sort order. */
+  side?: LibraryDirection | undefined;
+  maturity?: LibraryMaturity | undefined;
+  /** Entries that need this data. */
+  dataNeed?: DataNeed | undefined;
   status?: LibraryStatus | 'all' | undefined;
   sort?: 'number' | 'name' | 'registered' | undefined;
   direction?: 'asc' | 'desc' | undefined;
@@ -142,6 +170,8 @@ export async function listConventionVersions(tx: Transaction): Promise<Conventio
     label: r.label,
     effectiveFrom: r.effectiveFrom,
     tables: r.tables as ConventionTables,
+    layout: r.layout as NumberLayout,
+    sequenceDigits: r.sequenceDigits,
   }));
 }
 
@@ -209,6 +239,10 @@ const summaryColumns = {
   shortDescription: entries.shortDescription,
   assets: entries.assets,
   registeredAt: entries.registeredAt,
+  formerNumbers: entries.formerNumbers,
+  direction: entries.direction,
+  maturity: entries.maturity,
+  dataNeeds: entries.dataNeeds,
 };
 
 export async function listLibraryEntries(
@@ -221,6 +255,7 @@ export async function listLibraryEntries(
     const like = `%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
     where.push(sql`(
       ${entries.registrationNumber} ilike ${like}
+      or array_to_string(${entries.formerNumbers}, ' ') ilike ${like}
       or ${entries.name} ilike ${like}
       or ${entries.shortDescription} ilike ${like}
       or ${entries.longDescription} ilike ${like}
@@ -233,6 +268,9 @@ export async function listLibraryEntries(
   if (options.category) where.push(eq(entries.category, options.category));
   if (options.built === 'built') where.push(sql`${entries.builtStrategyId} is not null`);
   if (options.built === 'not_built') where.push(isNull(entries.builtStrategyId));
+  if (options.side) where.push(eq(entries.direction, options.side));
+  if (options.maturity) where.push(eq(entries.maturity, options.maturity));
+  if (options.dataNeed) where.push(sql`${options.dataNeed} = any(${entries.dataNeeds})`);
   const status = options.status ?? 'all';
   if (status !== 'all') where.push(eq(entries.status, status));
 
@@ -273,6 +311,10 @@ function toSummary(r: SummaryRow): LibraryEntrySummary {
     shortDescription: r.shortDescription as string,
     assets: r.assets as string,
     registeredAt: r.registeredAt as Date,
+    formerNumbers: r.formerNumbers as string[],
+    direction: (r.direction as LibraryDirection | null) ?? null,
+    maturity: r.maturity as LibraryMaturity,
+    dataNeeds: r.dataNeeds as DataNeed[],
   };
 }
 
@@ -292,16 +334,42 @@ function actor(id: string | null, viewerId: string, seedFallback: boolean): Acto
   return id === viewerId ? 'you' : 'member';
 }
 
+/** History notes the system writes with no editor (ADR 0055). */
+export const SYSTEM_NOTE_PREFIXES = ['Renumbered to ', 'Backfilled Library v2 fields'] as const;
+
+function historyActor(id: string | null, note: string, viewerId: string): ActorLabel {
+  if (id === null && SYSTEM_NOTE_PREFIXES.some((p) => note.startsWith(p))) return 'system';
+  return actor(id, viewerId, false);
+}
+
 function normalise(number: string): string {
   return number.trim().toUpperCase();
 }
 
-async function loadRow(tx: Transaction, number: string) {
+/**
+ * The entry a number names: its current number, or a former one (ADR 0055).
+ * A former-number hit returns the entry, which carries its current number.
+ */
+export async function resolveLibraryEntryRow(tx: Transaction, number: string) {
+  const n = normalise(number);
+  if (!parseRegistrationNumber(n)) return undefined;
   const [row] = await tx
     .select()
     .from(entries)
-    .where(eq(entries.registrationNumber, normalise(number)));
+    .where(or(eq(entries.registrationNumber, n), sql`${n} = any(${entries.formerNumbers})`))
+    .orderBy(sql`${entries.registrationNumber} = ${n} desc`)
+    .limit(1);
   return row;
+}
+
+const loadRow = resolveLibraryEntryRow;
+
+/** The current number for a number that may be former; null when nothing has it. */
+export async function currentLibraryNumber(
+  tx: Transaction,
+  number: string,
+): Promise<string | null> {
+  return (await resolveLibraryEntryRow(tx, number))?.registrationNumber ?? null;
 }
 
 export async function getLibraryEntry(
@@ -309,7 +377,6 @@ export async function getLibraryEntry(
   viewerId: string,
   number: string,
 ): Promise<LibraryEntry | null> {
-  if (!parseRegistrationNumber(number)) return null;
   const row = await loadRow(tx, number);
   if (!row) return null;
   const isSeed = row.seedKey !== null;
@@ -365,6 +432,12 @@ export async function getLibraryEntry(
     trackRecord: row.trackRecord,
     backtestSummary: row.backtestSummary,
     sources: row.sources as LibrarySource[],
+    parameters: row.parameters as LibraryParameter[],
+    positionSizing: (row.positionSizing as PositionSizing | null) ?? null,
+    stopLoss: (row.stopLoss as StopLoss | null) ?? null,
+    rebalanceSchedule: (row.rebalanceSchedule as RebalanceScheduleValue | null) ?? null,
+    keyRisks: row.keyRisks,
+    universe: (row.universe as LibraryUniverse | null) ?? null,
     relatedEntries: row.relatedEntries.map((n) => ({
       registrationNumber: n,
       name: relatedBy.get(n)?.name ?? null,
@@ -388,7 +461,7 @@ export async function getLibraryEntry(
       note: h.note,
       changedFields: h.changedFields,
       editedAt: h.editedAt,
-      editedBy: actor(h.editedBy, viewerId, false),
+      editedBy: historyActor(h.editedBy, h.note, viewerId),
     })),
   };
 }
@@ -409,22 +482,34 @@ function parseInput<T extends z.ZodType>(schema: T, input: unknown): z.output<T>
   return result.data;
 }
 
-async function checkRelated(tx: Transaction, numbers: string[], self?: string): Promise<void> {
-  if (self && numbers.includes(self)) {
-    throw new LibraryError('bad_request', 'An entry cannot be related to itself', [
-      { path: ['relatedEntries'], message: 'An entry cannot be related to itself' },
-    ]);
-  }
-  if (!numbers.length) return;
+/**
+ * Checks related numbers and returns them as current numbers: a former number
+ * typed in is saved as the entry's current one (ADR 0055).
+ */
+async function checkRelated(tx: Transaction, numbers: string[], self?: string): Promise<string[]> {
+  if (!numbers.length) return [];
   const found = await tx
-    .select({ n: entries.registrationNumber })
+    .select({ n: entries.registrationNumber, former: entries.formerNumbers })
     .from(entries)
-    .where(inArray(entries.registrationNumber, numbers));
-  const missing = numbers.filter((n) => !found.some((f) => f.n === n));
+    .where(
+      or(
+        inArray(entries.registrationNumber, numbers),
+        sql`${entries.formerNumbers} && ${sql.param(numbers)}::text[]`,
+      ),
+    );
+  const current = (n: string) => found.find((f) => f.n === n || f.former.includes(n))?.n;
+  const missing = numbers.filter((n) => !current(n));
   if (missing.length) {
     const message = `No entry is registered as ${missing.join(', ')}`;
     throw new LibraryError('bad_request', message, [{ path: ['relatedEntries'], message }]);
   }
+  const resolved = [...new Set(numbers.map((n) => current(n) ?? n))];
+  if (self && resolved.includes(self)) {
+    throw new LibraryError('bad_request', 'An entry cannot be related to itself', [
+      { path: ['relatedEntries'], message: 'An entry cannot be related to itself' },
+    ]);
+  }
+  return resolved;
 }
 
 /** A link must name a strategy in the actor's own workspace (RLS scopes the read). */
@@ -460,6 +545,15 @@ function recordValues(
     sources: data.sources,
     relatedEntries: data.relatedEntries,
     builtStrategyId: data.builtStrategyId,
+    direction: data.direction,
+    parameters: data.parameters,
+    positionSizing: data.positionSizing,
+    stopLoss: data.stopLoss,
+    rebalanceSchedule: data.rebalanceSchedule,
+    maturity: data.maturity,
+    keyRisks: data.keyRisks ?? null,
+    dataNeeds: data.dataNeeds,
+    universe: data.universe,
   };
 }
 
@@ -486,7 +580,7 @@ export async function registerLibraryEntry(
   } catch (error) {
     throw codeError(error);
   }
-  await checkRelated(tx, data.relatedEntries);
+  data.relatedEntries = await checkRelated(tx, data.relatedEntries);
   if (data.builtStrategyId) await checkStrategy(tx, data.builtStrategyId);
   const linkedStrategy = data.builtStrategyId
     ? await strategyLinkRow(tx, data.builtStrategyId)
@@ -550,6 +644,7 @@ const EDITABLE = [
   'sources',
   'relatedEntries',
   'builtStrategyId',
+  ...LIBRARY_V2_FIELD_NAMES,
 ] as const;
 
 /** Key order differs between jsonb and parsed input, so compare canonically. */
@@ -587,9 +682,15 @@ export async function updateLibraryEntry(
       'Someone changed this entry since you opened it. Reload to see their change.',
     );
   }
-  await checkRelated(tx, data.relatedEntries, row.registrationNumber);
+  data.relatedEntries = await checkRelated(tx, data.relatedEntries, row.registrationNumber);
   const values = recordValues(data);
   const before: Record<string, unknown> = row;
+  // A client written before Library v2 sends none of the nine fields: keep
+  // what is stored rather than resetting them to their defaults (ADR 0055).
+  const sent = input as Record<string, unknown>;
+  for (const f of LIBRARY_V2_FIELD_NAMES) {
+    if (!(f in sent)) (values as Record<string, unknown>)[f] = before[f];
+  }
   const changed = EDITABLE.filter((f) => !same(before[f], values[f]));
   if (!changed.length) {
     throw new LibraryError('bad_request', 'Nothing changed. Edit a field before saving.');

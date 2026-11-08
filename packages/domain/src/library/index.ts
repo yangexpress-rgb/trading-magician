@@ -3,3 +3,4 @@ export * from './duration';
 export * from './entry';
 export * from './markdown';
 export * from './lab';
+export * from './renumber';

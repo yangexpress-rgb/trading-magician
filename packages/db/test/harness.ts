@@ -2,7 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { createDb, type DbHandle } from '../src/client';
-import { runMigrations } from '../src/migrate';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
+import { MIGRATIONS_FOLDER, runMigrations } from '../src/migrate';
 import { seedReferenceData } from '../src/seed';
 
 // The tests run on the invented demo instruments and demo feed (ADR 0039).
@@ -31,7 +32,14 @@ export interface TestDatabase {
 /** Advisory lock key, on the admin database, held while a test database migrates. */
 const MIGRATION_LOCK = 7_231_001;
 
-export async function createTestDatabase(): Promise<TestDatabase> {
+export async function createTestDatabase(
+  options: {
+    /** False keeps a new library on convention v1 (to test the v2 renumbering). */
+    renumberFreshLibrary?: boolean;
+    /** False migrates without seeding the library (the test seeds it as it needs). */
+    seedLibrary?: boolean;
+  } = {},
+): Promise<TestDatabase> {
   const adminUrl = process.env.TEST_DATABASE_URL;
   if (!adminUrl) throw new Error('TEST_DATABASE_URL is required for integration tests');
 
@@ -60,7 +68,9 @@ export async function createTestDatabase(): Promise<TestDatabase> {
   // create tm_app and tm_auth, so one database migrates at a time.
   await admin`select pg_advisory_lock(${MIGRATION_LOCK})`;
   try {
-    await runMigrations(owner.db);
+    if (options.seedLibrary === false) {
+      await migrate(owner.db, { migrationsFolder: MIGRATIONS_FOLDER });
+    } else await runMigrations(owner.db, { renumberFreshLibrary: options.renumberFreshLibrary });
   } finally {
     await admin`select pg_advisory_unlock(${MIGRATION_LOCK})`;
   }

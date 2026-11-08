@@ -1,19 +1,32 @@
 import { getLibraryEntry, withTenant } from '@tm/db';
 import {
   CATEGORY_LABELS,
+  DATA_NEED_LABELS,
+  DIRECTION_LABELS,
   EVIDENCE_LABELS,
   formatDateTime,
   formatDuration,
+  MATURITY_LABELS,
+  REBALANCE_LABELS,
+  SIZING_LABELS,
+  STOP_LABELS,
+  UNIVERSE_LABELS,
   type DisplayPreferences,
 } from '@tm/domain';
 import { Badge, buttonClasses, Card } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { Markdown } from '@/components/library/markdown';
 import { RetireButton } from '@/components/library/retire-button';
-import { ACTOR_LABELS, BUILT_LABELS, FIELD_LABELS } from '@/lib/library-text';
+import {
+  ACTOR_LABELS,
+  BUILT_LABELS,
+  FIELD_LABELS,
+  methodText,
+  NOT_SPECIFIED,
+} from '@/lib/library-text';
 import { appDb } from '@/lib/server/db';
 import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
@@ -35,6 +48,10 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
     getLibraryEntry(tx, tenant.userId, decodeURIComponent(number)),
   );
   if (!e) notFound();
+  // A former number (ADR 0055) redirects to the entry's current, canonical URL.
+  if (decodeURIComponent(number) !== e.registrationNumber) {
+    redirect(`/library/${e.registrationNumber}`);
+  }
   const retired = e.status === 'retired';
 
   return (
@@ -45,6 +62,11 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="font-mono text-3xl font-semibold tracking-tight">{e.registrationNumber}</p>
+          {e.formerNumbers.length > 0 && (
+            <p className="font-mono text-sm text-ink-muted">
+              Formerly {e.formerNumbers.join(', ')}
+            </p>
+          )}
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">{e.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {retired && <Badge tone="warn">Retired</Badge>}
@@ -54,6 +76,12 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
             <Badge tone="info" icon={false}>
               {CATEGORY_LABELS[e.category]}
             </Badge>
+            <Badge tone="neutral" icon={false}>
+              {MATURITY_LABELS[e.maturity]}
+            </Badge>
+            <Badge tone="neutral" icon={false}>
+              {e.direction ? DIRECTION_LABELS[e.direction] : `Direction: ${NOT_SPECIFIED}`}
+            </Badge>
             {e.tags.map((t) => (
               <span key={t} className="text-xs text-ink-muted">
                 #{t}
@@ -61,9 +89,11 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
             ))}
           </div>
           <p className="mt-2 text-sm text-ink-muted">
-            {[e.letters.recordType, e.letters.timeframe, e.letters.assetClass]
-              .map((l, i) => l?.meaning ?? e.registrationNumber[i])
-              .join(' · ')}{' '}
+            {[
+              e.letters.recordType?.meaning ?? e.recordTypeCode,
+              e.letters.assetClass?.meaning ?? e.assetClassCode,
+              e.letters.timeframe?.meaning ?? e.timeframeCode,
+            ].join(' · ')}{' '}
             — letters read under convention {e.conventionVersion}, which issued this number.
           </p>
         </div>
@@ -117,7 +147,64 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
             </div>
           </Card>
           <Card>
-            <h2 className="mb-3 font-semibold">Evidence</h2>
+            <h2 className="mb-3 font-semibold">Parameters</h2>
+            {e.parameters.length === 0 ? (
+              <Muted>{NOT_SPECIFIED}.</Muted>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-ink-muted">
+                    <th className="pb-1 font-semibold">Parameter</th>
+                    <th className="pb-1 font-semibold">Value</th>
+                    <th className="pb-1 font-semibold">Unit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {e.parameters.map((p, i) => (
+                    <tr key={i} className="border-t border-line">
+                      <td className="py-1 pr-3">{p.name}</td>
+                      <td className="py-1 pr-3 font-mono">{p.value}</td>
+                      <td className="py-1">{p.unit ?? ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Card>
+          <Card>
+            <h2 className="mb-3 font-semibold">Risk &amp; sizing</h2>
+            <div className="grid gap-x-6 sm:grid-cols-2">
+              <Field label="Position sizing">
+                {methodText(
+                  e.positionSizing,
+                  e.positionSizing ? SIZING_LABELS[e.positionSizing.method] : undefined,
+                )}
+              </Field>
+              <Field label="Stop loss">
+                {methodText(e.stopLoss, e.stopLoss ? STOP_LABELS[e.stopLoss.method] : undefined)}
+              </Field>
+            </div>
+          </Card>
+          <Card>
+            <h2 className="mb-3 font-semibold">Operations</h2>
+            <div className="grid gap-x-6 sm:grid-cols-2">
+              <Field label="Rebalance schedule">
+                {methodText(
+                  e.rebalanceSchedule,
+                  e.rebalanceSchedule ? REBALANCE_LABELS[e.rebalanceSchedule.schedule] : undefined,
+                )}
+              </Field>
+              <Field label="Universe">
+                {methodText(e.universe, e.universe ? UNIVERSE_LABELS[e.universe.kind] : undefined)}
+              </Field>
+            </div>
+          </Card>
+          <Card>
+            <h2 className="mb-3 font-semibold">Evidence &amp; maturity</h2>
+            <Field label="Maturity">{MATURITY_LABELS[e.maturity]}</Field>
+            <Field label="Key risks">
+              {e.keyRisks ? <Markdown source={e.keyRisks} /> : <Muted>{NOT_SPECIFIED}.</Muted>}
+            </Field>
             <Field label="Used by">
               {e.usedBy.length === 0 ? (
                 <p>No known prior use recorded.</p>
@@ -169,6 +256,22 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
           <Card>
             <h2 className="mb-3 font-semibold">Strategy Lab</h2>
             <BuiltLink entry={e} />
+          </Card>
+          <Card>
+            <h2 className="mb-3 font-semibold">Data needs</h2>
+            {e.dataNeeds.length === 0 ? (
+              <Muted>{NOT_SPECIFIED}.</Muted>
+            ) : (
+              <ul className="mb-3 flex flex-wrap gap-1.5" aria-label="Data needs">
+                {e.dataNeeds.map((d) => (
+                  <li key={d}>
+                    <Badge tone="neutral" icon={false}>
+                      {DATA_NEED_LABELS[d]}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
             <Field label="Data requirements">
               {e.dataRequirements ?? <Muted>None recorded.</Muted>}
             </Field>
@@ -224,7 +327,9 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
                           ? 'Retired'
                           : r.action === 'create'
                             ? 'Created'
-                            : 'Edited'}
+                            : r.editedBy === 'system'
+                              ? 'Updated'
+                              : 'Edited'}
                       </span>{' '}
                       by {ACTOR_LABELS[r.editedBy]}, {formatDateTime(r.editedAt, prefs)}
                     </p>

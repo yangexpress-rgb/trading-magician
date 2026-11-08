@@ -1,8 +1,19 @@
 import {
   BUILT_STATUSES,
+  DATA_NEEDS,
   LIBRARY_CATEGORIES,
+  LIBRARY_DIRECTIONS,
+  LIBRARY_MATURITIES,
   LIBRARY_STATUSES,
   type BuiltStatus,
+  type DataNeed,
+  type LibraryDirection,
+  type LibraryMaturity,
+  type LibraryParameter,
+  type LibraryUniverse,
+  type PositionSizing,
+  type RebalanceScheduleValue,
+  type StopLoss,
   type ConventionCode,
   type ConventionPosition,
   type ConventionVersion,
@@ -42,6 +53,11 @@ export const listLibraryQuery = z.object({
   timeframe: letter,
   category: z.enum(LIBRARY_CATEGORIES).optional(),
   built: z.enum(BUILT_STATUSES).optional(),
+  /** The strategy's direction (long only, ...); `direction` below is the sort order. */
+  side: z.enum(LIBRARY_DIRECTIONS).optional(),
+  maturity: z.enum(LIBRARY_MATURITIES).optional(),
+  /** Entries that need this data. */
+  data: z.enum(DATA_NEEDS).optional(),
   status: z.enum([...LIBRARY_STATUSES, 'all']).default('all'),
   sort: z.enum(['number', 'name', 'registered']).default('number'),
   direction: z.enum(['asc', 'desc']).default('asc'),
@@ -68,7 +84,7 @@ export const nextNumberQuery = z.object({
     .regex(/^[A-Z]$/, 'Choose an asset class'),
 });
 
-export type ActorLabelDto = 'seed' | 'you' | 'member' | 'former_member';
+export type ActorLabelDto = 'seed' | 'you' | 'member' | 'former_member' | 'system';
 
 export interface LibraryEntrySummaryDto {
   id: string;
@@ -86,6 +102,11 @@ export interface LibraryEntrySummaryDto {
   shortDescription: string;
   assets: string;
   registeredAt: string;
+  /** Numbers it had before a renumbering (ADR 0055); they still resolve to it. */
+  formerNumbers: string[];
+  direction: LibraryDirection | null;
+  maturity: LibraryMaturity;
+  dataNeeds: DataNeed[];
 }
 
 export interface LibraryListDto {
@@ -104,6 +125,12 @@ export interface LibraryEntryDto extends LibraryEntrySummaryDto {
   trackRecord: string | null;
   backtestSummary: string | null;
   sources: LibrarySource[];
+  parameters: LibraryParameter[];
+  positionSizing: PositionSizing | null;
+  stopLoss: StopLoss | null;
+  rebalanceSchedule: RebalanceScheduleValue | null;
+  keyRisks: string | null;
+  universe: LibraryUniverse | null;
   relatedEntries: {
     registrationNumber: string;
     name: string | null;

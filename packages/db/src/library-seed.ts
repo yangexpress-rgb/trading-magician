@@ -1,7 +1,10 @@
 import { sql } from 'drizzle-orm';
-import type { RegisterLibraryEntryInput } from '@tm/domain';
+import { parseRegistrationNumber, type RegisterLibraryEntryInput } from '@tm/domain';
 import type { Database, Transaction } from './client';
 import { registerLibraryEntry } from './library';
+import { LIBRARY_V2_BACKFILL } from './library-backfill-v2-data';
+import { applyRenumberV2 } from './library-renumber';
+import { STRATEGY_LIBRARY_SEED_SHORT_TERM } from './library-seed-short-term';
 import { strategyLibraryEntries, strategyLibrarySequence } from './schema';
 
 /**
@@ -16,8 +19,11 @@ import { strategyLibraryEntries, strategyLibrarySequence } from './schema';
  */
 export interface SeedEntry {
   seedKey: string;
+  /** The number convention v1 issues it (letters-first); kept as its former number after v2. */
+  v1Number: string;
+  /** Its number under convention v2 (sequence-first, ADR 0055). */
   expectedNumber: string;
-  /** Related entries, by their expected numbers (set after all are registered). */
+  /** Related entries, by their v2 numbers (set after all are registered). */
   related: string[];
   /**
    * Case-insensitive patterns matched against a workspace's strategy names by
@@ -33,11 +39,12 @@ const every = (value: number, unit: 'seconds' | 'months' | 'quarters' | 'years')
 const perYear = (value: number, low: number, high: number) =>
   ({ kind: 'per', value, unit: 'years', low, high }) as const;
 
-export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
+const SEED_RESEARCHED: readonly SeedEntry[] = [
   {
     seedKey: 'seed-01-trend-sma200',
-    expectedNumber: 'SDS-0001',
-    related: ['SMS-0009', 'SDS-0005'],
+    v1Number: 'SDS-0001',
+    expectedNumber: 'S00001-SD',
+    related: ['S00009-SM', 'S00005-SD'],
     linkHints: ['sma ?200', '^trend'],
     input: {
       name: 'Trend following — SPY SMA200',
@@ -79,8 +86,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-02-cross-sectional-momentum',
-    expectedNumber: 'SMS-0002',
-    related: ['SMS-0009', 'SME-0008', 'SQS-0012'],
+    v1Number: 'SMS-0002',
+    expectedNumber: 'S00002-SM',
+    related: ['S00009-SM', 'S00008-EM', 'S00012-SQ'],
     linkHints: [
       'cross.?sectional',
       'top decile',
@@ -123,8 +131,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-03-mean-reversion-rsi2',
-    expectedNumber: 'SDS-0003',
-    related: ['SDS-0001', 'SDS-0006'],
+    v1Number: 'SDS-0003',
+    expectedNumber: 'S00003-SD',
+    related: ['S00001-SD', 'S00006-SD'],
     linkHints: ['rsi.?2', 'mean reversion'],
     input: {
       name: 'Mean reversion — SPY RSI-2',
@@ -162,8 +171,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-04-pairs-pep-ko',
-    expectedNumber: 'SDS-0004',
-    related: ['SDA-0015', 'SDO-0016'],
+    v1Number: 'SDS-0004',
+    expectedNumber: 'S00004-SD',
+    related: ['S00015-AD', 'S00016-OD'],
     linkHints: ['pep', 'pairs'],
     input: {
       name: 'Pairs trading — PEP vs KO',
@@ -202,8 +212,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-05-breakout-donchian',
-    expectedNumber: 'SDS-0005',
-    related: ['SDS-0001'],
+    v1Number: 'SDS-0005',
+    expectedNumber: 'S00005-SD',
+    related: ['S00001-SD'],
     linkHints: ['donchian', 'turtle', 'breakout'],
     input: {
       name: 'Breakout — SPY Donchian 20/10',
@@ -235,8 +246,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-06-volatility-vix-bollinger',
-    expectedNumber: 'SDS-0006',
-    related: ['SDS-0003', 'SDO-0016'],
+    v1Number: 'SDS-0006',
+    expectedNumber: 'S00006-SD',
+    related: ['S00003-SD', 'S00016-OD'],
     linkHints: ['vix', 'bollinger'],
     input: {
       name: 'Volatility — VIX Bollinger signal, trades SPY',
@@ -270,8 +282,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-07-value-dividend-yearly',
-    expectedNumber: 'SYS-0007',
-    related: ['SQS-0012'],
+    v1Number: 'SYS-0007',
+    expectedNumber: 'S00007-SY',
+    related: ['S00012-SQ'],
     linkHints: ['dividend', '^(?!.*(momentum|factor)).*value'],
     input: {
       name: 'Systematic value / dividend — S&P 500, yearly',
@@ -313,8 +326,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-08-sector-rotation',
-    expectedNumber: 'SME-0008',
-    related: ['SMS-0002', 'SMS-0009'],
+    v1Number: 'SME-0008',
+    expectedNumber: 'S00008-EM',
+    related: ['S00002-SM', 'S00009-SM'],
     linkHints: ['sector'],
     input: {
       name: 'Sector rotation — 9 sector ETFs',
@@ -344,8 +358,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-09-dual-momentum',
-    expectedNumber: 'SMS-0009',
-    related: ['SDS-0001', 'SMS-0002', 'SME-0008'],
+    v1Number: 'SMS-0009',
+    expectedNumber: 'S00009-SM',
+    related: ['S00001-SD', 'S00002-SM', 'S00008-EM'],
     linkHints: ['dual momentum', '\\bgem\\b', '\\befa\\b'],
     input: {
       name: 'Dual momentum — SPY, EFA, AGG',
@@ -383,8 +398,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-10-covered-calls',
-    expectedNumber: 'SMO-0010',
-    related: ['SMO-0011'],
+    v1Number: 'SMO-0010',
+    expectedNumber: 'S00010-OM',
+    related: ['S00011-OM'],
     linkHints: [],
     input: {
       name: 'Covered calls (BXM)',
@@ -426,8 +442,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-11-cash-secured-puts-wheel',
-    expectedNumber: 'SMO-0011',
-    related: ['SMO-0010'],
+    v1Number: 'SMO-0011',
+    expectedNumber: 'S00011-OM',
+    related: ['S00010-OM'],
     linkHints: [],
     input: {
       name: 'Cash-secured puts / the Wheel',
@@ -465,8 +482,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-12-multi-factor',
-    expectedNumber: 'SQS-0012',
-    related: ['SMS-0002', 'SYS-0007'],
+    v1Number: 'SQS-0012',
+    expectedNumber: 'S00012-SQ',
+    related: ['S00002-SM', 'S00007-SY'],
     linkHints: ['multi.?factor', 'value.*momentum'],
     input: {
       name: 'Multi-factor — value + momentum, S&P 500, quarterly',
@@ -505,8 +523,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-13-carry',
-    expectedNumber: 'SMA-0013',
-    related: ['SMA-0018'],
+    v1Number: 'SMA-0013',
+    expectedNumber: 'S00013-AM',
+    related: ['S00018-AM'],
     linkHints: [],
     input: {
       name: 'Carry — FX, commodities and bonds',
@@ -546,8 +565,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-14-merger-arbitrage',
-    expectedNumber: 'SMS-0014',
-    related: ['SDA-0015'],
+    v1Number: 'SMS-0014',
+    expectedNumber: 'S00014-SM',
+    related: ['S00015-AD'],
     linkHints: [],
     input: {
       name: 'Merger arbitrage / event-driven',
@@ -586,8 +606,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-15-convertible-arbitrage',
-    expectedNumber: 'SDA-0015',
-    related: ['SDS-0004', 'SMS-0014'],
+    v1Number: 'SDA-0015',
+    expectedNumber: 'S00015-AD',
+    related: ['S00004-SD', 'S00014-SM'],
     linkHints: [],
     input: {
       name: 'Convertible arbitrage',
@@ -628,8 +649,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-16-volatility-dispersion',
-    expectedNumber: 'SDO-0016',
-    related: ['SDS-0006', 'SDS-0004'],
+    v1Number: 'SDO-0016',
+    expectedNumber: 'S00016-OD',
+    related: ['S00006-SD', 'S00004-SD'],
     linkHints: [],
     input: {
       name: 'Volatility arbitrage / dispersion',
@@ -669,7 +691,8 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-17-market-making',
-    expectedNumber: 'SSA-0017',
+    v1Number: 'SSA-0017',
+    expectedNumber: 'S00017-AS',
     related: [],
     linkHints: [],
     input: {
@@ -701,8 +724,9 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
   },
   {
     seedKey: 'seed-18-global-macro',
-    expectedNumber: 'SMA-0018',
-    related: ['SMA-0013'],
+    v1Number: 'SMA-0018',
+    expectedNumber: 'S00018-AM',
+    related: ['S00013-AM'],
     linkHints: [],
     input: {
       name: 'Global macro',
@@ -738,67 +762,139 @@ export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
 ];
 
 /**
- * Registers the seed catalogue once, in order, in one transaction, and checks
- * every number against the seed definition; any mismatch rolls the whole seed
- * back. Run with the owner connection right after migrating. Idempotent: an
- * already-seeded library is left alone.
+ * The whole seed catalogue in issue order: the 18 researched strategies
+ * (ADR 0051), then the 13 short-term ones (seed extension 2, ADR 0055).
  */
-export async function seedStrategyLibrary(db: Database): Promise<'seeded' | 'already_seeded'> {
+export const STRATEGY_LIBRARY_SEED: readonly SeedEntry[] = [
+  ...SEED_RESEARCHED,
+  ...STRATEGY_LIBRARY_SEED_SHORT_TERM,
+];
+
+export type SeedOutcome = 'seeded' | 'extended' | 'already_seeded' | 'extension_blocked';
+
+/**
+ * Registers the seed catalogue in order, in one transaction, and checks every
+ * number against the seed definition; any mismatch rolls the whole run back.
+ * Run with the owner connection right after migrating. Idempotent.
+ *
+ * - An empty library gets all 31, then (unless `renumberFresh` is false) is
+ *   moved to convention v2 in the same transaction, so a new install ends in
+ *   the same state as a renumbered one.
+ * - A library holding exactly the first seed entries and nothing else gets
+ *   the missing tail (extension 2 on a library seeded with 18): they take
+ *   the next numbers, under whichever convention is current.
+ * - If other numbers were issued after the seeded ones, the tail cannot get
+ *   its numbers: nothing is registered, a warning is logged and the outcome
+ *   is `extension_blocked` (reported by library:renumber-v2; never renumbered).
+ */
+export async function seedStrategyLibrary(
+  db: Database,
+  options: { renumberFresh?: boolean | undefined } = {},
+): Promise<SeedOutcome> {
   return db.transaction(async (tx) => {
     // Serialise concurrent seeders on the sequence row.
     const [seq] = await tx
       .select({ last: strategyLibrarySequence.lastIssued })
       .from(strategyLibrarySequence)
       .for('update');
+    const last = seq?.last ?? 0;
     const seeded = await tx
       .select({ n: strategyLibraryEntries.registrationNumber, key: strategyLibraryEntries.seedKey })
       .from(strategyLibraryEntries)
       .where(sql`${strategyLibraryEntries.seedKey} is not null`);
-    if (seeded.length === STRATEGY_LIBRARY_SEED.length) {
-      verify(seeded);
-      return 'already_seeded';
+    verify(seeded);
+    const have = new Set(seeded.map((r) => r.key));
+    const firstMissing = STRATEGY_LIBRARY_SEED.findIndex((e) => !have.has(e.seedKey));
+    if (firstMissing === -1) return 'already_seeded';
+    const missing = STRATEGY_LIBRARY_SEED.slice(firstMissing);
+    if (missing.some((e) => have.has(e.seedKey)) || seeded.length !== firstMissing) {
+      throw new Error('The Strategy Library seed is registered out of order; fix it by hand.');
     }
-    if (seeded.length > 0 || (seq?.last ?? 0) > 0) {
-      throw new Error(
-        `The Strategy Library has ${seq?.last ?? 0} numbers issued and ${seeded.length} of ${STRATEGY_LIBRARY_SEED.length} seed entries; the seed must be registered first and whole.`,
-      );
-    }
-    for (const entry of STRATEGY_LIBRARY_SEED) {
-      const issued = await registerLibraryEntry(tx, null, entry.input, { seedKey: entry.seedKey });
-      if (issued.registrationNumber !== entry.expectedNumber) {
+    if (last !== firstMissing) {
+      if (firstMissing === 0) {
         throw new Error(
-          `Seed ${entry.seedKey} was issued ${issued.registrationNumber}, expected ${entry.expectedNumber}`,
+          `The Strategy Library has ${last} numbers issued and no seed entries; the seed must be registered first and whole.`,
+        );
+      }
+      process.stderr.write(
+        `Strategy Library: ${missing.length} seed entries (${missing[0]?.v1Number ?? '?'} on) not registered: ` +
+          `${last} numbers are issued, not ${firstMissing}, so their numbers are taken. Nothing changed.\n`,
+      );
+      return 'extension_blocked';
+    }
+    for (const entry of missing) {
+      // A newly seeded entry carries its v2 fields from the start (ADR 0055).
+      const v2 = LIBRARY_V2_BACKFILL[entry.seedKey]?.values;
+      const issued = await registerLibraryEntry(
+        tx,
+        null,
+        { ...entry.input, ...v2 },
+        { seedKey: entry.seedKey },
+      );
+      if (!seedNumberMatches(issued.registrationNumber, entry)) {
+        throw new Error(
+          `Seed ${entry.seedKey} was issued ${issued.registrationNumber}, expected ${entry.v1Number} (v1) or ${entry.expectedNumber} (v2)`,
         );
       }
     }
-    await linkRelated(tx);
-    return 'seeded';
+    await linkRelated(tx, missing);
+    if (firstMissing === 0 && options.renumberFresh !== false) {
+      await applyRenumberV2(tx);
+      return 'seeded';
+    }
+    return firstMissing === 0 ? 'seeded' : 'extended';
   });
 }
 
+/** A seed entry holds its v2 number, or its v1 number while the library is still on v1. */
+function seedNumberMatches(number: string, entry: SeedEntry): boolean {
+  if (number === entry.expectedNumber) return true;
+  return number === entry.v1Number && parseRegistrationNumber(number)?.layout === 'letters-first';
+}
+
+/** Found by seed key, never re-inserted: every seeded entry must hold its expected number. */
 function verify(rows: { n: string; key: string | null }[]): void {
-  for (const entry of STRATEGY_LIBRARY_SEED) {
-    const row = rows.find((r) => r.key === entry.seedKey);
-    if (row?.n !== entry.expectedNumber) {
+  for (const row of rows) {
+    const entry = STRATEGY_LIBRARY_SEED.find((e) => e.seedKey === row.key);
+    if (!entry) throw new Error(`Unknown seed key ${row.key ?? ''} holds ${row.n}`);
+    if (!seedNumberMatches(row.n, entry)) {
       throw new Error(
-        `Seed ${entry.seedKey} holds ${row?.n ?? 'nothing'}, expected ${entry.expectedNumber}`,
+        `Seed ${entry.seedKey} holds ${row.n}, expected ${entry.expectedNumber} (or ${entry.v1Number} before v2)`,
       );
     }
   }
 }
 
-/** Related entries point both ways and forwards, so they are set after registering all. */
-async function linkRelated(tx: Transaction): Promise<void> {
-  for (const entry of STRATEGY_LIBRARY_SEED) {
+/**
+ * Related entries point both ways and forwards, so they are set after the
+ * entries are registered. They are written in v2 and stored as each related
+ * entry's current number (its v1 number while the library is still on v1).
+ */
+async function linkRelated(tx: Transaction, entries: readonly SeedEntry[]): Promise<void> {
+  const rows = await tx
+    .select({ n: strategyLibraryEntries.registrationNumber, key: strategyLibraryEntries.seedKey })
+    .from(strategyLibraryEntries)
+    .where(sql`${strategyLibraryEntries.seedKey} is not null`);
+  const current = new Map(
+    STRATEGY_LIBRARY_SEED.map((e) => [e.expectedNumber, rows.find((r) => r.key === e.seedKey)?.n]),
+  );
+  for (const entry of entries) {
     if (!entry.related.length) continue;
+    const related = entry.related.map((n) => {
+      const now = current.get(n);
+      if (!now) throw new Error(`Seed ${entry.seedKey} relates to ${n}, which is not registered`);
+      return now;
+    });
     await tx
       .update(strategyLibraryEntries)
-      .set({ relatedEntries: entry.related })
+      .set({ relatedEntries: related })
       .where(sql`${strategyLibraryEntries.seedKey} = ${entry.seedKey}`);
   }
 }
 
 export interface SeedLinkMatch {
+  seedKey: string;
+  /** The seed entry's v2 number (the backfill shows the entry's current one). */
   registrationNumber: string;
   name: string;
   /** The single strategy matched, or why none was. */
@@ -834,7 +930,12 @@ export function matchSeedLinks(
         result = { kind: 'ambiguous', candidates: hits.map((h) => h.name) };
       }
     }
-    out.push({ registrationNumber: seed.expectedNumber, name: seed.input.name, result });
+    out.push({
+      seedKey: seed.seedKey,
+      registrationNumber: seed.expectedNumber,
+      name: seed.input.name,
+      result,
+    });
   }
   return out;
 }

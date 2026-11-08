@@ -143,10 +143,213 @@ const related = z
       .string()
       .trim()
       .toUpperCase()
-      .refine(isRegistrationNumber, 'Use registration numbers such as ABC-0001'),
+      .refine(isRegistrationNumber, 'Use registration numbers such as S00001-SD'),
   )
   .max(50)
   .transform((r) => [...new Set(r)]);
+
+// ---------------------------------------------------------------------------
+// The fuller record (ADR 0055, brief "Strategy Library v2" §2). The Library
+// records a strategy's design; the Lab holds the executable definition, so
+// none of these duplicates a Lab rule. Every field is optional except
+// maturity, which defaults to researched. "Not specified" is a real answer.
+// ---------------------------------------------------------------------------
+
+export const LIBRARY_DIRECTIONS = [
+  'long_only',
+  'short_only',
+  'long_short',
+  'market_neutral',
+] as const;
+export type LibraryDirection = (typeof LIBRARY_DIRECTIONS)[number];
+export const DIRECTION_LABELS: Record<LibraryDirection, string> = {
+  long_only: 'Long only',
+  short_only: 'Short only',
+  long_short: 'Long and short',
+  market_neutral: 'Market neutral',
+};
+
+export const SIZING_METHODS = [
+  'fixed_notional',
+  'pct_equity',
+  'risk_based',
+  'equal_weight',
+  'other',
+  'unspecified',
+] as const;
+export type SizingMethod = (typeof SIZING_METHODS)[number];
+export const SIZING_LABELS: Record<SizingMethod, string> = {
+  fixed_notional: 'Fixed amount',
+  pct_equity: 'Percent of equity',
+  risk_based: 'Risk-based',
+  equal_weight: 'Equal weight',
+  other: 'Other',
+  unspecified: 'Not specified',
+};
+
+export const STOP_METHODS = [
+  'none',
+  'atr_multiple',
+  'pct_stop',
+  'time_stop',
+  'condition_based',
+  'other',
+  'unspecified',
+] as const;
+export type StopMethod = (typeof STOP_METHODS)[number];
+export const STOP_LABELS: Record<StopMethod, string> = {
+  none: 'No stop',
+  atr_multiple: 'ATR multiple',
+  pct_stop: 'Percent stop',
+  time_stop: 'Time stop',
+  condition_based: 'Condition-based',
+  other: 'Other',
+  unspecified: 'Not specified',
+};
+
+export const REBALANCE_SCHEDULES = [
+  'none',
+  'daily_close',
+  'weekly',
+  'month_end',
+  'quarter_end',
+  'year_end',
+  'event_driven',
+  'unspecified',
+] as const;
+export type RebalanceSchedule = (typeof REBALANCE_SCHEDULES)[number];
+export const REBALANCE_LABELS: Record<RebalanceSchedule, string> = {
+  none: 'No schedule',
+  daily_close: 'Daily close',
+  weekly: 'Weekly',
+  month_end: 'Monthly',
+  quarter_end: 'Quarterly',
+  year_end: 'Yearly',
+  event_driven: 'Event-driven',
+  unspecified: 'Not specified',
+};
+
+export const LIBRARY_MATURITIES = ['researched', 'backtested', 'paper_trading', 'live'] as const;
+export type LibraryMaturity = (typeof LIBRARY_MATURITIES)[number];
+export const MATURITY_LABELS: Record<LibraryMaturity, string> = {
+  researched: 'Researched',
+  backtested: 'Back tested',
+  paper_trading: 'Paper trading',
+  live: 'Live',
+};
+
+export const DATA_NEEDS = [
+  'daily_bars',
+  'intraday_bars',
+  'fundamentals',
+  'options_chains',
+  'earnings_consensus',
+  'news',
+  'level2_tick',
+  'short_borrow',
+  'index_data',
+] as const;
+export type DataNeed = (typeof DATA_NEEDS)[number];
+export const DATA_NEED_LABELS: Record<DataNeed, string> = {
+  daily_bars: 'Daily bars',
+  intraday_bars: 'Intraday bars',
+  fundamentals: 'Fundamentals',
+  options_chains: 'Option chains',
+  earnings_consensus: 'Earnings consensus',
+  news: 'News',
+  level2_tick: 'Level 2 / tick data',
+  short_borrow: 'Short borrow',
+  index_data: 'Index data',
+};
+
+export const UNIVERSE_KINDS = [
+  'single_instrument',
+  'list',
+  'index_members',
+  'sector_etfs',
+  'broad_us_stocks',
+  'multi_asset',
+  'unspecified',
+] as const;
+export type UniverseKind = (typeof UNIVERSE_KINDS)[number];
+export const UNIVERSE_LABELS: Record<UniverseKind, string> = {
+  single_instrument: 'Single instrument',
+  list: 'Fixed list',
+  index_members: 'Index members',
+  sector_etfs: 'Sector ETFs',
+  broad_us_stocks: 'Broad US stocks',
+  multi_asset: 'Multi-asset',
+  unspecified: 'Not specified',
+};
+
+export const PARAMETERS_MAX = 10;
+
+export const parameterSchema = z
+  .object({
+    name: text('Parameter name', 80),
+    value: text('Parameter value', 120),
+    unit: optionalText('Unit', 20),
+  })
+  .strict();
+export type LibraryParameter = z.infer<typeof parameterSchema>;
+
+const detail = optionalText('Detail', 500);
+
+export const positionSizingSchema = z
+  .object({ method: z.enum(SIZING_METHODS, { error: 'Choose a sizing method' }), detail })
+  .strict();
+export type PositionSizing = z.infer<typeof positionSizingSchema>;
+
+export const stopLossSchema = z
+  .object({ method: z.enum(STOP_METHODS, { error: 'Choose a stop method' }), detail })
+  .strict();
+export type StopLoss = z.infer<typeof stopLossSchema>;
+
+export const rebalanceScheduleSchema = z
+  .object({ schedule: z.enum(REBALANCE_SCHEDULES, { error: 'Choose a schedule' }), detail })
+  .strict();
+export type RebalanceScheduleValue = z.infer<typeof rebalanceScheduleSchema>;
+
+export const libraryUniverseSchema = z
+  .object({ kind: z.enum(UNIVERSE_KINDS, { error: 'Choose a universe kind' }), detail })
+  .strict();
+export type LibraryUniverse = z.infer<typeof libraryUniverseSchema>;
+
+/** The nine v2 fields, as their own shape (the backfill and the form use it too). */
+export const libraryV2Fields = z
+  .object({
+    direction: z.enum(LIBRARY_DIRECTIONS, { error: 'Choose a direction' }).nullable().default(null),
+    parameters: z
+      .array(parameterSchema)
+      .max(PARAMETERS_MAX, `Use up to ${PARAMETERS_MAX} parameters`)
+      .default([]),
+    positionSizing: positionSizingSchema.nullable().default(null),
+    stopLoss: stopLossSchema.nullable().default(null),
+    rebalanceSchedule: rebalanceScheduleSchema.nullable().default(null),
+    maturity: z.enum(LIBRARY_MATURITIES, { error: 'Choose a maturity' }).default('researched'),
+    keyRisks: optionalText('Key risks', 4000),
+    dataNeeds: z
+      .array(z.enum(DATA_NEEDS, { error: 'Choose data needs from the list' }))
+      .max(DATA_NEEDS.length)
+      .default([])
+      .transform((d) => DATA_NEEDS.filter((n) => d.includes(n))),
+    universe: libraryUniverseSchema.nullable().default(null),
+  })
+  .strict();
+export type LibraryV2Fields = z.output<typeof libraryV2Fields>;
+export type LibraryV2FieldsInput = z.input<typeof libraryV2Fields>;
+
+export const LIBRARY_V2_FIELD_NAMES = [
+  'direction',
+  'parameters',
+  'positionSizing',
+  'stopLoss',
+  'rebalanceSchedule',
+  'maturity',
+  'keyRisks',
+  'dataNeeds',
+  'universe',
+] as const;
 
 /** Fields every entry carries, whether registering or editing. */
 export const libraryEntryFields = z
@@ -169,6 +372,7 @@ export const libraryEntryFields = z
     relatedEntries: related.default([]),
     builtStrategyId: z.uuid('Pick a strategy').nullable().default(null),
   })
+  .extend(libraryV2Fields.shape)
   .strict();
 
 /** Registration: the record plus the codes that become letters 1–3 of the number. */

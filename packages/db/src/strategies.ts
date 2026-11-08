@@ -185,7 +185,7 @@ export async function listStrategies(
         ilike(strategies.description, pattern),
         sql`array_to_string(${strategies.tags}, ' ') ilike ${pattern}`,
         // Its Strategy Library number (ADR 0054).
-        sql`exists (select 1 from ${strategyLibraryEntries} where ${strategyLibraryEntries.id} = ${strategies.libraryEntryId} and ${strategyLibraryEntries.registrationNumber} ilike ${pattern})`,
+        sql`exists (select 1 from ${strategyLibraryEntries} where ${strategyLibraryEntries.id} = ${strategies.libraryEntryId} and (${strategyLibraryEntries.registrationNumber} ilike ${pattern} or array_to_string(${strategyLibraryEntries.formerNumbers}, ' ') ilike ${pattern}))`,
       ) as SQL,
     );
   }

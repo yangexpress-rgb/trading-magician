@@ -13,8 +13,8 @@ const TABS = [
 
 const OTHER_PAGES = [
   '/library/new',
-  '/library/SDS-0001',
-  '/library/SDS-0001/edit',
+  '/library/S00001-SD',
+  '/library/S00001-SD/edit',
   '/settings/data-feeds',
   '/settings/accounts',
   '/settings/billing',

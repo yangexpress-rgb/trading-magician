@@ -3,12 +3,30 @@
 import { ApiError, type LibraryEntryDto } from '@tm/contracts';
 import {
   CATEGORY_LABELS,
+  DATA_NEED_LABELS,
+  DATA_NEEDS,
+  DIRECTION_LABELS,
   DURATION_UNITS,
   EVIDENCE_LABELS,
   EVIDENCE_LEVELS,
   LIBRARY_CATEGORIES,
+  LIBRARY_DIRECTIONS,
+  LIBRARY_MATURITIES,
+  MATURITY_LABELS,
+  PARAMETERS_MAX,
+  REBALANCE_LABELS,
+  REBALANCE_SCHEDULES,
   SHORT_DESCRIPTION_MAX,
+  SIZING_LABELS,
+  SIZING_METHODS,
+  STOP_LABELS,
+  STOP_METHODS,
+  UNIVERSE_KINDS,
+  UNIVERSE_LABELS,
   type ConventionTables,
+  type DataNeed,
+  type LibraryDirection,
+  type LibraryMaturity,
   type DurationUnit,
   type EvidenceLevel,
   type LibraryCategory,
@@ -53,6 +71,34 @@ interface SourceDraft {
   title: string;
   url: string;
   citation: string;
+}
+
+interface ParameterDraft {
+  name: string;
+  value: string;
+  unit: string;
+}
+
+/** A method or kind plus its detail (sizing, stop, schedule, universe). */
+interface PairDraft {
+  choice: string;
+  detail: string;
+}
+
+function toPair(
+  value: { detail?: string | undefined } | null | undefined,
+  choice: string | undefined,
+): PairDraft {
+  return { choice: choice ?? 'unspecified', detail: value?.detail ?? '' };
+}
+
+/**
+ * Back to the record. "Not specified" with no detail stays null when it was
+ * null, so an untouched field does not count as a change.
+ */
+function fromPair(d: PairDraft, key: string, wasNull: boolean): unknown {
+  if (d.choice === 'unspecified' && !d.detail.trim() && wasNull) return null;
+  return { [key]: d.choice, ...(d.detail.trim() ? { detail: d.detail } : {}) };
 }
 
 const UNIT_LABELS: Record<DurationUnit, string> = {
@@ -144,6 +190,21 @@ export function LibraryEntryForm({
     entry?.relatedEntries.map((r) => r.registrationNumber).join(', ') ?? '',
   );
   const [builtStrategyId, setBuiltStrategyId] = useState(entry?.builtStrategyId ?? '');
+  const [direction, setDirection] = useState<LibraryDirection | ''>(entry?.direction ?? '');
+  const [parameters, setParameters] = useState<ParameterDraft[]>(
+    entry?.parameters.map((p) => ({ name: p.name, value: p.value, unit: p.unit ?? '' })) ?? [],
+  );
+  const [sizing, setSizing] = useState(
+    toPair(entry?.positionSizing, entry?.positionSizing?.method),
+  );
+  const [stop, setStop] = useState(toPair(entry?.stopLoss, entry?.stopLoss?.method));
+  const [schedule, setSchedule] = useState(
+    toPair(entry?.rebalanceSchedule, entry?.rebalanceSchedule?.schedule),
+  );
+  const [universe, setUniverse] = useState(toPair(entry?.universe, entry?.universe?.kind));
+  const [maturity, setMaturity] = useState<LibraryMaturity>(entry?.maturity ?? 'researched');
+  const [keyRisks, setKeyRisks] = useState(entry?.keyRisks ?? '');
+  const [dataNeeds, setDataNeeds] = useState<DataNeed[]>(entry?.dataNeeds ?? []);
   const [changeNote, setChangeNote] = useState('');
   const [preview, setPreview] = useState<{ number?: string; error?: string }>({});
   const [pending, setPending] = useState(false);
@@ -208,6 +269,19 @@ export function LibraryEntryForm({
       sources,
       relatedEntries: splitList(related),
       builtStrategyId: builtStrategyId || null,
+      direction: direction || null,
+      parameters: parameters.map((p) => ({
+        name: p.name,
+        value: p.value,
+        ...(p.unit.trim() ? { unit: p.unit } : {}),
+      })),
+      positionSizing: fromPair(sizing, 'method', !entry?.positionSizing),
+      stopLoss: fromPair(stop, 'method', !entry?.stopLoss),
+      rebalanceSchedule: fromPair(schedule, 'schedule', !entry?.rebalanceSchedule),
+      maturity,
+      keyRisks,
+      dataNeeds,
+      universe: fromPair(universe, 'kind', !entry?.universe),
     };
     try {
       if (mode === 'register') {
@@ -450,6 +524,184 @@ export function LibraryEntryForm({
       </Card>
 
       <Card>
+        <h2 className="mb-1 font-semibold">Strategy profile</h2>
+        <p className="mb-3 text-sm text-ink-muted">
+          What the research says about how it trades. Leave a choice at Not specified when the
+          research does not say; it is shown as such, never left blank.
+        </p>
+        <div className="space-y-4">
+          <div className="grid-fields gap-3">
+            <SelectField
+              label="Direction"
+              name="lib-direction"
+              value={direction}
+              onChange={(e) => setDirection(e.target.value as LibraryDirection | '')}
+              error={err('direction')}
+            >
+              <option value="">Not specified</option>
+              {LIBRARY_DIRECTIONS.map((d) => (
+                <option key={d} value={d}>
+                  {DIRECTION_LABELS[d]}
+                </option>
+              ))}
+            </SelectField>
+            <SelectField
+              label="Maturity"
+              name="lib-maturity"
+              value={maturity}
+              onChange={(e) => setMaturity(e.target.value as LibraryMaturity)}
+              error={err('maturity')}
+              hint="Paper trading and live are set by hand."
+              required
+            >
+              {LIBRARY_MATURITIES.map((m) => (
+                <option key={m} value={m}>
+                  {MATURITY_LABELS[m]}
+                </option>
+              ))}
+            </SelectField>
+          </div>
+
+          <fieldset>
+            <legend className="text-sm font-medium">
+              Parameters ({parameters.length}/{PARAMETERS_MAX})
+            </legend>
+            <p className="text-xs text-ink-muted">
+              The numbers the rules use, such as a 200-day lookback.
+            </p>
+            {err('parameters') && (
+              <p className="mt-1 text-xs font-medium text-danger">{err('parameters')}</p>
+            )}
+            <div className="mt-2 space-y-2">
+              {parameters.map((p, i) => (
+                <div
+                  key={i}
+                  className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[2fr_2fr_1fr_auto]"
+                >
+                  <TextField
+                    label={`Parameter ${i + 1}`}
+                    name={`lib-param-${i}-name`}
+                    maxLength={80}
+                    value={p.name}
+                    onChange={(e) => setParameters(edit(parameters, i, { name: e.target.value }))}
+                    error={err(`parameters.${i}.name`)}
+                  />
+                  <TextField
+                    label="Value"
+                    name={`lib-param-${i}-value`}
+                    maxLength={120}
+                    value={p.value}
+                    onChange={(e) => setParameters(edit(parameters, i, { value: e.target.value }))}
+                    error={err(`parameters.${i}.value`)}
+                  />
+                  <TextField
+                    label="Unit (optional)"
+                    name={`lib-param-${i}-unit`}
+                    maxLength={20}
+                    value={p.unit}
+                    onChange={(e) => setParameters(edit(parameters, i, { unit: e.target.value }))}
+                    error={err(`parameters.${i}.unit`)}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setParameters(parameters.filter((_, j) => j !== i))}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              {parameters.length < PARAMETERS_MAX && (
+                <Button
+                  size="sm"
+                  onClick={() => setParameters([...parameters, { name: '', value: '', unit: '' }])}
+                >
+                  Add a parameter
+                </Button>
+              )}
+            </div>
+          </fieldset>
+
+          <PairFields
+            legend="Position sizing"
+            name="lib-sizing"
+            choiceLabel="Method"
+            options={SIZING_METHODS.map((m) => [m, SIZING_LABELS[m]])}
+            value={sizing}
+            onChange={setSizing}
+            errors={fieldErrors}
+            path="positionSizing"
+          />
+          <PairFields
+            legend="Stop loss"
+            name="lib-stop"
+            choiceLabel="Method"
+            options={STOP_METHODS.map((m) => [m, STOP_LABELS[m]])}
+            value={stop}
+            onChange={setStop}
+            errors={fieldErrors}
+            path="stopLoss"
+          />
+          <PairFields
+            legend="Rebalance schedule"
+            name="lib-schedule"
+            choiceLabel="Schedule"
+            options={REBALANCE_SCHEDULES.map((m) => [m, REBALANCE_LABELS[m]])}
+            value={schedule}
+            onChange={setSchedule}
+            errors={fieldErrors}
+            path="rebalanceSchedule"
+          />
+          <PairFields
+            legend="Universe: what it picks from"
+            name="lib-universe"
+            choiceLabel="Kind"
+            options={UNIVERSE_KINDS.map((m) => [m, UNIVERSE_LABELS[m]])}
+            value={universe}
+            onChange={setUniverse}
+            errors={fieldErrors}
+            path="universe"
+          />
+
+          <TextArea
+            label="Key risks (optional)"
+            name="lib-key-risks"
+            rows={3}
+            maxLength={4000}
+            value={keyRisks}
+            onChange={(e) => setKeyRisks(e.target.value)}
+            error={err('keyRisks')}
+            hint="How it fails: the conditions that hurt it and what the research leaves out."
+          />
+
+          <fieldset>
+            <legend className="text-sm font-medium">Data needs</legend>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+              {DATA_NEEDS.map((d) => (
+                <label key={d} className="flex items-center gap-1.5 text-sm">
+                  <input
+                    type="checkbox"
+                    name="lib-data-needs"
+                    value={d}
+                    checked={dataNeeds.includes(d)}
+                    onChange={(e) =>
+                      setDataNeeds(
+                        e.target.checked ? [...dataNeeds, d] : dataNeeds.filter((x) => x !== d),
+                      )
+                    }
+                  />
+                  {DATA_NEED_LABELS[d]}
+                </label>
+              ))}
+            </div>
+            {err('dataNeeds') && (
+              <p className="mt-1 text-xs font-medium text-danger">{err('dataNeeds')}</p>
+            )}
+          </fieldset>
+        </div>
+      </Card>
+
+      <Card>
         <h2 className="mb-1 font-semibold">Who used it before</h2>
         <p className="mb-3 text-sm text-ink-muted">
           Name a person or firm only with a source, and say how solid the evidence is. Leave it
@@ -686,6 +938,55 @@ function TextArea({
         </p>
       )}
     </div>
+  );
+}
+
+function PairFields({
+  legend,
+  name,
+  choiceLabel,
+  options,
+  value,
+  onChange,
+  errors,
+  path,
+}: {
+  legend: string;
+  name: string;
+  choiceLabel: string;
+  options: [string, string][];
+  value: PairDraft;
+  onChange: (d: PairDraft) => void;
+  errors: Record<string, string>;
+  path: string;
+}) {
+  const error = Object.entries(errors).find(([k]) => k === path || k.startsWith(`${path}.`))?.[1];
+  return (
+    <fieldset>
+      <legend className="text-sm font-medium">{legend}</legend>
+      <div className="mt-1 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_2fr]">
+        <SelectField
+          label={choiceLabel}
+          name={`${name}-choice`}
+          value={value.choice}
+          onChange={(e) => onChange({ ...value, choice: e.target.value })}
+        >
+          {options.map(([v, label]) => (
+            <option key={v} value={v}>
+              {label}
+            </option>
+          ))}
+        </SelectField>
+        <TextField
+          label="Detail (optional)"
+          name={`${name}-detail`}
+          maxLength={500}
+          value={value.detail}
+          onChange={(e) => onChange({ ...value, detail: e.target.value })}
+        />
+      </div>
+      {error && <p className="mt-1 text-xs font-medium text-danger">{error}</p>}
+    </fieldset>
   );
 }
 
