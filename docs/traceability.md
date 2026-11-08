@@ -252,7 +252,7 @@ Each is an editable input or a single constant.
 
 ## Design v1.2 changes (2026-11-06 to 2026-11-07)
 
-The v1.2 design (`docs/design/design-doc-v1.2.md`) numbers its changes N1 to N133 and its open
+The v1.2 design (`docs/design/design-doc-v1.2.md`) numbers its changes N1 to N134 and its open
 points O1 to O105 (`docs/design/v1.2-deviations.md`). ADRs 0034 and 0037 to 0057 cite them.
 Each row maps a change to its decision record, code and tests.
 
@@ -391,3 +391,4 @@ Each row maps a change to its decision record, code and tests.
 | N131   | Dark mode, contrast, status colours win                                          | ADR 0057; O105                           | `packages/ui/src/styles.css` (components layer)                                                                                                                                                                                                      | `packages/ui/src/data-text.test.ts`, e2e accessibility checks                                                                 |
 | N132   | No behaviour change; `—` for missing condition counts                            | ADR 0057                                 | `apps/web/components/strategy/backtest-detail.tsx`                                                                                                                                                                                                   | existing suites                                                                                                               |
 | N133   | `TdNumeric`, `DataValue`, `Stat`                                                 | ADR 0057                                 | `packages/ui/src/table.tsx`, `data-value.tsx`                                                                                                                                                                                                        | `packages/ui/src/data-text.test.ts`, `apps/web/components/strategy/backtest-runs-table.test.ts`                               |
+| N134   | Reading scale for detail pages (`text-prose`)                                    | ADR 0057                                 | `packages/ui/src/styles.css`, `apps/web/app/(app)/library/[number]/page.tsx`, `markdown.tsx`, `version-summary.tsx`, `order-drawer.tsx`                                                                                                              | `packages/ui/src/data-text.test.ts`                                                                                           |

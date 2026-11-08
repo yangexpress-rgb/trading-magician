@@ -64,8 +64,8 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
       </nav>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="font-mono text-3xl font-semibold tracking-tight">{e.registrationNumber}</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">{e.name}</h1>
+          <p className="font-mono text-sm text-ink-muted">{e.registrationNumber}</p>
+          <h1 className="mt-1 text-3xl font-semibold tracking-tight">{e.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {retired && <Badge tone="warn">Retired</Badge>}
             <Badge tone={e.builtStatus === 'built' ? 'ok' : 'neutral'}>
@@ -133,11 +133,11 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
       <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="space-y-4">
           <Card>
-            <h2 className="mb-2 font-semibold">How it works</h2>
+            <h2 className="mb-4 text-lg font-semibold">How it works</h2>
             <Markdown source={e.longDescription} />
           </Card>
           <Card>
-            <h2 className="mb-3 font-semibold">Trading rules</h2>
+            <h2 className="mb-4 text-lg font-semibold">Trading rules</h2>
             <Field label="Assets">{e.assets}</Field>
             <Field label="Entry">
               <Markdown source={e.entry} />
@@ -155,7 +155,7 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
             </div>
           </Card>
           <Card>
-            <h2 className="mb-3 font-semibold">Parameters</h2>
+            <h2 className="mb-4 text-lg font-semibold">Parameters</h2>
             {e.parameters.length === 0 ? (
               <Muted>{NOT_SPECIFIED}.</Muted>
             ) : (
@@ -182,7 +182,7 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
             )}
           </Card>
           <Card>
-            <h2 className="mb-3 font-semibold">Risk &amp; sizing</h2>
+            <h2 className="mb-4 text-lg font-semibold">Risk &amp; sizing</h2>
             <div className="grid gap-x-6 sm:grid-cols-2">
               <Field label="Position sizing">
                 {methodText(
@@ -196,7 +196,7 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
             </div>
           </Card>
           <Card>
-            <h2 className="mb-3 font-semibold">Operations</h2>
+            <h2 className="mb-4 text-lg font-semibold">Operations</h2>
             <div className="grid gap-x-6 sm:grid-cols-2">
               <Field label="Rebalance schedule">
                 {methodText(
@@ -210,7 +210,7 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
             </div>
           </Card>
           <Card>
-            <h2 className="mb-3 font-semibold">Evidence &amp; maturity</h2>
+            <h2 className="mb-4 text-lg font-semibold">Evidence &amp; maturity</h2>
             <Field label="Maturity">{MATURITY_LABELS[e.maturity]}</Field>
             <Field label="Key risks">
               {e.keyRisks ? <Markdown source={e.keyRisks} /> : <Muted>{NOT_SPECIFIED}.</Muted>}
@@ -264,11 +264,11 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
 
         <div className="space-y-4">
           <Card>
-            <h2 className="mb-3 font-semibold">Strategy Lab</h2>
+            <h2 className="mb-4 text-lg font-semibold">Strategy Lab</h2>
             <BuiltLink entry={e} />
           </Card>
           <Card>
-            <h2 className="mb-3 font-semibold">Data needs</h2>
+            <h2 className="mb-4 text-lg font-semibold">Data needs</h2>
             {e.dataNeeds.length === 0 ? (
               <Muted>{NOT_SPECIFIED}.</Muted>
             ) : (
@@ -287,7 +287,7 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
             </Field>
           </Card>
           <Card>
-            <h2 className="mb-3 font-semibold">Related entries</h2>
+            <h2 className="mb-4 text-lg font-semibold">Related entries</h2>
             {e.relatedEntries.length === 0 ? (
               <Muted>None.</Muted>
             ) : (
@@ -305,7 +305,7 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
             )}
           </Card>
           <Card>
-            <h2 className="mb-3 font-semibold">Record</h2>
+            <h2 className="mb-4 text-lg font-semibold">Record</h2>
             <dl className="space-y-1 text-sm">
               <div>
                 <dt className="inline text-ink-muted">Registered by </dt>
@@ -362,16 +362,16 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="mb-3 text-sm last:mb-0">
-      <h3 className="mb-1 text-xs font-semibold tracking-wide text-ink-muted uppercase">{label}</h3>
-      {/* The value is content (brief v2.2 D3, N128); muted notes inside keep their tone. */}
-      <div className="leading-relaxed text-content">{children}</div>
+    <div className="mb-5 last:mb-0">
+      {/* Label: small, muted, sentence case. Value: reading text at body size (N134). */}
+      <h3 className="mb-1 text-sm font-medium text-ink-muted">{label}</h3>
+      <div className="text-base text-prose">{children}</div>
     </div>
   );
 }
 
 function Muted({ children }: { children: ReactNode }) {
-  return <p className="text-sm text-ink-muted">{children}</p>;
+  return <p className="text-base text-ink-muted">{children}</p>;
 }
 
 function BuiltLink({ entry }: { entry: NonNullable<Awaited<ReturnType<typeof getLibraryEntry>>> }) {

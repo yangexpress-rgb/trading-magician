@@ -7,7 +7,7 @@ import { Fragment } from 'react';
  */
 export function Markdown({ source, className }: { source: string; className?: string }) {
   return (
-    <div className={className ?? 'max-w-prose space-y-2 text-base leading-relaxed text-content'}>
+    <div className={className ?? 'max-w-prose space-y-3 text-base text-prose'}>
       {parseMarkdown(source).map((block, i) =>
         block.kind === 'paragraph' ? (
           <p key={i}>

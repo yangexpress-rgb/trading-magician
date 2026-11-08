@@ -16,11 +16,11 @@ const PHASE_TITLE: Record<PhaseName, string> = { entry: 'Entry', exit: 'Exit' };
 /** Label–value rows: muted label, value as content (brief v2.2 D3, N128). */
 function Rows({ rows }: { rows: [string, string][] }) {
   return (
-    <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[12rem_1fr]">
+    <dl className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-[12rem_1fr] sm:items-baseline">
       {rows.map(([term, value]) => (
         <div key={term} className="contents">
-          <dt className="text-ink-muted">{term}</dt>
-          <dd className="text-content">{value}</dd>
+          <dt className="text-sm text-ink-muted">{term}</dt>
+          <dd className="text-base text-content">{value}</dd>
         </div>
       ))}
     </dl>
@@ -53,13 +53,13 @@ export function VersionSummary({
             <h2 id={`${phase}-heading`} className="text-lg font-semibold">
               {PHASE_TITLE[phase]}
             </h2>
-            <p className="mt-2 max-w-prose text-sm leading-relaxed">
-              <span className="text-ink-muted">Qualifies when: </span>
-              <span className="text-content">{describeCondition(p.condition, symbol)}</span>
+            <p className="mt-3 max-w-prose text-base">
+              <span className="text-sm text-ink-muted">Qualifies when: </span>
+              <span className="text-prose">{describeCondition(p.condition, symbol)}</span>
             </p>
-            <p className="mt-1 max-w-prose text-sm leading-relaxed">
-              <span className="text-ink-muted">Fires: </span>
-              <span className="text-content">{describeTrigger(p.trigger)}</span>
+            <p className="mt-2 max-w-prose text-base">
+              <span className="text-sm text-ink-muted">Fires: </span>
+              <span className="text-prose">{describeTrigger(p.trigger)}</span>
             </p>
             {p.orders.length === 0 ? (
               <p className="mt-3 text-sm text-ink-muted">No orders.</p>
@@ -68,7 +68,7 @@ export function VersionSummary({
                 {p.orders.map((o) => (
                   <li key={o.id} className="rounded-md border border-line p-3 text-sm">
                     <p className="font-medium">{o.legLabel}</p>
-                    <p className="leading-relaxed text-content">
+                    <p className="text-base text-prose">
                       {describeLeg(o, symbol, baseCurrency, definition.entry.risk)}
                     </p>
                     <p className="text-ink-muted">
@@ -83,7 +83,7 @@ export function VersionSummary({
         );
       })}
       <Card aria-labelledby="execution-heading">
-        <h2 id="execution-heading" className="mb-2 text-lg font-semibold">
+        <h2 id="execution-heading" className="mb-3 text-lg font-semibold">
           Execution
         </h2>
         <Rows
@@ -106,7 +106,7 @@ export function VersionSummary({
         />
       </Card>
       <Card aria-labelledby="risk-heading">
-        <h2 id="risk-heading" className="mb-2 text-lg font-semibold">
+        <h2 id="risk-heading" className="mb-3 text-lg font-semibold">
           Risk limits
         </h2>
         <Rows
