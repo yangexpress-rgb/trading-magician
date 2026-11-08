@@ -19,6 +19,7 @@ export const GET = api(async (request, { tx }) => {
         ? new Date(Date.parse(`${q.updatedTo}T00:00:00Z`) + DAY_MS)
         : undefined,
       archived: q.archived,
+      shared: q.shared,
       sort: q.sort,
       direction: q.direction,
       limit: q.limit,

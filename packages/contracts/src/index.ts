@@ -8,3 +8,4 @@ export * from './performance';
 export * from './billing';
 export * from './research';
 export * from './library';
+export * from './sharing';

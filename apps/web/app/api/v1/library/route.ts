@@ -4,7 +4,7 @@ import { api, readJson, readQuery } from '@/lib/server/api';
 
 export const dynamic = 'force-dynamic';
 
-export const GET = api(async (request, { tx }) => {
+export const GET = api(async (request, { tx, userId }) => {
   const q = readQuery(request, listLibraryQuery);
   const result = await tx((t) =>
     listLibraryEntries(t, {
@@ -17,6 +17,8 @@ export const GET = api(async (request, { tx }) => {
       maturity: q.maturity,
       dataNeed: q.data,
       status: q.status,
+      mine: q.mine,
+      viewerId: userId,
       sort: q.sort,
       direction: q.direction,
     }),

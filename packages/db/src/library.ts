@@ -39,6 +39,7 @@ import {
 import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { z } from 'zod';
 import type { Transaction } from './client';
+import { sharedProvenance, type SharedProvenance } from './share-provenance';
 import {
   conventionVersions,
   strategies,
@@ -135,6 +136,10 @@ export interface LibraryEntry extends LibraryEntrySummary {
     | { visibility: 'yours_deleted'; id: string }
     | { visibility: 'elsewhere' }
     | null;
+  /** A shared copy (ADR 0056): the number it was copied from, shown to everyone. */
+  copiedFrom: string | null;
+  /** Who shared it; only the sender and the recipient see this. */
+  sharedBy: SharedProvenance | null;
   retiredReason: string | null;
   retiredAt: Date | null;
   registeredBy: ActorLabel;
@@ -158,6 +163,10 @@ export interface LibraryListOptions {
   /** Entries that need this data. */
   dataNeed?: DataNeed | undefined;
   status?: LibraryStatus | 'all' | undefined;
+  /** Records the viewer registered, or copies they received by sharing (ADR 0056). */
+  mine?: 'registered' | 'shared' | undefined;
+  /** The viewer, for `mine`. */
+  viewerId?: string | undefined;
   sort?: 'number' | 'name' | 'registered' | undefined;
   direction?: 'asc' | 'desc' | undefined;
 }
@@ -278,6 +287,10 @@ export async function listLibraryEntries(
   if (options.dataNeed) where.push(sql`${options.dataNeed} = any(${entries.dataNeeds})`);
   const status = options.status ?? 'all';
   if (status !== 'all') where.push(eq(entries.status, status));
+  if (options.mine && options.viewerId) {
+    where.push(eq(entries.registeredBy, options.viewerId));
+    if (options.mine === 'shared') where.push(sql`${entries.receivedShareId} is not null`);
+  }
 
   const dir = options.direction === 'desc' ? desc : asc;
   const order =
@@ -450,6 +463,8 @@ export async function getLibraryEntry(
     })),
     builtStrategyId: row.builtStrategyId,
     builtStrategy,
+    copiedFrom: row.copiedFrom,
+    sharedBy: await sharedProvenance(tx, row.receivedShareId),
     retiredReason: row.retiredReason,
     retiredAt: row.retiredAt,
     registeredBy: actor(row.registeredBy, viewerId, isSeed),
@@ -571,7 +586,12 @@ export async function registerLibraryEntry(
   tx: Transaction,
   actorId: string | null,
   input: RegisterLibraryEntryInput,
-  options: { seedKey?: string } = {},
+  options: {
+    seedKey?: string;
+    /** A copy made by accepting this share (ADR 0056), and the number it copies. */
+    receivedShareId?: string;
+    copiedFrom?: string;
+  } = {},
 ): Promise<{ id: string; registrationNumber: string; conventionVersion: string }> {
   const data = parseInput(registerLibraryEntrySchema, input);
   const codes = {
@@ -601,6 +621,8 @@ export async function registerLibraryEntry(
       assetClassCode: codes.assetClass,
       registeredBy: actorId,
       seedKey: options.seedKey ?? null,
+      receivedShareId: options.receivedShareId ?? null,
+      copiedFrom: options.copiedFrom ?? null,
       // Replaced by the insert trigger, which issues the number.
       registrationNumber: '',
       sequenceNo: 0,

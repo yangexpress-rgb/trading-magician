@@ -60,6 +60,11 @@ export const listStrategiesQuery = z.object({
   updatedFrom: z.iso.date().optional(),
   updatedTo: z.iso.date().optional(),
   archived: z.enum(ARCHIVE_FILTERS).default('exclude'),
+  /** `shared=1`: only copies shared with you (ADR 0056). */
+  shared: z
+    .enum(['1', 'true'])
+    .transform(() => true)
+    .optional(),
   sort: z.enum(STRATEGY_SORTS).default('updated'),
   direction: z.enum(['asc', 'desc']).default('desc'),
   limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -139,10 +144,23 @@ export interface StrategySummaryDto {
     netReturnPct: string | null;
     finishedAt: string | null;
   } | null;
+  /** A copy received by sharing (ADR 0056). */
+  shared: boolean;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
   rowVersion: number;
+}
+
+/** "Shared by Yong (U0001)" on a received copy (ADR 0056). */
+export interface SharedProvenanceDto {
+  shareId: string;
+  /** Null once the sender's account is purged. */
+  senderName: string | null;
+  senderCode: string;
+  senderIsAdmin: boolean;
+  sourceNumber: string;
+  acceptedAt: string | null;
 }
 
 export interface StrategyListDto {
@@ -161,6 +179,8 @@ export interface StrategyDetailDto {
   id: string;
   name: string;
   library: StrategyLibraryDto | null;
+  /** Who shared this copy (ADR 0056); null for a strategy made here. */
+  sharedBy: SharedProvenanceDto | null;
   description: string;
   tags: string[];
   status: StrategyStatus;

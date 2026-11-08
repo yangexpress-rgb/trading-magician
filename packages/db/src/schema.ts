@@ -90,8 +90,27 @@ export const users = pgTable('user', {
    * session ended until an admin unlocks it.
    */
   lockedAt: timestamp('locked_at', { withTimezone: true }),
+  /**
+   * The person's member ID, `U0001` in sign-up order (ADR 0056). Issued by the
+   * insert trigger from `member_code_sequence` (whatever the insert sent is
+   * replaced) and never changed. Sharing names people by it.
+   */
+  memberCode: text('member_code').notNull().default('').unique(),
   ...timestamps(),
 });
+
+/** The single counter behind member IDs (ADR 0056). Only the user insert trigger moves it. */
+export const memberCodeSequence = pgTable(
+  'member_code_sequence',
+  {
+    id: integer('id').primaryKey(),
+    lastIssued: integer('last_issued').notNull(),
+  },
+  (t) => [
+    check('member_code_sequence_single', sql`${t.id} = 1`),
+    check('member_code_sequence_nonnegative', sql`${t.lastIssued} >= 0`),
+  ],
+);
 
 /**
  * Who may open the admin page (ADR 0037). Granted only from the command line
@@ -928,6 +947,8 @@ export const strategies = pgTable(
     libraryEntryId: uuid('library_entry_id').references(
       (): AnyPgColumn => strategyLibraryEntries.id,
     ),
+    /** The share this strategy was copied from (ADR 0056); never changes once set. */
+    receivedShareId: uuid('received_share_id').references((): AnyPgColumn => strategyShares.id),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     /** Soft delete: versions and history stay linked to orders (§6.2). */
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -1788,6 +1809,10 @@ export const NOTIFICATION_KINDS = [
   'risk_pause',
   'reconciliation_mismatch',
   'billing',
+  // Strategy sharing (ADR 0056).
+  'share_received',
+  'share_accepted',
+  'share_declined',
 ] as const;
 
 /** In-app notifications (§16.3). Email and push come with Phase 4 preferences. */
@@ -1818,7 +1843,7 @@ export const notifications = pgTable(
       .where(sql`${t.readAt} is null`),
     check(
       'notification_kind',
-      sql`${t.kind} in ('strategy_started', 'strategy_stopped', 'triggered', 'order_rejected', 'partial_fill', 'filled', 'disconnect', 'stale_data', 'risk_pause', 'reconciliation_mismatch', 'billing')`,
+      sql`${t.kind} in ('strategy_started', 'strategy_stopped', 'triggered', 'order_rejected', 'partial_fill', 'filled', 'disconnect', 'stale_data', 'risk_pause', 'reconciliation_mismatch', 'billing', 'share_received', 'share_accepted', 'share_declined')`,
     ),
     check('notification_title_length', sql`char_length(${t.title}) <= 200`),
     check('notification_body_length', sql`char_length(${t.body}) <= 1000`),
@@ -2198,6 +2223,10 @@ export const strategyLibraryEntries = pgTable(
     builtStrategyId: uuid('built_strategy_id'),
     /** Who linked it, so only that workspace resolves the link. */
     builtStrategyOwner: uuid('built_strategy_owner'),
+    /** The share this record was copied from (ADR 0056); never changes once set. */
+    receivedShareId: uuid('received_share_id').references((): AnyPgColumn => strategyShares.id),
+    /** The number of the record a shared copy was made from; shown to every member. */
+    copiedFrom: text('copied_from'),
     retiredReason: text('retired_reason'),
     retiredAt: timestamp('retired_at', { withTimezone: true }),
     retiredBy: uuid('retired_by').references(() => users.id, { onDelete: 'set null' }),
@@ -2288,5 +2317,70 @@ export const strategyLibraryRevisions = pgTable(
     index('strategy_library_revisions_entry_idx').on(t.entryId, t.editedAt),
     check('strategy_library_revisions_action', sql`${t.action} in ('create', 'edit', 'retire')`),
     check('strategy_library_revisions_note', sql`char_length(btrim(${t.note})) between 1 and 500`),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Strategy sharing (ADR 0056)
+
+export const SHARE_KINDS = ['library', 'lab'] as const;
+export const SHARE_STATUSES = ['pending', 'accepted', 'declined', 'withdrawn', 'expired'] as const;
+
+/**
+ * One offer of one strategy from one member to another (ADR 0056). The
+ * snapshot is taken when the share is made, so the preview and the copy read
+ * from here and the recipient never reads the sender's workspace. Readable by
+ * its sender and recipient only; written only by the share_* functions.
+ */
+export const strategyShares = pgTable(
+  'strategy_share',
+  {
+    id: id(),
+    kind: text('kind').notNull(),
+    senderId: uuid('sender_id').references(() => users.id, { onDelete: 'set null' }),
+    recipientId: uuid('recipient_id').references(() => users.id, { onDelete: 'set null' }),
+    /** At share time, so the line survives renames; cleared when the account is purged. */
+    senderName: text('sender_name'),
+    senderCode: text('sender_code').notNull(),
+    senderIsAdmin: boolean('sender_is_admin').notNull().default(false),
+    recipientName: text('recipient_name'),
+    recipientCode: text('recipient_code').notNull(),
+    /** The Library record shared, or the shared strategy's record. */
+    sourceEntryId: uuid('source_entry_id')
+      .notNull()
+      .references(() => strategyLibraryEntries.id),
+    sourceNumber: text('source_number').notNull(),
+    sourceName: text('source_name').notNull(),
+    /** A strategy in the sender's workspace (no FK across workspaces). */
+    sourceStrategyId: uuid('source_strategy_id'),
+    snapshot: jsonb('snapshot').notNull(),
+    note: text('note'),
+    status: text('status').notNull().default('pending'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    resultStrategyId: uuid('result_strategy_id'),
+    resultEntryId: uuid('result_entry_id').references(() => strategyLibraryEntries.id),
+    resultNumber: text('result_number'),
+  },
+  (t) => [
+    check('strategy_share_kind', sql`${t.kind} in ('library', 'lab')`),
+    check(
+      'strategy_share_status',
+      sql`${t.status} in ('pending', 'accepted', 'declined', 'withdrawn', 'expired')`,
+    ),
+    check(
+      'strategy_share_lab_source',
+      sql`(${t.kind} = 'lab') = (${t.sourceStrategyId} is not null)`,
+    ),
+    check('strategy_share_note_length', sql`char_length(${t.note}) <= 500`),
+    check('strategy_share_not_self', sql`${t.senderId} is distinct from ${t.recipientId}`),
+    check('strategy_share_decided', sql`(${t.status} = 'pending') = (${t.decidedAt} is null)`),
+    // One pending share of one source from one person to another.
+    uniqueIndex('strategy_share_pending_uq')
+      .on(t.senderId, t.recipientId, t.sourceEntryId)
+      .where(sql`${t.status} = 'pending'`),
+    index('strategy_share_recipient_idx').on(t.recipientId, t.createdAt),
+    index('strategy_share_sender_idx').on(t.senderId, t.createdAt),
   ],
 );

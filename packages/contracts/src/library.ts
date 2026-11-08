@@ -1,3 +1,4 @@
+import type { SharedProvenanceDto } from './strategies';
 import {
   BUILT_STATUSES,
   DATA_NEEDS,
@@ -59,6 +60,8 @@ export const listLibraryQuery = z.object({
   /** Entries that need this data. */
   data: z.enum(DATA_NEEDS).optional(),
   status: z.enum([...LIBRARY_STATUSES, 'all']).default('all'),
+  /** Records you registered, or copies shared with you (ADR 0056). */
+  mine: z.enum(['registered', 'shared']).optional(),
   sort: z.enum(['number', 'name', 'registered']).default('number'),
   direction: z.enum(['asc', 'desc']).default('asc'),
 });
@@ -142,6 +145,10 @@ export interface LibraryEntryDto extends LibraryEntrySummaryDto {
     | { visibility: 'yours_deleted'; id: string }
     | { visibility: 'elsewhere' }
     | null;
+  /** A shared copy (ADR 0056): the number it was copied from. */
+  copiedFrom: string | null;
+  /** Who shared it; only the sender and the recipient see it. */
+  sharedBy: SharedProvenanceDto | null;
   retiredReason: string | null;
   retiredAt: string | null;
   registeredBy: ActorLabelDto;
