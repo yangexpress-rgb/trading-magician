@@ -13,7 +13,10 @@ import { Badge, buttonClasses, Card, ModeBadge, PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { ShareButton } from '@/components/sharing/share-button';
+import { SharedBy } from '@/components/sharing/shared-by';
 import { StrategyStatusBadge } from '@/components/strategy-status-badge';
+import { isAdmin } from '@/lib/server/admin';
 import { appDb } from '@/lib/server/db';
 import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
@@ -84,9 +87,22 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
             >
               Make a copy
             </Link>
+            {strategy.library && (
+              <ShareButton
+                source={{ kind: 'lab', strategyId: strategy.id }}
+                label={`${strategy.library.registrationNumber} ${strategy.name}`}
+                isAdmin={await isAdmin()}
+                size="sm"
+              />
+            )}
           </>
         }
       />
+      {strategy.sharedBy && (
+        <div className="-mt-4 mb-4">
+          <SharedBy sharedBy={strategy.sharedBy} prefs={prefs} />
+        </div>
+      )}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="min-w-0">
           <StrategyEditor

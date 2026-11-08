@@ -43,3 +43,11 @@ export interface ShareMemberDto {
   displayName: string;
   isAdmin: boolean;
 }
+
+/** Body of POST /shares: a source and member IDs or emails (or the admin's All members). */
+export interface CreateShareRequest {
+  source: { kind: 'library'; number: string } | { kind: 'lab'; strategyId: string };
+  recipients?: string[];
+  allMembers?: boolean;
+  note?: string;
+}
