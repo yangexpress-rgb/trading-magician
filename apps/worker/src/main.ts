@@ -30,7 +30,13 @@ import { fakeCboeFetch } from './cboe-fake';
 import { fakeCustomTransport } from './custom-rest-fake';
 import { startRuntimeLoop, type RuntimeLoop } from './runtime';
 import { startValuationLoop, type ValuationLoop } from './valuations';
-import { AlpacaClient, fetchOptionBars, fetchOptionContracts, lookupAlpacaAsset } from '@tm/alpaca';
+import {
+  AlpacaClient,
+  createAlpacaHistory,
+  fetchOptionBars,
+  fetchOptionContracts,
+  lookupAlpacaAsset,
+} from '@tm/alpaca';
 import { cboeOptionsSource } from './options/cboe-options';
 import { fakeCboeOptionsFetch } from './options/cboe-options-fake';
 import { optionsFeedProvider } from './options/feed';
@@ -264,6 +270,9 @@ if (databaseUrl) {
       ? new AlpacaClient({
           credentials: appKey,
           fetch: alpacaOptions.fetch,
+          // The recording yields to strategies and screens on a shared key (ADR 0052);
+          // the local fake has no limit to share.
+          background: !alpacaOptions.fake,
           ...(alpacaOptions.fake
             ? {
                 tradingUrl: alpacaOptions.fake.tradingUrl,
@@ -278,13 +287,7 @@ if (databaseUrl) {
         'No Alpaca key for options data (OPTIONS_ALPACA_KEY_ID unset and no admin Alpaca feed): option chains are stored, but signals wait for an Alpaca close and the history rebuild waits',
       );
     }
-    const history = appKey
-      ? providers.alpaca?.history({
-          now: () => new Date(),
-          credential: { provider: 'alpaca', environment: 'paper', fields: { ...appKey } },
-          patient: true,
-        })
-      : undefined;
+    const history = client ? createAlpacaHistory(client, { patient: true }) : undefined;
     const chains = cboeOptionsSource({
       fetch: env.CBOE_OPTIONS_FAKE ? fakeCboeOptionsFetch(() => new Date()) : undefined,
       baseUrl: env.CBOE_OPTIONS_URL,
