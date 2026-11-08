@@ -604,10 +604,10 @@ describe('sharing several at once', () => {
   });
 });
 
-describe('the hourly limit', () => {
-  it('counts sends, not shares: 20 sends an hour, however many each carries', async () => {
+describe('no hourly limit', () => {
+  it('lets a member send as often as they like (Yong removed the limit)', async () => {
     const d = await createUser('dan@example.test', 'Dan');
-    // One send of 3 records to 3 people (9 shares) counts once.
+    // One send of 3 records to 3 people, then 20 more sends.
     const first = await as(d, (tx) =>
       createShares(tx, d, {
         sources: [10, 11, 12].map((n) => ({ kind: 'library' as const, number: num(n) })),
@@ -620,12 +620,10 @@ describe('the hourly limit', () => {
         createShares(tx, d, { source: { kind: 'library', number: num(n) }, recipients: ['U0004'] }),
       );
     }
-    await refused(
-      as(d, (tx) =>
-        createShares(tx, d, { source: { kind: 'library', number: num(1) }, recipients: ['U0004'] }),
-      ),
-      /20 times an hour/,
+    const last = await as(d, (tx) =>
+      createShares(tx, d, { source: { kind: 'library', number: num(1) }, recipients: ['U0004'] }),
     );
+    expect(last).toHaveLength(1);
   });
 });
 

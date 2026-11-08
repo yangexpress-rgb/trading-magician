@@ -519,6 +519,13 @@
       "when": 1794161929671,
       "tag": "0073_share_sends_per_hour",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1794162785347,
+      "tag": "0074_share_no_hourly_limit",
+      "breakpoints": true
     }
   ]
 }
