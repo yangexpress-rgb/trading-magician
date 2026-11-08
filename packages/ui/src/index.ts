@@ -6,4 +6,5 @@ export { Drawer } from './drawer';
 export { Alert, SelectField, TextField } from './form';
 export * from './icons';
 export { Card, EmptyState, PageHeader } from './layout';
-export { Table, Td, Th } from './table';
+export { DataValue, Stat } from './data-value';
+export { Table, Td, TdNumeric, Th } from './table';

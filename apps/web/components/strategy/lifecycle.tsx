@@ -508,7 +508,7 @@ export function BackTestPanel({
         <BacktestInputsForm state={backtests} blocked={runBlocked} />
         <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt className="text-ink-muted">Latest back test</dt>
-          <dd>{latestText}</dd>
+          <dd className={latest?.finishedAt ? 'text-data' : undefined}>{latestText}</dd>
           <dt className="text-ink-muted">Current draft</dt>
           <dd>{draftTested}</dd>
         </dl>

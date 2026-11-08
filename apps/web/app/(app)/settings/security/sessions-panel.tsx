@@ -47,7 +47,7 @@ export function SessionsPanel({
         <tbody>
           {sessions.map((s) => (
             <tr key={s.id}>
-              <Td>{formatDateTime(s.createdAt, prefs)}</Td>
+              <Td className="text-data">{formatDateTime(s.createdAt, prefs)}</Td>
               <Td className="max-w-xs truncate">{s.userAgent ?? 'Unknown device'}</Td>
               <Td className="text-right">
                 {s.id === currentSessionId ? (

@@ -435,22 +435,22 @@ export function PriceChart({
             <thead>
               <tr>
                 <Th>Time</Th>
-                <Th className="text-right">Open</Th>
-                <Th className="text-right">High</Th>
-                <Th className="text-right">Low</Th>
-                <Th className="text-right">Close</Th>
-                <Th className="text-right">Volume</Th>
+                <Th numeric>Open</Th>
+                <Th numeric>High</Th>
+                <Th numeric>Low</Th>
+                <Th numeric>Close</Th>
+                <Th numeric>Volume</Th>
               </tr>
             </thead>
             <tbody className="tabular-nums">
               {[...bars].reverse().map((b) => (
                 <tr key={b.t}>
-                  <Td>{formatBarTime(b.t, interval)}</Td>
-                  <Td className="text-right">{formatPrice(b.open)}</Td>
-                  <Td className="text-right">{formatPrice(b.high)}</Td>
-                  <Td className="text-right">{formatPrice(b.low)}</Td>
-                  <Td className="text-right">{formatPrice(b.close)}</Td>
-                  <Td className="text-right">{formatVolume(b.volume)}</Td>
+                  <Td className="text-data">{formatBarTime(b.t, interval)}</Td>
+                  <Td numeric>{formatPrice(b.open)}</Td>
+                  <Td numeric>{formatPrice(b.high)}</Td>
+                  <Td numeric>{formatPrice(b.low)}</Td>
+                  <Td numeric>{formatPrice(b.close)}</Td>
+                  <Td numeric>{formatVolume(b.volume)}</Td>
                 </tr>
               ))}
             </tbody>

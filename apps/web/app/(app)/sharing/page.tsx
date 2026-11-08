@@ -104,7 +104,9 @@ export default async function SharingPage({
                       </p>
                     )}
                   </Td>
-                  <Td className="whitespace-nowrap">{formatDateTime(s.createdAt, prefs)}</Td>
+                  <Td className="whitespace-nowrap text-data">
+                    {formatDateTime(s.createdAt, prefs)}
+                  </Td>
                 </tr>
               ))}
             </tbody>

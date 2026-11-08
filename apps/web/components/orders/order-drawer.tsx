@@ -39,13 +39,22 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Pairs({ rows }: { rows: [string, React.ReactNode][] }) {
+/** Label–value rows. Terms in `data` show their value in the data text role (N127). */
+function Pairs({
+  rows,
+  data = [],
+}: {
+  rows: [string, React.ReactNode][];
+  data?: readonly string[] | 'all';
+}) {
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
       {rows.map(([term, value]) => (
         <div key={term} className="contents">
           <dt className="text-ink-muted">{term}</dt>
-          <dd>{value}</dd>
+          <dd className={data === 'all' || data.includes(term) ? 'text-data' : undefined}>
+            {value}
+          </dd>
         </div>
       ))}
     </dl>
@@ -217,6 +226,14 @@ export function OrderDrawer({
                 ['Broker order', d.brokerOrderId ?? 'Not sent yet'],
                 ['Idempotency key', <code key="k">{d.idempotencyKey}</code>],
               ]}
+              data={[
+                'Quantity',
+                'Average fill price',
+                'Reference price',
+                'Eligible',
+                'Submitted',
+                'Filled',
+              ]}
             />
           </Section>
 
@@ -255,6 +272,7 @@ export function OrderDrawer({
                     .slice(0, 12)
                     .map(([k, v]) => [`Value ${k}`, String(v)] as [string, string]),
                 ]}
+                data="all"
               />
             </Section>
           )}
@@ -278,7 +296,7 @@ export function OrderDrawer({
             <Section title="Fills">
               <ul className="space-y-1">
                 {d.fills.map((f) => (
-                  <li key={f.id}>
+                  <li key={f.id} className="text-data">
                     {f.quantity} at {formatPrice(f.price)} · {when(f.filledAt)}
                   </li>
                 ))}

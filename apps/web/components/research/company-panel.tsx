@@ -224,7 +224,7 @@ function CompanyReportView({ report, price }: { report: CompanyReport; price: nu
                   title={f.hint}
                 >
                   <dt className="text-xs text-ink-muted">{f.label}</dt>
-                  <dd className="text-base font-semibold tabular-nums">
+                  <dd className="text-base text-data-strong">
                     {formatFigure(metrics[f.key], f.format)}
                   </dd>
                 </div>
@@ -241,7 +241,7 @@ function CompanyReportView({ report, price }: { report: CompanyReport; price: nu
                     <span className="sr-only">Line</span>
                   </Th>
                   {report.years.map((y) => (
-                    <Th key={y.end} className="text-right">
+                    <Th key={y.end} numeric>
                       <span title={`Year ended ${formatDay(y.end)}`}>FY{y.fiscalYear}</span>
                     </Th>
                   ))}
@@ -262,7 +262,7 @@ function CompanyReportView({ report, price }: { report: CompanyReport; price: nu
                     <tr key={l.key}>
                       <Td>{l.label}</Td>
                       {report.years.map((y) => (
-                        <Td key={y.end} className="text-right tabular-nums">
+                        <Td key={y.end} numeric>
                           {formatLine(y[l.key], l.format)}
                         </Td>
                       ))}

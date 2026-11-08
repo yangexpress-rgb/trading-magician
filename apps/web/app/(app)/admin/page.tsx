@@ -15,7 +15,7 @@ function Stat({ label, value, href }: { label: string; value: string | number; h
   const body = (
     <>
       <p className="text-xs text-ink-muted">{label}</p>
-      <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
+      <p className="mt-1 text-2xl text-data-strong">{value}</p>
     </>
   );
   return (

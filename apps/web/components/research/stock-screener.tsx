@@ -544,7 +544,7 @@ export function StockScreener({
                     <td
                       key={c.key}
                       className={cx(
-                        'border-b border-line px-3 py-1.5 text-right whitespace-nowrap tabular-nums',
+                        'border-b border-line px-3 py-1.5 text-right whitespace-nowrap text-data',
                         signed && (v > 0 ? 'text-ok' : 'text-danger'),
                         v === null && 'text-ink-muted',
                       )}

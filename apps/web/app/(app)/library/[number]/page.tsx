@@ -150,10 +150,10 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
             </Field>
             <div className="grid gap-x-6 sm:grid-cols-2">
               <Field label="Frequency (how often it opens positions)">
-                {formatDuration(e.frequency)}
+                <span className="text-data">{formatDuration(e.frequency)}</span>
               </Field>
               <Field label="Turnaround time (typical holding period)">
-                {formatDuration(e.turnaround)}
+                <span className="text-data">{formatDuration(e.turnaround)}</span>
               </Field>
             </div>
           </Card>
@@ -174,8 +174,10 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
                   {e.parameters.map((p, i) => (
                     <tr key={i} className="border-t border-line">
                       <td className="py-1 pr-3">{p.name}</td>
-                      <td className="py-1 pr-3 font-mono">{p.value}</td>
-                      <td className="py-1">{p.unit ?? ''}</td>
+                      <td className="py-1 pr-3 text-data">{p.value}</td>
+                      <td className="py-1">
+                        {p.unit ?? <span className="text-ink-muted">—</span>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -311,13 +313,15 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
               <div>
                 <dt className="inline text-ink-muted">Registered by </dt>
                 <dd className="inline">
-                  {ACTOR_LABELS[e.registeredBy]}, {formatDateTime(e.registeredAt, prefs)}
+                  {ACTOR_LABELS[e.registeredBy]},{' '}
+                  <span className="text-data">{formatDateTime(e.registeredAt, prefs)}</span>
                 </dd>
               </div>
               <div>
                 <dt className="inline text-ink-muted">Last changed by </dt>
                 <dd className="inline">
-                  {ACTOR_LABELS[e.updatedBy]}, {formatDateTime(e.updatedAt, prefs)}
+                  {ACTOR_LABELS[e.updatedBy]},{' '}
+                  <span className="text-data">{formatDateTime(e.updatedAt, prefs)}</span>
                 </dd>
               </div>
               <div>

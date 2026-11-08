@@ -233,7 +233,7 @@ export function MiniLine({
             <thead>
               <tr>
                 <Th>{xLabel}</Th>
-                <Th className="text-right">{yLabel}</Th>
+                <Th numeric>{yLabel}</Th>
               </tr>
             </thead>
             <tbody className="tabular-nums">
@@ -243,7 +243,7 @@ export function MiniLine({
                     {p.label}
                     {p.light ? ' (rebuilt)' : ''}
                   </Td>
-                  <Td className="text-right">{p.y == null ? '—' : formatY(p.y)}</Td>
+                  <Td numeric>{p.y == null ? '—' : formatY(p.y)}</Td>
                 </tr>
               ))}
             </tbody>
@@ -407,18 +407,18 @@ export function StrikeBars({
             <thead>
               <tr>
                 <Th>Strike</Th>
-                <Th className="text-right">Calls</Th>
-                <Th className="text-right">Puts</Th>
-                {net && <Th className="text-right">Net</Th>}
+                <Th numeric>Calls</Th>
+                <Th numeric>Puts</Th>
+                {net && <Th numeric>Net</Th>}
               </tr>
             </thead>
             <tbody className="tabular-nums">
               {bars.map((b) => (
                 <tr key={b.strike}>
                   <Td>{b.strike}</Td>
-                  <Td className="text-right">{format(b.call)}</Td>
-                  <Td className="text-right">{format(b.put)}</Td>
-                  {net && <Td className="text-right">{format(b.call - b.put)}</Td>}
+                  <Td numeric>{format(b.call)}</Td>
+                  <Td numeric>{format(b.put)}</Td>
+                  {net && <Td numeric>{format(b.call - b.put)}</Td>}
                 </tr>
               ))}
             </tbody>

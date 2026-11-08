@@ -38,7 +38,7 @@ export default async function AdminUsersPage() {
             <Th>Person</Th>
             <Th>Status</Th>
             <Th>Plan</Th>
-            <Th>Strategies</Th>
+            <Th numeric>Strategies</Th>
             <Th>Joined</Th>
             <Th>Last active</Th>
             <Th>
@@ -60,12 +60,12 @@ export default async function AdminUsersPage() {
                 <Status user={u} />
               </Td>
               <Td>{u.planCode ?? '—'}</Td>
-              <Td className="tabular-nums">
+              <Td numeric>
                 {u.strategies}
                 {u.runningStrategies > 0 && ` (${u.runningStrategies} running)`}
               </Td>
-              <Td>{when(u.createdAt)}</Td>
-              <Td>{when(u.lastSeenAt)}</Td>
+              <Td className="text-data">{when(u.createdAt)}</Td>
+              <Td className="text-data">{when(u.lastSeenAt)}</Td>
               <Td className="min-w-56">
                 {u.id === me ? (
                   <span className="text-xs text-ink-muted">This is you</span>

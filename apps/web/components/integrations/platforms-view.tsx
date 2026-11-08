@@ -302,7 +302,9 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
                                 {a.isActive ? 'On' : 'Off'}
                               </Badge>
                             </Td>
-                            <Td>{p.provider === 'demo' ? 'Built in' : when(a.lastSyncedAt)}</Td>
+                            <Td className="text-data">
+                              {p.provider === 'demo' ? 'Built in' : when(a.lastSyncedAt)}
+                            </Td>
                             <Td>
                               <div className="flex flex-wrap gap-2">
                                 {!a.isDefault && a.isActive && p.isActive && (

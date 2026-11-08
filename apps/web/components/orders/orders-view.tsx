@@ -415,12 +415,12 @@ function OrdersTable({
           <Th>Phase</Th>
           <Th>Instrument</Th>
           <Th>Side</Th>
-          <Th className="text-right">Filled / qty</Th>
+          <Th numeric>Filled / qty</Th>
           <Th>Type</Th>
           <Th>Status</Th>
           <Th>Submitted</Th>
           <Th>Filled</Th>
-          <Th className="text-right">Avg price</Th>
+          <Th numeric>Avg price</Th>
           <Th>Account</Th>
           <Th>Mode</Th>
         </tr>
@@ -460,7 +460,7 @@ function OrdersTable({
               <Td>{PHASE_LABELS[o.phase]}</Td>
               <Td>{o.symbol}</Td>
               <Td>{label(SIDE_LABELS, o.side)}</Td>
-              <Td className="text-right tabular-nums">
+              <Td numeric>
                 {o.filledQuantity} / {o.quantity}
               </Td>
               <Td>
@@ -473,9 +473,9 @@ function OrdersTable({
                   <span className="ml-1 text-xs text-ink-muted">cancel requested</span>
                 )}
               </Td>
-              <Td className="whitespace-nowrap">{when(o.submittedAt)}</Td>
-              <Td className="whitespace-nowrap">{when(o.filledAt)}</Td>
-              <Td className="text-right tabular-nums">{formatPrice(o.averagePrice)}</Td>
+              <Td className="whitespace-nowrap text-data">{when(o.submittedAt)}</Td>
+              <Td className="whitespace-nowrap text-data">{when(o.filledAt)}</Td>
+              <Td numeric>{formatPrice(o.averagePrice)}</Td>
               <Td>{o.accountName}</Td>
               <Td>{o.mode === 'paper' ? 'Paper' : 'Live'}</Td>
             </tr>
@@ -515,7 +515,7 @@ function ScheduledTable({
             <Td>{PHASE_LABELS[r.phase]}</Td>
             <Td>{r.symbol ?? '—'}</Td>
             <Td>{r.side ? label(SIDE_LABELS, r.side) : '—'}</Td>
-            <Td className="whitespace-nowrap">{when(r.dueAt)}</Td>
+            <Td className="whitespace-nowrap text-data">{when(r.dueAt)}</Td>
           </tr>
         ))}
       </tbody>
@@ -548,9 +548,9 @@ function Positions({
             <tr>
               <Th>Strategy</Th>
               <Th>Instrument</Th>
-              <Th className="text-right">Position</Th>
-              <Th className="text-right">Avg cost</Th>
-              <Th className="text-right">Last fill</Th>
+              <Th numeric>Position</Th>
+              <Th numeric>Avg cost</Th>
+              <Th numeric>Last fill</Th>
               <Th>Account</Th>
               <Th>Strategy status</Th>
               <Th>
@@ -567,9 +567,9 @@ function Positions({
                   </Link>
                 </Td>
                 <Td>{p.symbol}</Td>
-                <Td className="text-right tabular-nums">{describeHolding(p.quantity)}</Td>
-                <Td className="text-right tabular-nums">{formatPrice(p.averageCost)}</Td>
-                <Td className="text-right tabular-nums">
+                <Td numeric>{describeHolding(p.quantity)}</Td>
+                <Td numeric>{formatPrice(p.averageCost)}</Td>
+                <Td numeric>
                   {formatPrice(p.lastFillPrice)}{' '}
                   <span className="text-xs text-ink-muted">{when(p.lastFillAt)}</span>
                 </Td>

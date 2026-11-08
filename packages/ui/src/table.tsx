@@ -17,12 +17,25 @@ export function Table({ children, label }: { children: ReactNode; label: string 
   );
 }
 
-export function Th({ children, className }: { children?: ReactNode; className?: string }) {
+/**
+ * Column header. `numeric` right-aligns it over a numeric column so the header
+ * sits on the same edge as the figures below it (data text role, N125).
+ */
+export function Th({
+  children,
+  className,
+  numeric = false,
+}: {
+  children?: ReactNode;
+  className?: string | undefined;
+  numeric?: boolean;
+}) {
   return (
     <th
       scope="col"
       className={cx(
-        'border-b border-line bg-surface-2 px-3 py-2 text-left text-xs font-semibold tracking-wide text-ink-muted uppercase',
+        'border-b border-line bg-surface-2 px-3 py-2 text-xs font-semibold tracking-wide text-ink-muted uppercase',
+        numeric ? 'text-right' : 'text-left',
         className,
       )}
     >
@@ -31,8 +44,45 @@ export function Th({ children, className }: { children?: ReactNode; className?: 
   );
 }
 
-export function Td({ children, className }: { children?: ReactNode; className?: string }) {
+/**
+ * Table cell. `numeric` marks a cell that shows a number (amount, price,
+ * quantity, percentage, count): right-aligned in the data text role with
+ * tabular figures, so a column of numbers lines up on one edge (N126). Text
+ * columns stay left-aligned; no column is centred.
+ */
+export function Td({
+  children,
+  className,
+  numeric = false,
+}: {
+  children?: ReactNode;
+  className?: string | undefined;
+  numeric?: boolean;
+}) {
   return (
-    <td className={cx('border-b border-line px-3 py-2 align-middle', className)}>{children}</td>
+    <td
+      className={cx(
+        'border-b border-line px-3 py-2 align-middle',
+        numeric && 'text-right text-data',
+        className,
+      )}
+    >
+      {children}
+    </td>
+  );
+}
+
+/** A numeric table cell: `<Td numeric>`. */
+export function TdNumeric({
+  children,
+  className,
+}: {
+  children?: ReactNode;
+  className?: string | undefined;
+}) {
+  return (
+    <Td numeric className={className}>
+      {children}
+    </Td>
   );
 }

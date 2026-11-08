@@ -8,7 +8,7 @@ import {
   type BacktestTradeDto,
 } from '@tm/contracts';
 import { addDays, nyDate } from '@tm/domain';
-import { Alert, Badge, Button, Card, SelectField, Table, Td, TextField, Th } from '@tm/ui';
+import { Alert, Badge, Button, Card, SelectField, Table, Td, TextField, Th, Stat } from '@tm/ui';
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { LineChart } from '@/components/line-chart';
 import {
@@ -345,7 +345,7 @@ export function RunHistory({ state }: { state: BacktestsState }) {
           <tr>
             <Th>Run</Th>
             <Th>Status</Th>
-            <Th className="text-right">Net return</Th>
+            <Th numeric>Net return</Th>
             <Th>
               <span className="sr-only">Actions</span>
             </Th>
@@ -363,9 +363,7 @@ export function RunHistory({ state }: { state: BacktestsState }) {
               <Td>
                 <RunStatusBadge status={r.status} />
               </Td>
-              <Td className="text-right tabular-nums">
-                {r.metrics ? formatPct(r.metrics.netReturnPct, true) : '—'}
-              </Td>
+              <Td numeric>{r.metrics ? formatPct(r.metrics.netReturnPct, true) : '—'}</Td>
               <Td className="text-right">
                 {!isActive(r.status) && r.id !== selectedId && (
                   <Button size="sm" variant="ghost" onClick={() => state.select(r.id)}>
@@ -466,11 +464,13 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
           <div className="min-w-0 space-y-6">
             <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {metricTiles(run.metrics).map((t) => (
-                <div key={t.label} className="rounded-md border border-line p-3">
-                  <dt className="text-xs text-ink-muted">{t.label}</dt>
-                  <dd className="text-lg font-semibold tabular-nums">{t.value}</dd>
-                  {t.detail && <dd className="text-xs text-ink-muted">{t.detail}</dd>}
-                </div>
+                <Stat
+                  key={t.label}
+                  className="rounded-md border border-line p-3"
+                  label={t.label}
+                  value={t.value}
+                  comparison={t.detail}
+                />
               ))}
             </dl>
 
@@ -516,8 +516,8 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                     <Th>Exit</Th>
                     <Th>Legs</Th>
                     {sized && <Th>Sizing</Th>}
-                    <Th className="text-right">Net P/L</Th>
-                    <Th className="text-right">Return</Th>
+                    <Th numeric>Net P/L</Th>
+                    <Th numeric>Return</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -531,11 +531,11 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                         <div>{DIRECTION_WORDS[tradeDirection(t)]}</div>
                         {t.group && <div className="text-xs text-ink-muted">{t.group}</div>}
                       </Td>
-                      <Td className="whitespace-nowrap">
+                      <Td className="whitespace-nowrap text-data">
                         {formatMarketTime(t.entryTime, interval)}
                       </Td>
                       <Td className="whitespace-nowrap">
-                        <div>{formatMarketTime(t.exitTime, interval)}</div>
+                        <div className="text-data">{formatMarketTime(t.exitTime, interval)}</div>
                         {t.exitReason && (
                           <div className="text-xs text-ink-muted">
                             {EXIT_REASON_LABELS[t.exitReason]}
@@ -569,8 +569,8 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                           )}
                         </Td>
                       )}
-                      <Td className="text-right tabular-nums">{formatSignedMoney(t.netPnl)}</Td>
-                      <Td className="text-right tabular-nums">{formatPct(t.returnPct, true)}</Td>
+                      <Td numeric>{formatSignedMoney(t.netPnl)}</Td>
+                      <Td numeric>{formatPct(t.returnPct, true)}</Td>
                     </tr>
                   ))}
                 </tbody>
@@ -588,10 +588,10 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                   <tr>
                     <Th>Instrument</Th>
                     <Th>Legs</Th>
-                    <Th className="text-right">Fills</Th>
-                    <Th className="text-right">Gross P/L</Th>
-                    <Th className="text-right">Costs</Th>
-                    <Th className="text-right">Net P/L</Th>
+                    <Th numeric>Fills</Th>
+                    <Th numeric>Gross P/L</Th>
+                    <Th numeric>Costs</Th>
+                    <Th numeric>Net P/L</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -599,10 +599,10 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                     <tr key={c.instrumentId}>
                       <Td className="font-medium">{c.symbol}</Td>
                       <Td>{c.legs.join(', ') || '—'}</Td>
-                      <Td className="text-right tabular-nums">{c.fills}</Td>
-                      <Td className="text-right tabular-nums">{formatSignedMoney(c.grossPnl)}</Td>
-                      <Td className="text-right tabular-nums">{formatMoney(c.costs)}</Td>
-                      <Td className="text-right tabular-nums">{formatSignedMoney(c.netPnl)}</Td>
+                      <Td numeric>{c.fills}</Td>
+                      <Td numeric>{formatSignedMoney(c.grossPnl)}</Td>
+                      <Td numeric>{formatMoney(c.costs)}</Td>
+                      <Td numeric>{formatSignedMoney(c.netPnl)}</Td>
                     </tr>
                   ))}
                 </tbody>

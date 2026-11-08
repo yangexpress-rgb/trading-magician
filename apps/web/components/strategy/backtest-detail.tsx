@@ -189,9 +189,9 @@ function ConditionReport({
           <thead>
             <tr>
               <Th>Condition</Th>
-              <Th className="text-right">True on</Th>
-              <Th className="text-right">False on</Th>
-              <Th className="text-right">No data on</Th>
+              <Th numeric>True on</Th>
+              <Th numeric>False on</Th>
+              <Th numeric>No data on</Th>
               <Th>First true</Th>
               <Th>Last check</Th>
             </tr>
@@ -205,16 +205,16 @@ function ConditionReport({
                   <Td>
                     <ComparisonText c={c} symbol={symbol} />
                   </Td>
-                  <Td className="text-right tabular-nums">{s?.trueBars ?? 0}</Td>
-                  <Td className="text-right tabular-nums">{s?.falseBars ?? 0}</Td>
-                  <Td className="text-right tabular-nums">{s?.unknownBars ?? 0}</Td>
-                  <Td className="whitespace-nowrap">
+                  <Td numeric>{s ? s.trueBars : '—'}</Td>
+                  <Td numeric>{s ? s.falseBars : '—'}</Td>
+                  <Td numeric>{s ? s.unknownBars : '—'}</Td>
+                  <Td className="whitespace-nowrap text-data">
                     {formatMarketTime(s?.firstTrue ?? null, interval)}
                   </Td>
                   <Td>
                     {check ? (
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="tabular-nums">{describeValues(c, check)}</span>
+                        <span className="text-data">{describeValues(c, check)}</span>
                         <Truth value={check.truth} />
                       </div>
                     ) : (
@@ -335,14 +335,16 @@ function BarLog({
             <tbody>
               {visible.map((b) => (
                 <tr key={`${b.time}-${b.cycle ?? 0}`}>
-                  <Td className="whitespace-nowrap">{formatMarketTime(b.time, interval)}</Td>
+                  <Td className="whitespace-nowrap text-data">
+                    {formatMarketTime(b.time, interval)}
+                  </Td>
                   {showCycle && <Td className="tabular-nums">{b.cycle ?? '—'}</Td>}
                   {comparisons.map((c) => {
                     const check = b.checks.find((x) => x.id === c.id);
                     return (
                       <Td key={c.id}>
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="tabular-nums">{describeValues(c, check)}</span>
+                          <span className="text-data">{describeValues(c, check)}</span>
                           {check && <Truth value={check.truth} />}
                         </div>
                       </Td>
@@ -430,7 +432,7 @@ function OrderReport({
                     </div>
                     <div className="text-xs text-ink-muted">{describeOrder(o)}</div>
                   </Td>
-                  <Td className="whitespace-nowrap">
+                  <Td className="whitespace-nowrap text-data">
                     {o.decidedAt ? (
                       <>
                         <div>{formatMarketTime(o.decidedAt, interval)}</div>
@@ -607,9 +609,9 @@ export function SelectionRounds({ log, interval }: { log: SelectionLog; interval
           <Table label={`Round of ${formatMarketTime(round.time, interval)}`}>
             <thead>
               <tr>
-                {ranking && <Th className="text-right">Rank</Th>}
+                {ranking && <Th numeric>Rank</Th>}
                 <Th>{ranking ? 'Instrument' : 'Leg instrument'}</Th>
-                <Th className="text-right">{log.metric ? describeMetric(log.metric) : 'Value'}</Th>
+                <Th numeric>{log.metric ? describeMetric(log.metric) : 'Value'}</Th>
                 <Th>{ranking ? 'Passes pre-filter' : 'Leg condition holds'}</Th>
                 <Th>Selected</Th>
                 {ranking && <Th>Left out because</Th>}
@@ -618,9 +620,9 @@ export function SelectionRounds({ log, interval }: { log: SelectionLog; interval
             <tbody>
               {round.rows.map(([sym, value, filter, rank, selected, excluded]) => (
                 <tr key={sym} className={cx(selected && 'font-medium')}>
-                  {ranking && <Td className="text-right tabular-nums">{rank ?? '—'}</Td>}
+                  {ranking && <Td numeric>{rank ?? '—'}</Td>}
                   <Td>{sym}</Td>
-                  <Td className="text-right tabular-nums">{metricText(log.metric, value)}</Td>
+                  <Td numeric>{metricText(log.metric, value)}</Td>
                   <Td>{yesNo(filter)}</Td>
                   <Td>{selected ? 'Yes' : 'No'}</Td>
                   {ranking && (

@@ -13,13 +13,14 @@ import {
 
 const PHASE_TITLE: Record<PhaseName, string> = { entry: 'Entry', exit: 'Exit' };
 
-function Rows({ rows }: { rows: [string, string][] }) {
+/** Label–value rows; `data` sets every value in the data text role (N127). */
+function Rows({ rows, data = false }: { rows: [string, string][]; data?: boolean }) {
   return (
     <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[12rem_1fr]">
       {rows.map(([term, value]) => (
         <div key={term} className="contents">
           <dt className="text-ink-muted">{term}</dt>
-          <dd>{value}</dd>
+          <dd className={data ? 'text-data' : undefined}>{value}</dd>
         </div>
       ))}
     </dl>
@@ -115,6 +116,7 @@ export function VersionSummary({
               unit === 'money' ? `${baseCurrency} ${v}` : unit === 'pct' ? `${v}%` : String(v),
             ];
           })}
+          data
         />
       </Card>
     </div>

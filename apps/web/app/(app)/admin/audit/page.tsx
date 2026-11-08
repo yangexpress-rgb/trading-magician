@@ -110,7 +110,7 @@ export default async function AdminAuditPage({
           <tbody>
             {events.map((e) => (
               <tr key={e.id}>
-                <Td className="whitespace-nowrap">
+                <Td className="whitespace-nowrap text-data">
                   {formatDateTime(e.occurredAt, prefs, {
                     dateStyle: 'medium',
                     timeStyle: 'medium',

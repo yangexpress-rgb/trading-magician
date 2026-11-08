@@ -104,8 +104,8 @@ export default async function BillingPage({
           <thead>
             <tr>
               <Th>Limit</Th>
-              <Th className="text-right">Used</Th>
-              <Th className="text-right">Allowed</Th>
+              <Th numeric>Used</Th>
+              <Th numeric>Allowed</Th>
             </tr>
           </thead>
           <tbody>
@@ -117,8 +117,8 @@ export default async function BillingPage({
                     <Badge tone="warn">{r.used > r.allowed ? 'Over the limit' : 'Full'}</Badge>
                   ) : null}
                 </Td>
-                <Td className="text-right tabular-nums">{r.used}</Td>
-                <Td className="text-right tabular-nums">{r.allowed}</Td>
+                <Td numeric>{r.used}</Td>
+                <Td numeric>{r.allowed}</Td>
               </tr>
             ))}
           </tbody>
@@ -137,7 +137,7 @@ export default async function BillingPage({
                   <span className="sr-only">Limit</span>
                 </Th>
                 {plans.map((p) => (
-                  <Th key={p.code} className="text-right">
+                  <Th key={p.code} numeric>
                     {p.name}
                     {p.code === entitlement.planCode ? (
                       <span className="ml-2 normal-case">
@@ -152,7 +152,7 @@ export default async function BillingPage({
               <tr>
                 <Td>Price</Td>
                 {plans.map((p) => (
-                  <Td key={p.code} className="text-right font-medium">
+                  <Td key={p.code} numeric className="font-medium">
                     {formatPrice(p.priceMinor, p.currency, p.interval)}
                   </Td>
                 ))}
@@ -161,7 +161,7 @@ export default async function BillingPage({
                 <tr key={key}>
                   <Td>{LIMIT_LABELS[key]}</Td>
                   {plans.map((p) => (
-                    <Td key={p.code} className="text-right tabular-nums">
+                    <Td key={p.code} numeric>
                       {limitValue(p.limits, key)}
                     </Td>
                   ))}

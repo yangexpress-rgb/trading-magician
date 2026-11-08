@@ -138,6 +138,51 @@
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
 }
 
+/*
+ * Data text role (design brief "make transactional data look different from
+ * titles", N125-N131). Every value the user entered or the app produced
+ * (amounts, prices, quantities, percentages, dates, counts, durations) is set
+ * in `text-data`: the same sans stack as titles, but with tabular (fixed-width)
+ * figures so digits line up down a column, at medium weight in `ink`.
+ * `text-data-strong` is the single primary figure on a stat card or detail
+ * page. Titles and labels keep their own treatment; `font-mono` stays reserved
+ * for identifiers (registration numbers, member IDs, tickers), not values.
+ * No webfont and no new colour: data stays on --font-sans.
+ *
+ * These live in the components layer (not @utility) on purpose: they are the
+ * default look of a value, and any utility on the same element (a status
+ * colour such as text-danger, text-ink-muted for a missing value, a heavier
+ * weight) still wins, so the status-colour rule (section 5.1) is untouched.
+ */
+@layer components {
+  .text-data {
+    font-family: var(--font-sans);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    color: var(--color-ink);
+  }
+  .text-data-strong {
+    font-family: var(--font-sans);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+}
+
+/*
+ * Numeric form fields: what the user types is right-aligned with tabular
+ * figures, so it looks like the data it becomes (N128). Boxes, labels and help
+ * text are unchanged.
+ */
+@layer base {
+  input[type='number'],
+  input[inputmode='decimal'],
+  input[inputmode='numeric'] {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
 /* Larger screens get slightly larger text; every size and spacing is in rem. */
 @media (min-width: 1680px) {
   html {
