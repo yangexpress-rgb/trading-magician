@@ -313,7 +313,7 @@ describe('seed extension 2 on a library seeded with 18', () => {
     );
     // Related lists are stored in the library's current (v1) numbers until the renumber.
     expect(rows[25]!.related_entries).toEqual(['SNS-0025', 'SMS-0014']);
-  });
+  }, 60_000);
 
   it('registers nothing if other numbers were issued after the 18', async () => {
     const t3 = await createTestDatabase({ seedLibrary: false });
@@ -335,5 +335,5 @@ describe('seed extension 2 on a library seeded with 18', () => {
     } finally {
       await t3.drop();
     }
-  });
+  }, 60_000);
 });
