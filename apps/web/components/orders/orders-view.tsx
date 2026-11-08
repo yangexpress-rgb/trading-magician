@@ -420,7 +420,7 @@ function OrdersTable({
           <Th>Status</Th>
           <Th>Submitted</Th>
           <Th>Filled</Th>
-          <Th numeric>Avg price</Th>
+          <Th numeric>Avg price $</Th>
           <Th>Account</Th>
           <Th>Mode</Th>
         </tr>
@@ -549,8 +549,8 @@ function Positions({
               <Th>Strategy</Th>
               <Th>Instrument</Th>
               <Th numeric>Position</Th>
-              <Th numeric>Avg cost</Th>
-              <Th numeric>Last fill</Th>
+              <Th numeric>Avg cost $</Th>
+              <Th numeric>Last fill $</Th>
               <Th>Account</Th>
               <Th>Strategy status</Th>
               <Th>

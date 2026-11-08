@@ -30,6 +30,7 @@ import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
 import { type CopySource, NewStrategyButton } from './new-strategy';
 import { RowActions } from './row-actions';
+import { bare } from '@/lib/units';
 
 export const metadata: Metadata = { title: 'Strategy Lab' };
 
@@ -203,7 +204,7 @@ export default async function StrategyLabPage({
                 <Th>Assets</Th>
                 <Th>Version</Th>
                 <Th>Account</Th>
-                <Th numeric>Latest back test</Th>
+                <Th numeric>Latest back test %</Th>
                 <Th>Updated ({prefs.timeZone})</Th>
                 <Th>
                   <span className="sr-only">Actions</span>
@@ -298,7 +299,7 @@ function LatestBacktest({
   }
   return (
     <>
-      <span className="text-data">{formatPct(run.netReturnPct, true)}</span>
+      <span className="text-data">{bare(formatPct(run.netReturnPct, true))}</span>
       {run.finishedAt && (
         <p className="mt-0.5 whitespace-nowrap text-xs text-ink-muted">
           {formatDateTime(run.finishedAt, prefs)}

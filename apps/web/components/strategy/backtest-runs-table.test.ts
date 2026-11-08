@@ -40,10 +40,10 @@ function render(runs: BacktestRunSummaryDto[]): string {
 }
 
 describe('back test runs table (data text role, N127)', () => {
-  it('sets the Net return column right-aligned with tabular figures, header included', () => {
+  it('sets Net return right-aligned with tabular figures, its unit in the header (O102)', () => {
     const html = render([run('r1', '24.93')]);
-    expect(html).toMatch(/<th scope="col" class="[^"]*text-right[^"]*">Net return<\/th>/);
-    const cell = html.match(/<td class="([^"]*)">\+24\.93%<\/td>/);
+    expect(html).toMatch(/<th scope="col" class="[^"]*text-right[^"]*">Net return %<\/th>/);
+    const cell = html.match(/<td class="([^"]*)">\+24\.93<\/td>/);
     expect(cell, html).not.toBeNull();
     expect(cell![1]!.split(' ')).toEqual(expect.arrayContaining(['text-right', 'text-data']));
   });

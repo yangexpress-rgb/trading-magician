@@ -29,6 +29,7 @@ import {
   optionFigureLabel,
 } from '@/lib/options-text';
 import { MiniLine, StrikeBars } from './options-charts';
+import { bare } from '@/lib/units';
 
 const POLL_MS = 1000;
 const GIVE_UP_MS = 90_000;
@@ -386,13 +387,13 @@ function ChainView({ view, history }: { view: LiveChainView; history: OptionHist
             <Table label={`${view.symbol} options expiring ${chosen.expiry}`}>
               <thead>
                 <tr>
-                  <Th numeric>Call IV</Th>
+                  <Th numeric>Call IV %</Th>
                   <Th numeric>Delta</Th>
                   <Th numeric>Gamma</Th>
                   <Th numeric>OI</Th>
                   <Th numeric>Volume</Th>
                   <Th numeric>Strike</Th>
-                  <Th numeric>Put IV</Th>
+                  <Th numeric>Put IV %</Th>
                   <Th numeric>Delta</Th>
                   <Th numeric>Gamma</Th>
                   <Th numeric>OI</Th>
@@ -407,7 +408,7 @@ function ChainView({ view, history }: { view: LiveChainView; history: OptionHist
                       s.strike === chosen.atmStrike ? 'bg-surface-2 font-medium' : undefined
                     }
                   >
-                    <Td numeric>{formatPct(s.call?.iv)}</Td>
+                    <Td numeric>{bare(formatPct(s.call?.iv))}</Td>
                     <Td numeric>{formatGreek(s.call?.delta, 2)}</Td>
                     <Td numeric>{formatGreek(s.call?.gamma, 4)}</Td>
                     <Td numeric>{formatCount(s.call?.openInterest)}</Td>
@@ -418,7 +419,7 @@ function ChainView({ view, history }: { view: LiveChainView; history: OptionHist
                         <span className="sr-only"> (at the money)</span>
                       )}
                     </Td>
-                    <Td numeric>{formatPct(s.put?.iv)}</Td>
+                    <Td numeric>{bare(formatPct(s.put?.iv))}</Td>
                     <Td numeric>{formatGreek(s.put?.delta, 2)}</Td>
                     <Td numeric>{formatGreek(s.put?.gamma, 4)}</Td>
                     <Td numeric>{formatCount(s.put?.openInterest)}</Td>

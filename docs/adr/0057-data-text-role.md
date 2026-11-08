@@ -36,6 +36,8 @@ decided on its own.
 
 - No webfont, no new colour token, no new font size, no dependency, no data or API change.
   Formatted values read exactly as before.
-- Units stay where the formatters put them (O102); a dedicated data font is left open (O101).
+- Money and percentage table columns name their unit in the header and the cells show the bare
+  number (O102, agreed by Yong on 2026-11-08); stat cards and sentences keep their symbols. A
+  dedicated data font is being chosen (O101).
 - `apps/web/vitest.config.ts` now compiles JSX and resolves `@/`, so web tests can render a
   component to static markup (used by the back test runs table test).

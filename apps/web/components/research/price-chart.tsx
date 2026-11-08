@@ -18,6 +18,7 @@ import {
   timeTickIndexes,
   type Bar,
 } from '@/lib/research-text';
+import { bare } from '@/lib/units';
 
 export type ChartStyle = 'line' | 'candles';
 
@@ -435,10 +436,10 @@ export function PriceChart({
             <thead>
               <tr>
                 <Th>Time</Th>
-                <Th numeric>Open</Th>
-                <Th numeric>High</Th>
-                <Th numeric>Low</Th>
-                <Th numeric>Close</Th>
+                <Th numeric>Open $</Th>
+                <Th numeric>High $</Th>
+                <Th numeric>Low $</Th>
+                <Th numeric>Close $</Th>
                 <Th numeric>Volume</Th>
               </tr>
             </thead>
@@ -446,10 +447,10 @@ export function PriceChart({
               {[...bars].reverse().map((b) => (
                 <tr key={b.t}>
                   <Td className="text-data">{formatBarTime(b.t, interval)}</Td>
-                  <Td numeric>{formatPrice(b.open)}</Td>
-                  <Td numeric>{formatPrice(b.high)}</Td>
-                  <Td numeric>{formatPrice(b.low)}</Td>
-                  <Td numeric>{formatPrice(b.close)}</Td>
+                  <Td numeric>{bare(formatPrice(b.open))}</Td>
+                  <Td numeric>{bare(formatPrice(b.high))}</Td>
+                  <Td numeric>{bare(formatPrice(b.low))}</Td>
+                  <Td numeric>{bare(formatPrice(b.close))}</Td>
                   <Td numeric>{formatVolume(b.volume)}</Td>
                 </tr>
               ))}

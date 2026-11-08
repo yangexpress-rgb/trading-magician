@@ -20,6 +20,7 @@ import {
   EMPTY_FILTERS,
   encodeScreenState,
   filterRows,
+  columnHeader,
   formatCell,
   isSigned,
   hasCompanyFigures,
@@ -37,6 +38,7 @@ import {
   type Universe,
 } from '@/lib/screener';
 import { useInstrumentLookup } from '../strategy/use-instrument-lookup';
+import { bare } from '@/lib/units';
 
 const POLL_MS = 1000;
 /** The first screen of the whole market downloads a month of prices; give it time. */
@@ -454,7 +456,7 @@ export function StockScreener({
               {shownColumns.map((c) => (
                 <HeaderCell
                   key={c.key}
-                  label={c.label}
+                  label={columnHeader(c)}
                   title={c.hint}
                   sortKey={c.key}
                   sort={sort}
@@ -549,7 +551,7 @@ export function StockScreener({
                         v === null && 'text-ink-muted',
                       )}
                     >
-                      {formatCell(v, c.format)}
+                      {bare(formatCell(v, c.format))}
                     </td>
                   );
                 })}

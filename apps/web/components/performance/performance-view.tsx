@@ -36,6 +36,7 @@ import {
   performanceTiles,
   type PerformanceFilters,
 } from '@/lib/performance-text';
+import { bare } from '@/lib/units';
 
 /**
  * The Performance tab (Design v1.0 §10, §15.3; ADR 0021): filters, headline
@@ -202,8 +203,8 @@ function DataQuality({
               <tr>
                 <Th>Close</Th>
                 <Th>Account</Th>
-                <Th numeric>App equity</Th>
-                <Th numeric>Broker equity</Th>
+                <Th numeric>App equity $</Th>
+                <Th numeric>Broker equity $</Th>
                 <Th>Holdings</Th>
               </tr>
             </thead>
@@ -212,9 +213,9 @@ function DataQuality({
                 <tr key={`${d.accountId}-${d.sessionDate}`}>
                   <Td className="whitespace-nowrap text-data">{formatDay(d.sessionDate)}</Td>
                   <Td>{d.accountName}</Td>
-                  <Td numeric>{d.appEquity ? formatMoney(d.appEquity) : '—'}</Td>
+                  <Td numeric>{d.appEquity ? bare(formatMoney(d.appEquity)) : '—'}</Td>
                   <Td numeric>
-                    {d.brokerEquity ? formatMoney(d.brokerEquity) : 'Not reported'}
+                    {d.brokerEquity ? bare(formatMoney(d.brokerEquity)) : 'Not reported'}
                     {d.equityDifference && Math.abs(Number(d.equityDifference)) > 1 && (
                       <div className="text-xs">
                         {formatSignedMoney(d.equityDifference)} against the app
@@ -417,8 +418,8 @@ export function PerformanceView({
                     <tr>
                       <Th>Strategy</Th>
                       <Th numeric>Closed trades</Th>
-                      <Th numeric>Net P/L</Th>
-                      <Th numeric>Return on peak capital</Th>
+                      <Th numeric>Net P/L $</Th>
+                      <Th numeric>Return on peak capital %</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -426,9 +427,9 @@ export function PerformanceView({
                       <tr key={s.strategyId}>
                         <Td className="font-medium">{s.strategyName}</Td>
                         <Td numeric>{s.closedTrades}</Td>
-                        <Td numeric>{formatSignedMoney(s.net)}</Td>
+                        <Td numeric>{bare(formatSignedMoney(s.net))}</Td>
                         <Td numeric>
-                          {formatPct(s.returnOnPeakCapitalPct, true)}
+                          {bare(formatPct(s.returnOnPeakCapitalPct, true))}
                           <div className="text-xs text-ink-muted">
                             of {formatMoney(s.peakCapital)}
                           </div>
@@ -448,7 +449,7 @@ export function PerformanceView({
                     <tr>
                       <Th>Instrument</Th>
                       <Th>Asset class</Th>
-                      <Th numeric>Net P/L</Th>
+                      <Th numeric>Net P/L $</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -456,7 +457,7 @@ export function PerformanceView({
                       <tr key={a.instrumentId}>
                         <Td className="font-medium">{a.symbol}</Td>
                         <Td>{ASSET_CLASS_LABELS[a.assetClass] ?? a.assetClass}</Td>
-                        <Td numeric>{formatSignedMoney(a.net)}</Td>
+                        <Td numeric>{bare(formatSignedMoney(a.net))}</Td>
                       </tr>
                     ))}
                   </tbody>
@@ -476,8 +477,8 @@ export function PerformanceView({
                     <Th>Opened</Th>
                     <Th>Closed</Th>
                     <Th>Legs</Th>
-                    <Th numeric>Net P/L</Th>
-                    <Th numeric>Return</Th>
+                    <Th numeric>Net P/L $</Th>
+                    <Th numeric>Return %</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -497,14 +498,14 @@ export function PerformanceView({
                         <Legs trade={t} />
                       </Td>
                       <Td numeric>
-                        {formatSignedMoney(t.net)}
+                        {bare(formatSignedMoney(t.net))}
                         {Number(t.fees) > 0 && (
                           <div className="text-xs text-ink-muted">
                             after {formatMoney(t.fees)} fees
                           </div>
                         )}
                       </Td>
-                      <Td numeric>{formatPct(t.returnPct, true)}</Td>
+                      <Td numeric>{bare(formatPct(t.returnPct, true))}</Td>
                     </tr>
                   ))}
                 </tbody>
@@ -527,7 +528,7 @@ export function PerformanceView({
                     <Th>Instrument</Th>
                     <Th>Account</Th>
                     <Th numeric>Quantity</Th>
-                    <Th numeric>Average cost</Th>
+                    <Th numeric>Average cost $</Th>
                     <Th>Strategy status</Th>
                   </tr>
                 </thead>
@@ -538,7 +539,7 @@ export function PerformanceView({
                       <Td>{p.symbol}</Td>
                       <Td>{p.accountName}</Td>
                       <Td numeric>{p.quantity}</Td>
-                      <Td numeric>{p.averageCost ? formatMoney(p.averageCost) : '—'}</Td>
+                      <Td numeric>{p.averageCost ? bare(formatMoney(p.averageCost)) : '—'}</Td>
                       <Td>
                         {p.runtimeStatus === 'running'
                           ? 'Running'

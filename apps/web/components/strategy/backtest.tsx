@@ -34,6 +34,7 @@ import {
   tradeDirection,
 } from '@/lib/backtest-text';
 import { ADJUSTMENT_LABELS, SIDE_LABELS } from '@/lib/strategy-text';
+import { bare } from '@/lib/units';
 
 /**
  * Back Test inputs, run status, history and results (Design v1.0 §7.1, §7.3).
@@ -345,7 +346,7 @@ export function RunHistory({ state }: { state: BacktestsState }) {
           <tr>
             <Th>Run</Th>
             <Th>Status</Th>
-            <Th numeric>Net return</Th>
+            <Th numeric>Net return %</Th>
             <Th>
               <span className="sr-only">Actions</span>
             </Th>
@@ -363,7 +364,7 @@ export function RunHistory({ state }: { state: BacktestsState }) {
               <Td>
                 <RunStatusBadge status={r.status} />
               </Td>
-              <Td numeric>{r.metrics ? formatPct(r.metrics.netReturnPct, true) : '—'}</Td>
+              <Td numeric>{r.metrics ? bare(formatPct(r.metrics.netReturnPct, true)) : '—'}</Td>
               <Td className="text-right">
                 {!isActive(r.status) && r.id !== selectedId && (
                   <Button size="sm" variant="ghost" onClick={() => state.select(r.id)}>
@@ -516,8 +517,8 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                     <Th>Exit</Th>
                     <Th>Legs</Th>
                     {sized && <Th>Sizing</Th>}
-                    <Th numeric>Net P/L</Th>
-                    <Th numeric>Return</Th>
+                    <Th numeric>Net P/L $</Th>
+                    <Th numeric>Return %</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -569,8 +570,8 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                           )}
                         </Td>
                       )}
-                      <Td numeric>{formatSignedMoney(t.netPnl)}</Td>
-                      <Td numeric>{formatPct(t.returnPct, true)}</Td>
+                      <Td numeric>{bare(formatSignedMoney(t.netPnl))}</Td>
+                      <Td numeric>{bare(formatPct(t.returnPct, true))}</Td>
                     </tr>
                   ))}
                 </tbody>
@@ -589,9 +590,9 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                     <Th>Instrument</Th>
                     <Th>Legs</Th>
                     <Th numeric>Fills</Th>
-                    <Th numeric>Gross P/L</Th>
-                    <Th numeric>Costs</Th>
-                    <Th numeric>Net P/L</Th>
+                    <Th numeric>Gross P/L $</Th>
+                    <Th numeric>Costs $</Th>
+                    <Th numeric>Net P/L $</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -600,9 +601,9 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                       <Td className="font-medium">{c.symbol}</Td>
                       <Td>{c.legs.join(', ') || '—'}</Td>
                       <Td numeric>{c.fills}</Td>
-                      <Td numeric>{formatSignedMoney(c.grossPnl)}</Td>
-                      <Td numeric>{formatMoney(c.costs)}</Td>
-                      <Td numeric>{formatSignedMoney(c.netPnl)}</Td>
+                      <Td numeric>{bare(formatSignedMoney(c.grossPnl))}</Td>
+                      <Td numeric>{bare(formatMoney(c.costs))}</Td>
+                      <Td numeric>{bare(formatSignedMoney(c.netPnl))}</Td>
                     </tr>
                   ))}
                 </tbody>
