@@ -1,6 +1,6 @@
 'use client';
 
-import { ApiError } from '@tm/contracts';
+import { ApiError, type StrategyLibraryDto } from '@tm/contracts';
 import {
   canonicalJson,
   DEFAULT_TRIGGER,
@@ -27,6 +27,11 @@ import {
   type OptionUnderlying,
 } from '@/components/strategy/editor-context';
 import { InstrumentFinder } from '@/components/strategy/instrument-finder';
+import {
+  LibraryEntryField,
+  toChoiceRequest,
+  type LibraryPick,
+} from '@/components/strategy/library-entry-field';
 import { BackTestPanel, useValidation, ValidationPanel } from '@/components/strategy/lifecycle';
 import { OrdersEditor } from '@/components/strategy/orders-editor';
 import {
@@ -50,6 +55,8 @@ interface Props {
   strategyId: string;
   strategyName: string;
   status: StrategyStatus;
+  /** Its Strategy Library record (ADR 0054); null until the first save with instruments. */
+  library: StrategyLibraryDto | null;
   initialDefinition: StrategyDefinition;
   initialRowVersion: number;
   instruments: InstrumentOption[];
@@ -87,6 +94,7 @@ export function StrategyEditor({
   strategyId,
   strategyName,
   status,
+  library,
   initialDefinition,
   initialRowVersion,
   instruments: initialInstruments,
@@ -102,9 +110,14 @@ export function StrategyEditor({
   const [savedJson, setSavedJson] = useState(() => canonicalJson(initialDefinition));
   const [rowVersion, setRowVersion] = useState(initialRowVersion);
   const [save, setSave] = useState<SaveState>({ kind: 'idle' });
+  const [libraryPick, setLibraryPick] = useState<LibraryPick | null>(null);
 
   const editable = status !== 'actively_executing';
-  const dirty = useMemo(() => canonicalJson(definition) !== savedJson, [definition, savedJson]);
+  const rulesDirty = useMemo(
+    () => canonicalJson(definition) !== savedJson,
+    [definition, savedJson],
+  );
+  const dirty = rulesDirty || libraryPick !== null;
   const issues = useMemo(() => structuralIssues(definition), [definition]);
   const { state: validation, recheck } = useValidation(strategyId, rowVersion);
 
@@ -131,7 +144,12 @@ export function StrategyEditor({
     }
     setSave({ kind: 'saving' });
     try {
-      const saved = await apiClient.strategies.update(strategyId, { rowVersion, definition });
+      const saved = await apiClient.strategies.update(strategyId, {
+        rowVersion,
+        definition,
+        ...(libraryPick ? { library: toChoiceRequest(libraryPick) } : {}),
+      });
+      setLibraryPick(null);
       setRowVersion(saved.rowVersion);
       setSavedJson(canonicalJson(saved.definition));
       setDefinition(saved.definition);
@@ -258,6 +276,16 @@ export function StrategyEditor({
       )}
 
       <div className="space-y-6">
+        <LibraryEntryField
+          current={library}
+          strategyName={strategyName}
+          choice={libraryPick}
+          onChoose={(pick) => {
+            setLibraryPick(pick);
+            setSave({ kind: 'idle' });
+          }}
+          editable={editable}
+        />
         <InstrumentFinder
           instruments={instruments}
           editable={editable}
@@ -325,7 +353,7 @@ export function StrategyEditor({
         <ValidationPanel
           validation={validation}
           definition={definition}
-          dirty={dirty}
+          dirty={rulesDirty}
           onRecheck={recheck}
         />
         <BackTestPanel
@@ -333,7 +361,7 @@ export function StrategyEditor({
           strategyName={strategyName}
           status={status}
           rowVersion={rowVersion}
-          dirty={dirty}
+          dirty={rulesDirty}
           definition={definition}
           validation={validation}
           onBacktestFinished={recheck}

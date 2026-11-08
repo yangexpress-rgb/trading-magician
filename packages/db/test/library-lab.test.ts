@@ -1,0 +1,471 @@
+import { createDefinition, type StrategyDefinition } from '@tm/domain';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { Transaction } from '../src/client';
+import {
+  getLibraryEntry,
+  LibraryError,
+  nextLibrarySequence,
+  registerLibraryEntry,
+  retireLibraryEntry,
+  updateLibraryEntry,
+} from '../src/library';
+import { backfillSeedLinks } from '../src/library-lab';
+import { provisionWorkspace } from '../src/provision';
+import { instruments, tradingAccounts, users } from '../src/schema';
+import {
+  createStrategy,
+  deleteStrategy,
+  getStrategy,
+  listStrategies,
+  updateStrategy,
+} from '../src/strategies';
+import { withTenant } from '../src/tenant';
+import { createTestDatabase, type TestDatabase } from './harness';
+
+/**
+ * Strategy Lab numbering (ADR 0054): the brief's worked examples and
+ * acceptance checks, against a real database as the app login. Tests run in
+ * order and share one library, so sequence numbers follow on.
+ */
+
+let t: TestDatabase;
+let userA: string;
+let userB: string;
+let accountA: string;
+let accountB: string;
+const ids: Record<string, string> = {};
+
+const as = <T>(userId: string, fn: (tx: Transaction) => Promise<T>) =>
+  withTenant(t.app.db, { userId }, fn);
+const asA = <T>(fn: (tx: Transaction) => Promise<T>) => as(userA, fn);
+
+async function createUser(email: string): Promise<string> {
+  const [row] = await t.auth.db
+    .insert(users)
+    .values({ name: email.split('@')[0] ?? email, email })
+    .returning({ id: users.id });
+  return row!.id;
+}
+
+async function rejects(promise: Promise<unknown>): Promise<LibraryError> {
+  const e = await promise.then(
+    () => {
+      throw new Error('expected a rejection');
+    },
+    (err: unknown) => err,
+  );
+  expect(e).toBeInstanceOf(LibraryError);
+  return e as LibraryError;
+}
+
+/** Long `symbols` on daily closes above their 200-day SMA; sell below it. */
+function definition(
+  symbols: string[],
+  account = accountA,
+  over: Partial<StrategyDefinition> = {},
+): StrategyDefinition {
+  const def = createDefinition();
+  const first = ids[symbols[0]!]!;
+  const series = {
+    instrumentId: first,
+    field: 'close' as const,
+    interval: '1d' as const,
+    adjustment: 'split_and_dividend' as const,
+    session: 'regular' as const,
+    offset: 0,
+  };
+  def.entry.condition.children = [
+    {
+      kind: 'comparison',
+      id: 'above',
+      operator: 'gt',
+      left: { kind: 'market', id: 'px', ...series },
+      right: { kind: 'indicator', id: 'sma', name: 'SMA', params: { period: 200 }, ...series },
+    },
+  ];
+  const leg = (symbol: string, side: 'buy' | 'sell', n: number) => ({
+    id: `${side}-${n}`,
+    legLabel: `${side} ${symbol}`,
+    side,
+    instrumentId: ids[symbol]!,
+    accountId: account,
+    quantity: { type: 'units' as const, value: '10', rounding: 'down' as const },
+    orderType: 'market' as const,
+    timeInForce: 'day' as const,
+    timing: { mode: 'immediate' as const },
+  });
+  def.entry.orders = symbols.map((s, i) => leg(s, 'buy', i));
+  def.exit.orders = symbols.map((s, i) => leg(s, 'sell', i));
+  return { ...def, ...over };
+}
+
+const nextSeq = () => asA((tx) => nextLibrarySequence(tx));
+const entryOf = (userId: string, number: string) =>
+  as(userId, (tx) => getLibraryEntry(tx, userId, number));
+
+beforeAll(async () => {
+  t = await createTestDatabase();
+  userA = await createUser('lab-a@example.test');
+  userB = await createUser('lab-b@example.test');
+  await provisionWorkspace(t.app.db, { userId: userA, displayName: 'A' });
+  await provisionWorkspace(t.app.db, { userId: userB, displayName: 'B' });
+  for (const r of await t.owner.db.select().from(instruments)) ids[r.symbol] = r.id;
+  accountA = (await asA((tx) => tx.select().from(tradingAccounts)))[0]!.id;
+  accountB = (await as(userB, (tx) => tx.select().from(tradingAccounts)))[0]!.id;
+}, 60_000);
+
+afterAll(async () => {
+  await t?.drop();
+});
+
+describe('Strategy Lab numbering', () => {
+  it('starts after the 18 seed entries', async () => {
+    expect(await nextSeq()).toBe(19);
+  });
+
+  it('issues no number to a draft with no Entry legs', async () => {
+    const s = await asA((tx) => createStrategy(tx, userA, { name: 'Trend — SPY SMA200' }));
+    ids.trend = s.id;
+    expect(s.library).toBeNull();
+    expect(await nextSeq()).toBe(19);
+  });
+
+  it('links an entry: the strategy takes its number and no number is consumed', async () => {
+    const s = await asA((tx) =>
+      updateStrategy(tx, userA, ids.trend!, {
+        rowVersion: 1,
+        library: { kind: 'entry', registrationNumber: 'sds-0001' },
+      }),
+    );
+    expect(s.library).toMatchObject({ registrationNumber: 'SDS-0001', autoCreated: false });
+    const e = await entryOf(userA, 'SDS-0001');
+    expect(e).toMatchObject({
+      builtStatus: 'built',
+      builtStrategy: { visibility: 'yours', id: ids.trend, name: 'Trend — SPY SMA200' },
+    });
+    expect(e!.revisions[0]?.note).toContain('Linked to the Strategy Lab strategy');
+    expect(await nextSeq()).toBe(19);
+    // Saving instruments later keeps the link: nothing is auto-created.
+    const saved = await asA((tx) =>
+      updateStrategy(tx, userA, ids.trend!, {
+        rowVersion: s.rowVersion,
+        definition: definition(['DEMO-A']),
+      }),
+    );
+    expect(saved.library?.registrationNumber).toBe('SDS-0001');
+    expect(await nextSeq()).toBe(19);
+  });
+
+  it('auto-creates a record on first save with no link (letters from the strategy)', async () => {
+    const s = await asA((tx) =>
+      createStrategy(tx, userA, {
+        name: 'SPY/QQQ monthly rotation',
+        definition: definition(['DEMO-IDX', 'DEMO-BND'], accountA, {
+          schedule: { frequency: 'monthEnd' },
+        }),
+      }),
+    );
+    ids.rotation = s.id;
+    // Both demo instruments are ETFs, and the schedule is monthly: S, M, E.
+    expect(s.library).toMatchObject({ registrationNumber: 'SME-0019', autoCreated: true });
+    const e = await entryOf(userA, 'SME-0019');
+    expect(e).toMatchObject({
+      name: 'SPY/QQQ monthly rotation',
+      status: 'registered',
+      builtStatus: 'built',
+      tags: ['auto-created'],
+      assets: 'DEMO-BND, DEMO-IDX',
+      dataRequirements: 'Auto-created from Strategy Lab — complete in the Library.',
+      frequency: { kind: 'every', value: 1, unit: 'months' },
+      turnaround: { kind: 'unknown' },
+      builtStrategy: { visibility: 'yours', id: s.id },
+    });
+    expect(e!.entry).toBe('DEMO-IDX close > SMA(200) of DEMO-IDX close');
+    expect(e!.exit).toBe('No Exit condition yet.');
+    expect(e!.revisions.map((r) => r.action)).toEqual(['create']);
+    expect(await nextSeq()).toBe(20);
+  });
+
+  it('never re-issues a number on edit', async () => {
+    const before = await asA((tx) => getStrategy(tx, ids.rotation!));
+    const after = await asA((tx) =>
+      updateStrategy(tx, userA, ids.rotation!, {
+        rowVersion: before.rowVersion,
+        name: 'Renamed rotation',
+        definition: definition(['DEMO-A']),
+      }),
+    );
+    expect(after.library?.registrationNumber).toBe('SME-0019');
+    expect(await nextSeq()).toBe(20);
+  });
+
+  it('re-links from X to Y: X reverts to Not built, Y is Built', async () => {
+    const before = await asA((tx) => getStrategy(tx, ids.rotation!));
+    const s = await asA((tx) =>
+      updateStrategy(tx, userA, ids.rotation!, {
+        rowVersion: before.rowVersion,
+        library: { kind: 'entry', registrationNumber: 'SMS-0002' },
+      }),
+    );
+    expect(s.library?.registrationNumber).toBe('SMS-0002');
+    const x = await entryOf(userA, 'SME-0019');
+    expect(x).toMatchObject({ builtStatus: 'not_built', registrationNumber: 'SME-0019' });
+    expect(x!.revisions[0]?.note).toContain('now uses SMS-0002');
+    expect((await entryOf(userA, 'SMS-0002'))!.builtStatus).toBe('built');
+    expect(await nextSeq()).toBe(20);
+  });
+
+  it('refuses a retired entry and one built by another strategy, with named errors', async () => {
+    const other = await asA((tx) =>
+      createStrategy(tx, userA, { name: 'Another trend', definition: definition(['DEMO-A']) }),
+    );
+    ids.other = other.id;
+    expect(other.library?.registrationNumber).toBe('SDS-0020');
+
+    const taken = await rejects(
+      asA((tx) =>
+        updateStrategy(tx, userA, other.id, {
+          rowVersion: other.rowVersion,
+          library: { kind: 'entry', registrationNumber: 'SDS-0001' },
+        }),
+      ),
+    );
+    expect(taken.message).toBe(
+      'SDS-0001 is already built by Trend — SPY SMA200 — unlink that strategy first',
+    );
+
+    const theirs = await as(userB, (tx) =>
+      createStrategy(tx, userB, {
+        name: 'B trend',
+        definition: definition(['DEMO-A'], accountB),
+        library: { kind: 'entry', registrationNumber: 'SDS-0003' },
+      }),
+    );
+    expect(theirs.library?.registrationNumber).toBe('SDS-0003');
+    const elsewhere = await rejects(
+      asA((tx) =>
+        updateStrategy(tx, userA, other.id, {
+          rowVersion: other.rowVersion,
+          library: { kind: 'entry', registrationNumber: 'SDS-0003' },
+        }),
+      ),
+    );
+    expect(elsewhere.message).toBe("SDS-0003 is built in another member's Strategy Lab");
+
+    const e = await asA((tx) => getLibraryEntry(tx, userA, 'SQS-0012'));
+    await asA((tx) =>
+      retireLibraryEntry(tx, userA, 'SQS-0012', { reason: 'Test', rowVersion: e!.rowVersion }),
+    );
+    const retired = await rejects(
+      asA((tx) =>
+        updateStrategy(tx, userA, other.id, {
+          rowVersion: other.rowVersion,
+          library: { kind: 'entry', registrationNumber: 'SQS-0012' },
+        }),
+      ),
+    );
+    expect(retired.message).toContain('SQS-0012 is retired');
+    // A refusal changes nothing.
+    const still = await asA((tx) => getStrategy(tx, other.id));
+    expect(still.library?.registrationNumber).toBe('SDS-0020');
+    expect(await nextSeq()).toBe(21);
+  });
+
+  it('switches to a new record: the old entry reverts and a fresh number is issued', async () => {
+    const before = await asA((tx) => getStrategy(tx, ids.trend!));
+    const s = await asA((tx) =>
+      updateStrategy(tx, userA, ids.trend!, {
+        rowVersion: before.rowVersion,
+        library: { kind: 'new' },
+      }),
+    );
+    expect(s.library).toMatchObject({ registrationNumber: 'SDS-0021', autoCreated: true });
+    expect((await entryOf(userA, 'SDS-0001'))!.builtStatus).toBe('not_built');
+    expect(await nextSeq()).toBe(22);
+  });
+
+  it('shows the number in the Strategy Lab list', async () => {
+    const list = await asA((tx) => listStrategies(tx, { sort: 'name', direction: 'asc' }));
+    expect(Object.fromEntries(list.items.map((i) => [i.name, i.libraryNumber]))).toEqual({
+      'Another trend': 'SDS-0020',
+      'Renamed rotation': 'SMS-0002',
+      'Trend — SPY SMA200': 'SDS-0021',
+    });
+    const found = await asA((tx) => listStrategies(tx, { search: 'sds-0021' }));
+    expect(found.items.map((i) => i.name)).toEqual(['Trend — SPY SMA200']);
+  });
+
+  it('deleting a linked strategy reverts its entry; the record and number stay', async () => {
+    const s = await asA((tx) => getStrategy(tx, ids.rotation!));
+    await asA((tx) => deleteStrategy(tx, userA, s.id, { rowVersion: s.rowVersion }));
+    const e = await entryOf(userA, 'SMS-0002');
+    expect(e).toMatchObject({ builtStatus: 'not_built', registrationNumber: 'SMS-0002' });
+    expect(e!.revisions[0]?.note).toContain('was deleted');
+    // The entry is free again for another strategy.
+    const o = await asA((tx) => getStrategy(tx, ids.other!));
+    const relinked = await asA((tx) =>
+      updateStrategy(tx, userA, o.id, {
+        rowVersion: o.rowVersion,
+        library: { kind: 'entry', registrationNumber: 'SMS-0002' },
+      }),
+    );
+    expect(relinked.library?.registrationNumber).toBe('SMS-0002');
+    expect((await entryOf(userA, 'SDS-0020'))!.builtStatus).toBe('not_built');
+  });
+
+  it('gives fixtures no number, and a status or archive change is not a save', async () => {
+    const f = await asA((tx) =>
+      createStrategy(tx, userA, {
+        name: 'Fixture 1 — Sector rotation top 3',
+        definition: definition(['DEMO-A']),
+      }),
+    );
+    expect(f.library).toBeNull();
+    const archived = await asA((tx) =>
+      updateStrategy(tx, userA, f.id, { rowVersion: f.rowVersion, archived: true }),
+    );
+    expect(archived.library).toBeNull();
+    expect(await nextSeq()).toBe(22);
+    // Renamed out of the fixture prefix, the next save numbers it.
+    const renamed = await asA((tx) =>
+      updateStrategy(tx, userA, f.id, { rowVersion: archived.rowVersion, name: 'Sector rotation' }),
+    );
+    expect(renamed.library?.registrationNumber).toBe('SDS-0022');
+  });
+
+  it('keeps both sides equal when the link changes from the Library', async () => {
+    const s = await asA((tx) =>
+      createStrategy(tx, userA, { name: 'Library-side', definition: definition(['DEMO-A']) }),
+    );
+    expect(s.library?.registrationNumber).toBe('SDS-0023');
+    // Registering with the strategy as its built link moves the strategy to the new entry.
+    const reg = await asA((tx) =>
+      registerLibraryEntry(tx, userA, {
+        name: 'Registered by hand',
+        category: 'trend',
+        shortDescription: 'x',
+        longDescription: 'x',
+        assets: 'x',
+        entry: 'x',
+        exit: 'x',
+        frequency: { kind: 'every', value: 1, unit: 'days' },
+        turnaround: { kind: 'unknown' },
+        timeframeCode: 'D',
+        assetClassCode: 'S',
+        builtStrategyId: s.id,
+      }),
+    );
+    expect(reg.registrationNumber).toBe('SDS-0024');
+    expect((await asA((tx) => getStrategy(tx, s.id))).library?.registrationNumber).toBe('SDS-0024');
+    expect((await entryOf(userA, 'SDS-0023'))!.builtStatus).toBe('not_built');
+
+    // Clearing the link in the Library's edit form: the strategy has no record until its next save.
+    const d = (await entryOf(userA, 'SDS-0024'))!;
+    await asA((tx) =>
+      updateLibraryEntry(tx, userA, 'SDS-0024', {
+        name: d.name,
+        category: d.category,
+        tags: d.tags,
+        shortDescription: d.shortDescription,
+        longDescription: d.longDescription,
+        assets: d.assets,
+        entry: d.entry,
+        exit: d.exit,
+        frequency: d.frequency,
+        turnaround: d.turnaround,
+        builtStrategyId: null,
+        rowVersion: d.rowVersion,
+        changeNote: 'Unlinked',
+      }),
+    );
+    const unlinked = await asA((tx) => getStrategy(tx, s.id));
+    expect(unlinked.library).toBeNull();
+
+    // B can't take over or clear A's link from the Library.
+    const a = (await entryOf(userB, 'SDS-0021'))!;
+    const takeover = await rejects(
+      as(userB, (tx) =>
+        updateLibraryEntry(tx, userB, 'SDS-0021', {
+          name: a.name,
+          category: a.category,
+          tags: a.tags,
+          shortDescription: a.shortDescription,
+          longDescription: a.longDescription,
+          assets: a.assets,
+          entry: a.entry,
+          exit: a.exit,
+          frequency: a.frequency,
+          turnaround: a.turnaround,
+          builtStrategyId: null,
+          rowVersion: a.rowVersion,
+          changeNote: 'Clear',
+        }),
+      ),
+    );
+    expect(takeover.message).toBe("SDS-0021 is built in another member's Strategy Lab");
+  });
+
+  it('copies get a record of their own', async () => {
+    const source = await asA((tx) => getStrategy(tx, ids.trend!));
+    const copy = await asA((tx) =>
+      createStrategy(tx, userA, { name: `Copy of ${source.name}`, definition: source.definition }),
+    );
+    expect(copy.library?.registrationNumber).toBe('SDS-0025');
+  });
+});
+
+describe('backfill (brief D9)', () => {
+  let userC: string;
+  beforeAll(async () => {
+    userC = await createUser('lab-c@example.test');
+    await provisionWorkspace(t.app.db, { userId: userC, displayName: 'C' });
+    // Strategies saved before the numbering existed have no record: drafts without instruments.
+    for (const name of [
+      'Pairs PEP KO',
+      'VIX spike buys SPY',
+      'Sector rotation A',
+      'Sector rotation B',
+      'Multi-factor value + momentum',
+      'Fixture 2 — Breakout SPY Donchian 20/10',
+    ]) {
+      await as(userC, (tx) => createStrategy(tx, userC, { name }));
+    }
+  });
+
+  it('dry run proposes clear matches only and changes nothing', async () => {
+    const rows = await as(userC, (tx) => backfillSeedLinks(tx, userC, { apply: false }));
+    const by = Object.fromEntries(rows.map((r) => [r.registrationNumber, r.outcome.kind]));
+    expect(by).toMatchObject({
+      'SDS-0004': 'would_link',
+      'SDS-0006': 'would_link',
+      'SME-0008': 'ambiguous',
+      'SQS-0012': 'retired',
+      // The fixture is never matched; SDS-0001 is built in A's workspace.
+      'SDS-0005': 'none',
+      'SDS-0001': 'none',
+    });
+    const list = await as(userC, (tx) => listStrategies(tx));
+    expect(list.items.every((i) => i.libraryNumber === null)).toBe(true);
+  });
+
+  it('apply links them by name and numbers nothing else', async () => {
+    const seq = await nextSeq();
+    await as(userC, (tx) => backfillSeedLinks(tx, userC, { apply: true }));
+    const list = await as(userC, (tx) => listStrategies(tx, { sort: 'name', direction: 'asc' }));
+    expect(Object.fromEntries(list.items.map((i) => [i.name, i.libraryNumber]))).toEqual({
+      'Fixture 2 — Breakout SPY Donchian 20/10': null,
+      'Multi-factor value + momentum': null,
+      'Pairs PEP KO': 'SDS-0004',
+      'Sector rotation A': null,
+      'Sector rotation B': null,
+      'VIX spike buys SPY': 'SDS-0006',
+    });
+    expect((await entryOf(userC, 'SDS-0006'))!.builtStatus).toBe('built');
+    expect(await nextSeq()).toBe(seq);
+    const again = await as(userC, (tx) => backfillSeedLinks(tx, userC, { apply: true }));
+    expect(again.find((r) => r.registrationNumber === 'SDS-0006')!.outcome).toEqual({
+      kind: 'already_linked',
+      strategyName: 'VIX spike buys SPY',
+    });
+  });
+});

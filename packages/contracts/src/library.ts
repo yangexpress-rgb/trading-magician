@@ -123,7 +123,7 @@ export interface LibraryEntryDto extends LibraryEntrySummaryDto {
   rowVersion: number;
   letters: Record<ConventionPosition, ConventionCode | null>;
   revisions: {
-    action: 'edit' | 'retire';
+    action: 'create' | 'edit' | 'retire';
     note: string;
     changedFields: string[];
     editedAt: string;

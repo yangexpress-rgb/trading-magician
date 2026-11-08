@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./options-fixtures": "./src/options/test-fixtures.ts"
+    "./options-fixtures": "./src/options/test-fixtures.ts",
+    "./strategy-text": "./src/strategy/text.ts"
   },
   "scripts": {
     "lint": "eslint .",

@@ -220,7 +220,11 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
                   <li key={i}>
                     <p>
                       <span className="font-medium">
-                        {r.action === 'retire' ? 'Retired' : 'Edited'}
+                        {r.action === 'retire'
+                          ? 'Retired'
+                          : r.action === 'create'
+                            ? 'Created'
+                            : 'Edited'}
                       </span>{' '}
                       by {ACTOR_LABELS[r.editedBy]}, {formatDateTime(r.editedAt, prefs)}
                     </p>

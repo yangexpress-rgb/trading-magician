@@ -65,6 +65,16 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
         description={strategy.description || undefined}
         actions={
           <>
+            {/* The Strategy Library number (ADR 0054), read-only. */}
+            {strategy.library && (
+              <Link
+                href={`/library/${strategy.library.registrationNumber}`}
+                className="font-mono text-sm font-semibold"
+                aria-label={`Strategy Library entry ${strategy.library.registrationNumber}`}
+              >
+                {strategy.library.registrationNumber}
+              </Link>
+            )}
             {strategy.currentVersion && <Badge>Version {strategy.currentVersion.versionNo}</Badge>}
             <StrategyStatusBadge status={strategy.status} />
             <ModeBadge mode="paper" />
@@ -83,6 +93,7 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
             strategyId={strategy.id}
             strategyName={strategy.name}
             status={strategy.status}
+            library={strategy.library}
             initialDefinition={strategy.definition}
             initialRowVersion={strategy.rowVersion}
             instruments={instruments}
