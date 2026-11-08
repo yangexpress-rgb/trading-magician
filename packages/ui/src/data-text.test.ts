@@ -54,17 +54,19 @@ describe('data text role (N126–N132)', () => {
     expect(dd!.props.children).toBe('+24.93%');
   });
 
-  it('styles define the role with tabular figures, no webfont and no new colour', () => {
+  it('styles define the role on the data font with tabular figures, nothing fetched from a third party', () => {
     const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
     const rule = (name: string) => css.match(new RegExp(`\\.${name} \\{([^}]*)\\}`))?.[1] ?? '';
     for (const name of ['text-data', 'text-data-strong']) {
       expect(rule(name)).toContain('font-variant-numeric: tabular-nums');
-      expect(rule(name)).toContain('var(--font-sans)');
+      expect(rule(name)).toContain('var(--font-data)');
       expect(rule(name)).toContain('var(--color-ink)');
     }
     expect(rule('text-data')).toContain('font-weight: 500');
     expect(rule('text-data-strong')).toContain('font-weight: 600');
     expect(css).not.toMatch(/@import|@font-face|fonts\.googleapis/);
-    expect(css).not.toMatch(/--font-data/);
+    // Inter first (bundled by the web app), the system sans as fallback.
+    expect(css).toMatch(/--font-data:\s*var\(--font-inter, ui-sans-serif\),\s*ui-sans-serif/);
+    expect(css).not.toMatch(/url\(/);
   });
 });

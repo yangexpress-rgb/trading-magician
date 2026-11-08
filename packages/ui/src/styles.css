@@ -7,6 +7,11 @@
 @theme {
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  /* Data font (N133): Inter with tabular figures, bundled by the web app as --font-inter;
+     anywhere it is missing, values fall back to the system sans. */
+  --font-data:
+    var(--font-inter, ui-sans-serif), ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    sans-serif;
 
   --color-canvas: var(--tm-canvas);
   --color-surface: var(--tm-surface);
@@ -142,12 +147,13 @@
  * Data text role (design brief "make transactional data look different from
  * titles", N126-N132). Every value the user entered or the app produced
  * (amounts, prices, quantities, percentages, dates, counts, durations) is set
- * in `text-data`: the same sans stack as titles, but with tabular (fixed-width)
+ * in `text-data`: the data font (Inter, N133) with tabular (fixed-width)
  * figures so digits line up down a column, at medium weight in `ink`.
  * `text-data-strong` is the single primary figure on a stat card or detail
  * page. Titles and labels keep their own treatment; `font-mono` stays reserved
  * for identifiers (registration numbers, member IDs, tickers), not values.
- * No webfont and no new colour: data stays on --font-sans.
+ * No new colour. The one font file is bundled with the app and served from
+ * its own origin; nothing is fetched from a third party.
  *
  * These live in the components layer (not @utility) on purpose: they are the
  * default look of a value, and any utility on the same element (a status
@@ -156,13 +162,13 @@
  */
 @layer components {
   .text-data {
-    font-family: var(--font-sans);
+    font-family: var(--font-data);
     font-variant-numeric: tabular-nums;
     font-weight: 500;
     color: var(--color-ink);
   }
   .text-data-strong {
-    font-family: var(--font-sans);
+    font-family: var(--font-data);
     font-variant-numeric: tabular-nums;
     font-weight: 600;
     color: var(--color-ink);

@@ -252,7 +252,7 @@ Each is an editable input or a single constant.
 
 ## Design v1.2 changes (2026-11-06 to 2026-11-07)
 
-The v1.2 design (`docs/design/design-doc-v1.2.md`) numbers its changes N1 to N132 and its open
+The v1.2 design (`docs/design/design-doc-v1.2.md`) numbers its changes N1 to N133 and its open
 points O1 to O103 (`docs/design/v1.2-deviations.md`). ADRs 0034 and 0037 to 0057 cite them.
 Each row maps a change to its decision record, code and tests.
 
@@ -389,3 +389,4 @@ Each row maps a change to its decision record, code and tests.
 | N130   | `DataValue` and `Stat`; missing shows `—`                                       | ADR 0057                                 | `packages/ui/src/data-value.tsx`                                                                                                                                                                                                                       | `packages/ui/src/data-text.test.ts`                                                                                  |
 | N131   | Hierarchy, dark mode, accessibility                                             | ADR 0057                                 | `packages/ui/src/styles.css` (components layer)                                                                                                                                                                                                        | `packages/ui/src/data-text.test.ts`, e2e accessibility checks                                                        |
 | N132   | No behaviour change; `—` for missing condition counts                           | ADR 0057                                 | `apps/web/components/strategy/backtest-detail.tsx`                                                                                                                                                                                                     | existing suites                                                                                                      |
+| N133   | Data font: Inter, bundled                                                       | ADR 0057                                 | `apps/web/app/layout.tsx`, `apps/web/app/fonts/`, `packages/ui/src/styles.css` (`--font-data`)                                                                                                                                                         | `packages/ui/src/data-text.test.ts`                                                                                  |

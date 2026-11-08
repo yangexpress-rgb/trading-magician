@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-08
-- **Design refs:** §5.1, §15; design v1.2 rows N126 to N132, open points O101 to O103; the design
+- **Design refs:** §5.1, §15; design v1.2 rows N126 to N133, open points O101 to O103; the design
   brief "Make transactional data look different from titles" (Yong, 2026-11-08, decisions D1 to
   D7)
 
@@ -34,10 +34,16 @@ decided on its own.
 
 ## Consequences
 
-- No webfont, no new colour token, no new font size, no dependency, no data or API change.
+- No new colour token, no new font size, no dependency, no data or API change; the one font
+  file is bundled and self-served (see below).
   Formatted values read exactly as before.
 - Money and percentage table columns name their unit in the header and the cells show the bare
-  number (O102, agreed by Yong on 2026-11-08); stat cards and sentences keep their symbols. A
-  dedicated data font is being chosen (O101).
+  number (O102, agreed by Yong on 2026-11-08); stat cards and sentences keep their symbols.
+- **The data font is Inter** (O101, Yong's choice on 2026-11-08). One variable woff2 file (Latin
+  subset, about 48 KB) is committed under `apps/web/app/fonts/` and loaded with `next/font/local`,
+  so it is served from the app's own origin: no third-party request, no npm dependency, CSP
+  unchanged. `--font-data` lists Inter first and the system sans after it, so a page without the
+  font still shows tabular system digits. Only values use it; titles and labels stay on the system
+  sans.
 - `apps/web/vitest.config.ts` now compiles JSX and resolves `@/`, so web tests can render a
   component to static markup (used by the back test runs table test).
