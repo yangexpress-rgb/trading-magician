@@ -29,7 +29,14 @@ import {
 } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import {
+  ShareCheckAll,
+  ShareCheckbox,
+  ShareSelectedBar,
+  ShareSelection,
+} from '@/components/sharing/share-selection';
 import { BUILT_LABELS, codeMeaning, codeOption, versionsByLabel } from '@/lib/library-text';
+import { isAdmin } from '@/lib/server/admin';
 import { appDb } from '@/lib/server/db';
 import { requireTenant } from '@/lib/server/session';
 
@@ -88,6 +95,13 @@ export default async function LibraryPage({
     versions: await listConventionVersions(tx),
   }));
   const tables = versionsByLabel(versions);
+  const admin = await isAdmin();
+  // Retired records can't be shared (ADR 0056).
+  const shareItem = (e: (typeof items)[number]) => ({
+    source: { kind: 'library' as const, number: e.registrationNumber },
+    label: `${e.registrationNumber} ${e.name}`,
+  });
+  const shareable = items.filter((e) => e.status === 'registered').map(shareItem);
   const filtered = Boolean(
     q.q ||
     q.asset ||
@@ -218,13 +232,19 @@ export default async function LibraryPage({
             : 'Register a strategy to start the library.'}
         </EmptyState>
       ) : (
-        <>
-          <p className="mb-2 text-sm text-ink-muted" aria-live="polite">
-            {total === 1 ? '1 entry' : `${total} entries`}
-          </p>
+        <ShareSelection>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-ink-muted" aria-live="polite">
+              {total === 1 ? '1 entry' : `${total} entries`}
+            </p>
+            <ShareSelectedBar isAdmin={admin} noun="records" />
+          </div>
           <Table label="Strategy Library entries">
             <thead>
               <tr>
+                <Th>
+                  <ShareCheckAll items={shareable} noun="records" />
+                </Th>
                 <Th>Number</Th>
                 <Th>Name</Th>
                 <Th>Asset class</Th>
@@ -240,6 +260,7 @@ export default async function LibraryPage({
                 const t = tables.get(e.conventionVersion);
                 return (
                   <tr key={e.id}>
+                    <Td>{e.status === 'registered' && <ShareCheckbox item={shareItem(e)} />}</Td>
                     <Td className="whitespace-nowrap font-mono font-semibold">
                       <Link href={`/library/${e.registrationNumber}`}>{e.registrationNumber}</Link>
                       {e.formerNumbers.length > 0 && (
@@ -281,7 +302,7 @@ export default async function LibraryPage({
               })}
             </tbody>
           </Table>
-        </>
+        </ShareSelection>
       )}
     </>
   );

@@ -505,6 +505,13 @@
       "when": 1794157407535,
       "tag": "0071_strategy_sharing",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1794160685400,
+      "tag": "0072_share_many",
+      "breakpoints": true
     }
   ]
 }
