@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 
-const MAX_RECIPIENTS = 10;
 const NOTE_MAX = 500;
 
 const message = (e: unknown, fallback: string) =>
@@ -104,19 +103,13 @@ export function ShareDialog({
   }, [open, isAdmin, members]);
 
   function addPerson(m: ShareMemberDto) {
-    setPeople((p) =>
-      p.some((x) => x.memberCode === m.memberCode) ? p : [...p, m].slice(0, MAX_RECIPIENTS),
-    );
+    setPeople((p) => (p.some((x) => x.memberCode === m.memberCode) ? p : [...p, m]));
   }
 
   async function add() {
     const q = typed.trim();
     if (!q) return;
     setError(undefined);
-    if (people.length >= MAX_RECIPIENTS) {
-      setError(`Share with up to ${MAX_RECIPIENTS} people at a time.`);
-      return;
-    }
     setBusy(true);
     try {
       const { member } = await apiClient.members.lookup(q);

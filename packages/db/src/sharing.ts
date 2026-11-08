@@ -46,9 +46,6 @@ export class ShareError extends Error {
 }
 
 /** Most recipients one send may name (O99). The admin's "All members" is not capped. */
-export const SHARE_MAX_RECIPIENTS = 10;
-/** Strategies (or records) one send can share (ADR 0056, N125). */
-export const SHARE_MAX_SOURCES = 20;
 export const SHARE_NOTE_MAX = 500;
 /** A tag every shared copy carries in the Library. */
 export const SHARED_TAG = 'shared';
@@ -216,16 +213,9 @@ export const createShareSchema = z
   .object({
     /** One thing to share; or `sources` for several at once (N125). */
     source: shareSourceSchema.optional(),
-    sources: z
-      .array(shareSourceSchema)
-      .min(1, 'Choose what to share')
-      .max(SHARE_MAX_SOURCES, `Share up to ${SHARE_MAX_SOURCES} at a time`)
-      .optional(),
+    sources: z.array(shareSourceSchema).min(1, 'Choose what to share').optional(),
     /** Member IDs or emails, exactly as typed. */
-    recipients: z
-      .array(z.string().trim().min(1).max(320))
-      .max(SHARE_MAX_RECIPIENTS, `Share with up to ${SHARE_MAX_RECIPIENTS} people at a time`)
-      .default([]),
+    recipients: z.array(z.string().trim().min(1).max(320)).default([]),
     /** The admin only: everyone who can receive shares. */
     allMembers: z.boolean().default(false),
     note: z
@@ -445,7 +435,8 @@ export async function listShares(
     .from(strategyShares)
     .where(and(side, options.ids ? inArray(strategyShares.id, options.ids) : undefined))
     .orderBy(desc(strategyShares.createdAt))
-    .limit(200);
+    // The Sharing page shows the latest 1,000; a send's own shares all come back.
+    .limit(options.ids ? options.ids.length : 1000);
   return rows
     .map((r) => effective(r))
     .filter((r) => !options.status || r.status === options.status)

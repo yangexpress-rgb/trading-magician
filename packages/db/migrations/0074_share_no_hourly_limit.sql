@@ -1,6 +1,6 @@
--- O104 amended: Yong removed the hourly sharing limit (2026-11-08). The other
--- limits stay: 200 shares pending per sender, 10 people and 20 strategies a
--- send. Otherwise share_create is as in 0073.
+-- O104 amended: Yong removed the sharing limits (2026-11-08): no hourly limit
+-- and no pending limit (the app also drops its 10 people and 20 strategies a
+-- send). Otherwise share_create is as in 0073.
 CREATE OR REPLACE FUNCTION share_create(
   p_recipient uuid, p_kind text, p_source_entry uuid, p_source_strategy uuid,
   p_snapshot jsonb, p_note text
@@ -56,10 +56,6 @@ BEGIN
   END IF;
   IF char_length(coalesce(v_note, '')) > 500 THEN
     RAISE EXCEPTION 'keep the note to 500 characters' USING ERRCODE = 'invalid_parameter_value';
-  END IF;
-  IF (SELECT count(*) FROM strategy_share WHERE sender_id = v_caller AND status = 'pending') >= 200 THEN
-    RAISE EXCEPTION 'you have 200 shares waiting for an answer; withdraw some first'
-      USING ERRCODE = 'invalid_parameter_value';
   END IF;
   BEGIN
     INSERT INTO strategy_share (

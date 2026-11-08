@@ -5,9 +5,6 @@ import { Button } from '@tm/ui';
 import { createContext, type ReactNode, useContext, useMemo, useState } from 'react';
 import { ShareDialog, type ShareItem } from './share-button';
 
-/** What one send can carry (packages/db SHARE_MAX_SOURCES, N125). */
-export const MAX_SHARE_ITEMS = 20;
-
 const keyOf = (s: ShareSourceDto) =>
   s.kind === 'library' ? `library:${s.number}` : `lab:${s.strategyId}`;
 
@@ -40,7 +37,7 @@ export function ShareSelection({ children }: { children: ReactNode }) {
           for (const item of items) {
             const k = keyOf(item.source);
             if (!on) next.delete(k);
-            else if (next.size < MAX_SHARE_ITEMS) next.set(k, item);
+            else next.set(k, item);
           }
           return next;
         }),
@@ -77,12 +74,7 @@ export function ShareSelectedBar({
           Clear selection
         </Button>
       ) : (
-        <span className="text-xs text-ink-muted">
-          Tick {noun} to share several at once (up to {MAX_SHARE_ITEMS}).
-        </span>
-      )}
-      {count >= MAX_SHARE_ITEMS && (
-        <span className="text-xs text-ink-muted">That’s the most one share can carry.</span>
+        <span className="text-xs text-ink-muted">Tick {noun} to share several at once.</span>
       )}
       <ShareDialog
         open={sending !== null}
@@ -99,21 +91,18 @@ export function ShareSelectedBar({
 export function ShareCheckbox({ item }: { item: ShareItem }) {
   const { selected, set } = useSelection();
   const checked = selected.has(keyOf(item.source));
-  const full = !checked && selected.size >= MAX_SHARE_ITEMS;
   return (
     <input
       type="checkbox"
       aria-label={`Select ${item.label} to share`}
       checked={checked}
-      disabled={full}
-      title={full ? `Up to ${MAX_SHARE_ITEMS} at a time` : undefined}
       onChange={(e) => set([item], e.target.checked)}
       className="h-4 w-4"
     />
   );
 }
 
-/** The header tick box: every shareable row on this page (up to the limit). */
+/** The header tick box: every shareable row on this page. */
 export function ShareCheckAll({ items, noun }: { items: ShareItem[]; noun: string }) {
   const { selected, set } = useSelection();
   if (items.length === 0) return null;
