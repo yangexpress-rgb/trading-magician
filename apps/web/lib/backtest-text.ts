@@ -200,6 +200,13 @@ export function atrStopText(stop: NonNullable<BacktestTradeDto['atrStop']>): str
   return `Stop ${stop.level} = entry ${stop.entryPrice} ${sign} ${stop.atrMultiple} × ATR ${stop.atr}`;
 }
 
+/** "Band 95.20–104.80 = entry 100.00 ± 1 × 4.80% (5-day expected move), either way". */
+export function expectedMoveText(m: NonNullable<BacktestTradeDto['expectedMove']>): string {
+  const pct = (Number(m.movePct) * 100).toFixed(2);
+  const side = { either: 'either way', gain: 'gain only', loss: 'loss only' }[m.side];
+  return `Band ${m.lower}–${m.upper} = entry ${m.entryPrice} ± ${m.multiple} × ${pct}% (${m.horizon}-day expected move), ${side}`;
+}
+
 export type TradeDirection = 'long' | 'short' | 'long_short';
 
 export const DIRECTION_WORDS: Record<TradeDirection, string> = {

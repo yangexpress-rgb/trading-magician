@@ -306,7 +306,7 @@ describe('an options condition in a strategy (F5)', () => {
     const run = await asUser((tx) =>
       startBacktest(tx, userId, s.id, {
         ...DEFAULT_BACKTEST_INPUTS,
-        from: '2026-09-01',
+        from: '2026-08-10',
         to: '2026-09-11',
       }),
     );
@@ -342,5 +342,43 @@ describe('an options condition in a strategy (F5)', () => {
     );
     const v = await asUser((tx) => validateStoredStrategy(tx, s.id));
     expect(v.validation.errors).toEqual([]);
+  });
+});
+
+describe('the expected-move exit (brief §10 item 10, ADR 0053)', () => {
+  /** Buy SPY on a wide expected move (as above); exit only beyond 1% of the entry's move. */
+  function moveExitStrategy(): StrategyDefinition {
+    const def = expectedMoveRule();
+    def.exit.condition.children = [];
+    def.exit.rules = [
+      { kind: 'expectedMove', id: 'em', horizon: 5, multiple: '0.01', side: 'either' },
+    ];
+    return def;
+  }
+
+  it('back tests, storing each exit with the band fixed at entry', async () => {
+    const s = await asUser((tx) =>
+      createStrategy(tx, userId, { name: 'Move exit', definition: moveExitStrategy() }),
+    );
+    // The options feed was added above.
+    const v = await asUser((tx) => validateStoredStrategy(tx, s.id));
+    expect(v.validation.errors).toEqual([]);
+    const run = await asUser((tx) =>
+      startBacktest(tx, userId, s.id, {
+        ...DEFAULT_BACKTEST_INPUTS,
+        from: '2026-08-10',
+        to: '2026-09-11',
+      }),
+    );
+    expect(await processNextRun({ db: t.app.db, provider, workerId: 'w', logger: quiet })).toBe(
+      'completed',
+    );
+    const rows = await t.ownerSql<{ exit_reason: string | null; expected_move: unknown }[]>`
+      select exit_reason, expected_move from backtest_trade where run_id = ${run.id} order by cycle`;
+    const exited = rows.filter((r) => r.exit_reason === 'expected_move');
+    expect(exited.length).toBeGreaterThan(0);
+    const m = exited[0]!.expected_move as { movePct: string; lower: string; upper: string };
+    expect([0.025, 0.015]).toContain(Number(m.movePct));
+    expect(Number(m.upper)).toBeGreaterThan(Number(m.lower));
   });
 });

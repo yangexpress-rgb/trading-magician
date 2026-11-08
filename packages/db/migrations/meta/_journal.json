@@ -477,6 +477,13 @@
       "when": 1794094689171,
       "tag": "0067_strategy_library",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1794097882304,
+      "tag": "0068_expected_move_exit",
+      "breakpoints": true
     }
   ]
 }

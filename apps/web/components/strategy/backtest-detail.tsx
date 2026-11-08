@@ -471,6 +471,7 @@ export const EXIT_REASON_LABELS: Record<NonNullable<BacktestTradeDto['exitReason
   condition: 'Exit condition',
   time_stop: 'Time stop',
   atr_stop: 'ATR stop',
+  expected_move: 'Beyond the expected move',
   rebalance: 'Rebalance: no longer selected',
 };
 

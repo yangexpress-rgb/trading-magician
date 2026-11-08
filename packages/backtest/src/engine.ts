@@ -6,6 +6,10 @@ import {
   atrStopLevel,
   atrStopOf,
   atrStopDistance,
+  expectedMoveBand,
+  expectedMoveExpr,
+  expectedMoveHit,
+  expectedMoveRuleOf,
   exitFiresDirectly,
   newRuntimeTriggerState,
   planEntry,
@@ -192,7 +196,7 @@ interface Cycle {
   /** The entry group that opened it (v1.2 item 8); null for the strategy's own Entry. */
   group: GroupKey;
   /** Why the cycle exited, when v1.2 exit reasons apply. */
-  exitReason?: 'condition' | 'rebalance' | 'time_stop' | 'atr_stop';
+  exitReason?: 'condition' | 'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move';
   state: 'entering' | 'open' | 'exiting' | 'closed' | 'aborted';
   entryTriggeredAt?: number;
   events: Map<PhaseEvent, number>;
@@ -208,6 +212,18 @@ interface Cycle {
   entryValue: Decimal;
   /** ATR stop (v1.2 item 9): the ATR when Entry was decided, and the level once filled. */
   atrAtEntry?: Decimal;
+  /** Expected-move exit (ADR 0053): the move captured at entry, and the band once filled. */
+  moveAtEntry?: Decimal;
+  expectedMove?: {
+    movePct: Decimal;
+    multiple: string;
+    horizon: 1 | 5;
+    side: 'either' | 'gain' | 'loss';
+    entryPrice: Decimal;
+    lower: Decimal;
+    upper: Decimal;
+    long: boolean;
+  };
   atrStop?: {
     atr: Decimal;
     atrMultiple: string;
@@ -608,6 +624,20 @@ export function simulate({
           'Some positions had no ATR stop because the ATR had too little history at entry',
         );
     }
+    // Expected-move exit (ADR 0053): the options signal as of the bar Entry is decided on.
+    const moveRule = leg.phase === 'entry' ? expectedMoveRuleOf(c.def) : undefined;
+    if (moveRule && c.moveAtEntry === undefined) {
+      const instrument = atrStopInstrument(c.def);
+      const move = instrument
+        ? evaluateExpr(expectedMoveExpr(instrument, moveRule.horizon), view)
+        : undefined;
+      if (move && move.gt(0)) c.moveAtEntry = move;
+      else
+        warnings.add(
+          'expected_move_unset',
+          'Some positions had no expected-move exit because no options signal was recorded at entry',
+        );
+    }
     // Risk-based sizing (v1.2 item 9) is capped to the limits, never past them.
     // The Entry's one risk distance (ADR 0049).
     const riskDistance = sizesFromAtr(o) ? c.def.entry.risk : undefined;
@@ -892,8 +922,36 @@ export function simulate({
     return close !== undefined && atrStopHit(close, c.atrStop.level, long);
   }
 
+  /** Whether a daily close has moved beyond the expected move captured at entry (ADR 0053). */
+  function checkExpectedMove(c: Cycle): boolean {
+    const rule = expectedMoveRuleOf(c.def);
+    const instrument = atrStopInstrument(c.def);
+    if (!rule || !instrument || !c.moveAtEntry) return false;
+    const p = c.positions.get(instrument);
+    if (!p || p.entryQuantity.isZero() || p.quantity.isZero()) return false;
+    const long = p.quantity.gt(0);
+    if (!c.expectedMove) {
+      const entryPrice = p.entryCost.div(p.entryQuantity);
+      c.expectedMove = {
+        movePct: c.moveAtEntry,
+        multiple: rule.multiple,
+        horizon: rule.horizon,
+        side: rule.side,
+        entryPrice,
+        ...expectedMoveBand(entryPrice, c.moveAtEntry, rule.multiple),
+        long,
+      };
+    }
+    const close = evaluateExpr(stopCloseExpr(instrument, inputs.adjustment), view);
+    return close !== undefined && expectedMoveHit(close, c.expectedMove, rule.side, long);
+  }
+
   /** Starts a cycle's Exit now, for a reason other than its Exit condition. */
-  function forceExit(c: Cycle, now: number, reason: 'rebalance' | 'time_stop' | 'atr_stop') {
+  function forceExit(
+    c: Cycle,
+    now: number,
+    reason: 'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move',
+  ) {
     c.state = 'exiting';
     c.exitReason = reason;
     c.legEvents.set('exit:trigger', now);
@@ -1257,6 +1315,8 @@ export function simulate({
           forceExit(c, now, 'time_stop');
         // The ATR stop, also by OR (v1.2 item 9): a daily close beyond the level fixed at entry.
         if (c.state === 'open' && checkAtrStop(c)) forceExit(c, now, 'atr_stop');
+        // The expected-move exit, also by OR (ADR 0053).
+        if (c.state === 'open' && checkExpectedMove(c)) forceExit(c, now, 'expected_move');
       }
       if (c.state === 'open' || c.state === 'exiting') {
         const exitTriggeredAt = c.state === 'exiting' ? c.legEvents.get('exit:trigger') : undefined;
@@ -1376,6 +1436,20 @@ export function simulate({
                 direction: c.atrStop.long ? ('long' as const) : ('short' as const),
                 entryPrice: c.atrStop.entryPrice.toDecimalPlaces(4).toString(),
                 level: c.atrStop.level.toDecimalPlaces(4).toString(),
+              },
+            }
+          : {}),
+        ...(c.expectedMove
+          ? {
+              expectedMove: {
+                movePct: c.expectedMove.movePct.toDecimalPlaces(6).toString(),
+                horizon: c.expectedMove.horizon,
+                multiple: c.expectedMove.multiple,
+                side: c.expectedMove.side,
+                direction: c.expectedMove.long ? ('long' as const) : ('short' as const),
+                entryPrice: c.expectedMove.entryPrice.toDecimalPlaces(4).toString(),
+                lower: c.expectedMove.lower.toDecimalPlaces(4).toString(),
+                upper: c.expectedMove.upper.toDecimalPlaces(4).toString(),
               },
             }
           : {}),
@@ -1568,6 +1642,10 @@ export function simulate({
     if (stopped)
       out.push(
         'The ATR stop is fixed at entry (entry price ∓ multiple × ATR) and does not trail; a daily close beyond it exits at the next bar, like the other exits',
+      );
+    if (defs.some((d) => expectedMoveRuleOf(d)))
+      out.push(
+        'The expected-move exit captures the latest recorded options expected move (as of the bar Entry was decided on) and fixes the band entry × (1 ± multiple × move); a daily close beyond it exits at the next bar, like the other exits',
       );
     return out;
   }

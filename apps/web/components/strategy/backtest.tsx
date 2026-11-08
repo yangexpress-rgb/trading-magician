@@ -28,6 +28,7 @@ import {
   RUN_STATUS,
   sizingText,
   atrStopText,
+  expectedMoveText,
   thin,
   DIRECTION_WORDS,
   tradeDirection,
@@ -542,6 +543,11 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                         )}
                         {t.atrStop && (
                           <div className="text-xs text-ink-muted">{atrStopText(t.atrStop)}</div>
+                        )}
+                        {t.expectedMove && (
+                          <div className="text-xs text-ink-muted">
+                            {expectedMoveText(t.expectedMove)}
+                          </div>
                         )}
                       </Td>
                       <Td>

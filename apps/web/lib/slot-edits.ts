@@ -147,5 +147,13 @@ export function atrStopRule(): ExitRule {
   return { kind: 'atrStop', id: randomId() };
 }
 
+/**
+ * Exit beyond the expected move at entry (ADR 0053): one 5-day expected move,
+ * either way, until the person changes it.
+ */
+export function expectedMoveRule(): ExitRule {
+  return { kind: 'expectedMove', id: randomId(), horizon: 5, multiple: '1', side: 'either' };
+}
+
 /** The risk distance a new Entry starts with: 2 × ATR(20) (v1.2 item 9). */
 export const DEFAULT_RISK_DISTANCE = { atrPeriod: 20, atrMultiple: '2' } as const;
