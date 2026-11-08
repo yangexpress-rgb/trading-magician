@@ -11,6 +11,7 @@ import {
   LIBRARY_V2_BACKFILL,
   type BackfillField,
 } from './library-backfill-v2-data';
+import { STRATEGY_LIBRARY_SEED, type SeedEntry } from './library-seed';
 import {
   backtestRuns,
   strategyLibraryEntries as entries,
@@ -135,17 +136,28 @@ export async function planBackfillV2(tx: Transaction): Promise<BackfillPlan> {
       : [],
   );
 
+  const bySeedNumber = new Map<string, SeedEntry[]>();
+  for (const s of STRATEGY_LIBRARY_SEED) {
+    for (const n of [s.expectedNumber, s.v1Number]) {
+      bySeedNumber.set(n, [...(bySeedNumber.get(n) ?? []), s]);
+    }
+  }
   const problems: string[] = [];
   const plan: BackfillEntryPlan[] = [];
   const skipped: BackfillPlan['skipped'] = [];
   const seen = new Set<string>();
   for (const r of rows) {
-    const row = r.seedKey ? LIBRARY_V2_BACKFILL[r.seedKey] : undefined;
-    if (!r.seedKey || !row) {
+    // A seed entry registered by hand (through the form or the API) has no seed
+    // key; it is recognised by its seed number and its exact seed name.
+    const seedKey =
+      r.seedKey ?? bySeedNumber.get(r.number)?.find((s) => s.input.name === r.name)?.seedKey;
+    const row = seedKey ? LIBRARY_V2_BACKFILL[seedKey] : undefined;
+    if (!seedKey || !row || seen.has(seedKey)) {
       skipped.push({ registrationNumber: r.number, name: r.name });
       continue;
     }
-    seen.add(r.seedKey);
+    seen.add(seedKey);
+    const notes = r.seedKey ? [] : ['Matched to the seed by number and name (registered by hand).'];
     // The table must pass the same rules a person's edit does.
     const checked = libraryV2Fields.safeParse({ ...row.values, maturity: 'researched' });
     if (!checked.success) {
@@ -186,9 +198,9 @@ export async function planBackfillV2(tx: Transaction): Promise<BackfillPlan> {
       entryId: r.id,
       registrationNumber: r.number,
       name: r.name,
-      seedKey: r.seedKey,
+      seedKey,
       fields,
-      notes: row.notes ?? [],
+      notes: [...notes, ...(row.notes ?? [])],
     });
   }
   const missing = Object.keys(LIBRARY_V2_BACKFILL).filter((k) => !seen.has(k));

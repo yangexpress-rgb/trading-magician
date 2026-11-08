@@ -253,7 +253,7 @@ Each is an editable input or a single constant.
 ## Design v1.2 changes (2026-11-06 to 2026-11-07)
 
 The v1.2 design (`docs/design/design-doc-v1.2.md`) numbers its changes N1 to N115 and its open
-points O1 to O92 (`docs/design/v1.2-deviations.md`). ADRs 0034 and 0037 to 0055 cite them.
+points O1 to O93 (`docs/design/v1.2-deviations.md`). ADRs 0034 and 0037 to 0055 cite them.
 Each row maps a change to its decision record, code and tests.
 
 | Change | Summary                                                                         | Decision record                          | Code                                                                                                                                                                                                             | Tests                                                                                                                |
