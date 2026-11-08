@@ -5,6 +5,7 @@ export {
   assertPaperTradingUrl,
   LiveEndpointError,
 } from './endpoints';
+export { AlpacaRequestBudget, sharedAlpacaBudget, type RequestBudgetOptions } from './budget';
 export {
   AlpacaAuthError,
   AlpacaClient,

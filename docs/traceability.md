@@ -252,8 +252,8 @@ Each is an editable input or a single constant.
 
 ## Design v1.2 changes (2026-11-06 to 2026-11-07)
 
-The v1.2 design (`docs/design/design-doc-v1.2.md`) numbers its changes N1 to N95 and its open
-points O1 to O69 (`docs/design/v1.2-deviations.md`). ADRs 0034 and 0037 to 0051 cite them.
+The v1.2 design (`docs/design/design-doc-v1.2.md`) numbers its changes N1 to N96 and its open
+points O1 to O70 (`docs/design/v1.2-deviations.md`). ADRs 0034 and 0037 to 0052 cite them.
 Each row maps a change to its decision record, code and tests.
 
 | Change | Summary                                                                         | Decision record                          | Code                                                                                                                                                                                                             | Tests                                                                                                             |
@@ -353,3 +353,4 @@ Each row maps a change to its decision record, code and tests.
 | N93    | Actors shown without names                                                      | ADR 0051                                 | `packages/db/src/library.ts` (`actor`), `apps/web/lib/library-text.ts`                                                                                                                                           |
 | N94    | The 18-strategy seed                                                            | ADR 0051                                 | `packages/db/src/library-seed.ts`, `migrate.ts`, `scripts/library-link-seed.ts`; test A6                                                                                                                         |
 | N95    | Library API                                                                     | ADR 0051                                 | `apps/web/app/api/v1/library/**`, `packages/contracts/src/library.ts`; test A9                                                                                                                                   |
+| N96    | Options recording yields on a shared Alpaca key                                 | ADR 0052                                 | `packages/alpaca/src/budget.ts`, `client.ts`; worker `main.ts`                                                                                                                                                   | `packages/alpaca/src/budget.test.ts`                                                                              |

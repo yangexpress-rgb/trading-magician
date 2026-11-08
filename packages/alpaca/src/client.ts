@@ -5,6 +5,7 @@ import {
   assertDataUrl,
   assertPaperTradingUrl,
 } from './endpoints';
+import { sharedAlpacaBudget, type AlpacaRequestBudget } from './budget';
 
 /**
  * A small Alpaca REST client (ADR 0017). It signs requests with the paper key,
@@ -28,6 +29,13 @@ export interface AlpacaClientOptions {
   /** Tests only: allows a local fake in place of Alpaca's hosts. */
   allowLocal?: boolean | undefined;
   timeoutMs?: number | undefined;
+  /**
+   * Background work (the options recording) waits for room in the key's
+   * request budget, so it never crowds out strategies or screens (ADR 0052).
+   */
+  background?: boolean | undefined;
+  /** Tests only: a budget of their own in place of the process's shared one. */
+  budget?: AlpacaRequestBudget | undefined;
 }
 
 /** Alpaca could not be reached, timed out or is throttling; try again later. */
@@ -77,6 +85,9 @@ export class AlpacaClient {
   private readonly fetch: Fetch;
   private readonly timeoutMs: number;
   private readonly headers: Record<string, string>;
+  private readonly keyId: string;
+  private readonly background: boolean;
+  private readonly budget: AlpacaRequestBudget;
 
   constructor(options: AlpacaClientOptions) {
     this.tradingUrl = options.tradingUrl ?? ALPACA_PAPER_TRADING_URL;
@@ -85,6 +96,9 @@ export class AlpacaClient {
     assertDataUrl(this.dataUrl, { allowLocal: options.allowLocal ?? false });
     this.fetch = options.fetch ?? ((url, init) => fetch(url, init));
     this.timeoutMs = options.timeoutMs ?? 10_000;
+    this.keyId = options.credentials.keyId;
+    this.background = options.background ?? false;
+    this.budget = options.budget ?? sharedAlpacaBudget;
     this.headers = {
       'APCA-API-KEY-ID': options.credentials.keyId,
       'APCA-API-SECRET-KEY': options.credentials.secretKey,
@@ -119,6 +133,7 @@ export class AlpacaClient {
     for (const [k, v] of Object.entries(options.query ?? {})) {
       if (v !== undefined) url.searchParams.set(k, String(v));
     }
+    await this.budget.take(this.keyId, this.background);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     let response: Response;
@@ -149,7 +164,11 @@ export class AlpacaClient {
       }
     }
     if (response.status === 401) throw new AlpacaAuthError();
-    if (response.status === 429) throw new AlpacaRateLimitError(retryAfter(response, Date.now()));
+    if (response.status === 429) {
+      const after = retryAfter(response, Date.now());
+      this.budget.throttled(this.keyId, after);
+      throw new AlpacaRateLimitError(after);
+    }
     if (response.status >= 500) throw new AlpacaUnavailableError();
     let code: number | undefined;
     let message = `Alpaca answered ${response.status}`;
