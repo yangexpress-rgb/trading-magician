@@ -158,7 +158,7 @@
  * primary figure on a stat card or detail page. Long prose adds
  * `leading-relaxed max-w-prose`. `font-mono` stays for identifiers only.
  *
- * These live in the components layer rather than @utility on purpose (O104):
+ * These live in the components layer rather than @utility on purpose (O105):
  * they are the default look of content, so any utility on the same element
  * still wins: a status colour (text-danger for a loss), text-ink-muted for a
  * missing value or a meta line, a heavier weight. The status-colour rule

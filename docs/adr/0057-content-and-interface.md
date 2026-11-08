@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-08
-- **Design refs:** §5.1, §15; design v1.2 rows N126 to N133, open points O101 to O104; Yong's design
+- **Design refs:** §5.1, §15; design v1.2 rows N126 to N133, open points O101 to O105; Yong's design
   brief v2.2 "Tell content apart from interface (all text, not just numbers)", decisions D1 to D8
   (it supersedes the first brief, "make transactional data look different from titles")
 
@@ -20,7 +20,7 @@ or what the app produced as a strategy, a back test or an order).
   light, `#a9c6e8` dark; at least 9:1 on every surface), medium weight, tabular figures, the system
   sans. `text-content-strong` is the one primary figure on a card or page. Long prose adds relaxed
   leading and a prose measure.
-- **Components layer, not `@utility` (O104).** The classes are the default look of content, so any
+- **Components layer, not `@utility` (O105).** The classes are the default look of content, so any
   utility on the same element wins: a status colour on a loss, a muted tone on a missing value,
   `font-mono` on an identifier. The status-colour rule (§5.1) stands.
 - **Shared pieces.** `Td` sets content by default; `Td numeric` / `TdNumeric` right-aligns and
