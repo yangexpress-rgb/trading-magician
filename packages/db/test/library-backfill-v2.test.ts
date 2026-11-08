@@ -4,7 +4,13 @@ import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startBacktest } from '../src/backtests';
 import type { Transaction } from '../src/client';
-import { getLibraryEntry, listLibraryEntries, updateLibraryEntry } from '../src/library';
+import {
+  getLibraryEntry,
+  listLibraryEntries,
+  registerLibraryEntry,
+  updateLibraryEntry,
+} from '../src/library';
+import { STRATEGY_LIBRARY_SEED } from '../src/library-seed';
 import { applyBackfillV2, BACKFILL_NOTE, planBackfillV2 } from '../src/library-backfill-v2';
 import { provisionWorkspace } from '../src/provision';
 import {
@@ -413,4 +419,28 @@ describe('Editing a v2 field', () => {
       ),
     ).rejects.toMatchObject({ code: 'bad_request' });
   });
+});
+
+describe('Seed entries registered by hand', () => {
+  it('are matched by number and name when they have no seed key', async () => {
+    const t2 = await createTestDatabase({ seedLibrary: false });
+    try {
+      await t2.owner.db.transaction(async (tx) => {
+        for (const s of STRATEGY_LIBRARY_SEED) await registerLibraryEntry(tx, null, s.input);
+      });
+      const plan = await t2.owner.db.transaction((tx) => planBackfillV2(tx));
+      expect(plan.missing).toEqual([]);
+      expect(plan.skipped).toEqual([]);
+      expect(plan.entries).toHaveLength(31);
+      const pead = plan.entries.find((e) => e.registrationNumber === 'SDS-0026')!;
+      expect(pead.seedKey).toBe('seed-26-pead');
+      expect(pead.notes[0]).toMatch(/by number and name/);
+      expect(pead.fields.find((f) => f.field === 'dataNeeds')).toMatchObject({
+        action: 'set',
+        value: ['daily_bars', 'earnings_consensus'],
+      });
+    } finally {
+      await t2.drop();
+    }
+  }, 60_000);
 });
