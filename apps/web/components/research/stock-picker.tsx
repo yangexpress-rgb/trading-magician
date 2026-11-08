@@ -71,7 +71,7 @@ export function StockPicker({
           if (q && (canSearchMarket || indexHit)) void find(q);
         }}
       >
-        <label htmlFor={`${id}-q`} className="mt-2 block text-sm font-medium">
+        <label htmlFor={`${id}-q`} className="mt-2 block text-sm font-semibold text-ink-muted">
           Search by ticker or company name
         </label>
         <input

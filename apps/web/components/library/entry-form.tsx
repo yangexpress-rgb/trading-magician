@@ -902,7 +902,7 @@ function TextArea({
   const described = error ? `${name}-error` : hint ? `${name}-hint` : undefined;
   return (
     <div>
-      <label htmlFor={name} className="block text-sm font-medium">
+      <label htmlFor={name} className="block text-sm font-semibold text-ink-muted">
         {label}
       </label>
       <textarea

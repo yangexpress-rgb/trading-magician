@@ -438,22 +438,22 @@ function TestOutcome({ test }: { test: CustomFeedTestDto | null }) {
         <thead>
           <tr>
             <Th>Date</Th>
-            <Th>Open</Th>
-            <Th>High</Th>
-            <Th>Low</Th>
-            <Th>Close</Th>
-            <Th>Volume</Th>
+            <Th numeric>Open</Th>
+            <Th numeric>High</Th>
+            <Th numeric>Low</Th>
+            <Th numeric>Close</Th>
+            <Th numeric>Volume</Th>
           </tr>
         </thead>
         <tbody>
           {r.bars.sample.map((b) => (
             <tr key={b.date}>
-              <Td>{b.date}</Td>
-              <Td>{b.open}</Td>
-              <Td>{b.high}</Td>
-              <Td>{b.low}</Td>
-              <Td>{b.close}</Td>
-              <Td>{b.volume}</Td>
+              <Td className="text-content">{b.date}</Td>
+              <Td numeric>{b.open}</Td>
+              <Td numeric>{b.high}</Td>
+              <Td numeric>{b.low}</Td>
+              <Td numeric>{b.close}</Td>
+              <Td numeric>{b.volume}</Td>
             </tr>
           ))}
         </tbody>

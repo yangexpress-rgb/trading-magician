@@ -249,8 +249,9 @@ function GroupEditor({
         </div>
       )}
       {isRoot && group.children.length > 0 && (
-        <p className="mt-3 text-xs text-ink-muted">
-          <span className="font-semibold">Reads as:</span> {describeCondition(group, symbol)}
+        <p className="mt-3 max-w-prose text-sm leading-relaxed">
+          <span className="text-xs font-semibold text-ink-muted">Reads as:</span>{' '}
+          <span className="text-content">{describeCondition(group, symbol)}</span>
         </p>
       )}
     </section>

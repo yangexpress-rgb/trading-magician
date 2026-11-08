@@ -15,7 +15,7 @@ function Stat({ label, value, href }: { label: string; value: string | number; h
   const body = (
     <>
       <p className="text-xs text-ink-muted">{label}</p>
-      <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
+      <p className="mt-1 text-2xl text-content-strong">{value}</p>
     </>
   );
   return (
@@ -71,30 +71,30 @@ export default async function AdminOverviewPage() {
         </h2>
         <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[12rem_1fr]">
           <dt className="text-ink-muted">Overall</dt>
-          <dd>
+          <dd className="text-content">
             <Badge tone={health.status === 'ok' ? 'ok' : 'danger'}>
               {health.status === 'ok' ? 'Healthy' : 'Degraded'}
             </Badge>
           </dd>
           <dt className="text-ink-muted">Database</dt>
-          <dd>{health.database === 'ok' ? 'Answering' : 'Unreachable'}</dd>
+          <dd className="text-content">{health.database === 'ok' ? 'Answering' : 'Unreachable'}</dd>
           <dt className="text-ink-muted">Worker</dt>
-          <dd>
+          <dd className="text-content">
             {health.worker === 'never_seen'
               ? 'Never seen'
               : `${health.worker === 'ok' ? 'Alive' : 'Stale'}, last seen ${health.workerLastSeenSeconds}s ago`}
           </dd>
           <dt className="text-ink-muted">Environment</dt>
-          <dd>{env.RAILWAY_ENVIRONMENT_NAME ?? env.NODE_ENV}</dd>
+          <dd className="text-content">{env.RAILWAY_ENVIRONMENT_NAME ?? env.NODE_ENV}</dd>
           <dt className="text-ink-muted">Version</dt>
           <dd className="font-mono">{env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? 'local'}</dd>
           <dt className="text-ink-muted">Sign-up</dt>
-          <dd>
+          <dd className="text-content">
             {env.SIGNUP_MODE === 'invite' ? 'Invite code needed' : 'Open'}
             {env.EMAIL_VERIFICATION === 'off' ? ', no email sent' : ', email verified'}
           </dd>
           <dt className="text-ink-muted">Trading</dt>
-          <dd>Paper only</dd>
+          <dd className="text-content">Paper only</dd>
         </dl>
       </Card>
     </div>
