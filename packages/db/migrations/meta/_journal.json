@@ -484,6 +484,13 @@
       "when": 1794097882304,
       "tag": "0068_expected_move_exit",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1794100632086,
+      "tag": "0069_library_lab_numbering",
+      "breakpoints": true
     }
   ]
 }

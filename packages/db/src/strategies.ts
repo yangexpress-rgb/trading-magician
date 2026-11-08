@@ -35,6 +35,14 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { activeFundamentalsFeed } from './company-reports';
+import {
+  applyLibraryChoice,
+  libraryNumbers,
+  strategyLibraryRecord,
+  unlinkDeletedStrategy,
+  type LibraryChoice,
+  type StrategyLibraryRecord,
+} from './library-lab';
 import { activeOptionsFeed, addOptionUnderlyings, listOptionUniverse } from './options';
 import { demoDataEnabled } from './demo';
 import { recordAudit } from './audit';
@@ -133,6 +141,8 @@ export interface StrategyListQuery {
 export interface StrategySummary {
   id: string;
   name: string;
+  /** The Strategy Library number (ADR 0054); null until the first save with instruments. */
+  libraryNumber: string | null;
   description: string;
   tags: string[];
   status: StrategyStatus;
@@ -246,12 +256,17 @@ export async function listStrategies(
         .orderBy(backtestRuns.strategyId, desc(backtestRuns.createdAt))
     : [];
   const latestByStrategy = new Map(latestRuns.map(({ strategyId, ...run }) => [strategyId, run]));
+  const numbers = await libraryNumbers(
+    tx,
+    rows.flatMap((r) => (r.s.libraryEntryId ? [r.s.libraryEntryId] : [])),
+  );
 
   return {
     total: rows[0]?.total ?? 0,
     items: rows.map(({ s, currentVersionNo, accountMode }) => ({
       id: s.id,
       name: s.name,
+      libraryNumber: s.libraryEntryId ? (numbers.get(s.libraryEntryId) ?? null) : null,
       description: s.description,
       tags: s.tags,
       status: s.status,
@@ -280,6 +295,8 @@ export interface StrategyVersionSummary {
 export interface StrategyDetail {
   id: string;
   name: string;
+  /** Its Strategy Library record (ADR 0054); null until the first save with instruments. */
+  library: StrategyLibraryRecord | null;
   description: string;
   tags: string[];
   status: StrategyStatus;
@@ -347,6 +364,7 @@ export async function getStrategy(tx: Transaction, id: string): Promise<Strategy
   return {
     id: row.id,
     name: row.name,
+    library: await strategyLibraryRecord(tx, row.libraryEntryId),
     description: row.description,
     tags: row.tags,
     status: row.status,
@@ -633,6 +651,8 @@ export interface CreateStrategyInput {
   description?: string | undefined;
   tags?: string[] | undefined;
   definition?: unknown;
+  /** The Library entry to link, or a new record (the default). */
+  library?: LibraryChoice | undefined;
 }
 
 export async function createStrategy(
@@ -663,6 +683,8 @@ export async function createStrategy(
     .returning({ id: strategies.id });
   if (!row) throw new Error('Failed to create strategy');
   await rebuildInstrumentIndex(tx, userId, row.id, def);
+  // Its Library record and number, in this transaction (ADR 0054).
+  await applyLibraryChoice(tx, userId, row.id, input.library);
   await recordAudit(tx, {
     userId,
     actorType: 'user',
@@ -683,6 +705,8 @@ export interface UpdateStrategyInput {
   archived?: boolean | undefined;
   /** Moves between Created and Under testing. Start and stop have their own calls. */
   status?: 'created' | 'under_testing' | undefined;
+  /** The builder's Library entry picker: link an entry or start a new record (ADR 0054). */
+  library?: LibraryChoice | undefined;
 }
 
 export async function updateStrategy(
@@ -747,6 +771,7 @@ export async function updateStrategy(
         'This strategy was changed somewhere else. Reload to see the latest version.',
       );
     }
+    if (input.library) await applyLibraryChoice(tx, userId, id, input.library);
     return getStrategy(tx, id);
   }
 
@@ -760,6 +785,10 @@ export async function updateStrategy(
 
   await updateRow(tx, id, input.rowVersion, values);
   if (def && changed.includes('definition')) await rebuildInstrumentIndex(tx, userId, id, def);
+  // A save of the strategy itself (not only a status or archive change) gets it
+  // its Library record if it has none yet (ADR 0054, brief D3 and D9).
+  const saved = changed.some((c) => c !== 'archived' && c !== 'unarchived');
+  if (input.library || saved) await applyLibraryChoice(tx, userId, id, input.library);
   if (statusChange) {
     await tx.insert(strategyStatusChanges).values({
       userId,
@@ -863,6 +892,7 @@ export async function deleteStrategy(
   }
   await updateRow(tx, id, input.rowVersion, { deletedAt: new Date() });
   await tx.delete(strategyInstruments).where(eq(strategyInstruments.strategyId, id));
+  await unlinkDeletedStrategy(tx, userId, row);
   await recordAudit(tx, {
     userId,
     actorType: 'user',

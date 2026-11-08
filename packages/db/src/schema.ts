@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   char,
@@ -920,6 +921,13 @@ export const strategies = pgTable(
     timezone: text('timezone').notNull(),
     dataRouteId: uuid('data_route_id'),
     defaultAccountId: uuid('default_account_id'),
+    /**
+     * The Strategy Library record this strategy is (ADR 0054): its number is the
+     * strategy's number. Null only until the first save with instruments.
+     */
+    libraryEntryId: uuid('library_entry_id').references(
+      (): AnyPgColumn => strategyLibraryEntries.id,
+    ),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     /** Soft delete: versions and history stay linked to orders (§6.2). */
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -937,6 +945,10 @@ export const strategies = pgTable(
       foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
     }),
     index('strategy_user_updated_idx').on(t.userId, t.updatedAt),
+    // One live strategy per Library record (brief D6).
+    uniqueIndex('strategy_library_entry_uq')
+      .on(t.libraryEntryId)
+      .where(sql`${t.libraryEntryId} is not null and ${t.deletedAt} is null`),
     check('strategy_name_length', sql`char_length(${t.name}) between 1 and 120`),
     check('strategy_description_length', sql`char_length(${t.description}) <= 2000`),
     check('strategy_tags_count', sql`coalesce(array_length(${t.tags}, 1), 0) <= 20`),
@@ -2215,7 +2227,7 @@ export const strategyLibraryRevisions = pgTable(
   },
   (t) => [
     index('strategy_library_revisions_entry_idx').on(t.entryId, t.editedAt),
-    check('strategy_library_revisions_action', sql`${t.action} in ('edit', 'retire')`),
+    check('strategy_library_revisions_action', sql`${t.action} in ('create', 'edit', 'retire')`),
     check('strategy_library_revisions_note', sql`char_length(btrim(${t.note})) between 1 and 500`),
   ],
 );

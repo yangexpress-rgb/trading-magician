@@ -1,6 +1,7 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
+import { unlinkAccountStrategies } from './library-lab';
 import { strategies } from './schema';
 import { stopStrategy } from './strategies';
 
@@ -35,6 +36,8 @@ export async function prepareAccountDeletion(
       cancelOpenOrders: true,
     });
   }
+  // Library records its strategies built go back to Not built (ADR 0054).
+  await unlinkAccountStrategies(tx, userId);
   await recordAudit(tx, {
     userId,
     actorType: 'user',

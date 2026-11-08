@@ -73,7 +73,8 @@ export interface LibraryEntrySummary {
 }
 
 export interface LibraryRevision {
-  action: 'edit' | 'retire';
+  /** `create` is an auto-created record's first entry (ADR 0054). */
+  action: 'create' | 'edit' | 'retire';
   note: string;
   changedFields: string[];
   editedAt: Date;
@@ -383,7 +384,7 @@ export async function getLibraryEntry(
       assetClass: meanings?.assetClass ?? null,
     },
     revisions: history.map((h) => ({
-      action: h.action as 'edit' | 'retire',
+      action: h.action as LibraryRevision['action'],
       note: h.note,
       changedFields: h.changedFields,
       editedAt: h.editedAt,
@@ -487,6 +488,9 @@ export async function registerLibraryEntry(
   }
   await checkRelated(tx, data.relatedEntries);
   if (data.builtStrategyId) await checkStrategy(tx, data.builtStrategyId);
+  const linkedStrategy = data.builtStrategyId
+    ? await strategyLinkRow(tx, data.builtStrategyId)
+    : null;
 
   const [row] = await tx
     .insert(entries)
@@ -516,6 +520,10 @@ export async function registerLibraryEntry(
   const expected = composeRegistrationNumber(issuedUnder, codes, row.sequenceNo);
   if (expected !== row.registrationNumber) {
     throw new Error(`Issued ${row.registrationNumber}, expected ${expected}`);
+  }
+  // The strategy now is this record (ADR 0054): its previous record goes back to Not built.
+  if (linkedStrategy && actorId) {
+    await adoptStrategy(tx, actorId, linkedStrategy, row.id, row.registrationNumber);
   }
   return {
     id: row.id,
@@ -587,7 +595,7 @@ export async function updateLibraryEntry(
     throw new LibraryError('bad_request', 'Nothing changed. Edit a field before saving.');
   }
   const linkChanged = changed.includes('builtStrategyId');
-  if (linkChanged && values.builtStrategyId) await checkStrategy(tx, values.builtStrategyId);
+  if (linkChanged) await checkLinkChange(tx, actorId, row, values.builtStrategyId);
 
   const [updated] = await tx
     .update(entries)
@@ -610,6 +618,7 @@ export async function updateLibraryEntry(
     changedFields: [...changed],
     editedBy: actorId,
   });
+  if (linkChanged) await syncStrategySide(tx, actorId, row, values.builtStrategyId);
   return {
     registrationNumber: row.registrationNumber,
     rowVersion: updated.rowVersion,
@@ -684,7 +693,7 @@ export async function linkLibraryEntry(
   const row = await loadRow(tx, number);
   if (!row) throw new LibraryError('not_found', 'No entry has that registration number');
   if (row.builtStrategyId === strategyId) return;
-  if (strategyId) await checkStrategy(tx, strategyId);
+  await checkLinkChange(tx, actorId, row, strategyId);
   await tx
     .update(entries)
     .set({
@@ -702,4 +711,144 @@ export async function linkLibraryEntry(
     changedFields: ['builtStrategyId'],
     editedBy: actorId,
   });
+  await syncStrategySide(tx, actorId, row, strategyId);
+}
+
+// ---------------------------------------------------------------------------
+// The Strategy Lab association (ADR 0054)
+//
+// A Lab strategy names its record in `strategy.library_entry_id`; the record's
+// `built_strategy_id` mirrors it, so Built status follows the association in
+// both directions. Every change below keeps the two sides equal in the same
+// transaction and writes each record's change to its history.
+// ---------------------------------------------------------------------------
+
+type EntryRow = typeof entries.$inferSelect;
+
+/** The strategy side of a link: the actor's own live strategy (RLS scopes the read). */
+export async function strategyLinkRow(tx: Transaction, strategyId: string) {
+  const [s] = await tx
+    .select({ id: strategies.id, name: strategies.name, libraryEntryId: strategies.libraryEntryId })
+    .from(strategies)
+    .where(and(eq(strategies.id, strategyId), isNull(strategies.deletedAt)));
+  return s ?? null;
+}
+
+/** Sets or clears a record's built link, with a history note. The record and number stay. */
+export async function setEntryBuilt(
+  tx: Transaction,
+  actorId: string,
+  entryId: string,
+  strategyId: string | null,
+  note: string,
+): Promise<void> {
+  const [row] = await tx.select().from(entries).where(eq(entries.id, entryId));
+  if (!row || row.builtStrategyId === strategyId) return;
+  await tx
+    .update(entries)
+    .set({
+      builtStrategyId: strategyId,
+      builtStrategyOwner: strategyId ? actorId : null,
+      updatedBy: actorId,
+      updatedAt: new Date(),
+      rowVersion: row.rowVersion + 1,
+    })
+    .where(eq(entries.id, row.id));
+  await tx.insert(revisions).values({
+    entryId: row.id,
+    action: 'edit',
+    note: note.slice(0, 500),
+    changedFields: ['builtStrategyId'],
+    editedBy: actorId,
+  });
+}
+
+/** Points the strategy at its record (only the link column: an open builder stays valid). */
+export async function setStrategyEntry(
+  tx: Transaction,
+  strategyId: string,
+  entryId: string | null,
+): Promise<void> {
+  await tx
+    .update(strategies)
+    .set({ libraryEntryId: entryId })
+    .where(and(eq(strategies.id, strategyId), isNull(strategies.deletedAt)));
+}
+
+/** The named refusal for a record built by another strategy (brief D6), or null. */
+export async function builtElsewhereMessage(
+  tx: Transaction,
+  actorId: string,
+  row: Pick<EntryRow, 'registrationNumber' | 'builtStrategyId' | 'builtStrategyOwner'>,
+  strategyId: string | null,
+): Promise<string | null> {
+  if (!row.builtStrategyId || row.builtStrategyId === strategyId) return null;
+  if (row.builtStrategyOwner !== actorId) {
+    return `${row.registrationNumber} is built in another member's Strategy Lab`;
+  }
+  const other = await strategyLinkRow(tx, row.builtStrategyId);
+  // A link to a deleted strategy no longer holds the record.
+  if (!other) return null;
+  return `${row.registrationNumber} is already built by ${other.name} — unlink that strategy first`;
+}
+
+/**
+ * A Library-side link change (edit form, link-seed): the new strategy must be
+ * the actor's own, and a link held in another member's workspace can't be
+ * taken over or cleared from here, since their strategy would keep naming it.
+ */
+async function checkLinkChange(
+  tx: Transaction,
+  actorId: string,
+  row: EntryRow,
+  strategyId: string | null,
+): Promise<void> {
+  if (strategyId) await checkStrategy(tx, strategyId);
+  if (row.builtStrategyId && row.builtStrategyOwner !== actorId) {
+    const message = `${row.registrationNumber} is built in another member's Strategy Lab`;
+    throw new LibraryError('invalid_state', message, [{ path: ['builtStrategyId'], message }]);
+  }
+}
+
+/** The strategy becomes this record: its previous record goes back to Not built. */
+async function adoptStrategy(
+  tx: Transaction,
+  actorId: string,
+  strategy: { id: string; name: string; libraryEntryId: string | null },
+  entryId: string,
+  registrationNumber: string,
+): Promise<void> {
+  if (strategy.libraryEntryId && strategy.libraryEntryId !== entryId) {
+    await setEntryBuilt(
+      tx,
+      actorId,
+      strategy.libraryEntryId,
+      null,
+      `Unlinked: the Strategy Lab strategy “${strategy.name}” now uses ${registrationNumber}`,
+    );
+  }
+  await setStrategyEntry(tx, strategy.id, entryId);
+}
+
+/**
+ * After a Library-side link change: the newly linked strategy adopts the
+ * record, and the strategy it used to name has no record until its next save
+ * (when one is created for it, ADR 0054).
+ */
+async function syncStrategySide(
+  tx: Transaction,
+  actorId: string,
+  row: EntryRow,
+  strategyId: string | null,
+): Promise<void> {
+  if (row.builtStrategyId && row.builtStrategyId !== strategyId) {
+    await tx
+      .update(strategies)
+      .set({ libraryEntryId: null })
+      .where(and(eq(strategies.id, row.builtStrategyId), eq(strategies.libraryEntryId, row.id)));
+  }
+  if (strategyId) {
+    const s = await strategyLinkRow(tx, strategyId);
+    if (s) await adoptStrategy(tx, actorId, s, row.id, row.registrationNumber);
+  }
 }

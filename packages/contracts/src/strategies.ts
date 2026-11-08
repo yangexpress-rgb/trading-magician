@@ -24,6 +24,28 @@ const tags = z
   .transform((t) => [...new Set(t)]);
 const rowVersion = z.number().int().positive();
 
+/**
+ * The builder's Library entry picker (ADR 0054): link an existing entry, whose
+ * number the strategy then shows, or start a new record of its own.
+ */
+export const libraryChoice = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('entry'),
+    registrationNumber: z.string().trim().toUpperCase().min(5).max(16),
+  }),
+  z.object({ kind: z.literal('new') }),
+]);
+export type LibraryChoiceRequest = z.input<typeof libraryChoice>;
+
+/** A strategy's Library record as the API returns it; null until the first save with instruments. */
+export interface StrategyLibraryDto {
+  entryId: string;
+  registrationNumber: string;
+  name: string;
+  status: 'registered' | 'retired';
+  autoCreated: boolean;
+}
+
 export const STRATEGY_SORTS = ['updated', 'created', 'name', 'status'] as const;
 export const ARCHIVE_FILTERS = ['exclude', 'include', 'only'] as const;
 
@@ -51,6 +73,8 @@ export const createStrategyRequest = z.object({
   tags: tags.optional(),
   /** Omit to start from an empty definition with the confirmed defaults. */
   definition: z.unknown().optional(),
+  /** Omit for a new Library record (created once the strategy has instruments). */
+  library: libraryChoice.optional(),
 });
 export type CreateStrategyRequest = z.input<typeof createStrategyRequest>;
 
@@ -63,6 +87,7 @@ export const updateStrategyRequest = z
     definition: z.unknown().optional(),
     archived: z.boolean().optional(),
     status: z.enum(['created', 'under_testing']).optional(),
+    library: libraryChoice.optional(),
   })
   .strict();
 export type UpdateStrategyRequest = z.input<typeof updateStrategyRequest>;
@@ -100,6 +125,7 @@ export type StopStrategyRequest = z.input<typeof stopStrategyRequest>;
 export interface StrategySummaryDto {
   id: string;
   name: string;
+  libraryNumber: string | null;
   description: string;
   tags: string[];
   status: StrategyStatus;
@@ -134,6 +160,7 @@ export interface StrategyVersionSummaryDto {
 export interface StrategyDetailDto {
   id: string;
   name: string;
+  library: StrategyLibraryDto | null;
   description: string;
   tags: string[];
   status: StrategyStatus;
