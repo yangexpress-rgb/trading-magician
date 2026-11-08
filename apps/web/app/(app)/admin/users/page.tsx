@@ -64,8 +64,8 @@ export default async function AdminUsersPage() {
                 {u.strategies}
                 {u.runningStrategies > 0 && ` (${u.runningStrategies} running)`}
               </Td>
-              <Td className="text-data">{when(u.createdAt)}</Td>
-              <Td className="text-data">{when(u.lastSeenAt)}</Td>
+              <Td className="text-content">{when(u.createdAt)}</Td>
+              <Td className="text-content">{when(u.lastSeenAt)}</Td>
               <Td className="min-w-56">
                 {u.id === me ? (
                   <span className="text-xs text-ink-muted">This is you</span>

@@ -17,18 +17,18 @@ function host(el: El): El {
 
 const classes = (el: El) => (el.props.className ?? '').split(/\s+/);
 
-describe('data text role (N126–N132)', () => {
+describe('content and interface roles (N126–N133)', () => {
   it('TdNumeric renders a right-aligned cell with tabular figures', () => {
     const td = host(TdNumeric({ children: '+24.93%' }) as El);
     expect(td.type).toBe('td');
-    expect(classes(td)).toEqual(expect.arrayContaining(['text-right', 'text-data']));
+    expect(classes(td)).toEqual(expect.arrayContaining(['text-right', 'text-content']));
     expect(td.props.children).toBe('+24.93%');
   });
 
-  it('a plain Td stays left-aligned body text', () => {
+  it('a plain Td is left-aligned content', () => {
     const td = host(Td({ children: 'SPY' }) as El);
     expect(classes(td)).not.toContain('text-right');
-    expect(classes(td)).not.toContain('text-data');
+    expect(classes(td)).toContain('text-content');
   });
 
   it('Th numeric sits on the right edge; a text header stays left', () => {
@@ -46,27 +46,30 @@ describe('data text role (N126–N132)', () => {
     expect(((zero.props.children as El[])[1] as El).props.children).toBe(0);
   });
 
-  it('Stat sets its single figure in text-data-strong under a muted label', () => {
+  it('Stat sets its single figure in text-content-strong under a muted label', () => {
     const el = host(Stat({ label: 'Net return', value: '+24.93%' }) as El);
     const [dt, dd] = el.props.children as El[];
     expect(classes(dt!)).toContain('text-ink-muted');
-    expect(classes(dd!)).toContain('text-data-strong');
+    expect(classes(dd!)).toContain('text-content-strong');
     expect(dd!.props.children).toBe('+24.93%');
   });
 
-  it('styles define the role on the data font with tabular figures, nothing fetched from a third party', () => {
+  it('styles define the content role: one colour token, tabular figures, system sans, no webfont', () => {
     const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
     const rule = (name: string) => css.match(new RegExp(`\\.${name} \\{([^}]*)\\}`))?.[1] ?? '';
-    for (const name of ['text-data', 'text-data-strong']) {
+    for (const name of ['text-content', 'text-content-strong']) {
       expect(rule(name)).toContain('font-variant-numeric: tabular-nums');
-      expect(rule(name)).toContain('var(--font-data)');
-      expect(rule(name)).toContain('var(--color-ink)');
+      expect(rule(name)).toContain('var(--font-sans)');
+      expect(rule(name)).toContain('var(--tm-content)');
     }
-    expect(rule('text-data')).toContain('font-weight: 500');
-    expect(rule('text-data-strong')).toContain('font-weight: 600');
+    expect(rule('text-content')).toContain('font-weight: 500');
+    expect(rule('text-content-strong')).toContain('font-weight: 600');
     expect(css).not.toMatch(/@import|@font-face|fonts\.googleapis/);
-    // Inter first (bundled by the web app), the system sans as fallback.
-    expect(css).toMatch(/--font-data:\s*var\(--font-inter, ui-sans-serif\),\s*ui-sans-serif/);
+    // Exactly one new colour token, with light and dark values, and no --color-content.
+    expect(css.match(/--tm-content:/g)).toHaveLength(2);
+    expect(css).toContain('--tm-content: #1e3a5f;');
+    expect(css).toContain('--tm-content: #a9c6e8;');
+    expect(css).not.toMatch(/--color-content|--font-data|--font-content/);
     expect(css).not.toMatch(/url\(/);
   });
 });

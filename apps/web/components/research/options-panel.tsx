@@ -241,7 +241,7 @@ function ChainView({ view, history }: { view: LiveChainView; history: OptionHist
           return (
             <div key={f} title={optionFigureHelp(f)}>
               <dt className="text-xs text-ink-muted">{optionFigureLabel(f)}</dt>
-              <dd className="text-data-strong">
+              <dd className="text-content-strong">
                 {formatOptionFigure(f, view.values[f])}
                 {detail && (
                   <span className="ml-1 text-xs font-normal text-ink-muted">({detail})</span>

@@ -331,7 +331,7 @@ export function StockScreener({
         )}
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-[1fr_1.5fr_1fr_1fr_1.3fr_1.5fr_auto]">
-          <label className="text-sm font-medium">
+          <label className="text-sm font-semibold text-ink-muted">
             Stock group
             <select
               value={want}
@@ -353,7 +353,7 @@ export function StockScreener({
               )}
             </select>
           </label>
-          <label className="text-sm font-medium">
+          <label className="text-sm font-semibold text-ink-muted">
             Symbol or name
             <input
               type="search"
@@ -363,7 +363,7 @@ export function StockScreener({
               className="mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm"
             />
           </label>
-          <label className="text-sm font-medium">
+          <label className="text-sm font-semibold text-ink-muted">
             Type
             <select
               value={filters.type}
@@ -375,7 +375,7 @@ export function StockScreener({
               <option value="etf">ETFs</option>
             </select>
           </label>
-          <label className="text-sm font-medium">
+          <label className="text-sm font-semibold text-ink-muted">
             Exchange
             <select
               value={filters.exchange}
@@ -390,7 +390,7 @@ export function StockScreener({
               ))}
             </select>
           </label>
-          <label className="text-sm font-medium">
+          <label className="text-sm font-semibold text-ink-muted">
             Sector
             <select
               value={filters.sector}
@@ -405,7 +405,7 @@ export function StockScreener({
               ))}
             </select>
           </label>
-          <label className="text-sm font-medium">
+          <label className="text-sm font-semibold text-ink-muted">
             Start from a ready-made screen
             <select
               value=""
@@ -546,7 +546,7 @@ export function StockScreener({
                     <td
                       key={c.key}
                       className={cx(
-                        'border-b border-line px-3 py-1.5 text-right whitespace-nowrap text-data',
+                        'border-b border-line px-3 py-1.5 text-right whitespace-nowrap text-content',
                         signed && (v > 0 ? 'text-ok' : 'text-danger'),
                         v === null && 'text-ink-muted',
                       )}

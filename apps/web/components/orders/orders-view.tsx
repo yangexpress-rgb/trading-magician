@@ -473,8 +473,8 @@ function OrdersTable({
                   <span className="ml-1 text-xs text-ink-muted">cancel requested</span>
                 )}
               </Td>
-              <Td className="whitespace-nowrap text-data">{when(o.submittedAt)}</Td>
-              <Td className="whitespace-nowrap text-data">{when(o.filledAt)}</Td>
+              <Td className="whitespace-nowrap text-content">{when(o.submittedAt)}</Td>
+              <Td className="whitespace-nowrap text-content">{when(o.filledAt)}</Td>
               <Td numeric>{formatPrice(o.averagePrice)}</Td>
               <Td>{o.accountName}</Td>
               <Td>{o.mode === 'paper' ? 'Paper' : 'Live'}</Td>
@@ -515,7 +515,7 @@ function ScheduledTable({
             <Td>{PHASE_LABELS[r.phase]}</Td>
             <Td>{r.symbol ?? '—'}</Td>
             <Td>{r.side ? label(SIDE_LABELS, r.side) : '—'}</Td>
-            <Td className="whitespace-nowrap text-data">{when(r.dueAt)}</Td>
+            <Td className="whitespace-nowrap text-content">{when(r.dueAt)}</Td>
           </tr>
         ))}
       </tbody>

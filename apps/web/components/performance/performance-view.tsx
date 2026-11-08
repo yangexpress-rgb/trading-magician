@@ -146,7 +146,7 @@ function Legs({ trade }: { trade: PerformanceTradeDto }) {
           {l.averageClose
             ? `, closed ${l.closed} at ${formatMoney(l.averageClose)}`
             : ', open'}{' '}
-          <span className="text-data">({formatSignedMoney(l.net)})</span>
+          <span className="text-content">({formatSignedMoney(l.net)})</span>
         </li>
       ))}
     </ul>
@@ -211,7 +211,7 @@ function DataQuality({
             <tbody>
               {q.differences.map((d) => (
                 <tr key={`${d.accountId}-${d.sessionDate}`}>
-                  <Td className="whitespace-nowrap text-data">{formatDay(d.sessionDate)}</Td>
+                  <Td className="whitespace-nowrap text-content">{formatDay(d.sessionDate)}</Td>
                   <Td>{d.accountName}</Td>
                   <Td numeric>{d.appEquity ? bare(formatMoney(d.appEquity)) : '—'}</Td>
                   <Td numeric>
@@ -490,8 +490,8 @@ export function PerformanceView({
                           Version {t.versionNo}, cycle {t.seq}
                         </div>
                       </Td>
-                      <Td className="whitespace-nowrap text-data">{when(t.openedAt)}</Td>
-                      <Td className="whitespace-nowrap text-data">
+                      <Td className="whitespace-nowrap text-content">{when(t.openedAt)}</Td>
+                      <Td className="whitespace-nowrap text-content">
                         {t.closedAt ? when(t.closedAt) : <Badge tone="info">Open</Badge>}
                       </Td>
                       <Td>

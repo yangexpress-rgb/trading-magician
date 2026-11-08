@@ -532,11 +532,11 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                         <div>{DIRECTION_WORDS[tradeDirection(t)]}</div>
                         {t.group && <div className="text-xs text-ink-muted">{t.group}</div>}
                       </Td>
-                      <Td className="whitespace-nowrap text-data">
+                      <Td className="whitespace-nowrap text-content">
                         {formatMarketTime(t.entryTime, interval)}
                       </Td>
                       <Td className="whitespace-nowrap">
-                        <div className="text-data">{formatMarketTime(t.exitTime, interval)}</div>
+                        <div className="text-content">{formatMarketTime(t.exitTime, interval)}</div>
                         {t.exitReason && (
                           <div className="text-xs text-ink-muted">
                             {EXIT_REASON_LABELS[t.exitReason]}

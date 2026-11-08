@@ -131,7 +131,9 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
         </p>
       )}
 
-      <p className="mb-6 max-w-prose text-base">{e.shortDescription}</p>
+      <p className="mb-6 max-w-prose text-base leading-relaxed text-content">
+        {e.shortDescription}
+      </p>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="space-y-4">
@@ -150,10 +152,10 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
             </Field>
             <div className="grid gap-x-6 sm:grid-cols-2">
               <Field label="Frequency (how often it opens positions)">
-                <span className="text-data">{formatDuration(e.frequency)}</span>
+                {formatDuration(e.frequency)}
               </Field>
               <Field label="Turnaround time (typical holding period)">
-                <span className="text-data">{formatDuration(e.turnaround)}</span>
+                {formatDuration(e.turnaround)}
               </Field>
             </div>
           </Card>
@@ -173,8 +175,8 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
                 <tbody>
                   {e.parameters.map((p, i) => (
                     <tr key={i} className="border-t border-line">
-                      <td className="py-1 pr-3">{p.name}</td>
-                      <td className="py-1 pr-3 text-data">{p.value}</td>
+                      <td className="py-1 pr-3 text-content">{p.name}</td>
+                      <td className="py-1 pr-3 text-content">{p.value}</td>
                       <td className="py-1">
                         {p.unit ?? <span className="text-ink-muted">—</span>}
                       </td>
@@ -294,7 +296,7 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
             {e.relatedEntries.length === 0 ? (
               <Muted>None.</Muted>
             ) : (
-              <ul className="space-y-1 text-sm">
+              <ul className="space-y-1 text-sm text-content">
                 {e.relatedEntries.map((r) => (
                   <li key={r.registrationNumber}>
                     <Link href={`/library/${r.registrationNumber}`} className="font-mono">
@@ -312,28 +314,26 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
             <dl className="space-y-1 text-sm">
               <div>
                 <dt className="inline text-ink-muted">Registered by </dt>
-                <dd className="inline">
-                  {ACTOR_LABELS[e.registeredBy]},{' '}
-                  <span className="text-data">{formatDateTime(e.registeredAt, prefs)}</span>
+                <dd className="inline text-content">
+                  {ACTOR_LABELS[e.registeredBy]}, {formatDateTime(e.registeredAt, prefs)}
                 </dd>
               </div>
               <div>
                 <dt className="inline text-ink-muted">Last changed by </dt>
-                <dd className="inline">
-                  {ACTOR_LABELS[e.updatedBy]},{' '}
-                  <span className="text-data">{formatDateTime(e.updatedAt, prefs)}</span>
+                <dd className="inline text-content">
+                  {ACTOR_LABELS[e.updatedBy]}, {formatDateTime(e.updatedAt, prefs)}
                 </dd>
               </div>
               <div>
                 <dt className="inline text-ink-muted">Convention </dt>
-                <dd className="inline">{e.conventionVersion}</dd>
+                <dd className="inline text-content">{e.conventionVersion}</dd>
               </div>
             </dl>
             <h3 className="mt-4 mb-2 text-sm font-semibold">History</h3>
             {e.revisions.length === 0 ? (
               <Muted>No changes since registration.</Muted>
             ) : (
-              <ol className="space-y-2 text-sm">
+              <ol className="space-y-2 text-sm text-content">
                 {e.revisions.map((r, i) => (
                   <li key={i}>
                     <p>
@@ -369,7 +369,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="mb-3 text-sm last:mb-0">
       <h3 className="mb-1 text-xs font-semibold tracking-wide text-ink-muted uppercase">{label}</h3>
-      <div>{children}</div>
+      {/* The value is content (brief v2.2 D3, N128); muted notes inside keep their tone. */}
+      <div className="leading-relaxed text-content">{children}</div>
     </div>
   );
 }

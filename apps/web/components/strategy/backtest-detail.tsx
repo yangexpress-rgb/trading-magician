@@ -208,13 +208,13 @@ function ConditionReport({
                   <Td numeric>{s ? s.trueBars : '—'}</Td>
                   <Td numeric>{s ? s.falseBars : '—'}</Td>
                   <Td numeric>{s ? s.unknownBars : '—'}</Td>
-                  <Td className="whitespace-nowrap text-data">
+                  <Td className="whitespace-nowrap text-content">
                     {formatMarketTime(s?.firstTrue ?? null, interval)}
                   </Td>
                   <Td>
                     {check ? (
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-data">{describeValues(c, check)}</span>
+                        <span className="text-content">{describeValues(c, check)}</span>
                         <Truth value={check.truth} />
                       </div>
                     ) : (
@@ -335,7 +335,7 @@ function BarLog({
             <tbody>
               {visible.map((b) => (
                 <tr key={`${b.time}-${b.cycle ?? 0}`}>
-                  <Td className="whitespace-nowrap text-data">
+                  <Td className="whitespace-nowrap text-content">
                     {formatMarketTime(b.time, interval)}
                   </Td>
                   {showCycle && <Td className="tabular-nums">{b.cycle ?? '—'}</Td>}
@@ -344,7 +344,7 @@ function BarLog({
                     return (
                       <Td key={c.id}>
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-data">{describeValues(c, check)}</span>
+                          <span className="text-content">{describeValues(c, check)}</span>
                           {check && <Truth value={check.truth} />}
                         </div>
                       </Td>
@@ -432,7 +432,7 @@ function OrderReport({
                     </div>
                     <div className="text-xs text-ink-muted">{describeOrder(o)}</div>
                   </Td>
-                  <Td className="whitespace-nowrap text-data">
+                  <Td className="whitespace-nowrap text-content">
                     {o.decidedAt ? (
                       <>
                         <div>{formatMarketTime(o.decidedAt, interval)}</div>

@@ -302,7 +302,7 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
                                 {a.isActive ? 'On' : 'Off'}
                               </Badge>
                             </Td>
-                            <Td className="text-data">
+                            <Td className="text-content">
                               {p.provider === 'demo' ? 'Built in' : when(a.lastSyncedAt)}
                             </Td>
                             <Td>

@@ -277,7 +277,7 @@ export default async function StrategyLabPage({
                     <Td numeric>
                       <LatestBacktest run={s.latestBacktest} prefs={prefs} />
                     </Td>
-                    <Td className="whitespace-nowrap text-data">
+                    <Td className="whitespace-nowrap text-content">
                       {formatDateTime(s.updatedAt, prefs)}
                     </Td>
                     <Td className="text-right">
@@ -324,7 +324,7 @@ function LatestBacktest({
   }
   return (
     <>
-      <span className="text-data">{bare(formatPct(run.netReturnPct, true))}</span>
+      <span className="text-content">{bare(formatPct(run.netReturnPct, true))}</span>
       {run.finishedAt && (
         <p className="mt-0.5 whitespace-nowrap text-xs text-ink-muted">
           {formatDateTime(run.finishedAt, prefs)}

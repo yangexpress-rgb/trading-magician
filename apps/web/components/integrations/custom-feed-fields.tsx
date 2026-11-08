@@ -448,7 +448,7 @@ function TestOutcome({ test }: { test: CustomFeedTestDto | null }) {
         <tbody>
           {r.bars.sample.map((b) => (
             <tr key={b.date}>
-              <Td className="text-data">{b.date}</Td>
+              <Td className="text-content">{b.date}</Td>
               <Td numeric>{b.open}</Td>
               <Td numeric>{b.high}</Td>
               <Td numeric>{b.low}</Td>

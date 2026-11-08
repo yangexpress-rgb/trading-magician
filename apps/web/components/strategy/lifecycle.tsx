@@ -236,7 +236,7 @@ function StartDialog({
           {rows.map(([term, value]) => (
             <div key={term} className="contents">
               <dt className="text-ink-muted">{term}</dt>
-              <dd>{value}</dd>
+              <dd className="text-content">{value}</dd>
             </div>
           ))}
         </dl>
@@ -343,7 +343,7 @@ function StopDialog({
             <span>Close this strategy&apos;s positions with market orders</span>
           </label>
         </fieldset>
-        <label htmlFor={reasonId} className="text-sm font-medium">
+        <label htmlFor={reasonId} className="text-sm font-semibold text-ink-muted">
           Reason (optional)
         </label>
         <textarea
@@ -508,9 +508,9 @@ export function BackTestPanel({
         <BacktestInputsForm state={backtests} blocked={runBlocked} />
         <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt className="text-ink-muted">Latest back test</dt>
-          <dd className={latest?.finishedAt ? 'text-data' : undefined}>{latestText}</dd>
+          <dd className="text-content">{latestText}</dd>
           <dt className="text-ink-muted">Current draft</dt>
-          <dd>{draftTested}</dd>
+          <dd className="text-content">{draftTested}</dd>
         </dl>
 
         <section aria-labelledby="execution-heading" className="mt-4 border-t border-line pt-4">

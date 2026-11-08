@@ -1,8 +1,12 @@
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
 import { cx } from './cx';
 
-const control =
-  'mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted aria-[invalid=true]:border-danger';
+const box =
+  'mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm placeholder:text-ink-muted aria-[invalid=true]:border-danger';
+/** A text field shows what is typed as content (brief v2.2 D4, N129). */
+const control = `${box} text-content`;
+/** A select shows the app's own choices: interface ink. */
+const selectControl = `${box} text-ink`;
 
 interface FieldShell {
   label: ReactNode;
@@ -14,7 +18,7 @@ interface FieldShell {
 function Shell({ label, name, error, hint, children }: FieldShell & { children: ReactNode }) {
   return (
     <div>
-      <label htmlFor={name} className="block text-sm font-medium">
+      <label htmlFor={name} className="block text-sm font-semibold text-ink-muted">
         {label}
       </label>
       {children}
@@ -73,7 +77,7 @@ export function SelectField({
         name={name}
         aria-invalid={!!error}
         aria-describedby={describedBy(name, error, hint)}
-        className={cx(control, className)}
+        className={cx(selectControl, className)}
         {...select}
       >
         {children}

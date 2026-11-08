@@ -1,5 +1,5 @@
 /**
- * Units live in the column header, not in every cell (data text role, O102).
+ * Units live in the column header, not in every cell (content and interface, O102).
  * `bare` takes a value already formatted by the page's own formatter and
  * removes its currency symbol or trailing percent sign, so digits, decimals and
  * the sign stay exactly as the formatter wrote them: "+$1,234.56" reads

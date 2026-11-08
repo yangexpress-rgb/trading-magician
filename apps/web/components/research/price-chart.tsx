@@ -194,12 +194,12 @@ export function PriceChart({
         ).map(([label, v]) => (
           <div key={label} className="flex gap-1">
             <dt className="text-ink-muted">{label}</dt>
-            <dd className="font-medium">{v === undefined ? '—' : formatPrice(v)}</dd>
+            <dd className="text-content">{v === undefined ? '—' : formatPrice(v)}</dd>
           </div>
         ))}
         <div className="flex gap-1">
           <dt className="text-ink-muted">Volume</dt>
-          <dd className="font-medium">{bar ? formatVolume(bar.volume) : '—'}</dd>
+          <dd className="text-content">{bar ? formatVolume(bar.volume) : '—'}</dd>
         </div>
       </dl>
       <div
@@ -446,7 +446,7 @@ export function PriceChart({
             <tbody className="tabular-nums">
               {[...bars].reverse().map((b) => (
                 <tr key={b.t}>
-                  <Td className="text-data">{formatBarTime(b.t, interval)}</Td>
+                  <Td className="text-content">{formatBarTime(b.t, interval)}</Td>
                   <Td numeric>{bare(formatPrice(b.open))}</Td>
                   <Td numeric>{bare(formatPrice(b.high))}</Td>
                   <Td numeric>{bare(formatPrice(b.low))}</Td>

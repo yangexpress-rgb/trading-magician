@@ -39,18 +39,24 @@ function render(runs: BacktestRunSummaryDto[]): string {
   return renderToStaticMarkup(createElement(RunHistory, { state }));
 }
 
-describe('back test runs table (data text role, N127)', () => {
+describe('back test runs table (content and interface, N128)', () => {
   it('sets Net return right-aligned with tabular figures, its unit in the header (O102)', () => {
     const html = render([run('r1', '24.93')]);
     expect(html).toMatch(/<th scope="col" class="[^"]*text-right[^"]*">Net return %<\/th>/);
     const cell = html.match(/<td class="([^"]*)">\+24\.93<\/td>/);
     expect(cell, html).not.toBeNull();
-    expect(cell![1]!.split(' ')).toEqual(expect.arrayContaining(['text-right', 'text-data']));
+    expect(cell![1]!.split(' ')).toEqual(expect.arrayContaining(['text-right', 'text-content']));
   });
 
-  it('keeps text columns left-aligned and shows a missing return as a dash', () => {
+  it('keeps text columns left-aligned content and shows a missing return as a dash', () => {
     const html = render([run('r2', null)]);
     expect(html).toMatch(/<th scope="col" class="[^"]*text-left[^"]*">Run<\/th>/);
-    expect(html).toMatch(/<td class="[^"]*text-right text-data[^"]*">—<\/td>/);
+    const dash = html.match(/<td class="([^"]*)">—<\/td>/);
+    expect(dash, html).not.toBeNull();
+    expect(dash![1]!.split(' ')).toEqual(expect.arrayContaining(['text-right', 'text-content']));
+    // The Run column: content, not right-aligned.
+    const first = html.match(/<tbody><tr[^>]*><td class="([^"]*)">/);
+    expect(first![1]!.split(' ')).toContain('text-content');
+    expect(first![1]!.split(' ')).not.toContain('text-right');
   });
 });

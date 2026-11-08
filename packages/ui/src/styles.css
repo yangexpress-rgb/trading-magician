@@ -7,11 +7,6 @@
 @theme {
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
-  /* Data font (N133): Inter with tabular figures, bundled by the web app as --font-inter;
-     anywhere it is missing, values fall back to the system sans. */
-  --font-data:
-    var(--font-inter, ui-sans-serif), ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
-    sans-serif;
 
   --color-canvas: var(--tm-canvas);
   --color-surface: var(--tm-surface);
@@ -77,6 +72,10 @@
   --tm-order-soft: #fdf7ec;
   --tm-series-1: #2a78d6;
   --tm-series-2: #eb6834;
+  /* Content text (brief v2.2 D1, N126): what the user entered or the app produced.
+     11.5:1 on surface, 10.7:1 on canvas. Raw variable on purpose: no colour entry
+     in @theme, which would generate a clashing text-content colour utility. */
+  --tm-content: #1e3a5f;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -111,6 +110,8 @@
     --tm-order-soft: #231d10;
     --tm-series-1: #3987e5;
     --tm-series-2: #d95926;
+    /* 10.2:1 on surface, 11.0:1 on canvas. */
+    --tm-content: #a9c6e8;
   }
 }
 
@@ -144,48 +145,70 @@
 }
 
 /*
- * Data text role (design brief "make transactional data look different from
- * titles", N126-N132). Every value the user entered or the app produced
- * (amounts, prices, quantities, percentages, dates, counts, durations) is set
- * in `text-data`: the data font (Inter, N133) with tabular (fixed-width)
- * figures so digits line up down a column, at medium weight in `ink`.
- * `text-data-strong` is the single primary figure on a stat card or detail
- * page. Titles and labels keep their own treatment; `font-mono` stays reserved
- * for identifiers (registration numbers, member IDs, tickers), not values.
- * No new colour. The one font file is bundled with the app and served from
- * its own origin; nothing is fetched from a third party.
+ * Content and interface (design brief v2.2 "tell content apart from interface",
+ * D1-D8, design v1.2 N126-N133). Interface is the app talking (titles,
+ * headings, labels, table headers, buttons, help text) and stays in the
+ * neutral ink and muted tones. Content is the substance: everything the user
+ * entered (strategy names, descriptions, entry/exit prose, parameters) and
+ * everything the app produced (back test results, trades, order details,
+ * metrics, dates, amounts). Content is set in `text-content`: the content
+ * colour (--tm-content, deep slate-blue), medium weight, tabular figures so
+ * numbers line up, on the same system sans as the interface (no webfont).
+ * `text-content-strong` is the single
+ * primary figure on a stat card or detail page. Long prose adds
+ * `leading-relaxed max-w-prose`. `font-mono` stays for identifiers only.
  *
- * These live in the components layer (not @utility) on purpose: they are the
- * default look of a value, and any utility on the same element (a status
- * colour such as text-danger, text-ink-muted for a missing value, a heavier
- * weight) still wins, so the status-colour rule (section 5.1) is untouched.
+ * These live in the components layer rather than @utility on purpose (O104):
+ * they are the default look of content, so any utility on the same element
+ * still wins: a status colour (text-danger for a loss), text-ink-muted for a
+ * missing value or a meta line, a heavier weight. The status-colour rule
+ * (section 5.1) is untouched.
  */
 @layer components {
-  .text-data {
-    font-family: var(--font-data);
+  .text-content {
+    font-family: var(--font-sans);
     font-variant-numeric: tabular-nums;
     font-weight: 500;
-    color: var(--color-ink);
+    color: var(--tm-content);
   }
-  .text-data-strong {
-    font-family: var(--font-data);
+  .text-content-strong {
+    font-family: var(--font-sans);
     font-variant-numeric: tabular-nums;
     font-weight: 600;
-    color: var(--color-ink);
+    color: var(--tm-content);
   }
 }
 
 /*
- * Numeric form fields: what the user types is right-aligned with tabular
- * figures, so it looks like the data it becomes (N129). Boxes, labels and help
- * text are unchanged.
+ * Forms (D4): what you type looks like the saved content. Text fields and
+ * text areas show the typed text in the content style; numeric fields are
+ * also right-aligned with tabular figures (N129). Boxes, labels, placeholders
+ * and help text are unchanged.
  */
 @layer base {
+  input:where(
+    :not(
+      [type='checkbox'],
+      [type='radio'],
+      [type='range'],
+      [type='color'],
+      [type='file'],
+      [type='submit'],
+      [type='button'],
+      [type='reset'],
+      [type='hidden']
+    )
+  ),
+  textarea {
+    color: var(--tm-content);
+    font-family: var(--font-sans);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
   input[type='number'],
   input[inputmode='decimal'],
   input[inputmode='numeric'] {
     text-align: right;
-    font-variant-numeric: tabular-nums;
   }
 }
 

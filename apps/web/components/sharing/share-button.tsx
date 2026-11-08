@@ -287,7 +287,7 @@ export function ShareDialog({
             </ul>
           )}
           <div>
-            <label htmlFor="share-note" className="block text-sm font-medium">
+            <label htmlFor="share-note" className="block text-sm font-semibold text-ink-muted">
               Note (optional)
             </label>
             <textarea

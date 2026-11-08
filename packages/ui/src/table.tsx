@@ -19,7 +19,7 @@ export function Table({ children, label }: { children: ReactNode; label: string 
 
 /**
  * Column header. `numeric` right-aligns it over a numeric column so the header
- * sits on the same edge as the figures below it (data text role, N126).
+ * sits on the same edge as the figures below it (content and interface, N128).
  */
 export function Th({
   children,
@@ -45,10 +45,12 @@ export function Th({
 }
 
 /**
- * Table cell. `numeric` marks a cell that shows a number (amount, price,
- * quantity, percentage, count): right-aligned in the data text role with
- * tabular figures, so a column of numbers lines up on one edge (N127). Text
- * columns stay left-aligned; no column is centred.
+ * Table cell. A cell holds content (brief v2.2 D3, N128): it is set in
+ * `text-content`, the content colour at medium weight with tabular figures.
+ * `numeric` marks a cell that shows a number (amount, price, quantity,
+ * percentage, count): right-aligned, so a column of numbers lines up on one
+ * edge. Text columns stay left-aligned; no column is centred. Badges, buttons
+ * and muted meta lines inside a cell keep their own colours.
  */
 export function Td({
   children,
@@ -62,8 +64,8 @@ export function Td({
   return (
     <td
       className={cx(
-        'border-b border-line px-3 py-2 align-middle',
-        numeric && 'text-right text-data',
+        'border-b border-line px-3 py-2 align-middle text-content',
+        numeric && 'text-right',
         className,
       )}
     >

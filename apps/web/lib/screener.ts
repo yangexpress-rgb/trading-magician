@@ -615,7 +615,7 @@ export function decodeScreenState(
 }
 
 /**
- * A results column header with its unit (data text role, O102): price and
+ * A results column header with its unit (content and interface, O102): price and
  * money columns end in "$", percentage columns in "%", and the cells below
  * show the bare number.
  */

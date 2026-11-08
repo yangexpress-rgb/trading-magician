@@ -197,7 +197,7 @@ function CompanyReportView({ report, price }: { report: CompanyReport; price: nu
             .map(([k, v]) => (
               <div key={k} className="flex gap-2">
                 <dt className="w-40 shrink-0 text-ink-muted">{k}</dt>
-                <dd className="min-w-0 break-words">{v}</dd>
+                <dd className="min-w-0 break-words text-content">{v}</dd>
               </div>
             ))}
         </dl>
@@ -224,7 +224,7 @@ function CompanyReportView({ report, price }: { report: CompanyReport; price: nu
                   title={f.hint}
                 >
                   <dt className="text-xs text-ink-muted">{f.label}</dt>
-                  <dd className="text-base text-data-strong">
+                  <dd className="text-base text-content-strong">
                     {formatFigure(metrics[f.key], f.format)}
                   </dd>
                 </div>
