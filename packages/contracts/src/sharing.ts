@@ -48,7 +48,7 @@ export type ShareSourceDto =
   { kind: 'library'; number: string } | { kind: 'lab'; strategyId: string };
 
 /**
- * Body of POST /shares: one `source` or up to 20 `sources`, and member IDs or
+ * Body of POST /shares: one `source` or several `sources`, and member IDs or
  * emails (or the admin's All members). Each source goes to each person.
  */
 export interface CreateShareRequest {

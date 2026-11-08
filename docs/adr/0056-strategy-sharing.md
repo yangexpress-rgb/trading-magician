@@ -42,7 +42,7 @@ Library record (ADR 0054), and no member's name is shown to another member (O65)
 - **Database functions do every cross-member step.** `share_create`, `share_accept_begin` /
   `share_accept_finish`, `share_close` (decline, withdraw), `share_expire`,
   `share_close_for_account`, `share_lookup_member` and `share_list_members` are `SECURITY DEFINER`.
-  They check the caller (`app.user_id`), statuses, limits (200 shares pending, O100; 20 sends an hour, each counting once, migration 0073, O104) and
+  They check the caller (`app.user_id`), statuses, limits (none since migration 0074, O104) and
   ownership, write both sides' audit events, and write the other side's notification unless muted.
   Accept locks the share row: the app makes the copies as the recipient inside the same
   transaction, and a second accept returns the first copy. Shares are readable by their two
@@ -66,8 +66,8 @@ Library record (ADR 0054), and no member's name is shown to another member (O65)
 
 Yong asked to pick several strategies and share them in one go. The Library and Strategy Lab
 lists gain a tick box on each shareable row, a header box for the page and "Share selected (n)".
-`POST /shares` takes `sources` (up to 20) instead of `source`; every source is checked first, then
+`POST /shares` takes `sources` instead of `source`; every source is checked first, then
 each goes to each person as its own share, in one transaction, so a refusal (naming the number)
 shares nothing. Shares stay one per strategy and person, so accepting, declining and notifications
-are unchanged. Migration 0072 raises the pending limit to 200 shares; migration 0073 makes the hourly limit count sends (20 an hour), not shares
-(O100, O104).
+are unchanged. Migration 0074 then removes the sharing limits at Yong's request: no hourly or pending
+limit and no cap on people or strategies per send (O104).

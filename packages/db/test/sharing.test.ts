@@ -589,43 +589,36 @@ describe('sharing several at once', () => {
       ),
       /Choose what to share/,
     );
-    await refused(
-      as(u.c, (tx) =>
-        createShares(tx, u.c, {
-          sources: Array.from({ length: 21 }, (_, i) => ({
-            kind: 'library' as const,
-            number: `S${String(i + 1).padStart(5, '0')}-SD`,
-          })),
-          recipients: ['U0003'],
-        }),
-      ),
-      /up to 20 at a time/,
-    );
   });
 });
 
-describe('the hourly limit', () => {
-  it('counts sends, not shares: 20 sends an hour, however many each carries', async () => {
+describe('no limits', () => {
+  it('lets a member share as much and as often as they like (Yong removed the limits)', async () => {
     const d = await createUser('dan@example.test', 'Dan');
-    // One send of 3 records to 3 people (9 shares) counts once.
-    const first = await as(d, (tx) =>
-      createShares(tx, d, {
-        sources: [10, 11, 12].map((n) => ({ kind: 'library' as const, number: num(n) })),
-        recipients: ['U0001', 'U0002', 'U0003'],
-      }),
-    );
-    expect(first).toHaveLength(9);
-    for (let n = 13; n <= 31; n++) {
-      await as(d, (tx) =>
-        createShares(tx, d, { source: { kind: 'library', number: num(n) }, recipients: ['U0004'] }),
-      );
+    const extra: string[] = [];
+    for (let k = 1; k <= 8; k++) {
+      await createUser(`extra${k}@example.test`, `Extra ${k}`);
+      extra.push(`extra${k}@example.test`);
     }
-    await refused(
-      as(d, (tx) =>
-        createShares(tx, d, { source: { kind: 'library', number: num(1) }, recipients: ['U0004'] }),
-      ),
-      /20 times an hour/,
+    const all = Array.from({ length: 31 }, (_, k) => ({
+      kind: 'library' as const,
+      number: num(k + 1),
+    }));
+    // 31 records to 11 people in one send: 341 shares, all pending.
+    const big = await as(d, (tx) =>
+      createShares(tx, d, { sources: all, recipients: ['U0001', 'U0002', 'U0003', ...extra] }),
     );
+    expect(big).toHaveLength(341);
+    // Then 21 more sends within the hour.
+    for (let n = 1; n <= 21; n++) {
+      const one = await as(d, (tx) =>
+        createShares(tx, d, {
+          source: { kind: 'library', number: num(n) },
+          recipients: ['cat@example.test'],
+        }),
+      );
+      expect(one).toHaveLength(1);
+    }
   });
 });
 
