@@ -12,8 +12,18 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   await page.goto('/library');
   await expect(page.getByRole('heading', { level: 1, name: 'Strategy Library' })).toBeVisible();
   const rows = page.getByRole('table', { name: 'Strategy Library entries' }).locator('tbody tr');
-  await expect(rows.first()).toContainText('SDS-0001');
-  await expect(rows.nth(17)).toContainText('SMA-0018');
+  await expect(rows.first()).toContainText('S00001-SD');
+  await expect(rows.first()).toContainText('Formerly SDS-0001');
+  await expect(rows.nth(17)).toContainText('S00018-AM');
+  await expect(rows.nth(30)).toContainText('S00031-FS');
+
+  // Library v2 filters (ADR 0055): one entry needs earnings consensus.
+  await page.getByLabel('Data needs').selectOption('earnings_consensus');
+  await page.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page.getByText('1 entry', { exact: true })).toBeVisible();
+  await expect(rows.first()).toContainText('S00026-SD');
+  await page.getByRole('link', { name: 'Clear' }).click();
+  await expect(page).toHaveURL(/\/library$/);
 
   // Filters: options trades only.
   await page.getByLabel('Asset class').selectOption('O');
@@ -22,8 +32,13 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   await page.getByRole('link', { name: 'Clear' }).click();
 
   // The seed detail: number, prose, provenance with its evidence level.
-  await page.getByRole('link', { name: 'SDS-0005' }).first().click();
-  await expect(page.getByText('SDS-0005', { exact: true }).first()).toBeVisible();
+  // A former number redirects to the current one.
+  await page.goto('/library/SDS-0005');
+  await expect(page).toHaveURL(/\/library\/S00005-SD$/);
+  await expect(page.getByText('S00005-SD', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Formerly SDS-0005', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Parameters' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'Entry channel' })).toBeVisible();
   await expect(page.getByText('Book', { exact: true })).toBeVisible();
   await expect(page.getByText('Turnaround time (typical holding period)')).toBeVisible();
   await expect(page.getByText('Unknown', { exact: true })).toBeVisible();
@@ -33,7 +48,7 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   await page.getByLabel('Timeframe (decision timescale)').selectOption('W');
   await page.getByLabel('Asset class (what it trades)').selectOption('E');
   const preview = page.getByTestId('number-preview');
-  await expect(preview).toContainText(/SWE-\d{4}/);
+  await expect(preview).toContainText(/S\d{5}-EW/);
   const expected = (await preview.locator('.font-mono').textContent())?.trim() ?? '';
   await page.getByLabel('Name').fill('Weekly ETF test entry');
   await page.getByLabel('Category').selectOption('trend');
@@ -48,6 +63,12 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   await page.locator('#lib-turnaround-unit').selectOption('days');
   await page.locator('#lib-turnaround-low').fill('2');
   await page.locator('#lib-turnaround-high').fill('10');
+  await page.getByLabel('Direction').selectOption('long_only');
+  await page.getByRole('button', { name: 'Add a parameter' }).click();
+  await page.getByLabel('Parameter 1', { exact: true }).fill('Hold');
+  await page.locator('#lib-param-0-value').fill('5');
+  await page.locator('#lib-param-0-unit').fill('days');
+  await page.getByLabel('Daily bars').check();
   // A prior user without a source is refused.
   await page.getByRole('button', { name: 'Add a prior user' }).click();
   await page.getByLabel('Who').fill('A fund');
@@ -55,13 +76,18 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   await page.getByLabel('Evidence').selectOption('anecdote');
   await page.getByRole('button', { name: 'Register' }).click();
   await expect(page.locator('#lib-usedby-0-source-error')).toBeVisible();
-  await page.getByRole('button', { name: 'Remove' }).click();
+  await page
+    .locator('fieldset', { hasText: 'Prior user 1' })
+    .getByRole('button', { name: 'Remove' })
+    .click();
   await page.getByRole('button', { name: 'Register' }).click();
 
   await expect(page).toHaveURL(new RegExp(`/library/${expected}$`));
   await expect(page.getByText('5 days (range 2–10 days)')).toBeVisible();
   await expect(page.getByText('1 week', { exact: true })).toBeVisible();
   await expect(page.getByText('No known prior use recorded.')).toBeVisible();
+  await expect(page.getByText('Long only').first()).toBeVisible();
+  await expect(page.getByText('Not specified').first()).toBeVisible();
 
   // Edit needs a change note and keeps the number.
   await page.getByRole('link', { name: 'Edit' }).click();

@@ -8,6 +8,7 @@ import {
   interpretRegistrationNumber,
   parseRegistrationNumber,
 } from './convention';
+import { LIBRARY_V2_RENUMBER_TABLE, v2NumberFor } from './renumber';
 import { formatDuration, frequencySchema, turnaroundSchema } from './duration';
 import { editLibraryEntrySchema, registerLibraryEntrySchema } from './entry';
 import { parseMarkdown } from './markdown';
@@ -62,7 +63,11 @@ describe('registration numbers (convention v1)', () => {
   });
 
   it('parses well-formed numbers only', () => {
-    expect(parseRegistrationNumber('sds-0001')).toEqual({ codes: codes('D', 'S'), sequence: 1 });
+    expect(parseRegistrationNumber('sds-0001')).toEqual({
+      codes: codes('D', 'S'),
+      sequence: 1,
+      layout: 'letters-first',
+    });
     expect(parseRegistrationNumber('SDS-10000')?.sequence).toBe(10000);
     for (const bad of ['SDS-001', 'SD-0001', 'SDS0001', 'SDS-0000', 'SDS-00001', '']) {
       expect(parseRegistrationNumber(bad)).toBeNull();
@@ -89,6 +94,82 @@ describe('registration numbers (convention v1)', () => {
     expect(composeRegistrationNumber(v2, codes('T', 'S'), 19)).toBe('STS-0019');
     expect(interpretRegistrationNumber('SDS-0001', V1)?.timeframe?.meaning).toBe('D');
     expect(interpretRegistrationNumber('SDS-0001', v2)?.timeframe?.meaning).toBe('Trading days');
+  });
+});
+
+/** v2 as the renumber migration adds it: v1's tables, sequence-first, five digits. */
+const V2: ConventionVersion = {
+  ...V1,
+  label: 'v2',
+  effectiveFrom: '2026-11-08',
+  layout: 'sequence-first',
+  sequenceDigits: 5,
+};
+
+describe('registration numbers (convention v2, sequence-first)', () => {
+  it.each([
+    ['D', 'S', 1, 'S00001-SD'],
+    ['M', 'E', 8, 'S00008-EM'],
+    ['Q', 'S', 12, 'S00012-SQ'],
+    ['S', 'F', 31, 'S00031-FS'],
+    ['D', 'S', 32, 'S00032-SD'],
+    ['D', 'S', 99999, 'S99999-SD'],
+    ['D', 'S', 100000, 'S100000-SD'],
+  ])('composes %s/%s #%i as %s', (timeframe, asset, seq, expected) => {
+    expect(composeRegistrationNumber(V2, codes(timeframe, asset), seq)).toBe(expected);
+  });
+
+  it('parses the v2 shape with its suffix read as asset then timeframe', () => {
+    expect(parseRegistrationNumber('s00001-sd')).toEqual({
+      codes: codes('D', 'S'),
+      sequence: 1,
+      layout: 'sequence-first',
+    });
+    expect(parseRegistrationNumber('S00008-EM')?.codes).toEqual(codes('M', 'E'));
+    expect(parseRegistrationNumber('S100000-SD')?.sequence).toBe(100000);
+    for (const bad of [
+      'S0001-SD', // four digits
+      'S00001-SDD',
+      'S00001-S',
+      'S000001-SD', // six digits before 99999 is used up
+      'S0000001-SD',
+      'S00000-SD',
+      'SD00001-SD',
+      'S00001SD',
+    ]) {
+      expect(parseRegistrationNumber(bad)).toBeNull();
+    }
+  });
+
+  it('rejects codes v2 does not define, with the named error', () => {
+    expect(() => composeRegistrationNumber(V2, codes('T', 'S'), 32)).toThrow(ConventionCodeError);
+    expect(() => composeRegistrationNumber(V2, codes('D', 'X'), 32)).toThrow(/Asset class/);
+  });
+
+  it('reads letters through the issuing version and its layout', () => {
+    expect(interpretRegistrationNumber('S00008-EM', V2)).toMatchObject({
+      timeframe: { code: 'M' },
+      assetClass: { code: 'E' },
+    });
+    // A number reads only through a version of its own layout.
+    expect(interpretRegistrationNumber('S00008-EM', V1)).toBeNull();
+    expect(interpretRegistrationNumber('SME-0008', V2)).toBeNull();
+    expect(currentConvention([V1, V2], new Date('2026-11-08T12:00:00Z'))?.label).toBe('v2');
+  });
+});
+
+describe('the v2 renumber table (brief §1.3)', () => {
+  it('has 31 rows in sequence order, each the mechanical rewrite of its old number', () => {
+    expect(LIBRARY_V2_RENUMBER_TABLE.map((r) => r.seq)).toEqual(
+      Array.from({ length: 31 }, (_, i) => i + 1),
+    );
+    for (const row of LIBRARY_V2_RENUMBER_TABLE) {
+      const old = parseRegistrationNumber(row.old)!;
+      expect(old.sequence).toBe(row.seq);
+      expect(v2NumberFor(row.old)).toBe(row.new);
+      expect(composeRegistrationNumber(V2, old.codes, row.seq)).toBe(row.new);
+    }
+    expect(v2NumberFor('S00001-SD')).toBeNull();
   });
 });
 
@@ -203,6 +284,71 @@ describe('entry validation', () => {
     expect(
       editLibraryEntrySchema.safeParse({ ...valid, rowVersion: 1, changeNote: 'x' }).success,
     ).toBe(false);
+  });
+});
+
+describe('the nine v2 fields (brief §2.2)', () => {
+  it('defaults: maturity researched, everything else Not specified', () => {
+    const parsed = registerLibraryEntrySchema.parse(valid);
+    expect(parsed).toMatchObject({
+      direction: null,
+      parameters: [],
+      positionSizing: null,
+      stopLoss: null,
+      rebalanceSchedule: null,
+      maturity: 'researched',
+      dataNeeds: [],
+      universe: null,
+    });
+    expect(parsed.keyRisks).toBeUndefined();
+  });
+
+  it('accepts a full set and keeps data needs in list order without repeats', () => {
+    const parsed = registerLibraryEntrySchema.parse({
+      ...valid,
+      direction: 'long_only',
+      parameters: [
+        { name: 'SMA lookback', value: '200', unit: 'days' },
+        { name: 'Cutoff', value: '10' },
+      ],
+      positionSizing: { method: 'equal_weight', detail: 'Top decile, equal weight' },
+      stopLoss: { method: 'atr_multiple', detail: '2× ATR(20)' },
+      rebalanceSchedule: { schedule: 'quarter_end' },
+      maturity: 'backtested',
+      keyRisks: 'Whipsaw.',
+      dataNeeds: ['fundamentals', 'daily_bars', 'fundamentals'],
+      universe: { kind: 'index_members', detail: 'S&P 500' },
+    });
+    expect(parsed.dataNeeds).toEqual(['daily_bars', 'fundamentals']);
+    expect(parsed.parameters[1]).toEqual({ name: 'Cutoff', value: '10', unit: undefined });
+  });
+
+  it('enforces the limits and enums', () => {
+    const bad = (over: Record<string, unknown>) =>
+      registerLibraryEntrySchema.safeParse({ ...valid, ...over }).success;
+    expect(bad({ direction: 'sideways' })).toBe(false);
+    expect(bad({ maturity: 'proven' })).toBe(false);
+    expect(bad({ maturity: null })).toBe(false);
+    expect(bad({ dataNeeds: ['weather'] })).toBe(false);
+    expect(bad({ parameters: Array.from({ length: 11 }, () => ({ name: 'n', value: 'v' })) })).toBe(
+      false,
+    );
+    expect(bad({ parameters: [{ name: 'x'.repeat(81), value: 'v' }] })).toBe(false);
+    expect(bad({ parameters: [{ name: 'n', value: 'v'.repeat(121) }] })).toBe(false);
+    expect(bad({ parameters: [{ name: 'n', value: 'v', unit: 'u'.repeat(21) }] })).toBe(false);
+    expect(bad({ positionSizing: { method: 'kelly' } })).toBe(false);
+    expect(bad({ stopLoss: { method: 'none', detail: 'x'.repeat(501) } })).toBe(false);
+    expect(bad({ rebalanceSchedule: { schedule: 'hourly' } })).toBe(false);
+    expect(bad({ universe: { kind: 'planet' } })).toBe(false);
+    expect(bad({ keyRisks: 'x'.repeat(4001) })).toBe(false);
+    expect(bad({ keyRisks: 'x'.repeat(4000) })).toBe(true);
+  });
+
+  it('accepts related numbers in either layout', () => {
+    expect(
+      registerLibraryEntrySchema.parse({ ...valid, relatedEntries: ['s00001-sd', 'SDS-0001'] })
+        .relatedEntries,
+    ).toEqual(['S00001-SD', 'SDS-0001']);
   });
 });
 

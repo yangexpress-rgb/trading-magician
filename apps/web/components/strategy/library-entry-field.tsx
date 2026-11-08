@@ -155,7 +155,7 @@ function EntrySearch({
         autoFocus
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="SDS-0001 or a name"
+        placeholder="S00001-SD or a name"
         className="mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm"
       />
       {error && <p className="mt-2 text-sm text-danger">{error}</p>}

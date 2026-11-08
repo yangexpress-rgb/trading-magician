@@ -13,6 +13,7 @@ export const ACTOR_LABELS: Record<ActorLabelDto, string> = {
   you: 'you',
   member: 'another member',
   former_member: 'a former member',
+  system: 'the system',
 };
 
 export function codeMeaning(codes: readonly ConventionCode[], code: string): string {
@@ -48,4 +49,27 @@ export const FIELD_LABELS: Record<string, string> = {
   relatedEntries: 'Related entries',
   builtStrategyId: 'Built strategy link',
   status: 'Status',
+  registrationNumber: 'Registration number',
+  conventionVersion: 'Convention version',
+  direction: 'Direction',
+  parameters: 'Parameters',
+  positionSizing: 'Position sizing',
+  stopLoss: 'Stop loss',
+  rebalanceSchedule: 'Rebalance schedule',
+  maturity: 'Maturity',
+  keyRisks: 'Key risks',
+  dataNeeds: 'Data needs',
+  universe: 'Universe',
 };
+
+/** "Not specified" is an answer, shown as such (ADR 0055). */
+export const NOT_SPECIFIED = 'Not specified';
+
+/** "Equal weight — Top-decile picks held in equal weight", or Not specified. */
+export function methodText(
+  value: { detail?: string | undefined } | null,
+  label: string | undefined,
+): string {
+  if (!value || !label) return NOT_SPECIFIED;
+  return value.detail ? `${label} — ${value.detail}` : label;
+}

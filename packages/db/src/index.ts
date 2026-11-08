@@ -100,4 +100,7 @@ export * from './options';
 export * from './options-live';
 export * from './library';
 export * from './library-lab';
-export { seedStrategyLibrary, STRATEGY_LIBRARY_SEED } from './library-seed';
+export { seedStrategyLibrary, STRATEGY_LIBRARY_SEED, type SeedOutcome } from './library-seed';
+export * from './library-renumber';
+export * from './library-backfill-v2';
+export { LIBRARY_V2_BACKFILL } from './library-backfill-v2-data';

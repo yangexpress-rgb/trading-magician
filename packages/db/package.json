@@ -20,6 +20,8 @@
     "demo:check": "tsx scripts/demo-check.ts",
     "strategies:migration-report": "tsx scripts/migration-report.ts",
     "library:link-seed": "tsx scripts/library-link-seed.ts",
+    "library:renumber-v2": "tsx scripts/library-renumber-v2.ts",
+    "library:backfill-v2": "tsx scripts/library-backfill-v2.ts",
     "demo:remove-unused": "tsx scripts/demo-check.ts remove",
     "invites:mint": "tsx scripts/invites.ts mint",
     "invites:list": "tsx scripts/invites.ts list",

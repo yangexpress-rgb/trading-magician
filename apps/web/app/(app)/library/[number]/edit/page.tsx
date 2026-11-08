@@ -8,7 +8,7 @@ import {
 import { PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import type { LibraryEntryDto } from '@tm/contracts';
 import { LibraryEntryForm } from '@/components/library/entry-form';
 import { appDb } from '@/lib/server/db';
@@ -36,6 +36,10 @@ export default async function EditLibraryEntryPage({ params }: { params: Promise
   });
   if (!data) notFound();
   const { entry, versions, names, strategies } = data;
+  // A former number opens the entry under its current number (ADR 0055).
+  if (entry.registrationNumber !== decodeURIComponent(number)) {
+    redirect(`/library/${entry.registrationNumber}/edit`);
+  }
   const issuedUnder = versions.find((v) => v.label === entry.conventionVersion);
   if (!issuedUnder) notFound();
   // The DTO carries dates as strings; the form only reads plain fields.

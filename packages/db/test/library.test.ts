@@ -1,4 +1,8 @@
-import { formatDuration, type RegisterLibraryEntryInput } from '@tm/domain';
+import {
+  formatDuration,
+  LIBRARY_V2_RENUMBER_TABLE,
+  type RegisterLibraryEntryInput,
+} from '@tm/domain';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Transaction } from '../src/client';
@@ -78,38 +82,46 @@ afterAll(async () => {
 });
 
 describe('seed catalogue', () => {
-  // A6: the seed table in design §9, exactly and in order.
-  it('lists exactly the 18 seed numbers, in order', async () => {
+  // A6: the seed table in design §9, exactly and in order, now with seed
+  // extension 2 and under convention v2 (ADR 0055).
+  it('lists exactly the 31 seed numbers, in order, under v2', async () => {
     const { items } = await as(userA, (tx) => listLibraryEntries(tx));
-    expect(items.map((i) => i.registrationNumber)).toEqual([
-      'SDS-0001',
-      'SMS-0002',
-      'SDS-0003',
-      'SDS-0004',
-      'SDS-0005',
-      'SDS-0006',
-      'SYS-0007',
-      'SME-0008',
-      'SMS-0009',
-      'SMO-0010',
-      'SMO-0011',
-      'SQS-0012',
-      'SMA-0013',
-      'SMS-0014',
-      'SDA-0015',
-      'SDO-0016',
-      'SSA-0017',
-      'SMA-0018',
+    expect(items.map((i) => i.registrationNumber)).toEqual(
+      LIBRARY_V2_RENUMBER_TABLE.map((r) => r.new),
+    );
+    expect(items.slice(0, 18).map((i) => i.registrationNumber)).toEqual([
+      'S00001-SD',
+      'S00002-SM',
+      'S00003-SD',
+      'S00004-SD',
+      'S00005-SD',
+      'S00006-SD',
+      'S00007-SY',
+      'S00008-EM',
+      'S00009-SM',
+      'S00010-OM',
+      'S00011-OM',
+      'S00012-SQ',
+      'S00013-AM',
+      'S00014-SM',
+      'S00015-AD',
+      'S00016-OD',
+      'S00017-AS',
+      'S00018-AM',
     ]);
-    expect(items.every((i) => i.conventionVersion === 'v1' && i.status === 'registered')).toBe(
+    expect(items.every((i) => i.conventionVersion === 'v2' && i.status === 'registered')).toBe(
       true,
+    );
+    // A new install renumbers as it seeds, so old numbers resolve there too.
+    expect(items.map((i) => i.formerNumbers)).toEqual(
+      LIBRARY_V2_RENUMBER_TABLE.map((r) => [r.old]),
     );
   });
 
   it('seeds once: migrating again leaves the catalogue alone', async () => {
     expect(await seedStrategyLibrary(t.owner.db)).toBe('already_seeded');
     const [row] = await t.ownerSql`select last_issued from strategy_library_sequence`;
-    expect(row!.last_issued).toBe(18);
+    expect(row!.last_issued).toBe(31);
   });
 
   it('records the unbuilt eight with the reason, and no prior user without a source', async () => {
@@ -122,16 +134,18 @@ describe('seed catalogue', () => {
       expect(d!.registeredBy).toBe('seed');
       expect(d!.relatedEntries.every((r) => r.name !== null)).toBe(true);
     }
-    const notBuilt = details.filter((d) => d!.dataRequirements?.startsWith('Not built'));
+    const notBuilt = details
+      .slice(0, 18)
+      .filter((d) => d!.dataRequirements?.startsWith('Not built'));
     expect(notBuilt.map((d) => d!.registrationNumber)).toEqual([
-      'SMO-0010',
-      'SMO-0011',
-      'SMA-0013',
-      'SMS-0014',
-      'SDA-0015',
-      'SDO-0016',
-      'SSA-0017',
-      'SMA-0018',
+      'S00010-OM',
+      'S00011-OM',
+      'S00013-AM',
+      'S00014-SM',
+      'S00015-AD',
+      'S00016-OD',
+      'S00017-AS',
+      'S00018-AM',
     ]);
   });
 
@@ -145,20 +159,21 @@ describe('seed catalogue', () => {
 
 describe('registering', () => {
   // A7.
-  it('previews and then issues sequence 0019 with the letters of its own selections', async () => {
+  // Brief §3: the next Days + Stock registration is S00032-SD, the counter reads 32 after.
+  it('previews and then issues sequence 32 with the letters of its own selections', async () => {
     const preview = await as(userA, (tx) =>
-      previewRegistrationNumber(tx, { recordType: 'S', timeframe: 'W', assetClass: 'E' }),
-    );
-    expect(preview).toEqual({ registrationNumber: 'SWE-0019', conventionVersion: 'v1' });
-    // The preview reserved nothing: it can be asked again and gives the same.
-    const again = await as(userB, (tx) =>
       previewRegistrationNumber(tx, { recordType: 'S', timeframe: 'D', assetClass: 'S' }),
     );
-    expect(again.registrationNumber).toBe('SDS-0019');
-    const issued = await as(userA, (tx) =>
-      registerLibraryEntry(tx, userA, entry({ timeframeCode: 'W', assetClassCode: 'E' })),
+    expect(preview).toEqual({ registrationNumber: 'S00032-SD', conventionVersion: 'v2' });
+    // The preview reserved nothing: it can be asked again and gives the same.
+    const again = await as(userB, (tx) =>
+      previewRegistrationNumber(tx, { recordType: 'S', timeframe: 'W', assetClass: 'E' }),
     );
-    expect(issued).toMatchObject({ registrationNumber: 'SWE-0019', conventionVersion: 'v1' });
+    expect(again.registrationNumber).toBe('S00032-EW');
+    const issued = await as(userA, (tx) => registerLibraryEntry(tx, userA, entry()));
+    expect(issued).toMatchObject({ registrationNumber: 'S00032-SD', conventionVersion: 'v2' });
+    const [row] = await t.ownerSql`select last_issued from strategy_library_sequence`;
+    expect(row!.last_issued).toBe(32);
   });
 
   // A4 and A5.
@@ -191,7 +206,7 @@ describe('registering', () => {
         ),
       ),
     );
-    const seqs = results.map((r) => Number(r.registrationNumber.slice(4))).sort((x, y) => x - y);
+    const seqs = results.map((r) => Number(r.registrationNumber.slice(1, 6))).sort((x, y) => x - y);
     expect(new Set(seqs).size).toBe(8);
     expect(seqs[7]! - seqs[0]!).toBe(7);
   });
@@ -372,28 +387,28 @@ describe('editing and retiring', () => {
       as(userA, (tx) =>
         tx.execute(sql`update strategy_library_entries
           set registration_number = 'SDS-0999', updated_by = ${userA}
-          where registration_number = 'SDS-0001'`),
+          where registration_number = 'S00001-SD'`),
       ),
     );
     expect(pgCode(renumber)).toBe('42501');
     const recode = await rejects(
       as(userA, (tx) =>
         tx.execute(sql`update strategy_library_entries
-          set timeframe_code = 'M', registration_number = 'SMS-0001', updated_by = ${userA}
-          where registration_number = 'SDS-0001'`),
+          set timeframe_code = 'M', registration_number = 'S00001-SM', updated_by = ${userA}
+          where registration_number = 'S00001-SD'`),
       ),
     );
     expect(pgCode(recode)).toBe('42501');
     const appDelete = await rejects(
       as(userA, (tx) =>
         tx.execute(
-          sql`delete from strategy_library_entries where registration_number = 'SDS-0001'`,
+          sql`delete from strategy_library_entries where registration_number = 'S00001-SD'`,
         ),
       ),
     );
     expect(pgCode(appDelete)).toBe('42501');
     const ownerDelete = await rejects(
-      t.ownerSql`delete from strategy_library_entries where registration_number = 'SDS-0001'`,
+      t.ownerSql`delete from strategy_library_entries where registration_number = 'S00001-SD'`,
     );
     expect(pgCode(ownerDelete)).toBe('42501');
   });
@@ -458,32 +473,34 @@ describe('finding entries', () => {
       as(userB, async (tx) =>
         (await listLibraryEntries(tx, o)).items.map((i) => i.registrationNumber),
       );
-    expect(await find({ search: 'sme-0008' })).toEqual(['SME-0008']);
-    expect(await find({ search: 'Donchian' })).toEqual(['SDS-0005']);
-    expect(await find({ search: 'needs-deal-events' })).toEqual(['SMS-0014']);
-    expect(await find({ search: 'correlation premium' })).toEqual(['SDO-0016']);
-    expect(await find({ assetClassCode: 'O' })).toEqual(['SMO-0010', 'SMO-0011', 'SDO-0016']);
-    expect(await find({ timeframeCode: 'Q' })).toEqual(['SQS-0012']);
+    expect(await find({ search: 's00008-em' })).toEqual(['S00008-EM']);
+    // A former number finds its entry too (ADR 0055).
+    expect(await find({ search: 'sme-0008' })).toEqual(['S00008-EM']);
+    expect(await find({ search: 'Donchian' })).toEqual(['S00005-SD']);
+    expect(await find({ search: 'needs-deal-events' })).toEqual(['S00014-SM']);
+    expect(await find({ search: 'correlation premium' })).toEqual(['S00016-OD']);
+    expect(await find({ assetClassCode: 'O' })).toEqual(['S00010-OM', 'S00011-OM', 'S00016-OD']);
+    expect(await find({ timeframeCode: 'Q' })).toEqual(['S00012-SQ']);
     expect(await find({ timeframeCode: 'M', assetClassCode: 'A' })).toEqual([
-      'SMA-0013',
-      'SMA-0018',
+      'S00013-AM',
+      'S00018-AM',
     ]);
-    expect(await find({ category: 'carry' })).toEqual(['SMA-0013']);
+    expect(await find({ category: 'carry' })).toEqual(['S00013-AM']);
     const built = await find({ built: 'built' });
     expect(built).toHaveLength(1);
     expect((await find({ built: 'not_built', search: 'SMO-00' })).length).toBe(2);
     expect(await find({ status: 'retired' })).toHaveLength(1);
     expect(await find({ search: '100%_' })).toEqual([]);
-    const byName = await find({ sort: 'name', search: 'SDS-000' });
-    expect(byName[0]).toBe('SDS-0005');
+    const byName = await find({ sort: 'name', search: '-SD' });
+    expect(byName[0]).toBe('S00005-SD');
   });
 });
 
 describe('convention versions', () => {
   // A1: runs last, because it puts a new version in effect.
-  it('keeps old numbers under v1 while new registrations use a v2 code', async () => {
+  it('keeps old numbers under v2 while new registrations use a v3 code', async () => {
     const first = await as(userA, (tx) => registerLibraryEntry(tx, userA, entry()));
-    expect(first.conventionVersion).toBe('v1');
+    expect(first.conventionVersion).toBe('v2');
     const v1Edit = await rejects(
       t.ownerSql`update convention_versions set tables = '{}' where label = 'v1'`,
     );
@@ -498,30 +515,31 @@ describe('convention versions', () => {
     expect(pgCode(appInsert)).toBe('42501');
 
     await t.ownerSql`
-      insert into convention_versions (label, effective_from, tables)
-      select 'v2', (now() at time zone 'utc')::date,
+      insert into convention_versions (label, effective_from, tables, layout, sequence_digits)
+      select 'v3', (now() at time zone 'utc')::date,
              jsonb_set(
                jsonb_set(tables, '{timeframe}', (tables->'timeframe') || '[{"code":"T","meaning":"Ticks"}]'),
-               '{timeframe,3,meaning}', '"Trading days"')
-        from convention_versions where label = 'v1'`;
+               '{timeframe,3,meaning}', '"Trading days"'),
+             layout, sequence_digits
+        from convention_versions where label = 'v2'`;
 
     const second = await as(userA, (tx) =>
       registerLibraryEntry(tx, userA, entry({ timeframeCode: 'T' })),
     );
-    expect(second.conventionVersion).toBe('v2');
-    expect(second.registrationNumber).toMatch(/^STS-00\d\d$/);
-    expect(Number(second.registrationNumber.slice(4))).toBe(
-      Number(first.registrationNumber.slice(4)) + 1,
+    expect(second.conventionVersion).toBe('v3');
+    expect(second.registrationNumber).toMatch(/^S000\d\d-ST$/);
+    expect(Number(second.registrationNumber.slice(1, 6))).toBe(
+      Number(first.registrationNumber.slice(1, 6)) + 1,
     );
     const [a, seed] = await as(userB, (tx) =>
       Promise.all([
         getLibraryEntry(tx, userB, first.registrationNumber),
-        getLibraryEntry(tx, userB, 'SDS-0001'),
+        getLibraryEntry(tx, userB, 'S00001-SD'),
       ]),
     );
     expect(a).toMatchObject({
       registrationNumber: first.registrationNumber,
-      conventionVersion: 'v1',
+      conventionVersion: 'v2',
     });
     expect(a!.letters.timeframe?.meaning).toBe('Days');
     expect(seed!.letters.timeframe?.meaning).toBe('Days');
@@ -551,21 +569,21 @@ describe('linking the built seed entries by name', () => {
       ]),
     );
     expect(byNumber).toEqual({
-      'SDS-0001': '1',
-      'SMS-0002': '10',
-      'SDS-0003': '2',
-      'SDS-0004': '8',
-      'SDS-0005': '3',
-      'SDS-0006': '9',
-      'SYS-0007': '5',
-      'SME-0008': '7',
-      'SMS-0009': '6',
-      'SQS-0012': '4',
+      'S00001-SD': '1',
+      'S00002-SM': '10',
+      'S00003-SD': '2',
+      'S00004-SD': '8',
+      'S00005-SD': '3',
+      'S00006-SD': '9',
+      'S00007-SY': '5',
+      'S00008-EM': '7',
+      'S00009-SM': '6',
+      'S00012-SQ': '4',
     });
     const unclear = matchSeedLinks([
       { id: 'a', name: 'Sector rotation A' },
       { id: 'b', name: 'Sector rotation B' },
-    ]).find((m) => m.registrationNumber === 'SME-0008');
+    ]).find((m) => m.registrationNumber === 'S00008-EM');
     expect(unclear!.result).toEqual({
       kind: 'ambiguous',
       candidates: ['Sector rotation A', 'Sector rotation B'],

@@ -1,8 +1,12 @@
 /**
- * Registration numbers for the Strategy Library (ADR 0051).
+ * Registration numbers for the Strategy Library (ADR 0051, ADR 0055).
  *
- * A number is three code letters, a hyphen and a global sequence of at least
- * four digits. The letters come from a dated, versioned convention: the code
+ * A number is a record-type letter, a global sequence and two more code
+ * letters (asset class and timeframe), laid out as the issuing convention
+ * version says: v1 is letters-first (`SDS-0001`: record type, timeframe,
+ * asset class, hyphen, four digits); v2 is sequence-first (`S00001-SD`:
+ * record type, five digits, hyphen, asset class, timeframe). The codes come
+ * from a dated, versioned convention: the code
  * tables live in the database (`convention_version`), never in this file, so a
  * later version can add or rename codes without touching numbers already
  * issued. This module composes, parses and checks numbers against whatever
@@ -26,12 +30,36 @@ export interface ConventionTables {
   assetClass: ConventionCode[];
 }
 
+/** How a version lays out a number (ADR 0055). */
+export const NUMBER_LAYOUTS = ['letters-first', 'sequence-first'] as const;
+export type NumberLayout = (typeof NUMBER_LAYOUTS)[number];
+
+/** Minimum digits in the sequence part, per layout; longer sequences are never re-padded. */
+export const LAYOUT_MIN_DIGITS: Record<NumberLayout, number> = {
+  'letters-first': 4,
+  'sequence-first': 5,
+};
+
 export interface ConventionVersion {
   /** "v1", "v2", ... */
   label: string;
   /** First day (YYYY-MM-DD, UTC) new registrations use this version. */
   effectiveFrom: string;
   tables: ConventionTables;
+  /** v1: letters-first; v2: sequence-first. Missing means letters-first (v1). */
+  layout?: NumberLayout;
+  /** Minimum sequence digits; missing means the layout's default. */
+  sequenceDigits?: number;
+}
+
+export function layoutOf(version: Pick<ConventionVersion, 'layout'>): NumberLayout {
+  return version.layout ?? 'letters-first';
+}
+
+export function sequenceDigitsOf(
+  version: Pick<ConventionVersion, 'layout' | 'sequenceDigits'>,
+): number {
+  return version.sequenceDigits ?? LAYOUT_MIN_DIGITS[layoutOf(version)];
 }
 
 /** The codes chosen at registration, one per position. */
@@ -68,14 +96,14 @@ export class ConventionCodeError extends Error {
   }
 }
 
-/** Minimum digits in the sequence part; longer sequences are never re-padded. */
-export const SEQUENCE_MIN_DIGITS = 4;
+/** Minimum digits in a v1 (letters-first) sequence. Kept for v1 callers. */
+export const SEQUENCE_MIN_DIGITS = LAYOUT_MIN_DIGITS['letters-first'];
 
-export function formatSequence(sequence: number): string {
+export function formatSequence(sequence: number, minDigits: number = SEQUENCE_MIN_DIGITS): string {
   if (!Number.isSafeInteger(sequence) || sequence < 1) {
     throw new RangeError('A registration sequence is a whole number from 1');
   }
-  return String(sequence).padStart(SEQUENCE_MIN_DIGITS, '0');
+  return String(sequence).padStart(minDigits, '0');
 }
 
 /** Throws ConventionCodeError when any code is not in the version's tables. */
@@ -91,13 +119,27 @@ export function assertCodesInConvention(
   }
 }
 
+/** The three code letters in v1 order (record type, timeframe, asset class). */
 export function registrationLetters(codes: RegistrationCodes): string {
   return `${codes.recordType}${codes.timeframe}${codes.assetClass}`;
 }
 
+/** Lays out codes and a sequence; no convention check (see composeRegistrationNumber). */
+export function layoutNumber(
+  layout: NumberLayout,
+  codes: RegistrationCodes,
+  sequence: number,
+  minDigits: number = LAYOUT_MIN_DIGITS[layout],
+): string {
+  const digits = formatSequence(sequence, minDigits);
+  return layout === 'sequence-first'
+    ? `${codes.recordType}${digits}-${codes.assetClass}${codes.timeframe}`
+    : `${registrationLetters(codes)}-${digits}`;
+}
+
 /**
- * The registration number for these codes and sequence under `version`.
- * Rejects any code the version does not define.
+ * The registration number for these codes and sequence under `version`, laid
+ * out as that version says. Rejects any code the version does not define.
  */
 export function composeRegistrationNumber(
   version: ConventionVersion,
@@ -105,23 +147,48 @@ export function composeRegistrationNumber(
   sequence: number,
 ): string {
   assertCodesInConvention(version, codes);
-  return `${registrationLetters(codes)}-${formatSequence(sequence)}`;
+  return layoutNumber(layoutOf(version), codes, sequence, sequenceDigitsOf(version));
 }
 
-const NUMBER_PATTERN = /^([A-Z])([A-Z])([A-Z])-(\d{4,})$/;
+/** v1: letters, hyphen, digits. */
+const LETTERS_FIRST = /^([A-Z])([A-Z])([A-Z])-(\d+)$/;
+/** v2: record type, digits, hyphen, asset class, timeframe. */
+const SEQUENCE_FIRST = /^([A-Z])(\d+)-([A-Z])([A-Z])$/;
 
-/** Splits a well-formed number; null for anything else (no convention lookup). */
-export function parseRegistrationNumber(
-  value: string,
-): { codes: RegistrationCodes; sequence: number } | null {
-  const m = NUMBER_PATTERN.exec(value.trim().toUpperCase());
-  if (!m) return null;
-  const [, recordType = '', timeframe = '', assetClass = '', digits = ''] = m;
+export interface ParsedRegistrationNumber {
+  codes: RegistrationCodes;
+  sequence: number;
+  layout: NumberLayout;
+}
+
+/**
+ * Splits a well-formed number of either layout; null for anything else (no
+ * convention lookup). The two layouts cannot be confused: v1 starts with three
+ * letters, v2 with one letter and a digit.
+ */
+export function parseRegistrationNumber(value: string): ParsedRegistrationNumber | null {
+  const text = value.trim().toUpperCase();
+  let layout: NumberLayout;
+  let recordType: string;
+  let timeframe: string;
+  let assetClass: string;
+  let digits: string;
+  const v1 = LETTERS_FIRST.exec(text);
+  const v2 = v1 ? null : SEQUENCE_FIRST.exec(text);
+  if (v1) {
+    layout = 'letters-first';
+    [, recordType = '', timeframe = '', assetClass = '', digits = ''] = v1;
+  } else if (v2) {
+    layout = 'sequence-first';
+    [, recordType = '', digits = '', assetClass = '', timeframe = ''] = v2;
+  } else return null;
+  const min = LAYOUT_MIN_DIGITS[layout];
+  if (digits.length < min) return null;
+  // More digits only once the minimum is used up: SDS-00001 and S000001-SD are not numbers.
+  if (digits.length > min && digits.startsWith('0')) return null;
   const sequence = Number(digits);
-  // Five or more digits only once four are used up: SDS-00001 is not a number.
-  if (digits.length > SEQUENCE_MIN_DIGITS && digits.startsWith('0')) return null;
   if (!Number.isSafeInteger(sequence) || sequence < 1) return null;
-  return { codes: { recordType, timeframe, assetClass }, sequence };
+  return { codes: { recordType, timeframe, assetClass }, sequence, layout };
 }
 
 export function isRegistrationNumber(value: string): boolean {
@@ -154,7 +221,8 @@ export function interpretRegistrationNumber(
   issuedUnder: ConventionVersion,
 ): Record<ConventionPosition, ConventionCode | undefined> | null {
   const parsed = parseRegistrationNumber(value);
-  if (!parsed) return null;
+  // A number reads only through a version of its own layout.
+  if (!parsed || parsed.layout !== layoutOf(issuedUnder)) return null;
   const find = (position: ConventionPosition) =>
     issuedUnder.tables[position].find((c) => c.code === parsed.codes[position]);
   return {

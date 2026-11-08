@@ -5,7 +5,16 @@ import {
   listLibraryEntries,
   withTenant,
 } from '@tm/db';
-import { CATEGORY_LABELS, LIBRARY_CATEGORIES } from '@tm/domain';
+import {
+  CATEGORY_LABELS,
+  DATA_NEED_LABELS,
+  DATA_NEEDS,
+  DIRECTION_LABELS,
+  LIBRARY_CATEGORIES,
+  LIBRARY_DIRECTIONS,
+  LIBRARY_MATURITIES,
+  MATURITY_LABELS,
+} from '@tm/domain';
 import {
   Badge,
   buttonClasses,
@@ -49,6 +58,9 @@ export default async function LibraryPage({
     timeframe: one('timeframe'),
     category: one('category'),
     built: one('built'),
+    side: one('side'),
+    maturity: one('maturity'),
+    data: one('data'),
     status: one('status'),
     sort: one('sort'),
     direction: one('direction') ?? (one('sort') === 'registered' ? 'desc' : 'asc'),
@@ -62,6 +74,9 @@ export default async function LibraryPage({
       timeframeCode: q.timeframe,
       category: q.category,
       built: q.built,
+      side: q.side,
+      maturity: q.maturity,
+      dataNeed: q.data,
       status: q.status,
       sort: q.sort,
       direction: q.direction,
@@ -71,7 +86,15 @@ export default async function LibraryPage({
   }));
   const tables = versionsByLabel(versions);
   const filtered = Boolean(
-    q.q || q.asset || q.timeframe || q.category || q.built || q.status !== 'all',
+    q.q ||
+    q.asset ||
+    q.timeframe ||
+    q.category ||
+    q.built ||
+    q.side ||
+    q.maturity ||
+    q.data ||
+    q.status !== 'all',
   );
 
   return (
@@ -86,7 +109,9 @@ export default async function LibraryPage({
         }
       />
 
+      {/* Keyed by the query, so Clear also resets the selects (they are uncontrolled). */}
       <form
+        key={JSON.stringify(q)}
         role="search"
         aria-label="Filter the library"
         className="mb-4 grid-fields items-end gap-3"
@@ -128,6 +153,30 @@ export default async function LibraryPage({
           <option value="">Built or not</option>
           <option value="built">Built</option>
           <option value="not_built">Not built</option>
+        </SelectField>
+        <SelectField label="Direction" name="side" defaultValue={q.side ?? ''}>
+          <option value="">Any direction</option>
+          {LIBRARY_DIRECTIONS.map((d) => (
+            <option key={d} value={d}>
+              {DIRECTION_LABELS[d]}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Maturity" name="maturity" defaultValue={q.maturity ?? ''}>
+          <option value="">Any maturity</option>
+          {LIBRARY_MATURITIES.map((m) => (
+            <option key={m} value={m}>
+              {MATURITY_LABELS[m]}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Data needs" name="data" defaultValue={q.data ?? ''}>
+          <option value="">Any data</option>
+          {DATA_NEEDS.map((d) => (
+            <option key={d} value={d}>
+              {DATA_NEED_LABELS[d]}
+            </option>
+          ))}
         </SelectField>
         <SelectField label="Status" name="status" defaultValue={q.status}>
           <option value="all">Registered and retired</option>
@@ -172,6 +221,7 @@ export default async function LibraryPage({
                 <Th>Asset class</Th>
                 <Th>Timeframe</Th>
                 <Th>Category</Th>
+                <Th>Maturity</Th>
                 <Th>Built</Th>
                 <Th>Status</Th>
               </tr>
@@ -183,6 +233,11 @@ export default async function LibraryPage({
                   <tr key={e.id}>
                     <Td className="whitespace-nowrap font-mono font-semibold">
                       <Link href={`/library/${e.registrationNumber}`}>{e.registrationNumber}</Link>
+                      {e.formerNumbers.length > 0 && (
+                        <p className="mt-0.5 text-xs font-normal text-ink-muted">
+                          Formerly {e.formerNumbers.join(', ')}
+                        </p>
+                      )}
                     </Td>
                     <Td>
                       <Link href={`/library/${e.registrationNumber}`} className="font-medium">
@@ -199,6 +254,7 @@ export default async function LibraryPage({
                       {t ? codeMeaning(t.timeframe, e.timeframeCode) : e.timeframeCode}
                     </Td>
                     <Td className="whitespace-nowrap">{CATEGORY_LABELS[e.category]}</Td>
+                    <Td className="whitespace-nowrap">{MATURITY_LABELS[e.maturity]}</Td>
                     <Td>
                       <Badge tone={e.builtStatus === 'built' ? 'ok' : 'neutral'}>
                         {BUILT_LABELS[e.builtStatus]}

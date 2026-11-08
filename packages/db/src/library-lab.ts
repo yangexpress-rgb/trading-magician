@@ -5,7 +5,6 @@ import {
   collectInstrumentUses,
   isFixtureName,
   parseDefinition,
-  parseRegistrationNumber,
   type LabAssetClass,
 } from '@tm/domain';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
@@ -14,6 +13,7 @@ import {
   builtElsewhereMessage,
   LibraryError,
   registerLibraryEntry,
+  resolveLibraryEntryRow,
   setEntryBuilt,
   setStrategyEntry,
   strategyLinkRow,
@@ -101,9 +101,8 @@ export async function linkStrategyToEntry(
 ): Promise<void> {
   const strategy = await requireStrategy(tx, strategyId);
   const number = registrationNumber.trim().toUpperCase();
-  const [entry] = parseRegistrationNumber(number)
-    ? await tx.select().from(entries).where(eq(entries.registrationNumber, number))
-    : [];
+  // A former number resolves to the entry, which links under its current number (ADR 0055).
+  const entry = await resolveLibraryEntryRow(tx, number);
   if (!entry) throw new LibraryError('not_found', `No Library entry is registered as ${number}`);
   if (entry.id === strategy.libraryEntryId) return;
   if (entry.status === 'retired') {
@@ -313,15 +312,18 @@ export async function backfillSeedLinks(
   ).filter((s) => !isFixtureName(s.name));
   const out: SeedBackfillRow[] = [];
   for (const m of matchSeedLinks(workspace)) {
+    // Found by seed key: the number may be v1 or v2 (ADR 0055).
     const [entry] = await tx
       .select({
+        number: entries.registrationNumber,
         built: entries.builtStrategyId,
         owner: entries.builtStrategyOwner,
         status: entries.status,
       })
       .from(entries)
-      .where(eq(entries.registrationNumber, m.registrationNumber));
-    const base = { registrationNumber: m.registrationNumber, name: m.name };
+      .where(eq(entries.seedKey, m.seedKey));
+    const number = entry?.number ?? m.registrationNumber;
+    const base = { registrationNumber: number, name: m.name };
     if (entry?.status === 'retired') {
       out.push({ ...base, outcome: { kind: 'retired' } });
       continue;
@@ -336,7 +338,7 @@ export async function backfillSeedLinks(
       continue;
     }
     if (options.apply) {
-      await linkStrategyToEntry(tx, actorId, m.result.strategyId, m.registrationNumber);
+      await linkStrategyToEntry(tx, actorId, m.result.strategyId, number);
     }
     out.push({
       ...base,

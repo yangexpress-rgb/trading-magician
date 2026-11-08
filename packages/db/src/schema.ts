@@ -2098,9 +2098,17 @@ export const conventionVersions = pgTable(
     effectiveFrom: date('effective_from').notNull(),
     /** `{ recordType, timeframe, assetClass }`: arrays of `{ code, meaning, note? }`. */
     tables: jsonb('tables').notNull(),
+    /** How the version lays out a number (ADR 0055): v1 letters-first, v2 sequence-first. */
+    layout: text('layout').notNull().default('letters-first'),
+    /** Minimum digits in the sequence part (v1: 4, v2: 5); longer sequences are never re-padded. */
+    sequenceDigits: integer('sequence_digits').notNull().default(4),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [check('convention_versions_label', sql`${t.label} ~ '^v[1-9][0-9]*$'`)],
+  (t) => [
+    check('convention_versions_label', sql`${t.label} ~ '^v[1-9][0-9]*$'`),
+    check('convention_versions_layout', sql`${t.layout} in ('letters-first', 'sequence-first')`),
+    check('convention_versions_digits', sql`${t.sequenceDigits} between 1 and 9`),
+  ],
 );
 
 /** The single global sequence (D3). Only the registration trigger moves it. */
@@ -2158,6 +2166,34 @@ export const strategyLibraryEntries = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::text[]`),
+    /**
+     * Numbers this entry was known by before a renumbering (ADR 0055), oldest
+     * first. They still resolve to the entry; one belongs to one entry only.
+     */
+    formerNumbers: text('former_numbers')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    // The fuller record (ADR 0055, `libraryV2Fields` in @tm/domain).
+    direction: text('direction'),
+    /** `[{ name, value, unit? }]`, at most 10. */
+    parameters: jsonb('parameters')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    /** `{ method, detail? }` */
+    positionSizing: jsonb('position_sizing'),
+    /** `{ method, detail? }` */
+    stopLoss: jsonb('stop_loss'),
+    /** `{ schedule, detail? }` */
+    rebalanceSchedule: jsonb('rebalance_schedule'),
+    maturity: text('maturity').notNull().default('researched'),
+    keyRisks: text('key_risks'),
+    dataNeeds: text('data_needs')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    /** `{ kind, detail? }` */
+    universe: jsonb('universe'),
     /** A Strategy Lab strategy in the linking person's workspace; no FK across tenants. */
     builtStrategyId: uuid('built_strategy_id'),
     /** Who linked it, so only that workspace resolves the link. */
@@ -2183,10 +2219,33 @@ export const strategyLibraryEntries = pgTable(
       'strategy_library_entries_retired',
       sql`(${t.status} = 'retired') = (${t.retiredAt} is not null and ${t.retiredReason} is not null)`,
     ),
+    // Either layout, always built from the entry's own codes and sequence; the
+    // issuing version's layout is enforced by the triggers (ADR 0055).
     check(
       'strategy_library_entries_number_shape',
-      sql`${t.registrationNumber} = ${t.recordTypeCode} || ${t.timeframeCode} || ${t.assetClassCode} || '-' || lpad(${t.sequenceNo}::text, greatest(4, length(${t.sequenceNo}::text)), '0')`,
+      sql`${t.registrationNumber} = ${t.recordTypeCode} || ${t.timeframeCode} || ${t.assetClassCode} || '-' || lpad(${t.sequenceNo}::text, greatest(4, length(${t.sequenceNo}::text)), '0') or ${t.registrationNumber} = ${t.recordTypeCode} || lpad(${t.sequenceNo}::text, greatest(5, length(${t.sequenceNo}::text)), '0') || '-' || ${t.assetClassCode} || ${t.timeframeCode}`,
     ),
+    check(
+      'strategy_library_entries_direction',
+      sql`${t.direction} is null or ${t.direction} in ('long_only', 'short_only', 'long_short', 'market_neutral')`,
+    ),
+    check(
+      'strategy_library_entries_maturity',
+      sql`${t.maturity} in ('researched', 'backtested', 'paper_trading', 'live')`,
+    ),
+    check(
+      'strategy_library_entries_data_needs',
+      sql`${t.dataNeeds} <@ array['daily_bars', 'intraday_bars', 'fundamentals', 'options_chains', 'earnings_consensus', 'news', 'level2_tick', 'short_borrow', 'index_data']::text[]`,
+    ),
+    check(
+      'strategy_library_entries_parameters',
+      sql`jsonb_typeof(${t.parameters}) = 'array' and jsonb_array_length(${t.parameters}) <= 10`,
+    ),
+    check(
+      'strategy_library_entries_key_risks',
+      sql`${t.keyRisks} is null or char_length(${t.keyRisks}) <= 4000`,
+    ),
+    index('strategy_library_entries_former_idx').using('gin', t.formerNumbers),
     check('strategy_library_entries_name_length', sql`char_length(${t.name}) between 1 and 120`),
     check(
       'strategy_library_entries_short_length',
