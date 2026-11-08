@@ -20,7 +20,7 @@ export interface ProviderInfo {
    * ADR 0047), or the forward earnings calendar (earnings, ADR 0058); the
    * last three have no routes.
    */
-  offers: readonly ('market_data' | 'broker' | 'fundamentals' | 'options' | 'earnings')[];
+  offers: readonly ('market_data' | 'broker' | 'fundamentals' | 'options' | 'earnings' | 'deals')[];
   /** Asset classes it can price or trade (US stocks and ETFs, and indices to watch). */
   assetClasses: readonly string[];
   /**
@@ -97,7 +97,7 @@ export const PROVIDERS = {
   sec: {
     id: 'sec',
     name: 'SEC EDGAR',
-    offers: ['fundamentals'],
+    offers: ['fundamentals', 'deals'],
     assetClasses: ['stock'],
     coverage: 'us',
     credentialFields: [
