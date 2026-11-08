@@ -252,8 +252,8 @@ Each is an editable input or a single constant.
 
 ## Design v1.2 changes (2026-11-06 to 2026-11-07)
 
-The v1.2 design (`docs/design/design-doc-v1.2.md`) numbers its changes N1 to N124 and its open
-points O1 to O99 (`docs/design/v1.2-deviations.md`). ADRs 0034 and 0037 to 0056 cite them.
+The v1.2 design (`docs/design/design-doc-v1.2.md`) numbers its changes N1 to N125 and its open
+points O1 to O100 (`docs/design/v1.2-deviations.md`). ADRs 0034 and 0037 to 0056 cite them.
 Each row maps a change to its decision record, code and tests.
 
 | Change | Summary                                                                         | Decision record                          | Code                                                                                                                                                                                                             | Tests                                                                                                                |
@@ -382,3 +382,4 @@ Each row maps a change to its decision record, code and tests.
 | N122   | Sharing notifications                                                           | ADR 0056                                 | `share_notify`, `apps/web/components/app-shell.tsx`                                                                                                                                                              | `packages/db/test/sharing.test.ts`                                                                                   |
 | N123   | Who may share, limits                                                           | ADR 0056                                 | `share_create`, `packages/db/src/sharing.ts`                                                                                                                                                                     | `packages/db/test/sharing.test.ts`                                                                                   |
 | N124   | Admin sharing                                                                   | ADR 0056                                 | `share_list_members`, `apps/web/components/sharing/share-button.tsx`                                                                                                                                             | `packages/db/test/sharing.test.ts`                                                                                   |
+| N125   | Sharing several at once                                                         | migration 0072                           | `apps/web/components/sharing/share-selection.tsx`, `createShares` in `packages/db/src/sharing.ts`                                                                                                                |
