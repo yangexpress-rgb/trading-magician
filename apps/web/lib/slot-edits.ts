@@ -155,5 +155,10 @@ export function expectedMoveRule(): ExitRule {
   return { kind: 'expectedMove', id: randomId(), horizon: 5, multiple: '1', side: 'either' };
 }
 
+/** A trailing stop 5% below the best close since entry (ADR 0059), until the person changes it. */
+export function trailingStopRule(percent = '5'): ExitRule {
+  return { kind: 'trailingStop', id: randomId(), percent };
+}
+
 /** The risk distance a new Entry starts with: 2 × ATR(20) (v1.2 item 9). */
 export const DEFAULT_RISK_DISTANCE = { atrPeriod: 20, atrMultiple: '2' } as const;

@@ -22,6 +22,7 @@ import {
   atrStopRule,
   DEFAULT_RISK_DISTANCE,
   expectedMoveRule,
+  trailingStopRule,
   fromLegsSelection,
   toFixedLegs,
   toLegsSelection,
@@ -291,10 +292,25 @@ function SelectionEditor({
           )
         )}
       </div>
+      <label className="flex items-center gap-1.5 text-sm">
+        <input
+          type="checkbox"
+          disabled={!editable}
+          checked={selection.keepHoldings === true}
+          onChange={(e) => {
+            const { keepHoldings: _k, ...rest } = selection;
+            void _k;
+            onChange(e.target.checked ? { ...rest, keepHoldings: true } : rest);
+          }}
+        />
+        Keep each pick until its own exit (don&rsquo;t sell it when it leaves the top N)
+      </label>
       <p className="text-xs text-ink-muted">
         {u.type === 'legs'
           ? 'Each leg must pass its own conditions and the pre-filter; the qualifying legs are ranked and the top N enter, each with its own quantity.'
-          : 'Every selected instrument is held with an equal share of the template leg’s total amount. Instruments that drop out of the top N are sold at the next rebalance.'}
+          : selection.keepHoldings
+            ? 'Every selected instrument gets an equal share (1/N) of the template leg’s total amount and is held until the Exit condition or an exit rule fires; new picks still enter at each rebalance, so more than N can be held.'
+            : 'Every selected instrument is held with an equal share of the template leg’s total amount. Instruments that drop out of the top N are sold at the next rebalance.'}
       </p>
     </div>
   );
@@ -441,6 +457,7 @@ export function ExitRulesEditor({
   const hasTimeStop = rules.some((r) => r.kind === 'timeStop');
   const hasAtrStop = rules.some((r) => r.kind === 'atrStop');
   const hasMoveExit = rules.some((r) => r.kind === 'expectedMove');
+  const hasTrailingStop = rules.some((r) => r.kind === 'trailingStop');
   const replace = (i: number, r: ExitRule) => setRules(rules.map((x, j) => (j === i ? r : x)));
   const remove = (i: number) => setRules(rules.filter((_, j) => j !== i));
   const asInt = (v: string) => (v === '' ? Number.NaN : Number(v));
@@ -479,6 +496,23 @@ export function ExitRulesEditor({
                   <p className="flex-1 pb-1 text-xs text-ink-muted">
                     Counts the day the position opened. With daily bars, 5 days exits at the sixth
                     open, after the position was held through five closes.
+                  </p>
+                </>
+              ) : r.kind === 'trailingStop' ? (
+                <>
+                  <MiniInput
+                    id={`rule-${r.id}-percent`}
+                    label="Trailing stop: % below the highest close since entry"
+                    inputMode="decimal"
+                    disabled={!editable}
+                    value={r.percent}
+                    error={issueAt(['exit', 'rules', i, 'percent'])}
+                    onChange={(e) => replace(i, { ...r, percent: e.target.value.trim() })}
+                  />
+                  <p className="flex-1 pb-1 text-xs text-ink-muted">
+                    Starts at the entry price and rises with each higher daily close (falls with
+                    each lower one, for a short). It exits at the next open after a daily close more
+                    than this far from that peak.
                   </p>
                 </>
               ) : r.kind === 'expectedMove' ? (
@@ -593,7 +627,9 @@ export function ExitRulesEditor({
                       ? 'Remove the holding-period exit'
                       : r.kind === 'expectedMove'
                         ? 'Remove the expected-move exit'
-                        : 'Remove the ATR stop'
+                        : r.kind === 'trailingStop'
+                          ? 'Remove the trailing stop'
+                          : 'Remove the ATR stop'
                   }
                   className="text-danger"
                   onClick={() => remove(i)}
@@ -611,8 +647,9 @@ export function ExitRulesEditor({
           >
             <p className="text-sm font-semibold">Rebalance exits</p>
             <p className="text-xs text-ink-muted">
-              Sells whatever leaves the top N at the next rebalance. Always on with a Selection
-              group; nothing to set.
+              {definition.entry.selection?.keepHoldings
+                ? 'Off: each pick is held until one of its own exits fires (set under Selection group).'
+                : 'Sells whatever leaves the top N at the next rebalance. On with a Selection group unless it keeps its picks.'}
             </p>
           </li>
         )}
@@ -630,6 +667,14 @@ export function ExitRulesEditor({
           {!hasAtrStop && (
             <RowButton label="Add an ATR stop" onClick={() => setRules([...rules, atrStopRule()])}>
               + ATR stop
+            </RowButton>
+          )}
+          {!hasTrailingStop && (
+            <RowButton
+              label="Add a trailing stop"
+              onClick={() => setRules([...rules, trailingStopRule()])}
+            >
+              + Trailing stop
             </RowButton>
           )}
           {!hasMoveExit && (

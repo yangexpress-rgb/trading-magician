@@ -53,7 +53,8 @@ export interface BacktestTrade {
   /** Net P/L as a percentage of the Entry value. */
   returnPct: string | null;
   /** Which rule closed the cycle, for strategies using v1.2 rules. */
-  exitReason?: 'condition' | 'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move';
+  exitReason?:
+    'condition' | 'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move' | 'trailing_stop';
   /** Two-sided strategies (v1.2 item 8): the direction and entry group of the trade. */
   direction?: 'long' | 'short';
   group?: string;

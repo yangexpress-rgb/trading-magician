@@ -86,6 +86,10 @@ import {
   expectedMoveExpr,
   expectedMoveHit,
   expectedMoveRuleOf,
+  trailingPeak,
+  trailingStopHit,
+  trailingStopLevel,
+  trailingStopRuleOf,
   sizesFromAtr,
   riskSizingCap,
   stopCloseExpr,
@@ -885,6 +889,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
           open: c.cycle.status === 'open',
         })),
       halted: entryHalted,
+      keepHoldings: def.entry.selection?.keepHoldings === true,
     });
     for (const id of plan.exit) rebalanceExits.add(id);
     for (const slot of plan.enter) await openCycle({ ...newCycleState(t), slot }, true);
@@ -974,6 +979,27 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         moveFired = expectedMoveHit(close, band, moveRule.side, held.gt(0));
       }
     }
+    // Trailing stop (ADR 0059): the best daily close since Entry filled is kept
+    // with the cycle; a close more than the percent off it exits, by OR.
+    const trailRule = trailingStopRuleOf(cycleDef);
+    let trailFired = false;
+    if (newData && trailRule && atrInstrument && c.cycle.status === 'open') {
+      const entry = c.entries.get(atrInstrument);
+      const held = c.positions.get(atrInstrument) ?? ZERO;
+      const close = evaluateExpr(stopCloseExpr(atrInstrument), view);
+      if (entry && !entry.quantity.isZero() && !held.isZero() && close) {
+        const long = held.gt(0);
+        const start = c.cycle.trailPeak
+          ? new Decimal(c.cycle.trailPeak)
+          : entry.cost.div(entry.quantity);
+        trailFired = trailingStopHit(
+          close,
+          trailingStopLevel(start, trailRule.percent, long),
+          long,
+        );
+        c.cycle = { ...c.cycle, trailPeak: trailingPeak(start, close, long).toString() };
+      }
+    }
     const plan = planCycle({
       definition: cycleDef,
       cycle: c.cycle,
@@ -987,7 +1013,9 @@ async function planPass(tx: Transaction, ctx: PassContext) {
           ? 'atr_stop'
           : moveFired
             ? 'expected_move'
-            : undefined,
+            : trailFired
+              ? 'trailing_stop'
+              : undefined,
     });
     let exitEventId: string | undefined;
     if (exitTruth) {

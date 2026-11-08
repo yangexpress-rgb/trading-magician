@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { riskSeries } from './risk-exits';
 import { expectedMoveCloses, expectedMoveExprs } from './expected-move-exit';
+import { trailingStopCloses } from './trailing-stop';
 import {
   CONTEXT_INSTRUMENT_ID,
   evaluateCondition,
@@ -292,13 +293,16 @@ export function planSlots(input: {
   held: readonly HeldSlot[];
   /** New entries are halted (daily loss, drawdown, kill switch or pause). */
   halted: boolean;
+  /** A Selection group that keeps each pick until its own Exit (ADR 0059). */
+  keepHoldings?: boolean;
 }): SlotPlan {
   const wanted = new Set(input.candidates.map(slotKey));
   const heldKeys = new Set(input.held.map((h) => h.key));
   const rebalance = input.mode === 'selection' || input.scheduled;
-  const exit = rebalance
-    ? input.held.filter((h) => h.open && !wanted.has(h.key)).map((h) => h.id)
-    : [];
+  const exit =
+    rebalance && !input.keepHoldings
+      ? input.held.filter((h) => h.open && !wanted.has(h.key)).map((h) => h.id)
+      : [];
   let enter: Slot[];
   if (input.halted) enter = [];
   else if (!rebalance) enter = input.held.length === 0 ? [...input.candidates] : [];
@@ -463,6 +467,8 @@ export function definitionSeries(
   for (const e of riskSeries(def)) visit(e, 0);
   // The expected-move exit (ADR 0053): its metric at entry, then daily closes.
   for (const e of [...expectedMoveExprs(def), ...expectedMoveCloses(def)]) visit(e, 0);
+  // The trailing stop (ADR 0059): daily closes.
+  for (const e of trailingStopCloses(def)) visit(e, 0);
   return out;
 }
 
