@@ -4,7 +4,10 @@ import {
   currentConvention,
   editLibraryEntrySchema,
   interpretRegistrationNumber,
+  LIBRARY_V2_FIELD_LABELS,
   LIBRARY_V2_FIELD_NAMES,
+  isEmptyLibraryV2Value,
+  type LibraryV2FieldName,
   parseRegistrationNumber,
   registerLibraryEntrySchema,
   retireLibraryEntrySchema,
@@ -58,6 +61,8 @@ export class LibraryError extends Error {
     public readonly code: LibraryErrorCode,
     message: string,
     public readonly issues?: { path: (string | number)[]; message: string }[],
+    /** Machine-readable detail, e.g. `{ reason: 'unloaded_fields', fields }`. */
+    public readonly details?: unknown,
   ) {
     super(message);
     this.name = 'LibraryError';
@@ -663,6 +668,37 @@ function canonical(value: unknown): unknown {
 const same = (a: unknown, b: unknown) =>
   JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 
+/** Stored v2 fields this save would empty without the editor saying so. */
+export function unloadedFields(
+  before: Record<string, unknown>,
+  values: Record<string, unknown>,
+  cleared: readonly LibraryV2FieldName[],
+): LibraryV2FieldName[] {
+  return LIBRARY_V2_FIELD_NAMES.filter(
+    (f) =>
+      !cleared.includes(f) &&
+      !isEmptyLibraryV2Value(f, before[f]) &&
+      isEmptyLibraryV2Value(f, values[f]),
+  );
+}
+
+function unloadedFieldsError(fields: LibraryV2FieldName[], before: Record<string, unknown>) {
+  const names = fields.map((f) => LIBRARY_V2_FIELD_LABELS[f]).join(', ');
+  const message = `Not saved: ${names} did not load into the form, and saving would clear what is stored. Reload the page and try again.`;
+  return new LibraryError(
+    'conflict',
+    message,
+    fields.map((f) => ({
+      path: [f],
+      message:
+        f === 'parameters' && Array.isArray(before[f])
+          ? `${(before[f] as unknown[]).length} stored parameters did not load; saving would clear them`
+          : `The stored ${LIBRARY_V2_FIELD_LABELS[f].toLowerCase()} did not load; saving would clear it`,
+    })),
+    { reason: 'unloaded_fields', fields },
+  );
+}
+
 /**
  * Edits every person-written field. The number, convention version and code
  * letters never change; a change note is required and kept in the history.
@@ -691,6 +727,10 @@ export async function updateLibraryEntry(
   for (const f of LIBRARY_V2_FIELD_NAMES) {
     if (!(f in sent)) (values as Record<string, unknown>)[f] = before[f];
   }
+  // Never wipe a stored field the form failed to load: emptying one is
+  // accepted only when the editor says they emptied it on purpose.
+  const unloaded = unloadedFields(before, values, data.clearedFields);
+  if (unloaded.length) throw unloadedFieldsError(unloaded, before);
   const changed = EDITABLE.filter((f) => !same(before[f], values[f]));
   if (!changed.length) {
     throw new LibraryError('bad_request', 'Nothing changed. Edit a field before saving.');

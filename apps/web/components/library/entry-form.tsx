@@ -36,6 +36,15 @@ import { Alert, Button, Card, SelectField, TextField } from '@tm/ui';
 import { useRouter } from 'next/navigation';
 import { useEffect, useId, useState, type ReactNode, type TextareaHTMLAttributes } from 'react';
 import { apiClient } from '@/lib/api-client';
+import {
+  clearedProfileFields,
+  loadProfileDraft,
+  profileToRecord,
+  unloadedFieldsMessage,
+  unloadedProfileFields,
+  type PairDraft,
+  type ParameterDraft,
+} from '@/lib/library-profile-form';
 import { codeOption } from '@/lib/library-text';
 
 /**
@@ -71,34 +80,6 @@ interface SourceDraft {
   title: string;
   url: string;
   citation: string;
-}
-
-interface ParameterDraft {
-  name: string;
-  value: string;
-  unit: string;
-}
-
-/** A method or kind plus its detail (sizing, stop, schedule, universe). */
-interface PairDraft {
-  choice: string;
-  detail: string;
-}
-
-function toPair(
-  value: { detail?: string | undefined } | null | undefined,
-  choice: string | undefined,
-): PairDraft {
-  return { choice: choice ?? 'unspecified', detail: value?.detail ?? '' };
-}
-
-/**
- * Back to the record. "Not specified" with no detail stays null when it was
- * null, so an untouched field does not count as a change.
- */
-function fromPair(d: PairDraft, key: string, wasNull: boolean): unknown {
-  if (d.choice === 'unspecified' && !d.detail.trim() && wasNull) return null;
-  return { [key]: d.choice, ...(d.detail.trim() ? { detail: d.detail } : {}) };
 }
 
 const UNIT_LABELS: Record<DurationUnit, string> = {
@@ -190,21 +171,17 @@ export function LibraryEntryForm({
     entry?.relatedEntries.map((r) => r.registrationNumber).join(', ') ?? '',
   );
   const [builtStrategyId, setBuiltStrategyId] = useState(entry?.builtStrategyId ?? '');
-  const [direction, setDirection] = useState<LibraryDirection | ''>(entry?.direction ?? '');
-  const [parameters, setParameters] = useState<ParameterDraft[]>(
-    entry?.parameters.map((p) => ({ name: p.name, value: p.value, unit: p.unit ?? '' })) ?? [],
-  );
-  const [sizing, setSizing] = useState(
-    toPair(entry?.positionSizing, entry?.positionSizing?.method),
-  );
-  const [stop, setStop] = useState(toPair(entry?.stopLoss, entry?.stopLoss?.method));
-  const [schedule, setSchedule] = useState(
-    toPair(entry?.rebalanceSchedule, entry?.rebalanceSchedule?.schedule),
-  );
-  const [universe, setUniverse] = useState(toPair(entry?.universe, entry?.universe?.kind));
-  const [maturity, setMaturity] = useState<LibraryMaturity>(entry?.maturity ?? 'researched');
-  const [keyRisks, setKeyRisks] = useState(entry?.keyRisks ?? '');
-  const [dataNeeds, setDataNeeds] = useState<DataNeed[]>(entry?.dataNeeds ?? []);
+  // The stored profile as the form opened it; saves compare against this.
+  const [loaded] = useState(() => loadProfileDraft(entry));
+  const [direction, setDirection] = useState<LibraryDirection | ''>(loaded.direction);
+  const [parameters, setParameters] = useState<ParameterDraft[]>(loaded.parameters);
+  const [sizing, setSizing] = useState<PairDraft>(loaded.sizing);
+  const [stop, setStop] = useState<PairDraft>(loaded.stop);
+  const [schedule, setSchedule] = useState<PairDraft>(loaded.schedule);
+  const [universe, setUniverse] = useState<PairDraft>(loaded.universe);
+  const [maturity, setMaturity] = useState<LibraryMaturity>(loaded.maturity);
+  const [keyRisks, setKeyRisks] = useState(loaded.keyRisks);
+  const [dataNeeds, setDataNeeds] = useState<DataNeed[]>(loaded.dataNeeds);
   const [changeNote, setChangeNote] = useState('');
   const [preview, setPreview] = useState<{ number?: string; error?: string }>({});
   const [pending, setPending] = useState(false);
@@ -251,6 +228,26 @@ export function LibraryEntryForm({
     setPending(true);
     setError(undefined);
     setFieldErrors({});
+    const profile = {
+      direction,
+      parameters,
+      sizing,
+      stop,
+      schedule,
+      universe,
+      maturity,
+      keyRisks,
+      dataNeeds,
+    };
+    if (mode === 'edit') {
+      // Refuse rather than wipe a stored field the form did not load.
+      const unloaded = unloadedProfileFields(entry, loaded);
+      if (unloaded.length) {
+        setError(unloadedFieldsMessage(unloaded));
+        setPending(false);
+        return;
+      }
+    }
     const fields = {
       name,
       category: category || undefined,
@@ -269,19 +266,7 @@ export function LibraryEntryForm({
       sources,
       relatedEntries: splitList(related),
       builtStrategyId: builtStrategyId || null,
-      direction: direction || null,
-      parameters: parameters.map((p) => ({
-        name: p.name,
-        value: p.value,
-        ...(p.unit.trim() ? { unit: p.unit } : {}),
-      })),
-      positionSizing: fromPair(sizing, 'method', !entry?.positionSizing),
-      stopLoss: fromPair(stop, 'method', !entry?.stopLoss),
-      rebalanceSchedule: fromPair(schedule, 'schedule', !entry?.rebalanceSchedule),
-      maturity,
-      keyRisks,
-      dataNeeds,
-      universe: fromPair(universe, 'kind', !entry?.universe),
+      ...profileToRecord(profile, entry),
     };
     try {
       if (mode === 'register') {
@@ -297,6 +282,7 @@ export function LibraryEntryForm({
           ...fields,
           changeNote,
           rowVersion: entry.rowVersion,
+          clearedFields: clearedProfileFields(entry, loaded, profile),
         } as never);
         router.push(`/library/${entry.registrationNumber}`);
         router.refresh();
