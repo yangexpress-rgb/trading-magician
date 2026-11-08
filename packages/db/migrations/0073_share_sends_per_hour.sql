@@ -1,4 +1,4 @@
--- O101: the hourly limit counts sends, as N123 says ("20 sends an hour"), not
+-- O104: the hourly limit counts sends, as N123 says ("20 sends an hour"), not
 -- share rows. Every share of one send is inserted in one transaction, so they
 -- share created_at (now() is the transaction's start); distinct created_at
 -- values are sends. The current send's own rows are left out, so a send of
