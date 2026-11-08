@@ -119,7 +119,7 @@ export default async function StrategyLabPage({
             name="q"
             type="search"
             defaultValue={q.q ?? ''}
-            placeholder="Name, description or tag"
+            placeholder="Name, number, description or tag"
           />
         </div>
         <SelectField label="Status" name="status" defaultValue={q.status?.[0] ?? ''}>
