@@ -2,6 +2,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
 import { unlinkAccountStrategies } from './library-lab';
+import { closeSharesForAccount } from './sharing';
 import { strategies } from './schema';
 import { stopStrategy } from './strategies';
 
@@ -38,6 +39,8 @@ export async function prepareAccountDeletion(
   }
   // Library records its strategies built go back to Not built (ADR 0054).
   await unlinkAccountStrategies(tx, userId);
+  // Shares it sent are withdrawn and shares waiting for it declined (ADR 0056).
+  await closeSharesForAccount(tx);
   await recordAudit(tx, {
     userId,
     actorType: 'user',

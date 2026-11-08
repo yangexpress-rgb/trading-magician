@@ -47,6 +47,7 @@ import { activeOptionsFeed, addOptionUnderlyings, listOptionUniverse } from './o
 import { demoDataEnabled } from './demo';
 import { recordAudit } from './audit';
 import { preferredLegAccountId } from './leg-accounts';
+import { sharedProvenance, type SharedProvenance } from './share-provenance';
 import { assertWithinLimit } from './entitlements';
 import { notify } from './notifications';
 import { cancelWorkingOrders, closePositions, listPositions } from './order-views';
@@ -133,6 +134,8 @@ export interface StrategyListQuery {
   updatedFrom?: Date | undefined;
   updatedTo?: Date | undefined;
   archived?: 'exclude' | 'include' | 'only' | undefined;
+  /** Only copies received by sharing (ADR 0056). */
+  shared?: boolean | undefined;
   sort?: StrategySort | undefined;
   direction?: 'asc' | 'desc' | undefined;
   limit?: number | undefined;
@@ -153,6 +156,8 @@ export interface StrategySummary {
   instruments: { id: string; symbol: string }[];
   /** The newest back test of any version, or null when none has run. */
   latestBacktest: StrategyLatestBacktest | null;
+  /** A copy received by sharing (ADR 0056): the list shows a Shared badge. */
+  shared: boolean;
   archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -190,6 +195,7 @@ export async function listStrategies(
     );
   }
   if (query.statuses?.length) where.push(inArray(strategies.status, [...query.statuses]));
+  if (query.shared) where.push(isNotNull(strategies.receivedShareId));
   if (query.updatedFrom) where.push(gte(strategies.updatedAt, query.updatedFrom));
   if (query.updatedTo) where.push(lt(strategies.updatedAt, query.updatedTo));
   if (query.instrumentId) {
@@ -280,6 +286,7 @@ export async function listStrategies(
         .filter((u) => u.strategyId === s.id)
         .map((u) => ({ id: u.id, symbol: u.symbol })),
       latestBacktest: latestByStrategy.get(s.id) ?? null,
+      shared: s.receivedShareId !== null,
       archivedAt: s.archivedAt,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
@@ -300,6 +307,8 @@ export interface StrategyDetail {
   name: string;
   /** Its Strategy Library record (ADR 0054); null until the first save with instruments. */
   library: StrategyLibraryRecord | null;
+  /** Who shared this copy (ADR 0056); null for a strategy made here. */
+  sharedBy: SharedProvenance | null;
   description: string;
   tags: string[];
   status: StrategyStatus;
@@ -368,6 +377,7 @@ export async function getStrategy(tx: Transaction, id: string): Promise<Strategy
     id: row.id,
     name: row.name,
     library: await strategyLibraryRecord(tx, row.libraryEntryId),
+    sharedBy: await sharedProvenance(tx, row.receivedShareId),
     description: row.description,
     tags: row.tags,
     status: row.status,
@@ -656,6 +666,8 @@ export interface CreateStrategyInput {
   definition?: unknown;
   /** The Library entry to link, or a new record (the default). */
   library?: LibraryChoice | undefined;
+  /** Set only when accepting a share (ADR 0056): the share this copy comes from. */
+  receivedShareId?: string | undefined;
 }
 
 export async function createStrategy(
@@ -682,6 +694,7 @@ export async function createStrategy(
       baseCurrency: profile?.baseCurrency ?? 'USD',
       timezone: profile?.timezone ?? 'America/New_York',
       defaultAccountId: accountId,
+      receivedShareId: input.receivedShareId ?? null,
     })
     .returning({ id: strategies.id });
   if (!row) throw new Error('Failed to create strategy');

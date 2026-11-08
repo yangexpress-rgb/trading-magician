@@ -13,6 +13,7 @@ import {
   OrderError,
   PlanLimitError,
   SealError,
+  ShareError,
   provisionWorkspace,
   rateLimitHit,
   StrategyError,
@@ -88,7 +89,7 @@ export interface ApiContext {
   tx: <T>(fn: (tx: Transaction) => Promise<T>) => Promise<T>;
 }
 
-function errorResponse(
+export function errorResponse(
   code: ApiErrorCode,
   message: string,
   extra: Partial<ApiErrorBody['error']> = {},
@@ -176,6 +177,9 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       if ('reportId' in params && !UUID.test(params.reportId ?? '')) {
         return errorResponse('not_found', 'Company page not found');
       }
+      if ('shareId' in params && !UUID.test(params.shareId ?? '')) {
+        return errorResponse('not_found', 'Share not found');
+      }
       if ('brokerId' in params && !UUID.test(params.brokerId ?? '')) {
         return errorResponse('not_found', 'Trading platform not found');
       }
@@ -227,6 +231,7 @@ export function api<P extends Record<string, string> = Record<string, never>>(
         // A misconfigured key; the message names no secret.
         return errorResponse('unavailable', 'Secure credential storage is not set up correctly');
       }
+      if (error instanceof ShareError) return errorResponse(error.code, error.message);
       if (error instanceof LibraryError) {
         return errorResponse(error.code, error.message, {
           ...(error.issues ? { issues: error.issues } : {}),
