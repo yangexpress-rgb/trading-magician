@@ -523,6 +523,87 @@ describe('declining, withdrawing and expiring', () => {
   });
 });
 
+describe('sharing several at once', () => {
+  const sent = async () => (await as(u.c, (tx) => listShares(tx, u.c, { box: 'sent' }))).length;
+
+  it('shares each one with each person in one send', async () => {
+    const shares = await as(u.c, (tx) =>
+      createShares(tx, u.c, {
+        sources: [
+          { kind: 'library', number: num(2) },
+          { kind: 'library', number: num(3) },
+          { kind: 'library', number: num(2).toLowerCase() },
+        ],
+        recipients: ['U0001', 'U0003'],
+        note: 'A few to try',
+      }),
+    );
+    expect(shares).toHaveLength(4);
+    expect(new Set(shares.map((s) => `${s.sourceNumber} ${s.recipient.code}`))).toEqual(
+      new Set([`${num(2)} U0001`, `${num(2)} U0003`, `${num(3)} U0001`, `${num(3)} U0003`]),
+    );
+    expect(shares.every((s) => s.note === 'A few to try')).toBe(true);
+  });
+
+  it('refuses the whole send, naming the number, when one can’t be shared', async () => {
+    const before = await sent();
+    await refused(
+      as(u.c, (tx) =>
+        createShares(tx, u.c, {
+          sources: [
+            { kind: 'library', number: num(4) },
+            { kind: 'library', number: num(2) },
+          ],
+          recipients: ['U0003'],
+        }),
+      ),
+      new RegExp(`^${num(2)}: Already shared with U0003`),
+    );
+    await refused(
+      as(u.c, (tx) =>
+        createShares(tx, u.c, {
+          sources: [
+            { kind: 'library', number: num(4) },
+            { kind: 'library', number: 'S99999-SD' },
+          ],
+          recipients: ['U0003'],
+        }),
+      ),
+      /S99999-SD is not in the Library/,
+    );
+    expect(await sent()).toBe(before);
+  });
+
+  it('needs exactly one of source and sources', async () => {
+    await refused(
+      as(u.c, (tx) => createShares(tx, u.c, { recipients: ['U0003'] })),
+      /Choose what to share/,
+    );
+    await refused(
+      as(u.c, (tx) =>
+        createShares(tx, u.c, {
+          source: { kind: 'library', number: num(4) },
+          sources: [{ kind: 'library', number: num(5) }],
+          recipients: ['U0003'],
+        }),
+      ),
+      /Choose what to share/,
+    );
+    await refused(
+      as(u.c, (tx) =>
+        createShares(tx, u.c, {
+          sources: Array.from({ length: 21 }, (_, i) => ({
+            kind: 'library' as const,
+            number: `S${String(i + 1).padStart(5, '0')}-SD`,
+          })),
+          recipients: ['U0003'],
+        }),
+      ),
+      /up to 20 at a time/,
+    );
+  });
+});
+
 describe('the copies never reuse a number', () => {
   it('keeps one live strategy per record and every number unique', async () => {
     const rows = await t.owner.db

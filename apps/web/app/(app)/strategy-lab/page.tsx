@@ -22,6 +22,12 @@ import {
 } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import {
+  ShareCheckAll,
+  ShareCheckbox,
+  ShareSelectedBar,
+  ShareSelection,
+} from '@/components/sharing/share-selection';
 import { StrategyStatusBadge } from '@/components/strategy-status-badge';
 import { formatPct } from '@/lib/backtest-text';
 import { isAdmin } from '@/lib/server/admin';
@@ -105,6 +111,15 @@ export default async function StrategyLabPage({
     q.q || q.status || q.instrumentId || days || q.archived !== 'exclude' || q.shared,
   );
   const admin = await isAdmin();
+  // Only numbered strategies can be shared (ADR 0056).
+  const shareItem = (s: StrategySummary) =>
+    s.libraryNumber
+      ? {
+          source: { kind: 'lab' as const, strategyId: s.id },
+          label: `${s.libraryNumber} ${s.name}`,
+        }
+      : null;
+  const shareable = items.map(shareItem).filter((i) => i !== null);
 
   return (
     <>
@@ -190,13 +205,19 @@ export default async function StrategyLabPage({
             : 'Create a strategy to start defining entry and exit rules.'}
         </EmptyState>
       ) : (
-        <>
-          <p className="mb-2 text-sm text-ink-muted" aria-live="polite">
-            {total === 1 ? '1 strategy' : `${total} strategies`}
-          </p>
+        <ShareSelection>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-ink-muted" aria-live="polite">
+              {total === 1 ? '1 strategy' : `${total} strategies`}
+            </p>
+            <ShareSelectedBar isAdmin={admin} noun="strategies" />
+          </div>
           <Table label="Strategies">
             <thead>
               <tr>
+                <Th>
+                  <ShareCheckAll items={shareable} noun="strategies" />
+                </Th>
                 <Th>Number</Th>
                 <Th>Name</Th>
                 <Th>Status</Th>
@@ -211,66 +232,70 @@ export default async function StrategyLabPage({
               </tr>
             </thead>
             <tbody>
-              {items.map((s) => (
-                <tr key={s.id}>
-                  {/* The Strategy Library number (ADR 0054); never editable. */}
-                  <Td className="whitespace-nowrap font-mono text-xs">
-                    {s.libraryNumber ? (
-                      <Link href={`/library/${s.libraryNumber}`}>{s.libraryNumber}</Link>
-                    ) : (
-                      <span className="text-ink-muted" title={NUMBER_PENDING_TEXT}>
-                        —
-                      </span>
-                    )}
-                  </Td>
-                  <Td>
-                    <Link href={`/strategy-lab/${s.id}`} className="font-medium">
-                      {s.name}
-                    </Link>
-                    {s.archivedAt && (
-                      <Badge tone="neutral" className="ml-2">
-                        Archived
-                      </Badge>
-                    )}
-                    {s.shared && (
-                      <Badge tone="info" icon={false} className="ml-2">
-                        Shared
-                      </Badge>
-                    )}
-                    {s.tags.length > 0 && (
-                      <p className="mt-0.5 text-xs text-ink-muted">{s.tags.join(' · ')}</p>
-                    )}
-                  </Td>
-                  <Td>
-                    <StrategyStatusBadge status={s.status} />
-                  </Td>
-                  <Td className="text-xs">
-                    {s.instruments.length ? s.instruments.map((i) => i.symbol).join(', ') : '—'}
-                  </Td>
-                  <Td>{s.currentVersionNo ? `v${s.currentVersionNo}` : 'Draft'}</Td>
-                  <Td>{s.accountMode ? <ModeBadge mode={s.accountMode} /> : '—'}</Td>
-                  <Td>
-                    <LatestBacktest run={s.latestBacktest} prefs={prefs} />
-                  </Td>
-                  <Td className="whitespace-nowrap">{formatDateTime(s.updatedAt, prefs)}</Td>
-                  <Td className="text-right">
-                    <RowActions
-                      strategy={{
-                        id: s.id,
-                        name: s.name,
-                        status: s.status,
-                        archived: s.archivedAt !== null,
-                        rowVersion: s.rowVersion,
-                        libraryNumber: s.libraryNumber,
-                      }}
-                      isAdmin={admin}
-                    />
-                  </Td>
-                </tr>
-              ))}
+              {items.map((s) => {
+                const item = shareItem(s);
+                return (
+                  <tr key={s.id}>
+                    <Td>{item && <ShareCheckbox item={item} />}</Td>
+                    {/* The Strategy Library number (ADR 0054); never editable. */}
+                    <Td className="whitespace-nowrap font-mono text-xs">
+                      {s.libraryNumber ? (
+                        <Link href={`/library/${s.libraryNumber}`}>{s.libraryNumber}</Link>
+                      ) : (
+                        <span className="text-ink-muted" title={NUMBER_PENDING_TEXT}>
+                          —
+                        </span>
+                      )}
+                    </Td>
+                    <Td>
+                      <Link href={`/strategy-lab/${s.id}`} className="font-medium">
+                        {s.name}
+                      </Link>
+                      {s.archivedAt && (
+                        <Badge tone="neutral" className="ml-2">
+                          Archived
+                        </Badge>
+                      )}
+                      {s.shared && (
+                        <Badge tone="info" icon={false} className="ml-2">
+                          Shared
+                        </Badge>
+                      )}
+                      {s.tags.length > 0 && (
+                        <p className="mt-0.5 text-xs text-ink-muted">{s.tags.join(' · ')}</p>
+                      )}
+                    </Td>
+                    <Td>
+                      <StrategyStatusBadge status={s.status} />
+                    </Td>
+                    <Td className="text-xs">
+                      {s.instruments.length ? s.instruments.map((i) => i.symbol).join(', ') : '—'}
+                    </Td>
+                    <Td>{s.currentVersionNo ? `v${s.currentVersionNo}` : 'Draft'}</Td>
+                    <Td>{s.accountMode ? <ModeBadge mode={s.accountMode} /> : '—'}</Td>
+                    <Td>
+                      <LatestBacktest run={s.latestBacktest} prefs={prefs} />
+                    </Td>
+                    <Td className="whitespace-nowrap">{formatDateTime(s.updatedAt, prefs)}</Td>
+                    <Td className="text-right">
+                      <RowActions
+                        strategy={{
+                          id: s.id,
+                          name: s.name,
+                          status: s.status,
+                          archived: s.archivedAt !== null,
+                          rowVersion: s.rowVersion,
+                          libraryNumber: s.libraryNumber,
+                        }}
+                        isAdmin={admin}
+                      />
+                    </Td>
+                  </tr>
+                );
+              })}
             </tbody>
           </Table>
-        </>
+        </ShareSelection>
       )}
     </>
   );

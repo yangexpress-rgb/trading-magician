@@ -47,6 +47,8 @@ export class ShareError extends Error {
 
 /** Most recipients one send may name (O99). The admin's "All members" is not capped. */
 export const SHARE_MAX_RECIPIENTS = 10;
+/** Strategies (or records) one send can share (ADR 0056, N125). */
+export const SHARE_MAX_SOURCES = 20;
 export const SHARE_NOTE_MAX = 500;
 /** A tag every shared copy carries in the Library. */
 export const SHARED_TAG = 'shared';
@@ -212,7 +214,13 @@ export type ShareSource = z.infer<typeof shareSourceSchema>;
 
 export const createShareSchema = z
   .object({
-    source: shareSourceSchema,
+    /** One thing to share; or `sources` for several at once (N125). */
+    source: shareSourceSchema.optional(),
+    sources: z
+      .array(shareSourceSchema)
+      .min(1, 'Choose what to share')
+      .max(SHARE_MAX_SOURCES, `Share up to ${SHARE_MAX_SOURCES} at a time`)
+      .optional(),
     /** Member IDs or emails, exactly as typed. */
     recipients: z
       .array(z.string().trim().min(1).max(320))
@@ -226,7 +234,11 @@ export const createShareSchema = z
       .max(SHARE_NOTE_MAX, `Keep the note to ${SHARE_NOTE_MAX} characters`)
       .optional(),
   })
-  .strict();
+  .strict()
+  .refine((d) => Boolean(d.source) !== Boolean(d.sources), {
+    message: 'Choose what to share',
+    path: ['sources'],
+  });
 export type CreateShareInput = z.input<typeof createShareSchema>;
 
 async function buildSnapshot(
@@ -286,9 +298,13 @@ async function buildSnapshot(
   };
 }
 
+const sourceKey = (s: ShareSource) =>
+  s.kind === 'library' ? `library:${s.number.toUpperCase()}` : `lab:${s.strategyId}`;
+
 /**
- * Shares one source with each recipient (one share each). All or nothing: a
- * recipient who can't receive shares, or a limit, refuses the whole send.
+ * Shares each source with each recipient (one share per pair). All or nothing:
+ * a recipient who can't receive shares, a source that can't be shared, or a
+ * limit refuses the whole send.
  */
 export async function createShares(
   tx: Transaction,
@@ -315,17 +331,35 @@ export async function createShares(
   }
   if (people.size === 0) throw new ShareError('bad_request', 'Choose who to share with');
 
-  const { kind, entry, strategyId, snapshot } = await buildSnapshot(tx, data.source);
+  const unique = new Map<string, ShareSource>();
+  for (const src of data.sources ?? (data.source ? [data.source] : [])) {
+    unique.set(sourceKey(src), src);
+  }
+  const many = unique.size > 1;
+  // Every source is checked before anything is shared.
+  const built = [];
+  for (const src of unique.values()) built.push(await buildSnapshot(tx, src));
   const ids: string[] = [];
-  for (const member of people.values()) {
-    const rows = await call(() =>
-      tx.execute<{ id: string }>(
-        sql`select share_create(${member.userId}::uuid, ${kind}, ${entry.id}::uuid, ${strategyId}::uuid, ${JSON.stringify(snapshot)}::jsonb, ${data.note ?? null}) as id`,
-      ),
-    );
-    const id = rows[0]?.id;
-    if (!id) throw new Error('share_create returned no id');
-    ids.push(id);
+  for (const { kind, entry, strategyId, snapshot } of built) {
+    for (const member of people.values()) {
+      let rows;
+      try {
+        rows = await call(() =>
+          tx.execute<{ id: string }>(
+            sql`select share_create(${member.userId}::uuid, ${kind}, ${entry.id}::uuid, ${strategyId}::uuid, ${JSON.stringify(snapshot)}::jsonb, ${data.note ?? null}) as id`,
+          ),
+        );
+      } catch (e) {
+        // Say which one, when a send has several.
+        if (many && e instanceof ShareError) {
+          throw new ShareError(e.code, `${entry.registrationNumber}: ${e.message}`);
+        }
+        throw e;
+      }
+      const id = rows[0]?.id;
+      if (!id) throw new Error('share_create returned no id');
+      ids.push(id);
+    }
   }
   return listShares(tx, senderId, { box: 'sent', ids });
 }

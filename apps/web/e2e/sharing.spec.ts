@@ -145,3 +145,31 @@ test('declines and withdraws', async ({ page, newPage }) => {
   await page.goto('/sharing?box=sent');
   await expect(page.getByRole('row', { name: /S00004-SD/ })).toContainText('Declined');
 });
+
+test('shares several Library records in one send', async ({ page, newPage }) => {
+  const ben = await newPage();
+  await signUpAndVerify(ben, uniqueEmail('share-many'), 'Manny Recipient');
+  const code = await memberId(ben);
+  await signUpAndVerify(page, uniqueEmail('share-many-sender'), 'Multi Sender');
+
+  await page.goto('/library');
+  await expect(page.getByRole('button', { name: 'Share selected', exact: true })).toBeDisabled();
+  await page.getByRole('checkbox', { name: /^Select S00006-SD/ }).check();
+  await page.getByRole('checkbox', { name: /^Select S00007-SY/ }).check();
+  await page.getByRole('button', { name: 'Share selected (2)' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { name: 'Share 2 records' })).toBeVisible();
+  await expect(dialog.getByRole('list', { name: 'Sharing these' })).toContainText('S00007-SY');
+  await dialog.getByLabel('Member ID or email').fill(code);
+  await dialog.getByRole('button', { name: 'Add' }).click();
+  await expect(dialog.getByRole('list', { name: 'Sharing with' })).toContainText(code);
+  await page.screenshot({ path: 'test-results/sharing-many.png', fullPage: true });
+  await dialog.getByRole('button', { name: 'Share', exact: true }).click();
+  await expect(dialog.getByText(/Made 2 shares/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByRole('button', { name: 'Share selected', exact: true })).toBeDisabled();
+
+  await ben.goto('/sharing');
+  await expect(ben.getByRole('row', { name: /S00006-SD/ })).toContainText('Waiting for an answer');
+  await expect(ben.getByRole('row', { name: /S00007-SY/ })).toContainText('Waiting for an answer');
+});
