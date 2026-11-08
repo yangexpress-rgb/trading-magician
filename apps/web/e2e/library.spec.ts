@@ -13,7 +13,6 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   await expect(page.getByRole('heading', { level: 1, name: 'Strategy Library' })).toBeVisible();
   const rows = page.getByRole('table', { name: 'Strategy Library entries' }).locator('tbody tr');
   await expect(rows.first()).toContainText('S00001-SD');
-  await expect(rows.first()).toContainText('Formerly SDS-0001');
   await expect(rows.nth(17)).toContainText('S00018-AM');
   await expect(rows.nth(30)).toContainText('S00031-FS');
 
@@ -36,7 +35,8 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   await page.goto('/library/SDS-0005');
   await expect(page).toHaveURL(/\/library\/S00005-SD$/);
   await expect(page.getByText('S00005-SD', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('Formerly SDS-0005', { exact: true })).toBeVisible();
+  // Former numbers resolve but are not shown (Yong, 2026-11-08).
+  await expect(page.getByText(/^Formerly /)).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Parameters' })).toBeVisible();
   await expect(page.getByRole('cell', { name: 'Entry channel' })).toBeVisible();
   await expect(page.getByText('Book', { exact: true })).toBeVisible();

@@ -242,11 +242,6 @@ export default async function LibraryPage({
                   <tr key={e.id}>
                     <Td className="whitespace-nowrap font-mono font-semibold">
                       <Link href={`/library/${e.registrationNumber}`}>{e.registrationNumber}</Link>
-                      {e.formerNumbers.length > 0 && (
-                        <p className="mt-0.5 text-xs font-normal text-ink-muted">
-                          Formerly {e.formerNumbers.join(', ')}
-                        </p>
-                      )}
                     </Td>
                     <Td>
                       <Link href={`/library/${e.registrationNumber}`} className="font-medium">
