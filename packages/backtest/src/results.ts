@@ -185,6 +185,8 @@ export interface ConditionCheck {
    * after a date whose signal came from the approximate history rebuild.
    */
   optionsAsOf?: string[];
+  /** The earnings, deal and rate records read, e.g. "earnings 2026-10-30" (ADR 0058). */
+  eventsAsOf?: string[];
 }
 
 /**

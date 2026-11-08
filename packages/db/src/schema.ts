@@ -2384,3 +2384,182 @@ export const strategyShares = pgTable(
     index('strategy_share_sender_idx').on(t.senderId, t.createdAt),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Earnings, deals and rates (free data feeds brief v1, ADR 0058). Public data
+// kept once for every tenant, like the options signals: only the worker
+// (tm_secrets) writes it; the app login reads it.
+// ---------------------------------------------------------------------------
+
+const eventValue = (name: string) => numeric(name, { mode: 'string' });
+
+/** One reported earnings release: an 8-K with Item 2.02 on EDGAR (brief §3). */
+export const earningsReleases = pgTable(
+  'earnings_release',
+  {
+    id: id(),
+    symbol: text('symbol').notNull(),
+    cik: text('cik').notNull(),
+    fiscalQuarterEnd: date('fiscal_quarter_end', { mode: 'string' }).notNull(),
+    /** The 8-K's acceptance time; 17:30 New York on the filing date when EDGAR gave none. */
+    announcedAt: timestamp('announced_at', { withTimezone: true }).notNull(),
+    announcedDate: date('announced_date', { mode: 'string' }).notNull(),
+    timeKnown: boolean('time_known').notNull().default(true),
+    /** Diluted EPS as filed for the quarter; null until the 10-Q or 10-K is on EDGAR. */
+    reportedEps: eventValue('reported_eps'),
+    estimatedEps: eventValue('estimated_eps'),
+    /** The calendar feed that supplied the estimate, when there is one. */
+    estimateSource: text('estimate_source'),
+    surprisePct: eventValue('surprise_pct'),
+    source: text('source').notNull().default('edgar'),
+    accession: text('accession').notNull(),
+    filingUrl: text('filing_url').notNull(),
+    recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('earnings_release_quarter_uq').on(t.symbol, t.fiscalQuarterEnd),
+    unique('earnings_release_accession_uq').on(t.symbol, t.accession),
+    check('earnings_release_source', sql`${t.source} = 'edgar'`),
+    check(
+      'earnings_release_estimate_source',
+      sql`${t.estimateSource} is null or ${t.estimateSource} in ('fmp', 'finnhub')`,
+    ),
+    index('earnings_release_symbol_idx').on(t.symbol, t.announcedAt),
+  ],
+);
+
+/** The time-series earnings surprise of each release (brief §3, §7.1). */
+export const earningsSue = pgTable(
+  'earnings_sue',
+  {
+    symbol: text('symbol').notNull(),
+    fiscalQuarterEnd: date('fiscal_quarter_end', { mode: 'string' }).notNull(),
+    announcedAt: timestamp('announced_at', { withTimezone: true }).notNull(),
+    epsQ: eventValue('eps_q').notNull(),
+    epsQMinus4: eventValue('eps_q_minus_4').notNull(),
+    diffSd: eventValue('diff_sd'),
+    sue: eventValue('sue'),
+    source: text('source').notNull(),
+    computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: 'earnings_sue_pk', columns: [t.symbol, t.fiscalQuarterEnd] }),
+    check('earnings_sue_source', sql`${t.source} in ('rebuilt', 'recorded')`),
+  ],
+);
+
+/** Scheduled release dates from a calendar feed (FMP or Finnhub free), convenience data only. */
+export const earningsCalendar = pgTable(
+  'earnings_calendar',
+  {
+    symbol: text('symbol').notNull(),
+    scheduledDate: date('scheduled_date', { mode: 'string' }).notNull(),
+    provider: text('provider').notNull(),
+    /** 'bmo' (before the open), 'amc' (after the close), or null. */
+    timeHint: text('time_hint'),
+    estimatedEps: eventValue('estimated_eps'),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: 'earnings_calendar_pk', columns: [t.symbol, t.scheduledDate] }),
+    check('earnings_calendar_provider', sql`${t.provider} in ('fmp', 'finnhub')`),
+  ],
+);
+
+/** One merger deal from the app's EDGAR tracker, updated as its status changes (brief §3). */
+export const dealEvents = pgTable(
+  'deal_event',
+  {
+    /** D00001, D00002 … gapless in the order deals are recorded. */
+    dealId: text('deal_id').primaryKey(),
+    seq: integer('seq').notNull(),
+    targetSymbol: text('target_symbol'),
+    targetCik: text('target_cik'),
+    targetName: text('target_name').notNull(),
+    acquirerName: text('acquirer_name'),
+    announcedDate: date('announced_date', { mode: 'string' }).notNull(),
+    announcedAt: timestamp('announced_at', { withTimezone: true }).notNull(),
+    offerPrice: eventValue('offer_price'),
+    consideration: text('consideration').notNull(),
+    status: text('status').notNull(),
+    sourceFilingUrl: text('source_filing_url').notNull(),
+    accession: text('accession').notNull(),
+    confidence: text('confidence').notNull(),
+    /** What the parser could not pin down, for the Deals list. */
+    parseNote: text('parse_note'),
+    source: text('source').notNull(),
+    lastUpdated: timestamp('last_updated', { withTimezone: true }).notNull().defaultNow(),
+    /** When the tracker last re-scanned the target's filings for a status change. */
+    checkedAt: timestamp('checked_at', { withTimezone: true }),
+  },
+  (t) => [
+    unique('deal_event_seq_uq').on(t.seq),
+    unique('deal_event_accession_uq').on(t.accession),
+    check('deal_event_id_format', sql`${t.dealId} ~ '^D[0-9]{5,}$'`),
+    check('deal_event_consideration', sql`${t.consideration} in ('cash', 'stock', 'mixed', 'unknown')`),
+    check('deal_event_status', sql`${t.status} in ('announced', 'pending', 'closed', 'withdrawn')`),
+    check('deal_event_confidence', sql`${t.confidence} in ('high', 'low')`),
+    check('deal_event_source', sql`${t.source} in ('rebuilt', 'recorded')`),
+    check('deal_event_offer_positive', sql`${t.offerPrice} is null or ${t.offerPrice} > 0`),
+    index('deal_event_target_idx').on(t.targetSymbol, t.announcedDate),
+  ],
+);
+
+/** Each status change of a deal, append-only (brief §3). */
+export const dealStatusHistory = pgTable(
+  'deal_status_history',
+  {
+    id: id(),
+    dealId: text('deal_id')
+      .notNull()
+      .references(() => dealEvents.dealId),
+    changedAt: timestamp('changed_at', { withTimezone: true }).notNull(),
+    changedDate: date('changed_date', { mode: 'string' }).notNull(),
+    oldStatus: text('old_status').notNull(),
+    newStatus: text('new_status').notNull(),
+    sourceFilingUrl: text('source_filing_url').notNull(),
+    accession: text('accession').notNull(),
+  },
+  (t) => [
+    unique('deal_status_history_uq').on(t.dealId, t.accession),
+    index('deal_status_history_deal_idx').on(t.dealId, t.changedAt),
+  ],
+);
+
+/** FRED's 3-month T-bill rate per day, as a fraction (brief §3, §5.4). */
+export const ratesDaily = pgTable(
+  'rates_daily',
+  {
+    date: date('date', { mode: 'string' }).primaryKey(),
+    tbill3m: eventValue('tbill_3m').notNull(),
+    source: text('source').notNull().default('fred'),
+    recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check('rates_daily_source', sql`${t.source} = 'fred'`)],
+);
+
+/** Where each event job has got to: covered dates, last run and last error. */
+export const eventScanState = pgTable(
+  'event_scan_state',
+  {
+    job: text('job').primaryKey(),
+    coveredFrom: date('covered_from', { mode: 'string' }),
+    coveredTo: date('covered_to', { mode: 'string' }),
+    status: text('status').notNull().default('pending'),
+    lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+    lastOkAt: timestamp('last_ok_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    note: text('note'),
+  },
+  (t) => [
+    check(
+      'event_scan_state_job',
+      sql`${t.job} in ('earnings_scan', 'earnings_rebuild', 'deals_scan', 'deals_rebuild', 'calendar')`,
+    ),
+    check(
+      'event_scan_state_status',
+      sql`${t.status} in ('pending', 'running', 'done', 'skipped', 'failed')`,
+    ),
+  ],
+);

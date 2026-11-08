@@ -99,6 +99,30 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
        */
       OPTIONS_ALPACA_KEY_ID: z.string().min(8).max(100).optional(),
       OPTIONS_ALPACA_SECRET_KEY: z.string().min(8).max(200).optional(),
+      /**
+       * Earnings, deals and rates (free data feeds brief v1, ADR 0058): 'off'
+       * stops the EDGAR scans, the deal tracker, the calendar fetch and the rebuild.
+       */
+      EVENTS_RECORDING: z.enum(['on', 'off']).default('on'),
+      /**
+       * The contact the SEC asks automated clients to name, for the global
+       * EDGAR scans. Without it the worker uses the oldest platform admin's SEC
+       * EDGAR feed contact; with neither, the scans wait.
+       */
+      SEC_CONTACT_EMAIL: z.string().email().max(254).optional(),
+      /**
+       * The earnings calendar's kill switch (brief §9): which free-tier vendor
+       * the forward calendar comes from, or 'none' for EDGAR-only mode.
+       */
+      EARNINGS_CALENDAR_PROVIDER: z.enum(['fmp', 'finnhub', 'none']).default('fmp'),
+      /** Free-tier calendar keys; without them the admin's calendar feed key, else EDGAR-only. */
+      FMP_API_KEY: z.string().min(8).max(200).optional(),
+      FINNHUB_API_KEY: z.string().min(8).max(200).optional(),
+      /** Tests only: EDGAR's filings and the calendar vendors come from an in-process fake. */
+      EVENTS_FAKE: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((v) => v === 'true'),
       /** Tests only: CBOE's index history comes from an in-process fake (v1.2 item 5). */
       CBOE_FAKE: z
         .enum(['true', 'false'])
@@ -140,6 +164,9 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
   }
   if (env.NODE_ENV === 'production' && env.CBOE_FAKE && !source.E2E_TEST) {
     throw new Error('CBOE_FAKE is for tests only');
+  }
+  if (env.NODE_ENV === 'production' && env.EVENTS_FAKE && !source.E2E_TEST) {
+    throw new Error('EVENTS_FAKE is for tests only');
   }
   if (env.NODE_ENV === 'production' && env.SEC_FAKE && !source.E2E_TEST) {
     throw new Error('SEC_FAKE is for tests only');

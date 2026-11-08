@@ -1,6 +1,7 @@
 export {
   paddedCik,
   SEC_DATA_URL,
+  SEC_EFTS_URL,
   SEC_WWW_URL,
   SecClient,
   SecContactError,
@@ -32,3 +33,31 @@ export {
   pointInTimeObservations,
   trailingTwelveMonths,
 } from './point-in-time';
+export {
+  announcedDateOf,
+  earningsReleaseFilings,
+  fetchCompanyFacts,
+  fetchFilings,
+  matchQuarter,
+  quarterlyEps,
+  releaseSue,
+  type EdgarFiling,
+  type FiledQuarterEps,
+} from './earnings';
+export {
+  DEAL_SEARCHES,
+  dealFilingHit,
+  filingText,
+  looksLikeMerger,
+  nameKey,
+  parseDisplayName,
+  parseMergerFiling,
+  searchFilings,
+  statusChanges,
+  terminatesMerger,
+  type DealFilingHit,
+  type FilerName,
+  type ParsedDeal,
+  type SearchFilter,
+  type StatusChange,
+} from './deals';

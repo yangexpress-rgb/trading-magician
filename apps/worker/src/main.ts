@@ -44,6 +44,18 @@ import { resolveOptionsAlpacaKey } from './options/app-key';
 import { startLiveChainLoop, type LiveChainLoop } from './options/live-chain';
 import { startOptionsLoop, type OptionsLoop } from './options/loop';
 import { marketInputs } from './options/market-inputs';
+import {
+  FAKE_EVENTS_DATA_URL,
+  FAKE_EVENTS_EFTS_URL,
+  FAKE_EVENTS_WWW_URL,
+  FakeEdgarEvents,
+} from '@tm/sec/testing';
+import { fetchTickers, SecClient } from '@tm/sec';
+import { saveRates } from '@tm/db';
+import { EVENT_HISTORY_FROM } from '@tm/domain';
+import { finnhubCalendar, fmpCalendar, type CalendarSource } from './events/calendar';
+import { adminCredentialField } from './events/keys';
+import { startEventsLoop, type EventsLoop } from './events/loop';
 
 const env = loadWorkerEnv();
 const reporter = createErrorReporter({
@@ -75,6 +87,7 @@ let brokerChecks: BrokerCheckLoop | undefined;
 let valuations: ValuationLoop | undefined;
 let optionsLoop: OptionsLoop | undefined;
 let liveChains: LiveChainLoop | undefined;
+let eventsLoop: EventsLoop | undefined;
 let billing: BillingLoop | undefined;
 let heartbeat: HeartbeatLoop | undefined;
 let fakeTicker: ReturnType<typeof setInterval> | undefined;
@@ -296,6 +309,10 @@ if (databaseUrl) {
       history,
       fredUrl: env.FRED_CSV_URL,
       fixedRate: env.CBOE_OPTIONS_FAKE ? 0.04 : undefined,
+      // The same DTB3 fetch fills rates_daily for back tests (ADR 0058).
+      onRates: async (days) => {
+        await saveRates(db, days, EVENT_HISTORY_FROM);
+      },
     });
     // Research › Options asks for live chains whether or not the daily recording runs (ADR 0048).
     liveChains = startLiveChainLoop({ db, chains, inputs, logger });
@@ -331,6 +348,83 @@ if (databaseUrl) {
       logger.info('options recording started');
     }
     if (env.CBOE_OPTIONS_FAKE) logger.warn('CBOE options files come from a local fake');
+    if (env.EVENTS_RECORDING === 'on') {
+      // Earnings, deals and rates (ADR 0058): one global recording, like options data.
+      const warn = { warn: (obj: object, msg: string) => logger.warn(obj, msg) };
+      const fake = env.EVENTS_FAKE ? new FakeEdgarEvents({ now: () => new Date() }) : undefined;
+      const contact =
+        env.SEC_CONTACT_EMAIL ??
+        (fake
+          ? 'events-fake@example.test'
+          : await adminCredentialField({
+              db,
+              provider: 'sec',
+              field: 'contactEmail',
+              privateKey: credentialKey,
+              logger: warn,
+            }));
+      let secClient: SecClient | undefined;
+      try {
+        secClient = contact
+          ? new SecClient({
+              credentials: { contactEmail: contact },
+              ...(fake
+                ? {
+                    fetch: fake.fetch,
+                    wwwUrl: FAKE_EVENTS_WWW_URL,
+                    dataUrl: FAKE_EVENTS_DATA_URL,
+                    eftsUrl: FAKE_EVENTS_EFTS_URL,
+                    allowLocal: true,
+                  }
+                : {}),
+            })
+          : undefined;
+      } catch {
+        logger.warn('the SEC contact for event data is not an email address');
+      }
+      if (!secClient)
+        logger.warn(
+          'No SEC contact for earnings and deals (SEC_CONTACT_EMAIL unset and no admin SEC EDGAR feed): the EDGAR scans wait',
+        );
+      const keyFor = async (provider: 'fmp' | 'finnhub') =>
+        (provider === 'fmp' ? env.FMP_API_KEY : env.FINNHUB_API_KEY) ??
+        (await adminCredentialField({
+          db,
+          provider,
+          field: 'apiKey',
+          privateKey: credentialKey,
+          logger: warn,
+        }));
+      const calendar: CalendarSource[] = [];
+      if (env.EARNINGS_CALENDAR_PROVIDER !== 'none' && !fake) {
+        const order: ('fmp' | 'finnhub')[] =
+          env.EARNINGS_CALENDAR_PROVIDER === 'finnhub' ? ['finnhub', 'fmp'] : ['fmp', 'finnhub'];
+        for (const p of order) {
+          const apiKey = await keyFor(p);
+          if (apiKey)
+            calendar.push(p === 'fmp' ? fmpCalendar({ apiKey }) : finnhubCalendar({ apiKey }));
+        }
+      }
+      if (calendar.length === 0)
+        logger.info('earnings calendar: EDGAR-only mode (no FMP or Finnhub key, or switched off)');
+      let tickerCache: { at: number; value: Promise<Awaited<ReturnType<typeof fetchTickers>>> } | undefined;
+      eventsLoop = startEventsLoop({
+        db,
+        client: secClient,
+        tickers: (c) => {
+          if (!tickerCache || Date.now() - tickerCache.at > 12 * 3600_000) {
+            const value = fetchTickers(c);
+            tickerCache = { at: Date.now(), value };
+            value.catch(() => (tickerCache = undefined));
+          }
+          return tickerCache.value;
+        },
+        calendar,
+        refreshRates: (today) => inputs.riskFreeRate(today),
+        logger,
+      });
+      logger.info('event data recording started');
+    }
   }
   companies = startCompanyReportLoop({
     db,
@@ -365,6 +459,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         valuations?.stop(),
         optionsLoop?.stop(),
         liveChains?.stop(),
+        eventsLoop?.stop(),
         billing?.stop(),
         heartbeat?.stop(),
       ]);

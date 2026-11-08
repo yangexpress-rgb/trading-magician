@@ -61,9 +61,12 @@ export function describeValues(c: Comparison, check: ConditionCheck | undefined)
   if (!check) return '—';
   const values = comparedValues(c, check);
   // Options metrics read an end-of-day signal: say which day's (options brief v2 §5.3).
-  return check.optionsAsOf?.length
-    ? `${values} (options as of ${check.optionsAsOf.join(', ')})`
-    : values;
+  const notes = [
+    ...(check.optionsAsOf?.length ? [`options as of ${check.optionsAsOf.join(', ')}`] : []),
+    // Earnings, deal and rate metrics name the record they read (ADR 0058).
+    ...(check.eventsAsOf?.length ? [`from ${check.eventsAsOf.join(', ')}`] : []),
+  ];
+  return notes.length > 0 ? `${values} (${notes.join('; ')})` : values;
 }
 
 function comparedValues(c: Comparison, check: ConditionCheck): string {

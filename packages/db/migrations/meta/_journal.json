@@ -526,6 +526,13 @@
       "when": 1794162785347,
       "tag": "0074_share_no_hourly_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1794165718583,
+      "tag": "0075_events_data",
+      "breakpoints": true
     }
   ]
 }

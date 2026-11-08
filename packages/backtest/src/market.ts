@@ -1,5 +1,9 @@
 import {
   barField,
+  eventPointAt,
+  type EventData,
+  type EventMetricId,
+  type EventPoint,
   dailyClose,
   latestObservation,
   nyDate,
@@ -63,6 +67,8 @@ export class MarketView implements SeriesResolver {
     > = new Map(),
     /** End-of-day options signals by underlying id (options brief v2 §5.3), sorted by as-of date. */
     private readonly options: ReadonlyMap<string, readonly OptionSignal[]> = new Map(),
+    /** Earnings, deals and rates (free data feeds brief v1 §6), when the strategy reads any. */
+    private readonly events: EventData | undefined = undefined,
   ) {
     this.watchOnly = watchOnly;
     const ends = new Map<string, Set<number>>();
@@ -188,6 +194,23 @@ export class MarketView implements SeriesResolver {
     const value = signal?.values[field];
     if (!signal || value === null || value === undefined) return undefined;
     return { value: new Decimal(value), asOfDate: signal.asOfDate, source: signal.source };
+  }
+
+  /**
+   * An earnings, deal or rate metric as known at the end of the bar
+   * `barsBack` daily bars ago (now, for 0): the latest record on or before
+   * it (free data feeds brief v1 §6). The deal spread reads that bar's
+   * unadjusted close, as the offer price is in dollars of the day.
+   */
+  event(instrumentId: string, metric: EventMetricId, barsBack: number): EventPoint | undefined {
+    if (!this.events) return undefined;
+    const key = seriesKey(dailyClose(instrumentId, 0, 'none'));
+    const at = (this.pointers.get(key) ?? -1) - barsBack;
+    const bar = at >= 0 ? this.series.get(key)?.[at] : undefined;
+    if (barsBack > 0 && !bar) return undefined;
+    const asOf = barsBack > 0 && bar ? Date.parse(bar.end) : this.now;
+    const close = bar ? Number(bar.close) : undefined;
+    return eventPointAt(this.events, instrumentId, metric, asOf, close);
   }
 
   /** A series' value on its last bar ending at or before `timeMs` (never after now). */

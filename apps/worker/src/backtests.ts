@@ -1,7 +1,10 @@
 import {
   BarLoadError,
   loadData,
+  dealsBeforeFirstDate,
+  earningsBeforeFirstDate,
   optionsBeforeFirstDate,
+  ratesBeforeFirstDate,
   planSeries,
   simulate,
   watchOnlyInstruments,
@@ -19,10 +22,12 @@ import {
   withTenant,
   type BacktestRunStatus,
   type Database,
+  loadEventData,
 } from '@tm/db';
 import {
   fundamentalInstruments,
   listMembers,
+  eventInstruments,
   optionInstruments,
   UnsupportedBarRequestError,
   type HistoricalDataProvider,
@@ -163,6 +168,28 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
           data.options.get(id),
           work.inputs.to,
         );
+        if (problem) throw new UnsupportedBarRequestError(problem);
+      }
+    }
+    // Earnings, deals and rates (free data feeds brief v1 §6), read point in time by the engine.
+    const eventReads = eventInstruments(work.definition, members);
+    if (eventReads.size > 0) {
+      data.events = await loadEventData(db, eventReads);
+      for (const [id, metrics] of eventReads) {
+        // A Selection member without event data just reads unknown; a named stock fails.
+        if (members.includes(id)) continue;
+        const symbol = instruments.get(id)?.symbol ?? 'this instrument';
+        const reads = [...metrics];
+        const problem =
+          (reads.some((m) => m.startsWith('earnings.') && m !== 'earnings.next_earnings_days')
+            ? earningsBeforeFirstDate(symbol, data.events, id, work.inputs.to)
+            : undefined) ??
+          (reads.some((m) => m.startsWith('deals.'))
+            ? dealsBeforeFirstDate(data.events, work.inputs.to)
+            : undefined) ??
+          (reads.some((m) => m.startsWith('rates.'))
+            ? ratesBeforeFirstDate(data.events, work.inputs.to)
+            : undefined);
         if (problem) throw new UnsupportedBarRequestError(problem);
       }
     }

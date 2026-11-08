@@ -16,6 +16,7 @@ import {
   type HistoricalDataProvider,
   type IndicatorExpr,
   type MarketExpr,
+  type EventData,
   type OptionSignal,
   type PriceAdjustment,
   type Session,
@@ -52,6 +53,8 @@ export interface LoadedData {
   fundamentals?: Map<string, FundamentalObservation[]>;
   /** End-of-day options signals by underlying id (options brief v2 §5.3), when the strategy reads any. */
   options?: Map<string, OptionSignal[]>;
+  /** Earnings, deals and rates (free data feeds brief v1 §6), when the strategy reads any. */
+  events?: EventData;
 }
 
 type SeriesExpr = MarketExpr | IndicatorExpr;
