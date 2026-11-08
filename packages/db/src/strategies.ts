@@ -61,6 +61,7 @@ import {
   profiles,
   strategies,
   strategyInstruments,
+  strategyLibraryEntries,
   strategyStatusChanges,
   strategyVersions,
   tradingAccounts,
@@ -183,6 +184,8 @@ export async function listStrategies(
         ilike(strategies.name, pattern),
         ilike(strategies.description, pattern),
         sql`array_to_string(${strategies.tags}, ' ') ilike ${pattern}`,
+        // Its Strategy Library number (ADR 0054).
+        sql`exists (select 1 from ${strategyLibraryEntries} where ${strategyLibraryEntries.id} = ${strategies.libraryEntryId} and ${strategyLibraryEntries.registrationNumber} ilike ${pattern})`,
       ) as SQL,
     );
   }

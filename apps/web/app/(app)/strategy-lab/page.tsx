@@ -3,6 +3,7 @@ import { listStrategies, schema, type StrategySummary, withTenant } from '@tm/db
 import {
   type DisplayPreferences,
   formatDateTime,
+  NUMBER_PENDING_TEXT,
   STATUS_LABELS,
   STRATEGY_STATUSES,
 } from '@tm/domain';
@@ -186,6 +187,7 @@ export default async function StrategyLabPage({
           <Table label="Strategies">
             <thead>
               <tr>
+                <Th>Number</Th>
                 <Th>Name</Th>
                 <Th>Status</Th>
                 <Th>Assets</Th>
@@ -201,6 +203,16 @@ export default async function StrategyLabPage({
             <tbody>
               {items.map((s) => (
                 <tr key={s.id}>
+                  {/* The Strategy Library number (ADR 0054); never editable. */}
+                  <Td className="whitespace-nowrap font-mono text-xs">
+                    {s.libraryNumber ? (
+                      <Link href={`/library/${s.libraryNumber}`}>{s.libraryNumber}</Link>
+                    ) : (
+                      <span className="text-ink-muted" title={NUMBER_PENDING_TEXT}>
+                        —
+                      </span>
+                    )}
+                  </Td>
                   <Td>
                     <Link href={`/strategy-lab/${s.id}`} className="font-medium">
                       {s.name}
