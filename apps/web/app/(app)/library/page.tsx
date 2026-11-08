@@ -263,11 +263,6 @@ export default async function LibraryPage({
                     <Td>{e.status === 'registered' && <ShareCheckbox item={shareItem(e)} />}</Td>
                     <Td className="whitespace-nowrap font-mono font-semibold">
                       <Link href={`/library/${e.registrationNumber}`}>{e.registrationNumber}</Link>
-                      {e.formerNumbers.length > 0 && (
-                        <p className="mt-0.5 text-xs font-normal text-ink-muted">
-                          Formerly {e.formerNumbers.join(', ')}
-                        </p>
-                      )}
                     </Td>
                     <Td>
                       <Link href={`/library/${e.registrationNumber}`} className="font-medium">

@@ -65,11 +65,6 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="font-mono text-3xl font-semibold tracking-tight">{e.registrationNumber}</p>
-          {e.formerNumbers.length > 0 && (
-            <p className="font-mono text-sm text-ink-muted">
-              Formerly {e.formerNumbers.join(', ')}
-            </p>
-          )}
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">{e.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {retired && <Badge tone="warn">Retired</Badge>}
