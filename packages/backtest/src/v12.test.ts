@@ -686,3 +686,16 @@ describe('item 4: RSI(2) below 10, exit above SMA(5) or after 5 trading days', (
     ).toBe(true);
   });
 });
+
+describe('a Selection group that keeps its picks (ADR 0059)', () => {
+  it('never sells on a rebalance and exits only by its own rules', () => {
+    const base = runSectors(sectorFixture('monthEnd'));
+    expect(base.trades.some((t) => t.exitReason === 'rebalance')).toBe(true);
+    const def = sectorFixture('monthEnd');
+    def.entry.selection!.keepHoldings = true;
+    def.exit.rules = [{ kind: 'trailingStop', id: 'ts', percent: '3' }];
+    const r = runSectors(def);
+    expect(r.trades.some((t) => t.exitReason === 'rebalance')).toBe(false);
+    expect(r.trades.some((t) => t.exitReason === 'trailing_stop')).toBe(true);
+  });
+});

@@ -60,13 +60,16 @@ export interface CycleState {
   /** The universe member or leg this cycle holds (v1.2 Selection groups and per-leg conditions). */
   slot?: StrategySlot | undefined;
   /** Why the current Exit round started, when not the Exit condition (v1.2). */
-  exitReason?: 'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move' | undefined;
+  exitReason?:
+    'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move' | 'trailing_stop' | undefined;
   /** The entry group that opened it (v1.2 item 8); absent for the strategy's own Entry. */
   group?: string | undefined;
   /** ATR stop (v1.2 item 9): the ATR when Entry was decided, fixing the stop level. */
   atrAtEntry?: string | undefined;
   /** Expected-move exit (ADR 0053): the options expected move when Entry was decided. */
   moveAtEntry?: string | undefined;
+  /** Trailing stop (ADR 0059): the best daily close since Entry filled, from the entry price. */
+  trailPeak?: string | undefined;
   /**
    * Risk-based sizing per Entry leg id (v1.2 item 9): how the quantity was
    * worked out, or why nothing was placed (`no_atr`, `zero_quantity`).
@@ -116,7 +119,7 @@ export interface CycleInput {
   /** Truth of the Exit condition on data that is new since the last pass. */
   exitTruth?: { truth: Truth } | undefined;
   /** Exit now because a rebalance no longer selects this slot (v1.2 items 1, 2). */
-  forceExit?: 'rebalance' | 'atr_stop' | 'expected_move' | undefined;
+  forceExit?: 'rebalance' | 'atr_stop' | 'expected_move' | 'trailing_stop' | undefined;
 }
 
 export interface CyclePlan {

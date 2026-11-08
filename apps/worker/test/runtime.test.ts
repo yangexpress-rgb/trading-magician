@@ -1112,3 +1112,28 @@ describe('paper runtime: the expected-move exit (ADR 0053)', () => {
     await stopAll();
   });
 });
+
+describe('paper runtime: the trailing stop (ADR 0059)', () => {
+  it('keeps the best close since entry with the cycle once Entry has filled', async () => {
+    clock = Date.parse('2026-11-04T15:31:00Z');
+    const def = pairDefinition();
+    def.entry.orders = [leg('buy', { legLabel: 'Buy A' })];
+    def.exit.orders = [leg('sell', { legLabel: 'Sell A', side: 'close' })];
+    def.exit.condition = never();
+    def.exit.rules = [{ kind: 'trailingStop', id: 'ts', percent: '1' }];
+    const { runtimeId } = await startPaper('Trailing stop', def);
+    await pass();
+    clock += 10_000;
+    await pass();
+    // A later bar: the stop is checked on new data once the position is open.
+    clock += 3_600_000;
+    await pass();
+    expect((await orders(runtimeId)).map((o) => [o.legLabel, o.state])[0]).toEqual([
+      'Buy A',
+      'filled',
+    ]);
+    const [c] = await cycles(runtimeId);
+    expect(Number((c!.state as { trailPeak?: string }).trailPeak)).toBeGreaterThan(0);
+    await stopAll();
+  });
+});

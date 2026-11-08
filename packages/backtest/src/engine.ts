@@ -10,6 +10,10 @@ import {
   expectedMoveExpr,
   expectedMoveHit,
   expectedMoveRuleOf,
+  trailingPeak,
+  trailingStopHit,
+  trailingStopLevel,
+  trailingStopRuleOf,
   exitFiresDirectly,
   newRuntimeTriggerState,
   planEntry,
@@ -197,7 +201,8 @@ interface Cycle {
   /** The entry group that opened it (v1.2 item 8); null for the strategy's own Entry. */
   group: GroupKey;
   /** Why the cycle exited, when v1.2 exit reasons apply. */
-  exitReason?: 'condition' | 'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move';
+  exitReason?:
+    'condition' | 'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move' | 'trailing_stop';
   state: 'entering' | 'open' | 'exiting' | 'closed' | 'aborted';
   entryTriggeredAt?: number;
   events: Map<PhaseEvent, number>;
@@ -215,6 +220,8 @@ interface Cycle {
   atrAtEntry?: Decimal;
   /** Expected-move exit (ADR 0053): the move captured at entry, and the band once filled. */
   moveAtEntry?: Decimal;
+  /** Trailing stop (ADR 0059): the best daily close since Entry filled, from the entry price. */
+  trailPeak?: Decimal;
   expectedMove?: {
     movePct: Decimal;
     multiple: string;
@@ -951,11 +958,28 @@ export function simulate({
     return close !== undefined && expectedMoveHit(close, c.expectedMove, rule.side, long);
   }
 
+  /** Whether a daily close is more than the trailing percent off the best close since entry (ADR 0059). */
+  function checkTrailingStop(c: Cycle): boolean {
+    const rule = trailingStopRuleOf(c.def);
+    const instrument = atrStopInstrument(c.def);
+    if (!rule || !instrument) return false;
+    const p = c.positions.get(instrument);
+    if (!p || p.entryQuantity.isZero() || p.quantity.isZero()) return false;
+    const long = p.quantity.gt(0);
+    const close = evaluateExpr(stopCloseExpr(instrument, inputs.adjustment), view);
+    if (close === undefined) return false;
+    const start = c.trailPeak ?? p.entryCost.div(p.entryQuantity);
+    // The level is from the peak before this close; then the close may raise the peak.
+    const hit = trailingStopHit(close, trailingStopLevel(start, rule.percent, long), long);
+    c.trailPeak = trailingPeak(start, close, long);
+    return hit;
+  }
+
   /** Starts a cycle's Exit now, for a reason other than its Exit condition. */
   function forceExit(
     c: Cycle,
     now: number,
-    reason: 'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move',
+    reason: 'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move' | 'trailing_stop',
   ) {
     c.state = 'exiting';
     c.exitReason = reason;
@@ -1127,6 +1151,7 @@ export function simulate({
       candidates,
       held,
       halted,
+      keepHoldings: def.entry.selection?.keepHoldings === true,
     });
     for (const id of plan.exit) {
       const c = cycles[Number(id) - 1];
@@ -1322,6 +1347,8 @@ export function simulate({
         if (c.state === 'open' && checkAtrStop(c)) forceExit(c, now, 'atr_stop');
         // The expected-move exit, also by OR (ADR 0053).
         if (c.state === 'open' && checkExpectedMove(c)) forceExit(c, now, 'expected_move');
+        // The trailing stop, also by OR (ADR 0059).
+        if (c.state === 'open' && checkTrailingStop(c)) forceExit(c, now, 'trailing_stop');
       }
       if (c.state === 'open' || c.state === 'exiting') {
         const exitTriggeredAt = c.state === 'exiting' ? c.legEvents.get('exit:trigger') : undefined;
@@ -1647,6 +1674,10 @@ export function simulate({
     if (stopped)
       out.push(
         'The ATR stop is fixed at entry (entry price ∓ multiple × ATR) and does not trail; a daily close beyond it exits at the next bar, like the other exits',
+      );
+    if (defs.some((d) => trailingStopRuleOf(d)))
+      out.push(
+        'The trailing stop starts at the entry price and follows the best daily close since entry; a daily close more than the percent below it (above it, for a short) exits at the next bar, like the other exits',
       );
     if (defs.some((d) => expectedMoveRuleOf(d)))
       out.push(

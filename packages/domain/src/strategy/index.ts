@@ -9,6 +9,7 @@ export * from './metrics';
 export * from './migrate-v1';
 export * from './risk-exits';
 export * from './expected-move-exit';
+export * from './trailing-stop';
 export * from './mirror';
 export * from './schema';
 export * from './schedule';

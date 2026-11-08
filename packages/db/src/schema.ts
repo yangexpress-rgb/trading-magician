@@ -1156,7 +1156,7 @@ export const backtestTrades = pgTable(
     check('backtest_trade_status', sql`${t.status} in ('closed', 'open', 'aborted')`),
     check(
       'backtest_trade_exit_reason',
-      sql`${t.exitReason} is null or ${t.exitReason} in ('condition', 'time_stop', 'rebalance', 'atr_stop', 'expected_move')`,
+      sql`${t.exitReason} is null or ${t.exitReason} in ('condition', 'time_stop', 'rebalance', 'atr_stop', 'expected_move', 'trailing_stop')`,
     ),
     check(
       'backtest_trade_direction',

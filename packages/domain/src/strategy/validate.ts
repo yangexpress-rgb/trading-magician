@@ -181,6 +181,7 @@ export function validateStrategy(
   checkGroups(def, ctx, add);
   checkAtrStops(def, add);
   checkExpectedMoveExits(def, add);
+  checkTrailingStops(def, add);
   checkBacktest(ctx, add);
 
   return {
@@ -469,6 +470,33 @@ function checkExpectedMoveExits(def: StrategyDefinition, add: Add) {
         'warning',
         'expected_move_first_leg',
         "The expected-move exit watches the first Entry leg's instrument and closes every leg when it fires",
+        [...at, 'exit', 'rules'],
+      );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Trailing stop (ADR 0059)
+
+function checkTrailingStops(def: StrategyDefinition, add: Add) {
+  const parts = [
+    { p: def as Pick<StrategyDefinition, 'entry' | 'exit'>, at: [] as (string | number)[] },
+    ...(def.groups ?? []).map((g, i) => ({ p: g, at: ['groups', i] })),
+  ];
+  for (const { p, at } of parts) {
+    const rules = (p.exit.rules ?? []).filter((r) => r.kind === 'trailingStop');
+    if (rules.length > 1)
+      add('error', 'duplicate_trailing_stop', 'Use one trailing stop per Exit', [
+        ...at,
+        'exit',
+        'rules',
+      ]);
+    const instruments = new Set(p.entry.orders.map((o) => o.instrumentId));
+    if (rules.length > 0 && instruments.size > 1)
+      add(
+        'warning',
+        'trailing_stop_first_leg',
+        "The trailing stop watches the first Entry leg's instrument and closes every leg when it fires",
         [...at, 'exit', 'rules'],
       );
   }

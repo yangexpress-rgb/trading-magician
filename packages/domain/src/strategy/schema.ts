@@ -466,6 +466,12 @@ export const selectionSchema = z.object({
   ]),
   /** Evaluated per member before ranking; failing or unknown members are left out. */
   preFilter: conditionGroupSchema.optional(),
+  /**
+   * ADR 0059: keep each pick until its own Exit (condition or exit rules)
+   * instead of selling it when it leaves the top N at a rebalance. New picks
+   * still enter at each rebalance, so more than N can be held at once.
+   */
+  keepHoldings: z.boolean().optional(),
 });
 export type Selection = z.infer<typeof selectionSchema>;
 
@@ -492,7 +498,7 @@ export const entryPhaseSchema = phaseSchema.extend({
 });
 export type EntryPhase = z.infer<typeof entryPhaseSchema>;
 
-export const EXIT_RULE_KINDS = ['timeStop', 'atrStop', 'expectedMove'] as const;
+export const EXIT_RULE_KINDS = ['timeStop', 'atrStop', 'expectedMove', 'trailingStop'] as const;
 export const EXPECTED_MOVE_SIDES = ['either', 'gain', 'loss'] as const;
 export const exitRuleSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -524,6 +530,16 @@ export const exitRuleSchema = z.discriminatedUnion('kind', [
     horizon: z.union([z.literal(1), z.literal(5)]),
     multiple: positiveDecimalString,
     side: z.enum(EXPECTED_MOVE_SIDES),
+  }),
+  /**
+   * ADR 0059: exit when a daily close is more than `percent` % below the
+   * highest close since Entry filled (above the lowest, for a short). The
+   * peak starts at the entry price and only moves in the position's favour.
+   */
+  z.object({
+    kind: z.literal('trailingStop'),
+    id,
+    percent: positiveDecimalString.refine((v) => Number(v) < 100, 'Use less than 100%'),
   }),
 ]);
 export type ExitRule = z.infer<typeof exitRuleSchema>;
