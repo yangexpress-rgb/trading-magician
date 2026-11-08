@@ -604,6 +604,31 @@ describe('sharing several at once', () => {
   });
 });
 
+describe('the hourly limit', () => {
+  it('counts sends, not shares: 20 sends an hour, however many each carries', async () => {
+    const d = await createUser('dan@example.test', 'Dan');
+    // One send of 3 records to 3 people (9 shares) counts once.
+    const first = await as(d, (tx) =>
+      createShares(tx, d, {
+        sources: [10, 11, 12].map((n) => ({ kind: 'library' as const, number: num(n) })),
+        recipients: ['U0001', 'U0002', 'U0003'],
+      }),
+    );
+    expect(first).toHaveLength(9);
+    for (let n = 13; n <= 31; n++) {
+      await as(d, (tx) =>
+        createShares(tx, d, { source: { kind: 'library', number: num(n) }, recipients: ['U0004'] }),
+      );
+    }
+    await refused(
+      as(d, (tx) =>
+        createShares(tx, d, { source: { kind: 'library', number: num(1) }, recipients: ['U0004'] }),
+      ),
+      /20 times an hour/,
+    );
+  });
+});
+
 describe('the copies never reuse a number', () => {
   it('keeps one live strategy per record and every number unique', async () => {
     const rows = await t.owner.db
