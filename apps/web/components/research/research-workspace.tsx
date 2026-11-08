@@ -165,8 +165,10 @@ export function ResearchWorkspace({
       });
   }, [sel.instrumentId, sel.range, sel.interval]);
 
-  // Keep showing the previous chart while the next one loads, dimmed.
-  const showing = chart;
+  // Keep showing the previous chart, dimmed, while another range or bar size of the same
+  // instrument loads. Another instrument's chart is never shown under this one's name, even
+  // while the new chart loads or after it failed (N153).
+  const showing = chart && selected && chart.instrument.id === selected.id ? chart : null;
   const bars = useMemo(() => toBars(showing?.bars ?? []), [showing]);
   const summary = summarize(bars);
 
@@ -222,7 +224,7 @@ export function ResearchWorkspace({
                         : selected.venue}
                     </p>
                   </div>
-                  {summary && showing?.instrument.id === selected.id && (
+                  {summary && showing && (
                     <div className="text-right tabular-nums" data-testid="chart-summary">
                       <p className="text-2xl font-semibold">{formatPrice(summary.last)}</p>
                       <p className="text-sm">
@@ -289,8 +291,8 @@ export function ResearchWorkspace({
                     interval={showing.interval}
                     range={showing.range}
                     style={sel.style}
-                    dimmed={loading || showing.instrument.id !== selected.id}
-                    cone={showCone && showing.instrument.id === selected.id ? cone : null}
+                    dimmed={loading}
+                    cone={showCone ? cone : null}
                   />
                 ) : (
                   showing &&
@@ -302,7 +304,7 @@ export function ResearchWorkspace({
                   )
                 )}
 
-                {showing && showing.instrument.id === selected.id && (
+                {showing && (
                   <footer className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
                     {showing.source && <Badge>{`Prices from ${showing.source}`}</Badge>}
                     <span>
@@ -348,7 +350,7 @@ export function ResearchWorkspace({
         {selected && !dailyOnly && (
           <CompanyPanel
             instrument={selected}
-            price={summary && showing?.instrument.id === selected.id ? summary.last : null}
+            price={summary && showing ? summary.last : null}
             companyFeed={companyFeed}
           />
         )}

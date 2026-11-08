@@ -19,7 +19,8 @@ const spread = (v: number | null) =>
 /**
  * Research › Deals (free data feeds brief v1 §4; ADR 0058). The spread is
  * shown only for a high-confidence cash deal with a known offer price and a
- * stored close: never zero in place of unknown.
+ * stored daily close (N151): never zero in place of unknown. A deal filed by
+ * both its target and its acquirer is one row with both filings (N152).
  */
 export function DealsList() {
   const [all, setAll] = useState(false);
@@ -90,6 +91,19 @@ export function DealsList() {
                       >
                         {d.dealId}
                       </a>
+                      {/* The same deal's other filings, such as the acquirer's (N152). */}
+                      {d.filings.slice(1).map((f, n) => (
+                        <a
+                          key={f.accession}
+                          href={f.url}
+                          className="ml-2 text-xs text-ink-muted underline"
+                          target="_blank"
+                          rel="noreferrer"
+                          title={`Also filed ${f.filedDate}`}
+                        >
+                          filing {n + 2}
+                        </a>
+                      ))}
                     </Td>
                     <Td>
                       {d.targetSymbol ? `${d.targetSymbol} · ` : ''}
@@ -124,7 +138,8 @@ export function DealsList() {
             <Badge>Deals from SEC EDGAR</Badge>
             <span>
               Spread is (offer − close) ÷ close, shown only for a cash offer read with high
-              confidence. Closes come from the options recording, so stocks outside it show none.
+              confidence. Close is the target&apos;s latest daily close from Alpaca, the close back
+              tests use; a target without daily bars shows none.
             </span>
             {(rebuild?.coveredFrom ?? daily?.coveredFrom) && (
               <span>Filings read from {rebuild?.coveredFrom ?? daily?.coveredFrom}.</span>

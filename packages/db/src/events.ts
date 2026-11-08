@@ -1,5 +1,9 @@
 import {
   formatDealId,
+  isSameDeal,
+  laterDealStatus,
+  preferredDeal,
+  sameDealTarget,
   type DealConfidence,
   type DealConsideration,
   type DealSignal,
@@ -16,6 +20,7 @@ import { withTenant } from './tenant';
 import {
   dataFeedConnections,
   dealEvents,
+  dealFilings,
   dealStatusHistory,
   earningsCalendar,
   earningsReleases,
@@ -410,39 +415,221 @@ export interface DealRow extends Omit<DealInput, 'status'> {
   status: DealStatus;
   lastUpdated: string;
   checkedAt: string | null;
+  /** The target's latest daily close from Alpaca bars (N151), and its date. */
+  lastClose: number | null;
+  lastCloseDate: string | null;
 }
 
-/** Whether a filing is already a tracked deal's announcement. */
+/** A deal row not merged into another (N152): the rows every list and run reads. */
+const kept = isNull(dealEvents.mergedInto);
+
+/** Whether a filing is already read: a deal's first filing or one linked to it later (N152). */
 export async function dealAccessionKnown(db: Db, accession: string): Promise<boolean> {
-  const rows = await db
+  const [first] = await db
     .select({ id: dealEvents.dealId })
     .from(dealEvents)
     .where(eq(dealEvents.accession, accession))
     .limit(1);
-  return rows.length > 0;
+  if (first) return true;
+  const [linked] = await db
+    .select({ id: dealFilings.dealId })
+    .from(dealFilings)
+    .where(eq(dealFilings.accession, accession))
+    .limit(1);
+  return !!linked;
 }
 
-/** A filing already tracked as a deal's announcement, or a deal of the same target near that date. */
+/**
+ * The deal a filing belongs to: one it already announced, or a kept deal of
+ * the same target (by CIK, symbol or name, N152) announced within 10 days,
+ * as when the target and the acquirer both file the same agreement.
+ */
 export async function findDeal(
   db: Db,
-  q: { accession: string; targetCik: string | null; targetName: string; date: string },
+  q: {
+    accession: string;
+    targetCik: string | null;
+    targetSymbol?: string | null;
+    targetName: string;
+    date: string;
+  },
 ): Promise<DealRow | undefined> {
   const [byAccession] = await db
     .select()
     .from(dealEvents)
     .where(eq(dealEvents.accession, q.accession))
     .limit(1);
-  if (byAccession) return dealRow(byAccession);
-  // The target and the acquirer often both file the same agreement: one deal.
-  const sameTarget = q.targetCik
-    ? eq(dealEvents.targetCik, q.targetCik)
-    : sql`lower(${dealEvents.targetName}) = lower(${q.targetName})`;
-  const [near] = await db
+  if (byAccession) {
+    if (!byAccession.mergedInto) return dealRow(byAccession);
+    const [into] = await db
+      .select()
+      .from(dealEvents)
+      .where(eq(dealEvents.dealId, byAccession.mergedInto));
+    return into ? dealRow(into) : undefined;
+  }
+  const near = await db
     .select()
     .from(dealEvents)
-    .where(and(sameTarget, sql`abs(${dealEvents.announcedDate} - ${q.date}::date) <= 10`))
-    .limit(1);
-  return near ? dealRow(near) : undefined;
+    .where(and(kept, sql`abs(${dealEvents.announcedDate} - ${q.date}::date) <= 10`))
+    .orderBy(asc(dealEvents.seq));
+  const me = {
+    targetCik: q.targetCik,
+    targetSymbol: q.targetSymbol ?? null,
+    targetName: q.targetName,
+    announcedDate: q.date,
+    offerPrice: null,
+  };
+  return near.map(dealRow).find((r) => sameDealTarget(me, r));
+}
+
+/** Links another announcing filing to a deal (N152); nothing when the filing is already linked. */
+export async function linkDealFiling(
+  db: Db,
+  f: {
+    dealId: string;
+    accession: string;
+    filingUrl: string;
+    filedDate: string;
+    mergedFrom?: string | null;
+  },
+): Promise<boolean> {
+  const added = await db
+    .insert(dealFilings)
+    .values({
+      accession: f.accession,
+      dealId: f.dealId,
+      filingUrl: f.filingUrl,
+      filedDate: f.filedDate,
+      mergedFrom: f.mergedFrom ?? null,
+    })
+    .onConflictDoNothing()
+    .returning({ accession: dealFilings.accession });
+  return added.length > 0;
+}
+
+/** Every announcing filing of each deal, its first one first (N152). */
+export async function listDealFilings(
+  db: Db,
+  deals: readonly Pick<DealRow, 'dealId' | 'accession' | 'sourceFilingUrl' | 'announcedDate'>[],
+): Promise<Map<string, { accession: string; url: string; filedDate: string }[]>> {
+  const out = new Map<string, { accession: string; url: string; filedDate: string }[]>();
+  for (const d of deals)
+    out.set(d.dealId, [
+      { accession: d.accession, url: d.sourceFilingUrl, filedDate: d.announcedDate },
+    ]);
+  if (deals.length === 0) return out;
+  const rows = await db
+    .select()
+    .from(dealFilings)
+    .where(
+      inArray(
+        dealFilings.dealId,
+        deals.map((d) => d.dealId),
+      ),
+    )
+    .orderBy(asc(dealFilings.filedDate), asc(dealFilings.accession));
+  for (const r of rows)
+    out.get(r.dealId)?.push({ accession: r.accession, url: r.filingUrl, filedDate: r.filedDate });
+  return out;
+}
+
+/**
+ * Folds rows that repeat one deal into one (N152): the same target,
+ * announcement date and offer price. The higher-confidence parse is kept;
+ * the other row keeps its id but is hidden (`merged_into`), its filing is
+ * linked to the kept deal and its status history copied there. Running it
+ * again changes nothing.
+ */
+export async function mergeDuplicateDeals(
+  db: Database,
+): Promise<{ kept: string; merged: string }[]> {
+  return db.transaction(async (tx) => {
+    // One writer at a time, as for new deal ids.
+    await tx.execute(sql`lock table ${dealEvents} in share row exclusive mode`);
+    const rows = (await tx.select().from(dealEvents).where(kept).orderBy(asc(dealEvents.seq))).map(
+      dealRow,
+    );
+    const groups: DealRow[][] = [];
+    for (const r of rows) {
+      const g = groups.find((x) => x.some((y) => isSameDeal(y, r)));
+      if (g) g.push(r);
+      else groups.push([r]);
+    }
+    const out: { kept: string; merged: string }[] = [];
+    for (const g of groups) {
+      if (g.length < 2) continue;
+      const winner = g.reduce((a, b) => preferredDeal(a, b));
+      let status = winner.status;
+      const fill: Partial<typeof dealEvents.$inferInsert> = {};
+      for (const loser of g) {
+        if (loser === winner) continue;
+        await tx
+          .insert(dealFilings)
+          .values({
+            accession: loser.accession,
+            dealId: winner.dealId,
+            filingUrl: loser.sourceFilingUrl,
+            filedDate: loser.announcedDate,
+            mergedFrom: loser.dealId,
+          })
+          .onConflictDoNothing();
+        await tx
+          .update(dealFilings)
+          .set({ dealId: winner.dealId })
+          .where(eq(dealFilings.dealId, loser.dealId));
+        await tx.execute(sql`
+          insert into deal_status_history
+            (deal_id, changed_at, changed_date, old_status, new_status, source_filing_url, accession)
+          select ${winner.dealId}, changed_at, changed_date, old_status, new_status, source_filing_url, accession
+          from deal_status_history where deal_id = ${loser.dealId}
+          on conflict do nothing`);
+        status = laterDealStatus(status, loser.status);
+        if (!winner.targetSymbol && loser.targetSymbol) fill.targetSymbol ??= loser.targetSymbol;
+        if (!winner.targetCik && loser.targetCik) fill.targetCik ??= loser.targetCik;
+        if (!winner.acquirerName && loser.acquirerName) fill.acquirerName ??= loser.acquirerName;
+        if (winner.lastClose === null && loser.lastClose !== null) {
+          fill.lastClose ??= toStr(loser.lastClose);
+          fill.lastCloseDate ??= loser.lastCloseDate;
+        }
+        await tx
+          .update(dealEvents)
+          .set({ mergedInto: winner.dealId, lastUpdated: new Date() })
+          .where(
+            sql`${dealEvents.dealId} = ${loser.dealId} or ${dealEvents.mergedInto} = ${loser.dealId}`,
+          );
+        out.push({ kept: winner.dealId, merged: loser.dealId });
+      }
+      await tx
+        .update(dealEvents)
+        .set({ ...fill, status, lastUpdated: new Date() })
+        .where(eq(dealEvents.dealId, winner.dealId));
+    }
+    return out;
+  });
+}
+
+/** Target symbols of the deals still trading on their offer, for the nightly closes (N151). */
+export async function dealCloseSymbols(db: Db): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ symbol: dealEvents.targetSymbol })
+    .from(dealEvents)
+    .where(
+      and(
+        kept,
+        inArray(dealEvents.status, ['announced', 'pending']),
+        sql`${dealEvents.targetSymbol} is not null`,
+      ),
+    );
+  return rows.flatMap((r) => (r.symbol ? [r.symbol] : [])).sort();
+}
+
+/** Stores a target's latest daily close on its deals (N151). */
+export async function saveDealClose(db: Db, symbol: string, close: number, date: string) {
+  if (!(close > 0)) return;
+  await db
+    .update(dealEvents)
+    .set({ lastClose: String(close), lastCloseDate: date })
+    .where(and(kept, eq(dealEvents.targetSymbol, symbol)));
 }
 
 function dealRow(r: typeof dealEvents.$inferSelect): DealRow {
@@ -464,6 +651,8 @@ function dealRow(r: typeof dealEvents.$inferSelect): DealRow {
     source: r.source as 'rebuilt' | 'recorded',
     lastUpdated: r.lastUpdated.toISOString(),
     checkedAt: r.checkedAt?.toISOString() ?? null,
+    lastClose: toNum(r.lastClose),
+    lastCloseDate: r.lastCloseDate,
   };
 }
 
@@ -578,6 +767,7 @@ export async function dealsToCheck(db: Db, limit = 200): Promise<DealRow[]> {
     .from(dealEvents)
     .where(
       and(
+        kept,
         inArray(dealEvents.status, ['announced', 'pending']),
         sql`${dealEvents.targetCik} is not null`,
       ),
@@ -601,7 +791,7 @@ export async function loadDealsBySymbol(
   const deals = await db
     .select()
     .from(dealEvents)
-    .where(inArray(dealEvents.targetSymbol, [...symbols]))
+    .where(and(kept, inArray(dealEvents.targetSymbol, [...symbols])))
     .orderBy(asc(dealEvents.announcedAt));
   if (deals.length === 0) return out;
   const history = await db
@@ -636,7 +826,7 @@ export async function listDeals(db: Db, opts: { active?: boolean; limit?: number
   const rows = await db
     .select()
     .from(dealEvents)
-    .where(opts.active ? inArray(dealEvents.status, ['announced', 'pending']) : sql`true`)
+    .where(opts.active ? and(kept, inArray(dealEvents.status, ['announced', 'pending'])) : kept)
     .orderBy(desc(dealEvents.announcedAt))
     .limit(opts.limit ?? 200);
   return rows.map(dealRow);
@@ -678,7 +868,12 @@ export async function loadRates(db: Db, fromDate?: string): Promise<RatePoint[]>
 // Job state
 
 export type EventJob =
-  'earnings_scan' | 'earnings_rebuild' | 'deals_scan' | 'deals_rebuild' | 'calendar';
+  | 'earnings_scan'
+  | 'earnings_rebuild'
+  | 'deals_scan'
+  | 'deals_rebuild'
+  | 'calendar'
+  | 'deal_closes';
 
 export interface ScanState {
   job: EventJob;

@@ -25,7 +25,9 @@ export const FAKE_EVENTS_EFTS_URL = 'http://efts.events-sec.test';
 export const FAKE_XYZ = { cik: 9_910_001, ticker: 'XYZ', name: 'XYZ Corp' };
 export const FAKE_TGT = { cik: 9_910_002, ticker: 'TGT', name: 'Target Widgets Inc.' };
 export const FAKE_LOWC = { cik: 9_910_003, ticker: 'LOWC', name: 'Lowconf Holdings Inc.' };
-const COMPANIES = [FAKE_XYZ, FAKE_TGT, FAKE_LOWC];
+/** TGT's buyer, which files the same merger agreement the same day (N152). */
+export const FAKE_ACQ = { cik: 9_910_004, ticker: 'ACQH', name: 'Acquirer Holdings Inc.' };
+const COMPANIES = [FAKE_XYZ, FAKE_TGT, FAKE_LOWC, FAKE_ACQ];
 
 /** XYZ's quarter ends and diluted EPS: §7.1's 13 quarters, with earlier history before them. */
 export const FAKE_XYZ_QUARTERS: readonly { end: string; eps: number }[] = [
@@ -156,6 +158,20 @@ export class FakeEdgarEvents {
         },
       );
     }
+    if (cik === FAKE_ACQ.cik) {
+      // The acquirer's own 8-K for TGT's deal: one deal, two filings (N152).
+      out.push({
+        accession: '0009910004-25-000301',
+        form: '8-K',
+        date: FAKE_TGT_DEAL.announced,
+        time: '08:15:00',
+        items: '1.01',
+        doc: 'acqh-8k-merger.htm',
+        body: `<html><body><p>Item 1.01 Entry into a Material Definitive Agreement.</p>
+<p>On March 2, 2025, Acquirer Holdings Inc. entered into an Agreement and Plan of Merger (the &#8220;Merger Agreement&#8221;) with Target Widgets and Widget Merger Sub, Inc. (&#8220;Merger Sub&#8221;). Merger Sub will merge with and into Target Widgets, with Target Widgets surviving as a wholly owned subsidiary.</p>
+<p>Each share of Target Widgets common stock will be converted into the right to receive $${FAKE_TGT_DEAL.offer.toFixed(2)} in cash.</p></body></html>`,
+      });
+    }
     if (cik === FAKE_LOWC.cik) {
       out.push({
         accession: '0009910003-25-000201',
@@ -255,7 +271,7 @@ export class FakeEdgarEvents {
     const phrase = u.searchParams.get('q') ?? '';
     const hits: SecSearchHit[] = [];
     if (phrase.includes('Agreement and Plan of Merger') && forms.includes('8-K'))
-      for (const c of [FAKE_TGT, FAKE_LOWC])
+      for (const c of [FAKE_TGT, FAKE_LOWC, FAKE_ACQ])
         for (const f of this.filings(c.cik))
           if (f.body && f.date >= from && f.date <= to)
             hits.push({
