@@ -36,6 +36,7 @@ import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
 import { type CopySource, NewStrategyButton } from './new-strategy';
 import { RowActions } from './row-actions';
+import { bare } from '@/lib/units';
 
 export const metadata: Metadata = { title: 'Strategy Lab' };
 
@@ -224,7 +225,7 @@ export default async function StrategyLabPage({
                 <Th>Assets</Th>
                 <Th>Version</Th>
                 <Th>Account</Th>
-                <Th>Latest back test</Th>
+                <Th numeric>Latest back test %</Th>
                 <Th>Updated ({prefs.timeZone})</Th>
                 <Th>
                   <span className="sr-only">Actions</span>
@@ -273,10 +274,12 @@ export default async function StrategyLabPage({
                     </Td>
                     <Td>{s.currentVersionNo ? `v${s.currentVersionNo}` : 'Draft'}</Td>
                     <Td>{s.accountMode ? <ModeBadge mode={s.accountMode} /> : '—'}</Td>
-                    <Td>
+                    <Td numeric>
                       <LatestBacktest run={s.latestBacktest} prefs={prefs} />
                     </Td>
-                    <Td className="whitespace-nowrap">{formatDateTime(s.updatedAt, prefs)}</Td>
+                    <Td className="whitespace-nowrap text-content">
+                      {formatDateTime(s.updatedAt, prefs)}
+                    </Td>
                     <Td className="text-right">
                       <RowActions
                         strategy={{
@@ -321,7 +324,7 @@ function LatestBacktest({
   }
   return (
     <>
-      <span className="tabular-nums">{formatPct(run.netReturnPct, true)}</span>
+      <span className="text-content">{bare(formatPct(run.netReturnPct, true))}</span>
       {run.finishedAt && (
         <p className="mt-0.5 whitespace-nowrap text-xs text-ink-muted">
           {formatDateTime(run.finishedAt, prefs)}

@@ -29,6 +29,7 @@ import {
   optionFigureLabel,
 } from '@/lib/options-text';
 import { MiniLine, StrikeBars } from './options-charts';
+import { bare } from '@/lib/units';
 
 const POLL_MS = 1000;
 const GIVE_UP_MS = 90_000;
@@ -240,7 +241,7 @@ function ChainView({ view, history }: { view: LiveChainView; history: OptionHist
           return (
             <div key={f} title={optionFigureHelp(f)}>
               <dt className="text-xs text-ink-muted">{optionFigureLabel(f)}</dt>
-              <dd className="font-semibold tabular-nums">
+              <dd className="text-content-strong">
                 {formatOptionFigure(f, view.values[f])}
                 {detail && (
                   <span className="ml-1 text-xs font-normal text-ink-muted">({detail})</span>
@@ -386,17 +387,17 @@ function ChainView({ view, history }: { view: LiveChainView; history: OptionHist
             <Table label={`${view.symbol} options expiring ${chosen.expiry}`}>
               <thead>
                 <tr>
-                  <Th className="text-right">Call IV</Th>
-                  <Th className="text-right">Delta</Th>
-                  <Th className="text-right">Gamma</Th>
-                  <Th className="text-right">OI</Th>
-                  <Th className="text-right">Volume</Th>
-                  <Th className="text-center">Strike</Th>
-                  <Th className="text-right">Put IV</Th>
-                  <Th className="text-right">Delta</Th>
-                  <Th className="text-right">Gamma</Th>
-                  <Th className="text-right">OI</Th>
-                  <Th className="text-right">Volume</Th>
+                  <Th numeric>Call IV %</Th>
+                  <Th numeric>Delta</Th>
+                  <Th numeric>Gamma</Th>
+                  <Th numeric>OI</Th>
+                  <Th numeric>Volume</Th>
+                  <Th numeric>Strike</Th>
+                  <Th numeric>Put IV %</Th>
+                  <Th numeric>Delta</Th>
+                  <Th numeric>Gamma</Th>
+                  <Th numeric>OI</Th>
+                  <Th numeric>Volume</Th>
                 </tr>
               </thead>
               <tbody className="tabular-nums">
@@ -407,22 +408,22 @@ function ChainView({ view, history }: { view: LiveChainView; history: OptionHist
                       s.strike === chosen.atmStrike ? 'bg-surface-2 font-medium' : undefined
                     }
                   >
-                    <Td className="text-right">{formatPct(s.call?.iv)}</Td>
-                    <Td className="text-right">{formatGreek(s.call?.delta, 2)}</Td>
-                    <Td className="text-right">{formatGreek(s.call?.gamma, 4)}</Td>
-                    <Td className="text-right">{formatCount(s.call?.openInterest)}</Td>
-                    <Td className="text-right">{formatCount(s.call?.volume)}</Td>
-                    <Td className="text-center font-semibold">
+                    <Td numeric>{bare(formatPct(s.call?.iv))}</Td>
+                    <Td numeric>{formatGreek(s.call?.delta, 2)}</Td>
+                    <Td numeric>{formatGreek(s.call?.gamma, 4)}</Td>
+                    <Td numeric>{formatCount(s.call?.openInterest)}</Td>
+                    <Td numeric>{formatCount(s.call?.volume)}</Td>
+                    <Td numeric className="font-semibold">
                       {s.strike}
                       {s.strike === chosen.atmStrike && (
                         <span className="sr-only"> (at the money)</span>
                       )}
                     </Td>
-                    <Td className="text-right">{formatPct(s.put?.iv)}</Td>
-                    <Td className="text-right">{formatGreek(s.put?.delta, 2)}</Td>
-                    <Td className="text-right">{formatGreek(s.put?.gamma, 4)}</Td>
-                    <Td className="text-right">{formatCount(s.put?.openInterest)}</Td>
-                    <Td className="text-right">{formatCount(s.put?.volume)}</Td>
+                    <Td numeric>{bare(formatPct(s.put?.iv))}</Td>
+                    <Td numeric>{formatGreek(s.put?.delta, 2)}</Td>
+                    <Td numeric>{formatGreek(s.put?.gamma, 4)}</Td>
+                    <Td numeric>{formatCount(s.put?.openInterest)}</Td>
+                    <Td numeric>{formatCount(s.put?.volume)}</Td>
                   </tr>
                 ))}
               </tbody>

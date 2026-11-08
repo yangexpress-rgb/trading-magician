@@ -613,3 +613,14 @@ export function decodeScreenState(
     columns: cols.length ? cols : null,
   };
 }
+
+/**
+ * A results column header with its unit (content and interface, O102): price and
+ * money columns end in "$", percentage columns in "%", and the cells below
+ * show the bare number.
+ */
+export function columnHeader(c: Pick<NumberColumnSpec, 'label' | 'format'>): string {
+  const unit = c.format === 'pct' ? '%' : c.format === 'price' || c.format === 'money' ? '$' : null;
+  if (!unit || c.label.includes(unit)) return c.label;
+  return `${c.label} ${unit}`;
+}

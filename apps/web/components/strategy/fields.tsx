@@ -8,8 +8,11 @@ import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react
  * and an error is linked to the control with aria-describedby.
  */
 
-const control =
-  'mt-0.5 block w-full rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink aria-[invalid=true]:border-danger disabled:opacity-70';
+const box =
+  'mt-0.5 block w-full rounded-md border border-line bg-surface px-2 py-1 text-sm aria-[invalid=true]:border-danger disabled:opacity-70';
+/** Typed text is content, choices are interface (brief v2.2 D4, N129). */
+const control = `${box} text-content`;
+const selectControl = `${box} text-ink`;
 
 function Wrap({
   id,
@@ -26,7 +29,7 @@ function Wrap({
 }) {
   return (
     <div className={cx('min-w-0', className)}>
-      <label htmlFor={id} className="block text-xs font-medium text-ink-muted">
+      <label htmlFor={id} className="block text-xs font-semibold text-ink-muted">
         {label}
       </label>
       {children}
@@ -58,7 +61,7 @@ export function MiniSelect({
         id={id}
         aria-invalid={!!error}
         aria-describedby={error ? `${id}-error` : undefined}
-        className={control}
+        className={selectControl}
         {...select}
       >
         {children}

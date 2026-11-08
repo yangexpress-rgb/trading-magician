@@ -18,6 +18,7 @@ import {
   timeTickIndexes,
   type Bar,
 } from '@/lib/research-text';
+import { bare } from '@/lib/units';
 
 export type ChartStyle = 'line' | 'candles';
 
@@ -193,12 +194,12 @@ export function PriceChart({
         ).map(([label, v]) => (
           <div key={label} className="flex gap-1">
             <dt className="text-ink-muted">{label}</dt>
-            <dd className="font-medium">{v === undefined ? '—' : formatPrice(v)}</dd>
+            <dd className="text-content">{v === undefined ? '—' : formatPrice(v)}</dd>
           </div>
         ))}
         <div className="flex gap-1">
           <dt className="text-ink-muted">Volume</dt>
-          <dd className="font-medium">{bar ? formatVolume(bar.volume) : '—'}</dd>
+          <dd className="text-content">{bar ? formatVolume(bar.volume) : '—'}</dd>
         </div>
       </dl>
       <div
@@ -435,22 +436,22 @@ export function PriceChart({
             <thead>
               <tr>
                 <Th>Time</Th>
-                <Th className="text-right">Open</Th>
-                <Th className="text-right">High</Th>
-                <Th className="text-right">Low</Th>
-                <Th className="text-right">Close</Th>
-                <Th className="text-right">Volume</Th>
+                <Th numeric>Open $</Th>
+                <Th numeric>High $</Th>
+                <Th numeric>Low $</Th>
+                <Th numeric>Close $</Th>
+                <Th numeric>Volume</Th>
               </tr>
             </thead>
             <tbody className="tabular-nums">
               {[...bars].reverse().map((b) => (
                 <tr key={b.t}>
-                  <Td>{formatBarTime(b.t, interval)}</Td>
-                  <Td className="text-right">{formatPrice(b.open)}</Td>
-                  <Td className="text-right">{formatPrice(b.high)}</Td>
-                  <Td className="text-right">{formatPrice(b.low)}</Td>
-                  <Td className="text-right">{formatPrice(b.close)}</Td>
-                  <Td className="text-right">{formatVolume(b.volume)}</Td>
+                  <Td className="text-content">{formatBarTime(b.t, interval)}</Td>
+                  <Td numeric>{bare(formatPrice(b.open))}</Td>
+                  <Td numeric>{bare(formatPrice(b.high))}</Td>
+                  <Td numeric>{bare(formatPrice(b.low))}</Td>
+                  <Td numeric>{bare(formatPrice(b.close))}</Td>
+                  <Td numeric>{formatVolume(b.volume)}</Td>
                 </tr>
               ))}
             </tbody>

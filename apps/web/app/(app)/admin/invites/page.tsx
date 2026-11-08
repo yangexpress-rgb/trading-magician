@@ -64,8 +64,8 @@ export default async function AdminInvitesPage() {
                     <Td>
                       <Badge tone={STATE[state].tone}>{STATE[state].label}</Badge>
                     </Td>
-                    <Td>{when(i.createdAt)}</Td>
-                    <Td>{i.expiresAt ? when(i.expiresAt) : 'Never'}</Td>
+                    <Td className="text-content">{when(i.createdAt)}</Td>
+                    <Td className="text-content">{i.expiresAt ? when(i.expiresAt) : 'Never'}</Td>
                     <Td>{i.claimedByEmail ?? (i.claimedBy ? 'Deleted account' : '—')}</Td>
                     <Td className="min-w-40">
                       {state === 'open' && (

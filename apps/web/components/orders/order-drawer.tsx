@@ -39,13 +39,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+/** Label–value rows: muted label, value as content (brief v2.2 D3, N128). */
 function Pairs({ rows }: { rows: [string, React.ReactNode][] }) {
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
       {rows.map(([term, value]) => (
         <div key={term} className="contents">
           <dt className="text-ink-muted">{term}</dt>
-          <dd>{value}</dd>
+          <dd className="text-content">{value}</dd>
         </div>
       ))}
     </dl>
@@ -260,7 +261,7 @@ export function OrderDrawer({
           )}
 
           <Section title="Risk check">
-            <ul className="space-y-1">
+            <ul className="space-y-1 text-content">
               {d.risk.checks.map((c) => (
                 <li key={c.code}>
                   <span className="font-medium">{c.passed ? 'Passed' : 'Failed'}</span>{' '}
@@ -278,7 +279,7 @@ export function OrderDrawer({
             <Section title="Fills">
               <ul className="space-y-1">
                 {d.fills.map((f) => (
-                  <li key={f.id}>
+                  <li key={f.id} className="text-content">
                     {f.quantity} at {formatPrice(f.price)} · {when(f.filledAt)}
                   </li>
                 ))}
@@ -290,7 +291,7 @@ export function OrderDrawer({
             <ol className="space-y-2 border-l border-line pl-3">
               {d.timeline.map((e) => (
                 <li key={e.seq}>
-                  <p className="font-medium">{describeEvent(e)}</p>
+                  <p className="text-content">{describeEvent(e)}</p>
                   <p className="text-xs text-ink-muted">
                     {when(e.providerAt ?? e.receivedAt)} ·{' '}
                     {EVENT_SOURCE_LABELS[e.source] ?? e.source}

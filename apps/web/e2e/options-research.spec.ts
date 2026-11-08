@@ -55,13 +55,13 @@ test('shows a stock’s options figures, charts and computed chain', async ({ pa
   await options.getByText(/^Chain for .*computed IV/).click();
   const chain = options.getByRole('table', { name: /options expiring/ });
   await expect(chain.getByRole('columnheader')).toHaveText([
-    'Call IV',
+    'Call IV %',
     'Delta',
     'Gamma',
     'OI',
     'Volume',
     'Strike',
-    'Put IV',
+    'Put IV %',
     'Delta',
     'Gamma',
     'OI',
