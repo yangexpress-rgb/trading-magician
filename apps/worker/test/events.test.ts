@@ -2,6 +2,7 @@ import { DEFAULT_BACKTEST_INPUTS } from '@tm/backtest';
 import {
   createStrategy,
   getBacktest,
+  latestRecordedCloses,
   listBacktestTrades,
   listDeals,
   listScanStates,
@@ -85,7 +86,12 @@ const metric = (id: string, instrumentId: string): Expr => ({
   instrumentId,
 });
 const constant = (value: string): Expr => ({ kind: 'constant', id: uid('c'), value });
-const cmp = (id: string, left: Expr, operator: Comparison['operator'], right?: Expr): Comparison => ({
+const cmp = (
+  id: string,
+  left: Expr,
+  operator: Comparison['operator'],
+  right?: Expr,
+): Comparison => ({
   kind: 'comparison',
   id,
   left,
@@ -125,7 +131,9 @@ function pead(): StrategyDefinition {
 /** Merger arbitrage (§7.2): spread > 3%; out when the deal stops producing a spread, or at 120 bars. */
 function mergerArb(): StrategyDefinition {
   const def = createDefinition();
-  def.entry.condition.children = [cmp('spread', metric('deals.spread_pct', tgt), 'gt', constant('0.03'))];
+  def.entry.condition.children = [
+    cmp('spread', metric('deals.spread_pct', tgt), 'gt', constant('0.03')),
+  ];
   def.exit.condition.children = [
     {
       kind: 'group',
@@ -168,9 +176,16 @@ beforeAll(async () => {
     db: t.worker.db,
     client,
     tickers: (c) => fetchTickers(c),
-    calendar: [],
+    calendar: async () => [],
     refreshRates: (today) =>
-      saveRates(t.worker.db, [{ date: '2024-01-02', rate: 0.0525 }, { date: today, rate: 0.0412 }], '2024-01-01'),
+      saveRates(
+        t.worker.db,
+        [
+          { date: '2024-01-02', rate: 0.0525 },
+          { date: today, rate: 0.0412 },
+        ],
+        '2024-01-01',
+      ),
     logger: quiet,
     now: () => NOW,
     symbols: ['XYZ', 'TGT', 'LOWC'],
@@ -203,7 +218,9 @@ describe('the earnings scan (§5.2, §10 item 1)', () => {
       sueSource: 'rebuilt',
     });
     expect(latest?.announcedDate).toBe('2026-11-02');
-    expect(latest?.filingUrl).toMatch(/\/Archives\/edgar\/data\/9910001\/.+xyz-8k-2026-11-02\.htm$/);
+    expect(latest?.filingUrl).toMatch(
+      /\/Archives\/edgar\/data\/9910001\/.+xyz-8k-2026-11-02\.htm$/,
+    );
   });
 
   it('rebuilds history back to February 2024 and no further', async () => {
@@ -246,6 +263,15 @@ describe('the deal tracker (§5.3, §10 item 2)', () => {
     expect(d).toMatchObject({ dealId: 'D00002', confidence: 'low', offerPrice: null });
   });
 
+  it('gives the Deals list a spread from the latest recorded close, readable by the app', async () => {
+    await t.ownerSql`
+      insert into option_daily_signal (underlying_id, as_of_date, underlying_close, source, feed, computed_at)
+      values (${tgt}, '2026-11-06', 47.5, 'recorded', 'cboe', now())`;
+    const closes = await latestRecordedCloses(t.app.db, ['TGT', 'LOWC']);
+    expect(closes.get('TGT')).toEqual({ close: 47.5, date: '2026-11-06' });
+    expect(closes.has('LOWC')).toBe(false);
+  });
+
   it('is append-only and worker-written', async () => {
     const denied = async (p: Promise<unknown>) => {
       const e = await p.then(
@@ -261,7 +287,9 @@ describe('the deal tracker (§5.3, §10 item 2)', () => {
 
 describe('back tests of the Lab fixtures', () => {
   const run = async (def: StrategyDefinition, from: string, to: string) => {
-    const s = await asUser((tx) => createStrategy(tx, userId, { name: uid('fixture'), definition: def }));
+    const s = await asUser((tx) =>
+      createStrategy(tx, userId, { name: uid('fixture'), definition: def }),
+    );
     const r = await asUser((tx) =>
       startBacktest(tx, userId, s.id, { ...DEFAULT_BACKTEST_INPUTS, from, to }),
     );

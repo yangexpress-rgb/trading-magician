@@ -1,4 +1,10 @@
-import { adminFeedsOf, openCredential, withTenant, type CredentialKey, type Database } from '@tm/db';
+import {
+  adminFeedsOf,
+  openCredential,
+  withTenant,
+  type CredentialKey,
+  type Database,
+} from '@tm/db';
 
 /**
  * Credentials for the global event jobs (free data feeds brief v1 D6, ADR
@@ -18,13 +24,20 @@ export async function adminCredentialField(o: {
   try {
     feeds = await adminFeedsOf(o.db, o.provider);
   } catch (e) {
-    o.logger.warn({ provider: o.provider, err: { name: (e as Error).name } }, 'admin feeds unreadable');
+    o.logger.warn(
+      { provider: o.provider, err: { name: (e as Error).name } },
+      'admin feeds unreadable',
+    );
     return undefined;
   }
   for (const feed of feeds) {
     try {
       const opened = await withTenant(o.db, { userId: feed.userId }, (tx) =>
-        openCredential(tx, { userId: feed.userId, id: feed.credentialId, privateKey: o.privateKey }),
+        openCredential(tx, {
+          userId: feed.userId,
+          id: feed.credentialId,
+          privateKey: o.privateKey,
+        }),
       );
       const value = opened.fields[o.field];
       if (opened.provider === o.provider && value) return value;

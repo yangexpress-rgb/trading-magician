@@ -661,8 +661,7 @@ function eventMetric(
     // The instrument's own unadjusted daily closes date each bar back; the deal
     // spread compares the offer price with that close.
     requirements: (instrumentId) => [rawClose(instrumentId)],
-    compute: (instrumentId, _params, r, barsBack) =>
-      r.event?.(instrumentId, id, barsBack)?.value,
+    compute: (instrumentId, _params, r, barsBack) => r.event?.(instrumentId, id, barsBack)?.value,
   };
 }
 

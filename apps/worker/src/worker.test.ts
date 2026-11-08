@@ -38,6 +38,9 @@ describe('worker env', () => {
       CBOE_OPTIONS_FAKE: false,
       OPTIONS_RECORDING: 'on',
       OPTIONS_HISTORY_DAYS: 400,
+      EVENTS_RECORDING: 'on',
+      EVENTS_FAKE: false,
+      EARNINGS_CALENDAR_PROVIDER: 'fmp',
     });
   });
 
@@ -98,5 +101,15 @@ describe('worker logger', () => {
     expect(out).not.toContain('Bearer x');
     expect(out).not.toContain('s-777');
     expect(out).toContain('[redacted]');
+  });
+});
+
+describe('events env (ADR 0058)', () => {
+  it('refuses the EDGAR events stand-in in production and takes the calendar kill switch', () => {
+    expect(() => loadWorkerEnv({ NODE_ENV: 'production', EVENTS_FAKE: 'true' })).toThrow();
+    expect(loadWorkerEnv({ EARNINGS_CALENDAR_PROVIDER: 'none' }).EARNINGS_CALENDAR_PROVIDER).toBe(
+      'none',
+    );
+    expect(() => loadWorkerEnv({ EARNINGS_CALENDAR_PROVIDER: 'paid' })).toThrow();
   });
 });

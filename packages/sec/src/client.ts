@@ -154,7 +154,8 @@ export class SecClient {
     try {
       response = await this.fetch(url, {
         method: 'GET',
-        headers: as === 'text' ? { ...this.headers, accept: 'text/html, text/plain' } : this.headers,
+        headers:
+          as === 'text' ? { ...this.headers, accept: 'text/html, text/plain' } : this.headers,
         signal: controller.signal,
       });
       text = await response.text();

@@ -440,9 +440,7 @@ export async function findDeal(
   const [near] = await db
     .select()
     .from(dealEvents)
-    .where(
-      and(sameTarget, sql`abs(${dealEvents.announcedDate} - ${q.date}::date) <= 10`),
-    )
+    .where(and(sameTarget, sql`abs(${dealEvents.announcedDate} - ${q.date}::date) <= 10`))
     .limit(1);
   return near ? dealRow(near) : undefined;
 }
@@ -680,11 +678,7 @@ export async function loadRates(db: Db, fromDate?: string): Promise<RatePoint[]>
 // Job state
 
 export type EventJob =
-  | 'earnings_scan'
-  | 'earnings_rebuild'
-  | 'deals_scan'
-  | 'deals_rebuild'
-  | 'calendar';
+  'earnings_scan' | 'earnings_rebuild' | 'deals_scan' | 'deals_rebuild' | 'calendar';
 
 export interface ScanState {
   job: EventJob;
@@ -706,11 +700,7 @@ export async function listScanStates(db: Db): Promise<ScanState[]> {
   return (await db.select().from(eventScanState).orderBy(asc(eventScanState.job))) as ScanState[];
 }
 
-export async function setScanState(
-  db: Db,
-  job: EventJob,
-  patch: Partial<Omit<ScanState, 'job'>>,
-) {
+export async function setScanState(db: Db, job: EventJob, patch: Partial<Omit<ScanState, 'job'>>) {
   await db
     .insert(eventScanState)
     .values({ job, ...patch })
@@ -768,15 +758,13 @@ export async function adminFeedsOf(
         .select({ id: dataFeedConnections.id, credentialRef: dataFeedConnections.credentialRef })
         .from(dataFeedConnections)
         .where(
-          and(
-            eq(dataFeedConnections.provider, provider),
-            eq(dataFeedConnections.isActive, true),
-          ),
+          and(eq(dataFeedConnections.provider, provider), eq(dataFeedConnections.isActive, true)),
         )
         .orderBy(asc(dataFeedConnections.createdAt)),
     );
     const feed = feeds.find((f) => f.credentialRef);
-    if (feed?.credentialRef) out.push({ userId, feedId: feed.id, credentialId: feed.credentialRef });
+    if (feed?.credentialRef)
+      out.push({ userId, feedId: feed.id, credentialId: feed.credentialRef });
   }
   return out;
 }
@@ -793,8 +781,6 @@ export async function instrumentSymbols(
     .where(inArray(instruments.id, [...ids]));
   return new Map(rows.map((r) => [r.id, r.symbol]));
 }
-
-
 
 /**
  * The event data a run reads (free data feeds brief v1 §6), by instrument id:
@@ -826,4 +812,33 @@ export async function loadEventData(
     rates: want('rates.').length > 0 ? await loadRates(db) : [],
     dealsFrom: dealIds.length > 0 ? await dealsCoveredFrom(db) : undefined,
   };
+}
+
+/**
+ * The latest underlying close the options recording stored for each symbol
+ * (ADR 0047), for the Deals list to show a spread; symbols outside the
+ * recorded universe are left out.
+ */
+export async function latestRecordedCloses(
+  db: Db,
+  symbols: readonly string[],
+): Promise<Map<string, { close: number; date: string }>> {
+  const out = new Map<string, { close: number; date: string }>();
+  if (symbols.length === 0) return out;
+  const rows = await db.execute<{ symbol: string; close: string; as_of_date: string }>(sql`
+    select distinct on (i.symbol) i.symbol, s.underlying_close as close, s.as_of_date::text as as_of_date
+    from option_daily_signal s
+    join instrument i on i.id = s.underlying_id
+    where i.symbol in (${sql.join(
+      symbols.map((s) => sql`${s}`),
+      sql`, `,
+    )})
+      and i.asset_class = 'stock'
+      and s.underlying_close is not null
+    order by i.symbol, s.as_of_date desc`);
+  for (const r of rows) {
+    const close = Number(r.close);
+    if (Number.isFinite(close) && close > 0) out.set(r.symbol, { close, date: r.as_of_date });
+  }
+  return out;
 }

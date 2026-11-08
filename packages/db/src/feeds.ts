@@ -2,6 +2,7 @@ import {
   canonicalCustomRestConfig,
   DEMO_VENUE_CODE,
   FAILOVER,
+  isEarningsProvider,
   isFundamentalsProvider,
   isMarketDataProvider,
   isOptionsProvider,
@@ -295,7 +296,8 @@ async function checkFeedInput(tx: Transaction, input: FeedInput) {
   if (
     !isMarketDataProvider(input.provider) &&
     !isFundamentalsProvider(input.provider) &&
-    !isOptionsProvider(input.provider)
+    !isOptionsProvider(input.provider) &&
+    !isEarningsProvider(input.provider)
   ) {
     throw new IntegrationError('bad_request', `${info.name} does not provide market data`);
   }

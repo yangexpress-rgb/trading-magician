@@ -149,7 +149,13 @@ export async function completePendingReleases(o: EarningsScanOptions): Promise<n
         surprisePct(sue.eps, estimate?.eps ?? r.estimatedEps),
       );
       if (estimate)
-        await setReleaseEstimate(o.db, r.id, estimate.eps, estimate.provider, surprisePct(sue.eps, estimate.eps));
+        await setReleaseEstimate(
+          o.db,
+          r.id,
+          estimate.eps,
+          estimate.provider,
+          surprisePct(sue.eps, estimate.eps),
+        );
       if (!sue.result) continue;
       await saveSue(o.db, {
         symbol: r.symbol,

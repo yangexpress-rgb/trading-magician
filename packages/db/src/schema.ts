@@ -2497,7 +2497,10 @@ export const dealEvents = pgTable(
     unique('deal_event_seq_uq').on(t.seq),
     unique('deal_event_accession_uq').on(t.accession),
     check('deal_event_id_format', sql`${t.dealId} ~ '^D[0-9]{5,}$'`),
-    check('deal_event_consideration', sql`${t.consideration} in ('cash', 'stock', 'mixed', 'unknown')`),
+    check(
+      'deal_event_consideration',
+      sql`${t.consideration} in ('cash', 'stock', 'mixed', 'unknown')`,
+    ),
     check('deal_event_status', sql`${t.status} in ('announced', 'pending', 'closed', 'withdrawn')`),
     check('deal_event_confidence', sql`${t.confidence} in ('high', 'low')`),
     check('deal_event_source', sql`${t.source} in ('rebuilt', 'recorded')`),

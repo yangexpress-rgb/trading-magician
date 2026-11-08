@@ -7,6 +7,7 @@ import {
   getIndicator,
   getMetric,
   BUILDER_INDICATORS,
+  isEventMetric,
   isFundamentalMetric,
   isOptionsMetric,
   isRankingMetric,
@@ -46,7 +47,7 @@ type Kind = Expr['kind'];
  * The Type choices: fundamental (v1.2 item 6) and options (options brief v2 §6)
  * metrics are registry metrics listed on their own.
  */
-type UiKind = Kind | 'fundamental' | 'options';
+type UiKind = Kind | 'fundamental' | 'options' | 'events';
 
 const KIND_LABELS: Record<UiKind, string> = {
   constant: 'Fixed value',
@@ -57,13 +58,20 @@ const KIND_LABELS: Record<UiKind, string> = {
   metric: 'Metric (price-based, shared registry)',
   fundamental: 'Fundamental metric (company filings)',
   options: 'Options metric (end-of-day)',
+  events: 'Earnings, deals and rates (EDGAR, FRED)',
   stat: 'Statistic (std. dev., z-score, Bollinger, BandWidth)',
 };
 
-type MetricCategoryFilter = 'price' | 'fundamental' | 'options';
+type MetricCategoryFilter = 'price' | 'fundamental' | 'options' | 'events';
 
 const categoryOf = (metric: string): MetricCategoryFilter =>
-  isFundamentalMetric(metric) ? 'fundamental' : isOptionsMetric(metric) ? 'options' : 'price';
+  isFundamentalMetric(metric)
+    ? 'fundamental'
+    : isOptionsMetric(metric)
+      ? 'options'
+      : isEventMetric(metric)
+        ? 'events'
+        : 'price';
 
 const uiKindOf = (expr: Expr): UiKind => {
   if (expr.kind !== 'metric') return expr.kind;
@@ -73,6 +81,9 @@ const uiKindOf = (expr: Expr): UiKind => {
 
 /** The options metric a new options value starts on: the 5-day expected move (brief §4.1). */
 const DEFAULT_OPTIONS_METRIC = 'options.expected_move_5d_pct';
+
+/** The event metric a new earnings/deals/rates value starts on: days since the last release (ADR 0058). */
+const DEFAULT_EVENT_METRIC = 'earnings.days_since_earnings';
 
 export const STAT_LABELS: Record<StatFunction, string> = {
   STDDEV: 'Standard deviation',
@@ -229,6 +240,11 @@ export function ExpressionEditor({
             if (kind === 'fundamental') {
               const metric = newExpr('metric', fallbackInstrument, expr);
               onChange({ ...metric, ...defaultMetricRef('pe') } as Expr);
+              return;
+            }
+            if (kind === 'events') {
+              const metric = newExpr('metric', fallbackInstrument, expr);
+              onChange({ ...metric, ...defaultMetricRef(DEFAULT_EVENT_METRIC) } as Expr);
               return;
             }
             if (kind === 'options') {
@@ -741,7 +757,9 @@ function MetricFields({
             ? 'Fundamental metric'
             : category === 'options'
               ? 'Options metric'
-              : 'Metric'
+              : category === 'events'
+                ? 'Event metric'
+                : 'Metric'
         }
         onChange={(ref) => onChange({ ...expr, metric: ref.metric, params: ref.params })}
       />
@@ -839,6 +857,10 @@ export function MetricRefFields({
     {
       label: 'Options (daily recording)',
       metrics: offered.filter((m) => categoryOf(m.id) === 'options'),
+    },
+    {
+      label: 'Earnings, deals and rates',
+      metrics: offered.filter((m) => categoryOf(m.id) === 'events'),
     },
     {
       label: 'Fundamental (company filings)',

@@ -21,9 +21,19 @@ const closeOf = (d: string) => Date.parse(regularSession(d)?.close ?? '');
 /** XYZ's quarters, built so the 8 prior differences are 0.10 ×4 and 0.30 ×4, then 0.25 (§7.1). */
 function xyzSeries(): QuarterEps[] {
   const ends = [
-    '2023-09-30', '2023-12-31', '2024-03-31', '2024-06-30',
-    '2024-09-30', '2024-12-31', '2025-03-31', '2025-06-30',
-    '2025-09-30', '2025-12-31', '2026-03-31', '2026-06-30', '2026-09-30',
+    '2023-09-30',
+    '2023-12-31',
+    '2024-03-31',
+    '2024-06-30',
+    '2024-09-30',
+    '2024-12-31',
+    '2025-03-31',
+    '2025-06-30',
+    '2025-09-30',
+    '2025-12-31',
+    '2026-03-31',
+    '2026-06-30',
+    '2026-09-30',
   ];
   const eps = [1.85, 1.85, 1.85, 1.85, 1.95, 1.95, 1.95, 1.95, 2.25, 2.25, 2.25, 2.25, 2.5];
   return ends.map((quarterEnd, i) => ({ quarterEnd, eps: eps[i] as number }));
@@ -78,7 +88,9 @@ describe('§7.1 time-series SUE', () => {
       ...data,
       earnings: new Map([['xyz', [{ ...release, sue: null }]]]),
     };
-    expect(eventPointAt(young, 'xyz', 'earnings.sue_ts', closeOf('2026-11-05'), 100)).toBeUndefined();
+    expect(
+      eventPointAt(young, 'xyz', 'earnings.sue_ts', closeOf('2026-11-05'), 100),
+    ).toBeUndefined();
   });
 
   it('works out a consensus surprise only with an estimate', () => {

@@ -55,6 +55,7 @@ import { saveRates } from '@tm/db';
 import { EVENT_HISTORY_FROM } from '@tm/domain';
 import { finnhubCalendar, fmpCalendar, type CalendarSource } from './events/calendar';
 import { adminCredentialField } from './events/keys';
+import { earningsFeedProvider } from './events/feed';
 import { startEventsLoop, type EventsLoop } from './events/loop';
 
 const env = loadWorkerEnv();
@@ -203,7 +204,12 @@ if (databaseUrl) {
     db: handle.db,
     providers,
     fundamentals,
-    options: { cboe_options: optionsFeedProvider() },
+    options: {
+      cboe_options: optionsFeedProvider(),
+      // Calendar feeds report the worker's nightly fetch (ADR 0058).
+      fmp: earningsFeedProvider('fmp'),
+      finnhub: earningsFeedProvider('finnhub'),
+    },
     privateKey: credentialKey,
     logger,
     customTransport,
@@ -395,19 +401,23 @@ if (databaseUrl) {
           privateKey: credentialKey,
           logger: warn,
         }));
-      const calendar: CalendarSource[] = [];
-      if (env.EARNINGS_CALENDAR_PROVIDER !== 'none' && !fake) {
+      const calendar = async (): Promise<CalendarSource[]> => {
+        if (env.EARNINGS_CALENDAR_PROVIDER === 'none' || fake) return [];
         const order: ('fmp' | 'finnhub')[] =
           env.EARNINGS_CALENDAR_PROVIDER === 'finnhub' ? ['finnhub', 'fmp'] : ['fmp', 'finnhub'];
+        const out: CalendarSource[] = [];
         for (const p of order) {
           const apiKey = await keyFor(p);
-          if (apiKey)
-            calendar.push(p === 'fmp' ? fmpCalendar({ apiKey }) : finnhubCalendar({ apiKey }));
+          if (apiKey) out.push(p === 'fmp' ? fmpCalendar({ apiKey }) : finnhubCalendar({ apiKey }));
         }
-      }
-      if (calendar.length === 0)
-        logger.info('earnings calendar: EDGAR-only mode (no FMP or Finnhub key, or switched off)');
-      let tickerCache: { at: number; value: Promise<Awaited<ReturnType<typeof fetchTickers>>> } | undefined;
+        if (out.length === 0)
+          logger.info(
+            'earnings calendar: EDGAR-only mode (no FMP or Finnhub key, or switched off)',
+          );
+        return out;
+      };
+      let tickerCache:
+        { at: number; value: Promise<Awaited<ReturnType<typeof fetchTickers>>> } | undefined;
       eventsLoop = startEventsLoop({
         db,
         client: secClient,

@@ -17,9 +17,7 @@ import type { EdgarFiling } from './earnings';
  * the Kellanova one follows Mars's announced $83.50 cash offer (August 2024).
  */
 const doc = (name: string) =>
-  filingText(
-    readFileSync(new URL(`./testing/fixtures/events/${name}`, import.meta.url), 'utf8'),
-  );
+  filingText(readFileSync(new URL(`./testing/fixtures/events/${name}`, import.meta.url), 'utf8'));
 
 describe('parseMergerFiling', () => {
   it("finds a known announced cash deal from the target's 8-K", () => {
@@ -83,10 +81,9 @@ describe('EDGAR search hits', () => {
       tickers: ['K'],
       cik: '55067',
     });
-    expect(parseDisplayName('Berkshire Hathaway Inc  (BRK-B, BRK-A)  (CIK 0001067983)').tickers).toEqual([
-      'BRK.B',
-      'BRK.A',
-    ]);
+    expect(
+      parseDisplayName('Berkshire Hathaway Inc  (BRK-B, BRK-A)  (CIK 0001067983)').tickers,
+    ).toEqual(['BRK.B', 'BRK.A']);
     expect(parseDisplayName('Private Holdco LLC  (CIK 0001999999)').tickers).toEqual([]);
   });
 
@@ -102,9 +99,7 @@ describe('EDGAR search hits', () => {
         items: ['1.01', '9.01'],
       },
     });
-    expect(hit?.documentPath).toBe(
-      '/Archives/edgar/data/55067/000119312524198765/d812345d8k.htm',
-    );
+    expect(hit?.documentPath).toBe('/Archives/edgar/data/55067/000119312524198765/d812345d8k.htm');
     expect(hit?.filer.tickers).toEqual(['K']);
   });
 

@@ -22,7 +22,7 @@ import {
   earningsBeforeFirstDate,
   ratesBeforeFirstDate,
 } from './events-coverage';
-import { ACCOUNT, inputs, leg } from './test-utils';
+import { inputs, leg } from './test-utils';
 
 /**
  * The Lab fixtures of the free data feeds brief v1 §7 and §10: PEAD (entry
@@ -45,7 +45,11 @@ const TO = '2026-11-06';
 
 let n = 0;
 const uid = (p: string) => `${p}${++n}`;
-const metric = (id: string, instrumentId: string, params: MetricExpr['params'] = {}): MetricExpr => ({
+const metric = (
+  id: string,
+  instrumentId: string,
+  params: MetricExpr['params'] = {},
+): MetricExpr => ({
   kind: 'metric',
   id: uid('x'),
   metric: id,
@@ -66,7 +70,15 @@ function bars(price: (day: string, i: number) => number, from = '2023-01-03'): B
   return tradingDays(from, TO).map((d, i) => {
     const s = regularSession(d)!;
     const v = new Decimal(price(d, i));
-    return { start: s.open, end: s.close, open: v, high: v, low: v, close: v, volume: new Decimal(1e6) };
+    return {
+      start: s.open,
+      end: s.close,
+      open: v,
+      high: v,
+      low: v,
+      close: v,
+      volume: new Decimal(1e6),
+    };
   });
 }
 
@@ -100,7 +112,9 @@ function peadFixture(): StrategyDefinition {
     cmp(metric('earnings.sue_ts', XYZ), 'gt', constant('1.0')),
   ];
   // Exit by the time stop alone: the exit condition never holds.
-  def.exit.condition.children = [cmp(metric('earnings.days_since_earnings', XYZ), 'lt', constant('-1'))];
+  def.exit.condition.children = [
+    cmp(metric('earnings.days_since_earnings', XYZ), 'lt', constant('-1')),
+  ];
   def.exit.rules = [{ kind: 'timeStop', id: 'ts', barsHeld: 60 }];
   buySell(def, XYZ);
   return def;
@@ -110,7 +124,10 @@ function peadFixture(): StrategyDefinition {
 function xyzReleases(): EarningsSignal[] {
   const out: EarningsSignal[] = [];
   const mondays = tradingDays('2024-02-01', TO).filter(
-    (d) => new Date(`${d}T12:00:00Z`).getUTCDay() === 1 && ['02', '05', '08', '11'].includes(d.slice(5, 7)) && Number(d.slice(8)) <= 7,
+    (d) =>
+      new Date(`${d}T12:00:00Z`).getUTCDay() === 1 &&
+      ['02', '05', '08', '11'].includes(d.slice(5, 7)) &&
+      Number(d.slice(8)) <= 7,
   );
   mondays.forEach((d, i) =>
     out.push({

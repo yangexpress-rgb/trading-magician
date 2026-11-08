@@ -29,6 +29,7 @@ import {
   toBars,
 } from '@/lib/research-text';
 import { CompanyPanel } from './company-panel';
+import { EarningsPanel } from './earnings-panel';
 import { OptionsPanel } from './options-panel';
 import { PriceChart, type ChartStyle } from './price-chart';
 import { StockPicker } from './stock-picker';
@@ -343,6 +344,7 @@ export function ResearchWorkspace({
         {selected && !dailyOnly && (
           <OptionsPanel instrument={selected} optionsFeed={optionsFeed} onCone={setCone} />
         )}
+        {selected && !dailyOnly && <EarningsPanel instrument={selected} />}
         {selected && !dailyOnly && (
           <CompanyPanel
             instrument={selected}

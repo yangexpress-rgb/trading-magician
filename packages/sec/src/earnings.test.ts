@@ -21,7 +21,11 @@ function facts(values: SecFact[]): SecCompanyFacts {
     entityName: 'XYZ Corp',
     facts: {
       'us-gaap': {
-        EarningsPerShareDiluted: { label: null, description: null, units: { 'USD/shares': values } },
+        EarningsPerShareDiluted: {
+          label: null,
+          description: null,
+          units: { 'USD/shares': values },
+        },
       },
     },
   };
@@ -60,9 +64,19 @@ describe('releaseSue', () => {
   it('works out the §7.1 fixture from filed EPS', () => {
     // Quarters 2023-09 … 2026-09: year-on-year differences 0.10 ×4, 0.30 ×4, then 0.25.
     const ends = [
-      '2023-09-30', '2023-12-31', '2024-03-31', '2024-06-30',
-      '2024-09-30', '2024-12-31', '2025-03-31', '2025-06-30',
-      '2025-09-30', '2025-12-31', '2026-03-31', '2026-06-30', '2026-09-30',
+      '2023-09-30',
+      '2023-12-31',
+      '2024-03-31',
+      '2024-06-30',
+      '2024-09-30',
+      '2024-12-31',
+      '2025-03-31',
+      '2025-06-30',
+      '2025-09-30',
+      '2025-12-31',
+      '2026-03-31',
+      '2026-06-30',
+      '2026-09-30',
     ];
     // XYZ: 2.25 a year ago, 2.50 now; the 8 prior year-on-year differences are 0.10 ×4, 0.30 ×4.
     const values = [1.85, 1.85, 1.85, 1.85, 1.95, 1.95, 1.95, 1.95, 2.25, 2.25, 2.25, 2.25, 2.5];

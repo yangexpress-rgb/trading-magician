@@ -137,10 +137,19 @@ export interface ParsedDeal {
 
 const MONEY = String.raw`\$\s?(\d{1,4}(?:,\d{3})*(?:\.\d{1,4})?)`;
 const CASH_PATTERNS = [
-  new RegExp(String.raw`right to receive,?\s+(?:an amount in cash(?: equal to)?|cash in an amount equal to)\s+${MONEY}`, 'gi'),
+  new RegExp(
+    String.raw`right to receive,?\s+(?:an amount in cash(?: equal to)?|cash in an amount equal to)\s+${MONEY}`,
+    'gi',
+  ),
   new RegExp(String.raw`right to receive\s+${MONEY}\s+(?:per share\s+)?in cash`, 'gi'),
-  new RegExp(String.raw`${MONEY}\s+per (?:share|Share)(?: of [A-Za-z ]{0,40}?stock)?,?\s+(?:net to the (?:seller|holder)s?\s+)?in cash`, 'gi'),
-  new RegExp(String.raw`(?:for|at) a (?:purchase )?price of\s+${MONEY}\s+per (?:share|Share)`, 'gi'),
+  new RegExp(
+    String.raw`${MONEY}\s+per (?:share|Share)(?: of [A-Za-z ]{0,40}?stock)?,?\s+(?:net to the (?:seller|holder)s?\s+)?in cash`,
+    'gi',
+  ),
+  new RegExp(
+    String.raw`(?:for|at) a (?:purchase )?price of\s+${MONEY}\s+per (?:share|Share)`,
+    'gi',
+  ),
 ];
 const STOCK_PATTERN =
   /exchange ratio|\d+\.\d+\s+(?:\(the "Exchange Ratio"\)\s+)?(?:of a\s+)?(?:validly issued,?\s+fully paid\s+(?:and|&)\s+nonassessable\s+)?shares? of (?:Parent|Acquir\w+|Buyer|[A-Z][\w&.\- ]{1,60}?) (?:common|ordinary|Class A)/i;
@@ -149,8 +158,12 @@ const ACQUIRER_PATTERNS = [
   new RegExp(
     String.raw`with\s+([A-Z][A-Za-z0-9.,&'\- ]{1,100}?),?\s+(?:an?|the)\s+[A-Za-z.\- ]{0,80}?\(\s*(?:the\s+)?"${ROLE_PARTY}"\s*\)`,
   ),
-  new RegExp(String.raw`with\s+([A-Z][A-Za-z0-9.,&'\- ]{1,100}?)\s*\(\s*(?:the\s+)?"${ROLE_PARTY}"\s*\)`),
-  new RegExp(String.raw`([A-Z][A-Za-z0-9.,&'\- ]{1,100}?),?\s+(?:an?\s+[A-Za-z.\- ]{0,80}?)?\(\s*(?:the\s+)?"${ROLE_PARTY}"\s*\)`),
+  new RegExp(
+    String.raw`with\s+([A-Z][A-Za-z0-9.,&'\- ]{1,100}?)\s*\(\s*(?:the\s+)?"${ROLE_PARTY}"\s*\)`,
+  ),
+  new RegExp(
+    String.raw`([A-Z][A-Za-z0-9.,&'\- ]{1,100}?),?\s+(?:an?\s+[A-Za-z.\- ]{0,80}?)?\(\s*(?:the\s+)?"${ROLE_PARTY}"\s*\)`,
+  ),
 ];
 const TARGET_IS_FILER = [
   /merge (?:with and )?into the Company/i,
@@ -264,7 +277,8 @@ export function statusChanges(
   for (const f of later) {
     if (PENDING_FORMS.has(f.form)) out.push({ status: 'pending', filing: f });
     else if (DELISTING_FORMS.has(f.form)) out.push({ status: 'closed', filing: f });
-    else if (f.form === '8-K' && f.items.includes('2.01')) out.push({ status: 'closed', filing: f });
+    else if (f.form === '8-K' && f.items.includes('2.01'))
+      out.push({ status: 'closed', filing: f });
     else if (f.form === '8-K' && f.items.includes('1.02'))
       out.push({ status: 'withdrawn', filing: f, needsText: true });
   }
@@ -273,8 +287,12 @@ export function statusChanges(
 
 /** Whether an 8-K's text terminates the merger agreement (not a credit line at closing). */
 export const terminatesMerger = (text: string) =>
-  /terminat\w*\s+(?:of\s+)?(?:the\s+)?(?:Merger Agreement|Agreement and Plan of Merger)/i.test(text) ||
-  /(?:Merger Agreement|Agreement and Plan of Merger)[^.]{0,120}?(?:was|has been|is)\s+terminated/i.test(text);
+  /terminat\w*\s+(?:of\s+)?(?:the\s+)?(?:Merger Agreement|Agreement and Plan of Merger)/i.test(
+    text,
+  ) ||
+  /(?:Merger Agreement|Agreement and Plan of Merger)[^.]{0,120}?(?:was|has been|is)\s+terminated/i.test(
+    text,
+  );
 
 // ---------------------------------------------------------------------------
 // Matching a target named by an acquirer to a listed company

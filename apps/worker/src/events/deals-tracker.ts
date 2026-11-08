@@ -225,7 +225,10 @@ export async function updateDealStatuses(o: DealTrackerOptions, limit = 200) {
     try {
       const { filings } = await fetchFilings(o.client, deal.targetCik, deal.announcedDate);
       for (const c of statusChanges(filings, deal.accession, deal.announcedAt)) {
-        if (c.needsText && !terminatesMerger(filingText(await o.client.document(new URL(c.filing.url).pathname))))
+        if (
+          c.needsText &&
+          !terminatesMerger(filingText(await o.client.document(new URL(c.filing.url).pathname)))
+        )
           continue;
         const ok = await changeDealStatus(o.db, {
           dealId: deal.dealId,

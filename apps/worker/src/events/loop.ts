@@ -20,8 +20,11 @@ export interface EventsLoopOptions {
   /** Without an SEC contact the EDGAR jobs wait (logged once a day). */
   client: SecClient | undefined;
   tickers: (client: SecClient) => Promise<Map<string, SecListing>>;
-  /** Calendar sources in order (FMP, then Finnhub); empty is EDGAR-only mode. */
-  calendar: readonly CalendarSource[];
+  /**
+   * Calendar sources in order (FMP, then Finnhub), resolved each night so a
+   * newly added key is used without a restart; empty is EDGAR-only mode.
+   */
+  calendar: () => Promise<readonly CalendarSource[]>;
   /** Fetches DTB3 through the options market inputs, which store it in rates_daily. */
   refreshRates: (today: string) => Promise<unknown>;
   logger: Pick<Logger, 'info' | 'warn'>;
@@ -113,7 +116,8 @@ export async function runEventsPass(o: EventsLoopOptions): Promise<void> {
   if (eveningDue(now)) {
     const cs = await getScanState(o.db, 'calendar');
     if (cs?.coveredFrom !== today) {
-      if (o.calendar.length === 0) {
+      const sources = await o.calendar().catch(() => []);
+      if (sources.length === 0) {
         await setScanState(o.db, 'calendar', {
           status: 'skipped',
           coveredFrom: today,
@@ -124,7 +128,7 @@ export async function runEventsPass(o: EventsLoopOptions): Promise<void> {
         await step('calendar', async () => {
           await setScanState(o.db, 'calendar', { status: 'running', lastRunAt: now });
           try {
-            const got = await fetchCalendar(o.calendar, today);
+            const got = await fetchCalendar(sources, today);
             await saveCalendar(o.db, got.provider, got.rows, now);
             await setScanState(o.db, 'calendar', {
               status: 'done',

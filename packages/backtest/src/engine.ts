@@ -286,13 +286,7 @@ export function simulate({
   const v12 = mode !== 'none' || frequency !== 'daily' || (def.exit.rules?.length ?? 0) > 0;
   for (const w of data.warnings) warnings.add(`data:${w}`, w);
   const watchOnly = watchOnlyInstruments(instruments);
-  const view = new MarketView(
-    data.series,
-    watchOnly,
-    data.fundamentals,
-    data.options,
-    data.events,
-  );
+  const view = new MarketView(data.series, watchOnly, data.fundamentals, data.options, data.events);
   const ex = def.execution;
   const risk = def.risk;
   const slippageBps = new Decimal(inputs.slippageBps);

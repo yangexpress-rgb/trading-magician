@@ -1,5 +1,11 @@
 import { nyDate, tradingDays } from '@tm/domain';
-import type { SecCompanyFacts, SecFact, SecSearchHit, SecSubmissions, SecTickerFile } from '../types';
+import type {
+  SecCompanyFacts,
+  SecFact,
+  SecSearchHit,
+  SecSubmissions,
+  SecTickerFile,
+} from '../types';
 
 /**
  * A local stand-in for the EDGAR filings the event jobs read (free data
@@ -23,12 +29,28 @@ const COMPANIES = [FAKE_XYZ, FAKE_TGT, FAKE_LOWC];
 
 /** XYZ's quarter ends and diluted EPS: §7.1's 13 quarters, with earlier history before them. */
 export const FAKE_XYZ_QUARTERS: readonly { end: string; eps: number }[] = [
-  ['2021-03-31', 1.5], ['2021-06-30', 1.52], ['2021-09-30', 1.55], ['2021-12-31', 1.6],
-  ['2022-03-31', 1.62], ['2022-06-30', 1.66], ['2022-09-30', 1.7], ['2022-12-31', 1.75],
-  ['2023-03-31', 1.8], ['2023-06-30', 1.82],
-  ['2023-09-30', 1.85], ['2023-12-31', 1.85], ['2024-03-31', 1.85], ['2024-06-30', 1.85],
-  ['2024-09-30', 1.95], ['2024-12-31', 1.95], ['2025-03-31', 1.95], ['2025-06-30', 1.95],
-  ['2025-09-30', 2.25], ['2025-12-31', 2.25], ['2026-03-31', 2.25], ['2026-06-30', 2.25],
+  ['2021-03-31', 1.5],
+  ['2021-06-30', 1.52],
+  ['2021-09-30', 1.55],
+  ['2021-12-31', 1.6],
+  ['2022-03-31', 1.62],
+  ['2022-06-30', 1.66],
+  ['2022-09-30', 1.7],
+  ['2022-12-31', 1.75],
+  ['2023-03-31', 1.8],
+  ['2023-06-30', 1.82],
+  ['2023-09-30', 1.85],
+  ['2023-12-31', 1.85],
+  ['2024-03-31', 1.85],
+  ['2024-06-30', 1.85],
+  ['2024-09-30', 1.95],
+  ['2024-12-31', 1.95],
+  ['2025-03-31', 1.95],
+  ['2025-06-30', 1.95],
+  ['2025-09-30', 2.25],
+  ['2025-12-31', 2.25],
+  ['2026-03-31', 2.25],
+  ['2026-06-30', 2.25],
   ['2026-09-30', 2.5],
 ].map(([end, eps]) => ({ end: end as string, eps: eps as number }));
 
@@ -63,7 +85,9 @@ interface FakeFiling {
   body?: string;
 }
 
-const MERGER_8K = (offer: string) => `<html><body><p>Item 1.01 Entry into a Material Definitive Agreement.</p>
+const MERGER_8K = (
+  offer: string,
+) => `<html><body><p>Item 1.01 Entry into a Material Definitive Agreement.</p>
 <p>On March 2, 2025, Target Widgets Inc., a Delaware corporation (the &#8220;Company&#8221;), entered into an Agreement and Plan of Merger (the &#8220;Merger Agreement&#8221;) with Acquirer Holdings Inc., a Delaware corporation (&#8220;Parent&#8221;), and Widget Merger Sub, Inc. (&#8220;Merger Sub&#8221;). Merger Sub will merge with and into the Company, with the Company continuing as the surviving corporation and a wholly owned subsidiary of Parent.</p>
 <p>${offer}</p></body></html>`;
 

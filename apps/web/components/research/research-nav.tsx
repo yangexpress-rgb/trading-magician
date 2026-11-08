@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation';
 const TOOLS = [
   { href: '/research', label: 'Price charts' },
   { href: '/research/screener', label: 'Stock screener' },
+  { href: '/research/deals', label: 'Deals' },
 ];
 
 /** The tools of Quantitative Research (§11), one page each. */

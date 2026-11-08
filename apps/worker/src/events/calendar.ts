@@ -31,12 +31,10 @@ export interface CalendarSource {
   fetchRange(from: string, to: string): Promise<CalendarRow[]>;
 }
 
-const hint = (v: unknown): 'bmo' | 'amc' | null =>
-  v === 'bmo' || v === 'amc' ? v : null;
-const num = (v: unknown): number | null =>
-  typeof v === 'number' && Number.isFinite(v) ? v : null;
+const hint = (v: unknown): 'bmo' | 'amc' | null => (v === 'bmo' || v === 'amc' ? v : null);
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const SYMBOL = /^[A-Z][A-Z0-9.\-]{0,9}$/;
+const SYMBOL = /^[A-Z][A-Z0-9.-]{0,9}$/;
 
 async function getJson(fetchFn: Fetch, url: string, who: string): Promise<unknown> {
   let res: Response;
@@ -71,14 +69,22 @@ function rows(list: unknown[], pick: (r: Record<string, unknown>) => CalendarRow
   return [...out.values()];
 }
 
-export function fmpCalendar(o: { apiKey: string; fetch?: Fetch; baseUrl?: string }): CalendarSource {
+export function fmpCalendar(o: {
+  apiKey: string;
+  fetch?: Fetch;
+  baseUrl?: string;
+}): CalendarSource {
   const fetchFn = o.fetch ?? ((url, init) => fetch(url, init));
   const base = o.baseUrl ?? FMP_URL;
   return {
     provider: 'fmp',
     async fetchRange(from, to) {
       const q = new URLSearchParams({ from, to, apikey: o.apiKey });
-      const body = await getJson(fetchFn, `${base}/stable/earnings-calendar?${q.toString()}`, 'FMP');
+      const body = await getJson(
+        fetchFn,
+        `${base}/stable/earnings-calendar?${q.toString()}`,
+        'FMP',
+      );
       if (!Array.isArray(body)) throw new CalendarError('FMP sent no calendar');
       return rows(body, (r) => ({
         symbol: String(r.symbol ?? '').replace(/-/g, '.'),
@@ -106,7 +112,8 @@ export function finnhubCalendar(o: {
         `${base}/api/v1/calendar/earnings?${q.toString()}`,
         'Finnhub',
       )) as { earningsCalendar?: unknown };
-      if (!Array.isArray(body?.earningsCalendar)) throw new CalendarError('Finnhub sent no calendar');
+      if (!Array.isArray(body?.earningsCalendar))
+        throw new CalendarError('Finnhub sent no calendar');
       return rows(body.earningsCalendar, (r) => ({
         symbol: String(r.symbol ?? '').replace(/-/g, '.'),
         date: String(r.date ?? ''),
@@ -129,7 +136,11 @@ export async function fetchCalendar(
   for (const s of sources) {
     try {
       const all: CalendarRow[] = [];
-      for (let from = today; from < addDays(today, CALENDAR_DAYS); from = addDays(from, WINDOW_DAYS)) {
+      for (
+        let from = today;
+        from < addDays(today, CALENDAR_DAYS);
+        from = addDays(from, WINDOW_DAYS)
+      ) {
         const to = addDays(from, WINDOW_DAYS - 1);
         all.push(...(await s.fetchRange(from, to)));
       }
@@ -140,4 +151,3 @@ export async function fetchCalendar(
   }
   throw last instanceof Error ? last : new CalendarError('No earnings calendar is configured');
 }
-
