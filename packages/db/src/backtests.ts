@@ -77,6 +77,7 @@ export interface BacktestTradeRow {
   /** Risk-based sizing and ATR stop (v1.2 item 9). */
   sizing?: BacktestResult['trades'][number]['sizing'];
   atrStop?: BacktestResult['trades'][number]['atrStop'];
+  expectedMove?: BacktestResult['trades'][number]['expectedMove'];
 }
 
 const summaryColumns = {
@@ -231,17 +232,19 @@ export async function listBacktestTrades(
       entryGroup: backtestTrades.entryGroup,
       sizing: backtestTrades.sizing,
       atrStop: backtestTrades.atrStop,
+      expectedMove: backtestTrades.expectedMove,
     })
     .from(backtestTrades)
     .where(eq(backtestTrades.runId, runId))
     .orderBy(backtestTrades.cycle);
-  return rows.map(({ exitReason, direction, entryGroup, sizing, atrStop, ...r }) => ({
+  return rows.map(({ exitReason, direction, entryGroup, sizing, atrStop, expectedMove, ...r }) => ({
     ...r,
     ...(exitReason ? { exitReason } : {}),
     ...(direction ? { direction } : {}),
     ...(entryGroup ? { group: entryGroup } : {}),
     ...(sizing ? { sizing } : {}),
     ...(atrStop ? { atrStop } : {}),
+    ...(expectedMove ? { expectedMove } : {}),
   })) as BacktestTradeRow[];
 }
 
@@ -424,6 +427,7 @@ export async function completeRun(
         entryGroup: t.group ?? null,
         sizing: t.sizing ?? null,
         atrStop: t.atrStop ?? null,
+        expectedMove: t.expectedMove ?? null,
       })),
     );
   }

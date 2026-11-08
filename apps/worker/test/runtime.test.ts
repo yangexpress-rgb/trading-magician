@@ -1,6 +1,9 @@
 import {
+  addSeedUnderlyings,
   and,
   claimRuntimes,
+  createFeed,
+  saveOptionSignal,
   createStrategy,
   eq,
   isNull,
@@ -22,6 +25,8 @@ import { createTestDatabase, type TestDatabase } from '@tm/db/testing';
 import {
   BrokerUnavailableError,
   createDefinition,
+  OPTION_SIGNAL_FIELDS,
+  type OptionSignalValues,
   type PlannedOrder,
   type StrategyDefinition,
 } from '@tm/domain';
@@ -1060,6 +1065,50 @@ describe('paper runtime: risk sizing from ATR and the ATR stop (v1.2 item 9)', (
     expect(
       (c!.state as { sizing?: Record<string, { skipped?: string }> }).sizing?.buy?.skipped,
     ).toBe('zero_quantity');
+    await stopAll();
+  });
+});
+
+describe('paper runtime: the expected-move exit (ADR 0053)', () => {
+  it('captures the first Entry leg’s expected move when Entry is decided', async () => {
+    clock = Date.parse('2026-11-04T15:31:00Z');
+    await addSeedUnderlyings(t.worker.db, [demoA]);
+    const nulls = Object.fromEntries(
+      OPTION_SIGNAL_FIELDS.map((f) => [f, null]),
+    ) as OptionSignalValues;
+    await saveOptionSignal(t.worker.db, {
+      underlyingId: demoA,
+      asOfDate: '2026-11-03',
+      values: { ...nulls, expected_move_5d_pct: 0.031 },
+      ivHistoryDays: 0,
+      expiries: [],
+      underlyingClose: 100,
+      riskFreeRate: 0.04,
+      dividendYield: 0,
+      source: 'recorded',
+      feed: 'cboe',
+      computedAt: new Date(),
+    });
+    await asUser((tx) =>
+      createFeed(tx, {
+        userId,
+        name: 'CBOE delayed options (daily)',
+        provider: 'cboe_options',
+        assetClasses: ['stock', 'etf'],
+      }),
+    );
+    const def = pairDefinition();
+    def.entry.orders = [leg('buy', { legLabel: 'Buy A' })];
+    def.exit.orders = [leg('sell', { legLabel: 'Sell A', side: 'close' })];
+    def.exit.condition = never();
+    def.exit.rules = [
+      { kind: 'expectedMove', id: 'em', horizon: 5, multiple: '1', side: 'either' },
+    ];
+    const { runtimeId } = await startPaper('Expected-move exit', def);
+    await pass();
+    expect(await orders(runtimeId)).toHaveLength(1);
+    const [c] = await cycles(runtimeId);
+    expect((c!.state as { moveAtEntry?: string }).moveAtEntry).toBe('0.031');
     await stopAll();
   });
 });

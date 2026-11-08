@@ -33,6 +33,10 @@ const HEADER = [
   'risk_quantity',
   'capped_by',
   'atr_stop_level',
+  // The expected-move exit (ADR 0053): the move at entry and the band's edges.
+  'expected_move_at_entry',
+  'expected_move_lower',
+  'expected_move_upper',
 ];
 
 /**
@@ -66,6 +70,9 @@ export function tradesCsv(run: BacktestRunSummary, trades: readonly BacktestTrad
       z?.riskQuantity ?? null,
       z?.cappedBy ?? null,
       t.atrStop?.level ?? null,
+      t.expectedMove?.movePct ?? null,
+      t.expectedMove?.lower ?? null,
+      t.expectedMove?.upper ?? null,
     ];
     for (const l of legs) {
       rows.push([

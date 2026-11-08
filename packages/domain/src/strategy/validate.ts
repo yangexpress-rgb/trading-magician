@@ -180,6 +180,7 @@ export function validateStrategy(
 
   checkGroups(def, ctx, add);
   checkAtrStops(def, add);
+  checkExpectedMoveExits(def, add);
   checkBacktest(ctx, add);
 
   return {
@@ -441,6 +442,33 @@ function checkAtrStops(def: StrategyDefinition, add: Add) {
         'warning',
         'atr_stop_first_leg',
         "The ATR stop watches the first Entry leg's instrument and closes every leg when it fires",
+        [...at, 'exit', 'rules'],
+      );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Expected-move exit (options brief v2 §10 item 10, ADR 0053)
+
+function checkExpectedMoveExits(def: StrategyDefinition, add: Add) {
+  const parts = [
+    { p: def as Pick<StrategyDefinition, 'entry' | 'exit'>, at: [] as (string | number)[] },
+    ...(def.groups ?? []).map((g, i) => ({ p: g, at: ['groups', i] })),
+  ];
+  for (const { p, at } of parts) {
+    const rules = (p.exit.rules ?? []).filter((r) => r.kind === 'expectedMove');
+    if (rules.length > 1)
+      add('error', 'duplicate_expected_move_exit', 'Use one expected-move exit per Exit', [
+        ...at,
+        'exit',
+        'rules',
+      ]);
+    const instruments = new Set(p.entry.orders.map((o) => o.instrumentId));
+    if (rules.length > 0 && instruments.size > 1)
+      add(
+        'warning',
+        'expected_move_first_leg',
+        "The expected-move exit watches the first Entry leg's instrument and closes every leg when it fires",
         [...at, 'exit', 'rules'],
       );
   }

@@ -53,7 +53,7 @@ export interface BacktestTrade {
   /** Net P/L as a percentage of the Entry value. */
   returnPct: string | null;
   /** Which rule closed the cycle, for strategies using v1.2 rules. */
-  exitReason?: 'condition' | 'rebalance' | 'time_stop' | 'atr_stop';
+  exitReason?: 'condition' | 'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move';
   /** Two-sided strategies (v1.2 item 8): the direction and entry group of the trade. */
   direction?: 'long' | 'short';
   group?: string;
@@ -67,6 +67,20 @@ export interface BacktestTrade {
     entryPrice: string;
     level: string;
   };
+  /** Expected-move exit (ADR 0053): the move at entry and the fixed band. */
+  expectedMove?: ExpectedMoveRecord;
+}
+
+export interface ExpectedMoveRecord {
+  /** The expected move captured at entry, as a fraction of the price. */
+  movePct: string;
+  horizon: 1 | 5;
+  multiple: string;
+  side: 'either' | 'gain' | 'loss';
+  direction: 'long' | 'short';
+  entryPrice: string;
+  lower: string;
+  upper: string;
 }
 
 /**

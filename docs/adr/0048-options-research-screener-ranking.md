@@ -1,6 +1,6 @@
 # ADR 0048: Options in Research, the screener and rankings
 
-- **Status:** accepted
+- **Status:** accepted (its expected-move exit was built later, ADR 0053)
 - **Date:** 2026-11-07
 - **Design refs:** §6.4, §6.10, §9.2, §11, §13.6, §16.4; design v1.2 rows N60 to N66, open points
   O42 to O47; options data brief v2 (Phase 2, §10 items 8 to 11). Builds on ADR 0047 (end-of-day

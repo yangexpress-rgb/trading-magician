@@ -1111,6 +1111,8 @@ export const backtestTrades = pgTable(
     sizing: jsonb('sizing'),
     /** ATR stop (v1.2 item 9): ATR at entry, entry price and the fixed stop level. */
     atrStop: jsonb('atr_stop'),
+    /** Expected-move exit (ADR 0053): the move at entry and the fixed band. */
+    expectedMove: jsonb('expected_move'),
   },
   (t) => [
     foreignKey({
@@ -1121,7 +1123,7 @@ export const backtestTrades = pgTable(
     check('backtest_trade_status', sql`${t.status} in ('closed', 'open', 'aborted')`),
     check(
       'backtest_trade_exit_reason',
-      sql`${t.exitReason} is null or ${t.exitReason} in ('condition', 'time_stop', 'rebalance', 'atr_stop')`,
+      sql`${t.exitReason} is null or ${t.exitReason} in ('condition', 'time_stop', 'rebalance', 'atr_stop', 'expected_move')`,
     ),
     check(
       'backtest_trade_direction',

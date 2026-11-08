@@ -21,6 +21,7 @@ import {
 import {
   atrStopRule,
   DEFAULT_RISK_DISTANCE,
+  expectedMoveRule,
   fromLegsSelection,
   toFixedLegs,
   toLegsSelection,
@@ -413,7 +414,7 @@ export function RiskDistanceEditor({
 
 /**
  * Every way a position exits, in one list (ADR 0049): the Exit condition
- * above, the holding-period exit, the ATR stop and, with a Selection group,
+ * above, the holding-period exit, the ATR stop, the expected-move exit and, with a Selection group,
  * the rebalance. Whichever comes first exits. They run on every bar,
  * whatever the schedule.
  */
@@ -439,6 +440,7 @@ export function ExitRulesEditor({
   };
   const hasTimeStop = rules.some((r) => r.kind === 'timeStop');
   const hasAtrStop = rules.some((r) => r.kind === 'atrStop');
+  const hasMoveExit = rules.some((r) => r.kind === 'expectedMove');
   const replace = (i: number, r: ExitRule) => setRules(rules.map((x, j) => (j === i ? r : x)));
   const remove = (i: number) => setRules(rules.filter((_, j) => j !== i));
   const asInt = (v: string) => (v === '' ? Number.NaN : Number(v));
@@ -479,6 +481,50 @@ export function ExitRulesEditor({
                     open, after the position was held through five closes.
                   </p>
                 </>
+              ) : r.kind === 'expectedMove' ? (
+                <div className="w-full space-y-2">
+                  <p className="text-sm font-semibold">Exit beyond the expected move at entry</p>
+                  <div className="grid-fields-wide gap-2">
+                    <MiniInput
+                      id={`rule-${r.id}-multiple`}
+                      label="Expected moves from the entry price"
+                      inputMode="decimal"
+                      disabled={!editable}
+                      value={r.multiple}
+                      error={issueAt(['exit', 'rules', i, 'multiple'])}
+                      onChange={(e) => replace(i, { ...r, multiple: e.target.value.trim() })}
+                    />
+                    <MiniSelect
+                      id={`rule-${r.id}-horizon`}
+                      label="Expected move over"
+                      disabled={!editable}
+                      value={String(r.horizon)}
+                      onChange={(e) =>
+                        replace(i, { ...r, horizon: e.target.value === '1' ? 1 : 5 })
+                      }
+                    >
+                      <option value="5">5 days</option>
+                      <option value="1">1 day</option>
+                    </MiniSelect>
+                    <MiniSelect
+                      id={`rule-${r.id}-side`}
+                      label="Exit on"
+                      disabled={!editable}
+                      value={r.side}
+                      onChange={(e) => replace(i, { ...r, side: e.target.value as typeof r.side })}
+                    >
+                      <option value="either">A move either way</option>
+                      <option value="gain">A gain only</option>
+                      <option value="loss">A loss only</option>
+                    </MiniSelect>
+                  </div>
+                  <p className="text-xs text-ink-muted">
+                    Set once, at entry: the options expected move recorded for the first Entry
+                    leg&rsquo;s stock on the entry day. It exits at the next open after a daily
+                    close more than that many expected moves from the entry price. Needs the CBOE
+                    options feed and a recorded stock or ETF.
+                  </p>
+                </div>
               ) : (
                 <div className="w-full space-y-2">
                   <p className="text-sm font-semibold">ATR stop</p>
@@ -543,7 +589,11 @@ export function ExitRulesEditor({
               {editable && (
                 <RowButton
                   label={
-                    r.kind === 'timeStop' ? 'Remove the holding-period exit' : 'Remove the ATR stop'
+                    r.kind === 'timeStop'
+                      ? 'Remove the holding-period exit'
+                      : r.kind === 'expectedMove'
+                        ? 'Remove the expected-move exit'
+                        : 'Remove the ATR stop'
                   }
                   className="text-danger"
                   onClick={() => remove(i)}
@@ -580,6 +630,14 @@ export function ExitRulesEditor({
           {!hasAtrStop && (
             <RowButton label="Add an ATR stop" onClick={() => setRules([...rules, atrStopRule()])}>
               + ATR stop
+            </RowButton>
+          )}
+          {!hasMoveExit && (
+            <RowButton
+              label="Add an exit beyond the expected move at entry"
+              onClick={() => setRules([...rules, expectedMoveRule()])}
+            >
+              + Expected-move exit
             </RowButton>
           )}
         </div>

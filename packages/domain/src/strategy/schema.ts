@@ -492,7 +492,8 @@ export const entryPhaseSchema = phaseSchema.extend({
 });
 export type EntryPhase = z.infer<typeof entryPhaseSchema>;
 
-export const EXIT_RULE_KINDS = ['timeStop', 'atrStop'] as const;
+export const EXIT_RULE_KINDS = ['timeStop', 'atrStop', 'expectedMove'] as const;
+export const EXPECTED_MOVE_SIDES = ['either', 'gain', 'loss'] as const;
 export const exitRuleSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('timeStop'),
@@ -510,6 +511,19 @@ export const exitRuleSchema = z.discriminatedUnion('kind', [
     kind: z.literal('atrStop'),
     id,
     override: riskDistanceSchema.optional(),
+  }),
+  /**
+   * Options brief v2 §10 item 10 (ADR 0053): exit when a daily close has moved
+   * from the entry price by more than `multiple` × the expected move recorded
+   * when Entry was decided (the options signal over `horizon` days). The move
+   * is fixed at entry; `side` limits it to a gain or a loss.
+   */
+  z.object({
+    kind: z.literal('expectedMove'),
+    id,
+    horizon: z.union([z.literal(1), z.literal(5)]),
+    multiple: positiveDecimalString,
+    side: z.enum(EXPECTED_MOVE_SIDES),
   }),
 ]);
 export type ExitRule = z.infer<typeof exitRuleSchema>;

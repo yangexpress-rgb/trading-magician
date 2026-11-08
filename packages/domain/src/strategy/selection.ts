@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { riskSeries } from './risk-exits';
+import { expectedMoveCloses, expectedMoveExprs } from './expected-move-exit';
 import {
   CONTEXT_INSTRUMENT_ID,
   evaluateCondition,
@@ -384,6 +385,8 @@ export function definitionExpressions(def: StrategyDefinition): Expr[] {
     if (o.limitPrice) all.push(...walkExpr(o.limitPrice));
     if (o.stopPrice) all.push(...walkExpr(o.stopPrice));
   }
+  // The expected-move exit reads its options metric at entry (ADR 0053).
+  all.push(...expectedMoveExprs(def));
   return all;
 }
 
@@ -457,6 +460,8 @@ export function definitionSeries(
   }
   // ATR sizing and ATR stops (v1.2 item 9).
   for (const e of riskSeries(def)) visit(e, 0);
+  // The expected-move exit (ADR 0053): its metric at entry, then daily closes.
+  for (const e of [...expectedMoveExprs(def), ...expectedMoveCloses(def)]) visit(e, 0);
   return out;
 }
 

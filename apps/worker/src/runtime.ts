@@ -80,6 +80,10 @@ import {
   atrStopLevel,
   atrStopOf,
   atrStopDistance,
+  expectedMoveBand,
+  expectedMoveExpr,
+  expectedMoveHit,
+  expectedMoveRuleOf,
   sizesFromAtr,
   riskSizingCap,
   stopCloseExpr,
@@ -943,6 +947,27 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         atrStopFired = atrStopHit(close, level, long);
       }
     }
+    // Expected-move exit (ADR 0053): the options expected move is fixed when Entry
+    // is decided; a daily close beyond entry × (1 ± multiple × move) exits, by OR.
+    const moveRule = expectedMoveRuleOf(cycleDef);
+    if (moveRule && atrInstrument && !c.cycle.moveAtEntry) {
+      const move = evaluateExpr(expectedMoveExpr(atrInstrument, moveRule.horizon), view);
+      if (move && move.gt(0)) c.cycle = { ...c.cycle, moveAtEntry: move.toString() };
+    }
+    let moveFired = false;
+    if (newData && moveRule && atrInstrument && c.cycle.moveAtEntry && c.cycle.status === 'open') {
+      const entry = c.entries.get(atrInstrument);
+      const held = c.positions.get(atrInstrument) ?? ZERO;
+      const close = evaluateExpr(stopCloseExpr(atrInstrument), view);
+      if (entry && !entry.quantity.isZero() && !held.isZero() && close) {
+        const band = expectedMoveBand(
+          entry.cost.div(entry.quantity),
+          new Decimal(c.cycle.moveAtEntry),
+          moveRule.multiple,
+        );
+        moveFired = expectedMoveHit(close, band, moveRule.side, held.gt(0));
+      }
+    }
     const plan = planCycle({
       definition: cycleDef,
       cycle: c.cycle,
@@ -950,7 +975,13 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       positions: c.positions,
       now: t,
       exitTruth,
-      forceExit: rebalanceExits.has(c.id) ? 'rebalance' : atrStopFired ? 'atr_stop' : undefined,
+      forceExit: rebalanceExits.has(c.id)
+        ? 'rebalance'
+        : atrStopFired
+          ? 'atr_stop'
+          : moveFired
+            ? 'expected_move'
+            : undefined,
     });
     let exitEventId: string | undefined;
     if (exitTruth) {
