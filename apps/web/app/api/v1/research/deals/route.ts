@@ -1,5 +1,5 @@
 import type { DealListDto } from '@tm/contracts';
-import { latestRecordedCloses, listDeals, listScanStates } from '@tm/db';
+import { listDealFilings, listDeals, listScanStates } from '@tm/db';
 import { dealSpread } from '@tm/domain';
 import { api } from '@/lib/server/api';
 
@@ -10,23 +10,23 @@ export const GET = api(async (request, { tx }) => {
   const all = new URL(request.url).searchParams.get('all') === '1';
   const body = await tx(async (t): Promise<DealListDto> => {
     const [deals, states] = await Promise.all([listDeals(t, { active: !all }), listScanStates(t)]);
-    const symbols = [...new Set(deals.flatMap((d) => (d.targetSymbol ? [d.targetSymbol] : [])))];
-    const closes = await latestRecordedCloses(t, symbols);
+    // Closes come from the targets' daily bars, stored by the worker each evening (N151).
+    const filings = await listDealFilings(t, deals);
     return {
       deals: deals.map((d) => {
-        const c = d.targetSymbol ? closes.get(d.targetSymbol) : undefined;
-        const spread = c
-          ? dealSpread(
-              {
-                dealId: d.dealId,
-                announcedAt: d.announcedAt,
-                offerPrice: d.offerPrice,
-                confidence: d.confidence,
-                changes: [],
-              },
-              c.close,
-            )
-          : undefined;
+        const spread =
+          d.lastClose !== null
+            ? dealSpread(
+                {
+                  dealId: d.dealId,
+                  announcedAt: d.announcedAt,
+                  offerPrice: d.offerPrice,
+                  confidence: d.confidence,
+                  changes: [],
+                },
+                d.lastClose,
+              )
+            : undefined;
         return {
           dealId: d.dealId,
           targetSymbol: d.targetSymbol,
@@ -39,13 +39,14 @@ export const GET = api(async (request, { tx }) => {
           confidence: d.confidence,
           parseNote: d.parseNote,
           sourceFilingUrl: d.sourceFilingUrl,
-          close: c?.close ?? null,
-          closeDate: c?.date ?? null,
+          filings: filings.get(d.dealId) ?? [],
+          close: d.lastClose,
+          closeDate: d.lastCloseDate,
           spreadPct: spread ?? null,
         };
       }),
       scan: states
-        .filter((x) => x.job.startsWith('deals'))
+        .filter((x) => x.job.startsWith('deal'))
         .map((x) => ({
           job: x.job,
           status: x.status,

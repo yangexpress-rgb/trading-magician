@@ -1,10 +1,14 @@
 import { DEFAULT_BACKTEST_INPUTS } from '@tm/backtest';
 import {
+  changeDealStatus,
   createStrategy,
   getBacktest,
+  insertDeal,
   latestRecordedCloses,
   listBacktestTrades,
+  listDealFilings,
   listDeals,
+  mergeDuplicateDeals,
   listScanStates,
   loadEventData,
   provisionWorkspace,
@@ -19,6 +23,7 @@ import {
 import { createTestDatabase, type TestDatabase } from '@tm/db/testing';
 import {
   createDefinition,
+  dealSpread,
   regularSession,
   tradingDays,
   type Bar,
@@ -32,6 +37,7 @@ import {
   FAKE_EVENTS_DATA_URL,
   FAKE_EVENTS_EFTS_URL,
   FAKE_EVENTS_WWW_URL,
+  FAKE_ACQ,
   FAKE_TGT_DEAL,
   FakeEdgarEvents,
   fakeReleaseDay,
@@ -39,7 +45,9 @@ import {
 import Decimal from 'decimal.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { processNextRun } from '../src/backtests';
-import { runEventsPass } from '../src/events/loop';
+import { refreshDealCloses } from '../src/events/deal-closes';
+import { scanDeals } from '../src/events/deals-tracker';
+import { dealClosesDue, runEventsPass } from '../src/events/loop';
 
 /**
  * Earnings, deals and rates end to end (free data feeds brief v1 §10): the
@@ -53,6 +61,7 @@ let userId: string;
 let account: string;
 let xyz: string;
 let tgt: string;
+let client: SecClient;
 const quiet = { info: () => undefined, warn: () => undefined, error: () => undefined };
 const asUser = <T>(fn: (tx: Transaction) => Promise<T>) => withTenant(t.app.db, { userId }, fn);
 /** Sunday evening, 8 November 2026: XYZ's latest release was Monday 2 November. */
@@ -64,11 +73,19 @@ const provider: HistoricalDataProvider = {
   id: 'test-history',
   intervals: ['1d'],
   async getBars(req) {
+    // A target the feed has no bars for (N151).
+    if (req.symbol === 'NOBARS') return { bars: [], dataVersion: 'test-history@1', warnings: [] };
     const bars: Bar[] = tradingDays(req.from, req.to).flatMap((d, i) => {
       const s = regularSession(d);
       if (!s) return [];
       const price =
-        req.symbol === 'TGT' ? (d < FAKE_TGT_DEAL.announced ? 40 : 47.5) : 100 + i * 0.05;
+        req.symbol === 'TGT'
+          ? d < FAKE_TGT_DEAL.announced
+            ? 40
+            : 47.5
+          : req.symbol === 'ACA'
+            ? 140
+            : 100 + i * 0.05;
       const v = new Decimal(price);
       return [{ start: s.open, end: s.close, open: v, high: v, low: v, close: v, volume: v }];
     });
@@ -148,6 +165,21 @@ function mergerArb(): StrategyDefinition {
   return def;
 }
 
+/** The deal targets' daily closes, through the same bars back tests read (N151). */
+const dealBars = async (symbol: string, from: string, to: string) =>
+  (
+    await provider.getBars({
+      instrumentId: symbol,
+      symbol,
+      assetClass: 'stock',
+      interval: '1d',
+      from,
+      to,
+      adjustment: 'none',
+      session: 'regular',
+    })
+  ).bars;
+
 beforeAll(async () => {
   t = await createTestDatabase();
   const register = (symbol: string) =>
@@ -163,7 +195,7 @@ beforeAll(async () => {
     );
   xyz = await register('XYZ');
   tgt = await register('TGT');
-  const client = new SecClient({
+  client = new SecClient({
     credentials: { contactEmail: 'events-test@example.test' },
     fetch: fake.fetch,
     wwwUrl: FAKE_EVENTS_WWW_URL,
@@ -189,6 +221,7 @@ beforeAll(async () => {
     logger: quiet,
     now: () => NOW,
     symbols: ['XYZ', 'TGT', 'LOWC'],
+    dealBars: dealBars,
   });
   const [user] = await t.auth.db
     .insert(schema.users)
@@ -263,7 +296,7 @@ describe('the deal tracker (§5.3, §10 item 2)', () => {
     expect(d).toMatchObject({ dealId: 'D00002', confidence: 'low', offerPrice: null });
   });
 
-  it('gives the Deals list a spread from the latest recorded close, readable by the app', async () => {
+  it('still reads the options recording closes for the options pages', async () => {
     await t.ownerSql`
       insert into option_daily_signal (underlying_id, as_of_date, underlying_close, source, feed, computed_at)
       values (${tgt}, '2026-11-06', 47.5, 'recorded', 'cboe', now())`;
@@ -282,6 +315,194 @@ describe('the deal tracker (§5.3, §10 item 2)', () => {
     };
     await denied(t.worker.db.execute(`update deal_status_history set new_status = 'withdrawn'`));
     await denied(t.app.db.execute(`delete from deal_event`));
+  });
+});
+
+describe('one deal, several filings (N152) and daily closes (N151)', () => {
+  const tracker = () => ({
+    db: t.worker.db,
+    client,
+    tickers: () => fetchTickers(client),
+    logger: quiet,
+    now: () => NOW,
+  });
+  const dealRows = async () =>
+    Number((await t.ownerSql<{ n: string }[]>`select count(*)::text as n from deal_event`)[0]!.n);
+
+  it("links the acquirer's filing of TGT's deal to the target's: one deal, both filings", async () => {
+    const deals = (await listDeals(t.app.db)).filter((d) => d.targetName.startsWith('Target'));
+    expect(deals).toHaveLength(1);
+    const filings = await listDealFilings(t.app.db, deals);
+    expect(filings.get(deals[0]!.dealId)!.map((f) => f.accession)).toEqual([
+      '0009910002-25-000101',
+      '0009910004-25-000301',
+    ]);
+    expect(filings.get(deals[0]!.dealId)![1]!.url).toContain(`/${FAKE_ACQ.cik}/`);
+  });
+
+  it('a re-scan of the same dates creates no new deal rows', async () => {
+    const before = await dealRows();
+    const counts = await scanDeals(tracker(), 'deals_scan', '2024-02-01', '2026-11-08');
+    expect(counts.added).toBe(0);
+    expect(counts.failed).toBe(0);
+    expect(await dealRows()).toBe(before);
+  });
+
+  it('folds two stored rows of one deal into one, keeping both filings and the status history', async () => {
+    // As on staging: the acquirer's filing named the target without a listing,
+    // the target's own filing gave the symbol (D00933 and D00935).
+    const acq = await insertDeal(t.worker.db, {
+      targetSymbol: null,
+      targetCik: null,
+      targetName: 'Arcosa',
+      acquirerName: 'CRH PUBLIC LTD CO',
+      announcedDate: '2026-06-22',
+      announcedAt: '2026-06-22T12:00:00.000Z',
+      offerPrice: 150,
+      consideration: 'cash',
+      sourceFilingUrl: 'https://www.sec.gov/Archives/edgar/data/849395/crh-8k.htm',
+      accession: '0000849395-26-000001',
+      confidence: 'low',
+      parseNote: 'target not listed, or not matched to a listing',
+      source: 'recorded',
+    });
+    const target = await insertDeal(t.worker.db, {
+      targetSymbol: 'ACA',
+      targetCik: '1739445',
+      targetName: 'Arcosa, Inc.',
+      acquirerName: 'Company, CRH Americas, Inc.',
+      announcedDate: '2026-06-22',
+      announcedAt: '2026-06-22T20:30:00.000Z',
+      offerPrice: 150,
+      consideration: 'cash',
+      sourceFilingUrl: 'https://www.sec.gov/Archives/edgar/data/1739445/aca-8k.htm',
+      accession: '0001739445-26-000001',
+      confidence: 'high',
+      parseNote: null,
+      source: 'recorded',
+    });
+    // A deal genuinely different only by price stays its own deal.
+    const other = await insertDeal(t.worker.db, {
+      targetSymbol: 'ACA',
+      targetCik: '1739445',
+      targetName: 'Arcosa, Inc.',
+      acquirerName: 'Someone Else',
+      announcedDate: '2026-06-22',
+      announcedAt: '2026-06-22T20:30:00.000Z',
+      offerPrice: 155,
+      consideration: 'cash',
+      sourceFilingUrl: 'https://www.sec.gov/Archives/edgar/data/1739445/other.htm',
+      accession: '0001739445-26-000002',
+      confidence: 'high',
+      parseNote: null,
+      source: 'recorded',
+    });
+    await changeDealStatus(t.worker.db, {
+      dealId: acq,
+      newStatus: 'pending',
+      changedAt: '2026-08-01T12:00:00.000Z',
+      changedDate: '2026-08-01',
+      sourceFilingUrl: 'https://www.sec.gov/Archives/edgar/data/1739445/proxy.htm',
+      accession: '0001739445-26-000050',
+    });
+
+    expect(await mergeDuplicateDeals(t.worker.db)).toEqual([{ kept: target, merged: acq }]);
+    // Running it again changes nothing.
+    expect(await mergeDuplicateDeals(t.worker.db)).toEqual([]);
+
+    const all = await listDeals(t.app.db, { active: false });
+    const arcosa = all.filter((d) => d.announcedDate === '2026-06-22' && d.offerPrice === 150);
+    expect(arcosa.map((d) => d.dealId)).toEqual([target]);
+    expect(arcosa[0]).toMatchObject({ targetSymbol: 'ACA', confidence: 'high', status: 'pending' });
+    expect(all.some((d) => d.dealId === other)).toBe(true);
+    expect(all.some((d) => d.dealId === acq)).toBe(false);
+    const filings = (await listDealFilings(t.app.db, arcosa)).get(target)!;
+    expect(filings.map((f) => f.accession)).toEqual([
+      '0001739445-26-000001',
+      '0000849395-26-000001',
+    ]);
+    const history = await t.ownerSql<{ deal_id: string; new_status: string }[]>`
+      select deal_id, new_status from deal_status_history where deal_id in (${acq}, ${target})
+      order by deal_id`;
+    expect(history).toEqual([
+      { deal_id: acq, new_status: 'pending' },
+      { deal_id: target, new_status: 'pending' },
+    ]);
+    // The hidden row keeps its id, so a later deal never takes it.
+    const merged = await t.ownerSql<{ merged_into: string }[]>`
+      select merged_into from deal_event where deal_id = ${acq}`;
+    expect(merged[0]!.merged_into).toBe(target);
+
+    // The merged filing is read: a re-scan or another pass adds nothing.
+    const before = await dealRows();
+    await runEventsPass({
+      db: t.worker.db,
+      client,
+      tickers: (c) => fetchTickers(c),
+      calendar: async () => [],
+      refreshRates: async () => undefined,
+      logger: quiet,
+      now: () => NOW,
+      symbols: ['XYZ', 'TGT', 'LOWC'],
+      dealBars,
+    });
+    expect(await dealRows()).toBe(before);
+  });
+
+  it('gives every active target a close from its daily bars, and a spread for a high-confidence cash deal', async () => {
+    const noBars = await insertDeal(t.worker.db, {
+      targetSymbol: 'NOBARS',
+      targetCik: '1999999',
+      targetName: 'No Bars Corp.',
+      acquirerName: 'Buyer Inc.',
+      announcedDate: '2026-10-01',
+      announcedAt: '2026-10-01T12:00:00.000Z',
+      offerPrice: 20,
+      consideration: 'cash',
+      sourceFilingUrl: 'https://www.sec.gov/Archives/edgar/data/1999999/nobars.htm',
+      accession: '0001999999-26-000001',
+      confidence: 'high',
+      parseNote: null,
+      source: 'recorded',
+    });
+    const counts = await refreshDealCloses({
+      db: t.worker.db,
+      bars: dealBars,
+      logger: quiet,
+      now: NOW,
+    });
+    expect(counts.failed).toBe(0);
+    const deals = await listDeals(t.app.db);
+    const aca = deals.find((d) => d.targetSymbol === 'ACA' && d.offerPrice === 150)!;
+    // ACA is not an options underlying: its close comes from its daily bars.
+    expect(aca).toMatchObject({ lastClose: 140, lastCloseDate: '2026-11-06' });
+    const spread = dealSpread({ ...aca, changes: [] }, aca.lastClose ?? undefined);
+    expect(spread).toBeCloseTo((150 - 140) / 140, 10);
+    // A target with no bars shows no close, never a zero.
+    expect(deals.find((d) => d.dealId === noBars)).toMatchObject({
+      lastClose: null,
+      lastCloseDate: null,
+    });
+    // A low-confidence deal gets a close but no spread.
+    const lowc = deals.find((d) => d.targetSymbol === 'LOWC')!;
+    expect(lowc.lastClose).toBeGreaterThan(0);
+    expect(dealSpread({ ...lowc, changes: [] }, lowc.lastClose ?? undefined)).toBeUndefined();
+    const state = (await listScanStates(t.app.db)).find((s) => s.job === 'deal_closes');
+    expect(state).toMatchObject({ status: 'done', coveredTo: '2026-11-08' });
+  });
+
+  it('refreshes the closes once a day and again after the evening close', () => {
+    const at = (iso: string) => new Date(iso);
+    expect(dealClosesDue(undefined, at('2026-11-09T15:00:00Z'))).toBe(true);
+    const morning = { status: 'done', lastRunAt: at('2026-11-09T14:00:00Z') };
+    expect(dealClosesDue(morning, at('2026-11-09T20:00:00Z'))).toBe(false);
+    expect(dealClosesDue(morning, at('2026-11-09T23:45:00Z'))).toBe(true);
+    const evening = { status: 'done', lastRunAt: at('2026-11-09T23:45:00Z') };
+    expect(dealClosesDue(evening, at('2026-11-10T00:30:00Z'))).toBe(false);
+    expect(dealClosesDue(evening, at('2026-11-10T14:00:00Z'))).toBe(true);
+    const failed = { status: 'failed', lastRunAt: at('2026-11-09T14:00:00Z') };
+    expect(dealClosesDue(failed, at('2026-11-09T14:30:00Z'))).toBe(false);
+    expect(dealClosesDue(failed, at('2026-11-09T15:00:00Z'))).toBe(true);
   });
 });
 

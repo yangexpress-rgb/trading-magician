@@ -430,6 +430,11 @@ if (databaseUrl) {
           return tickerCache.value;
         },
         calendar,
+        // The deal targets' closes come from the same daily bars back tests read (N151).
+        dealBars: history
+          ? (symbol, from, to) =>
+              inputs.dailyBars({ id: symbol, symbol, assetClass: 'stock' }, from, to, 'none')
+          : undefined,
         refreshRates: (today) => inputs.riskFreeRate(today),
         logger,
       });

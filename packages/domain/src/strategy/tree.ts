@@ -119,6 +119,20 @@ export function cloneNode<T extends ConditionNode>(node: T, ids: IdFactory = ran
   } as T;
 }
 
+/**
+ * Deep-copies a planned order (a leg) with fresh ids for the order and for
+ * everything inside it: its price expressions and its leg condition with
+ * every nested group, comparison and expression (N154). The copy keeps the
+ * timing reference to another leg as it is.
+ */
+export function cloneOrder(order: PlannedOrder, ids: IdFactory = randomId): PlannedOrder {
+  const copy: PlannedOrder = { ...structuredClone(order), id: ids() };
+  if (order.limitPrice) copy.limitPrice = cloneExpr(order.limitPrice, ids);
+  if (order.stopPrice) copy.stopPrice = cloneExpr(order.stopPrice, ids);
+  if (order.legCondition) copy.legCondition = cloneNode(order.legCondition, ids);
+  return copy;
+}
+
 /** Inserts a fresh copy of the node directly after the original. */
 export function duplicateNode(
   root: ConditionGroup,

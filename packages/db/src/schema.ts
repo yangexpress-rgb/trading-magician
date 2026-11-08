@@ -2492,6 +2492,18 @@ export const dealEvents = pgTable(
     lastUpdated: timestamp('last_updated', { withTimezone: true }).notNull().defaultNow(),
     /** When the tracker last re-scanned the target's filings for a status change. */
     checkedAt: timestamp('checked_at', { withTimezone: true }),
+    /**
+     * The target's latest daily close from Alpaca bars, the close back tests
+     * read, for the Deals list's Close and Spread (N151); null when there are no bars.
+     */
+    lastClose: eventValue('last_close'),
+    lastCloseDate: date('last_close_date', { mode: 'string' }),
+    /**
+     * Set when this row turned out to repeat another deal (same target,
+     * announcement date and offer price, N152): the row keeps its id but is
+     * hidden, and its filing and status history live on the kept deal.
+     */
+    mergedInto: text('merged_into'),
   },
   (t) => [
     unique('deal_event_seq_uq').on(t.seq),
@@ -2505,8 +2517,34 @@ export const dealEvents = pgTable(
     check('deal_event_confidence', sql`${t.confidence} in ('high', 'low')`),
     check('deal_event_source', sql`${t.source} in ('rebuilt', 'recorded')`),
     check('deal_event_offer_positive', sql`${t.offerPrice} is null or ${t.offerPrice} > 0`),
+    check('deal_event_close_positive', sql`${t.lastClose} is null or ${t.lastClose} > 0`),
+    check(
+      'deal_event_not_merged_into_self',
+      sql`${t.mergedInto} is null or ${t.mergedInto} <> ${t.dealId}`,
+    ),
     index('deal_event_target_idx').on(t.targetSymbol, t.announcedDate),
   ],
+);
+
+/**
+ * Every announcing filing of a deal beyond its first (N152): the target and
+ * the acquirer often both file the same merger agreement. Each filing belongs
+ * to one deal, so a re-scan finds it already read.
+ */
+export const dealFilings = pgTable(
+  'deal_filing',
+  {
+    accession: text('accession').primaryKey(),
+    dealId: text('deal_id')
+      .notNull()
+      .references(() => dealEvents.dealId),
+    filingUrl: text('filing_url').notNull(),
+    filedDate: date('filed_date', { mode: 'string' }).notNull(),
+    /** The deal row this filing first made, when it was merged into this one. */
+    mergedFrom: text('merged_from'),
+    recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('deal_filing_deal_idx').on(t.dealId)],
 );
 
 /** Each status change of a deal, append-only (brief §3). */
@@ -2558,7 +2596,7 @@ export const eventScanState = pgTable(
   (t) => [
     check(
       'event_scan_state_job',
-      sql`${t.job} in ('earnings_scan', 'earnings_rebuild', 'deals_scan', 'deals_rebuild', 'calendar')`,
+      sql`${t.job} in ('earnings_scan', 'earnings_rebuild', 'deals_scan', 'deals_rebuild', 'calendar', 'deal_closes')`,
     ),
     check(
       'event_scan_state_status',

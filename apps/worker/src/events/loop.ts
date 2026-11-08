@@ -1,8 +1,15 @@
-import { getScanState, saveCalendar, setScanState, type Database } from '@tm/db';
+import {
+  getScanState,
+  mergeDuplicateDeals,
+  saveCalendar,
+  setScanState,
+  type Database,
+} from '@tm/db';
 import { addDays, EVENT_HISTORY_FROM, nyDate, zonedWallTimeToIso } from '@tm/domain';
 import type { SecClient, SecListing } from '@tm/sec';
 import type { Logger } from 'pino';
 import { fetchCalendar, type CalendarSource } from './calendar';
+import { refreshDealCloses, type DailyBars } from './deal-closes';
 import { scanDeals, updateDealStatuses } from './deals-tracker';
 import { runEarningsScan } from './earnings-scan';
 
@@ -25,6 +32,11 @@ export interface EventsLoopOptions {
    * newly added key is used without a restart; empty is EDGAR-only mode.
    */
   calendar: () => Promise<readonly CalendarSource[]>;
+  /**
+   * Daily bars through the app's Alpaca key (the options recording's), for
+   * the deal targets' closes (N151); absent without a key.
+   */
+  dealBars?: DailyBars | undefined;
   /** Fetches DTB3 through the options market inputs, which store it in rates_daily. */
   refreshRates: (today: string) => Promise<unknown>;
   logger: Pick<Logger, 'info' | 'warn'>;
@@ -41,6 +53,23 @@ const OVERLAP_DAYS = 3;
 
 const shortError = (e: unknown) =>
   (e instanceof Error ? e.message : 'failed').replace(/\s+/g, ' ').slice(0, 200);
+
+/**
+ * Whether the deal closes are due (N151): once a day, and again after the
+ * evening close so the list shows that day's close; a failed run is retried
+ * after an hour.
+ */
+export function dealClosesDue(
+  state: { status: string; lastRunAt: Date | null } | undefined,
+  now: Date,
+): boolean {
+  const last = state?.lastRunAt;
+  if (!last) return true;
+  if (state.status === 'failed' || state.status === 'running')
+    return now.getTime() - last.getTime() >= 3600_000;
+  if (nyDate(last) !== nyDate(now)) return true;
+  return eveningDue(now) && !eveningDue(last);
+}
 
 export function eveningDue(now: Date): boolean {
   const today = nyDate(now);
@@ -113,6 +142,20 @@ export async function runEventsPass(o: EventsLoopOptions): Promise<void> {
       }
     }
   }
+  // One deal, several filings (N152): fold rows that repeat a deal into one.
+  await step('deals_dedupe', async () => {
+    const merged = await mergeDuplicateDeals(o.db);
+    if (merged.length > 0) o.logger.info({ merged }, 'duplicate deals merged');
+  });
+  if (dealClosesDue(await getScanState(o.db, 'deal_closes'), now))
+    await step('deal_closes', async () => {
+      try {
+        await refreshDealCloses({ db: o.db, bars: o.dealBars, logger: o.logger, now });
+      } catch (e) {
+        await setScanState(o.db, 'deal_closes', { status: 'failed', lastError: shortError(e) });
+        throw e;
+      }
+    });
   if (eveningDue(now)) {
     const cs = await getScanState(o.db, 'calendar');
     if (cs?.coveredFrom !== today) {

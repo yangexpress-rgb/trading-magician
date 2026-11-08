@@ -188,7 +188,9 @@ export interface DealDto {
   confidence: 'high' | 'low';
   parseNote: string | null;
   sourceFilingUrl: string;
-  /** The target's latest stored close and the spread it gives; null when unknown. */
+  /** Every announcing filing, the first one first: the target's and the acquirer's (N152). */
+  filings: { accession: string; url: string; filedDate: string }[];
+  /** The target's latest daily close (Alpaca bars, N151) and the spread it gives; null when unknown. */
   close: number | null;
   closeDate: string | null;
   spreadPct: number | null;

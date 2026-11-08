@@ -3,6 +3,7 @@
 import {
   CONTEXT_INSTRUMENT_ID,
   mirrorsEntry,
+  cloneOrder,
   ORDER_TYPES,
   QUANTITY_TYPES,
   randomId,
@@ -47,6 +48,18 @@ function uniqueLabel(def: StrategyDefinition, phase: PhaseName): string {
   for (let n = def[phase].orders.length + 1; ; n++) {
     const label = `${PHASE_TITLE[phase]} leg ${n}`;
     if (!taken.has(label.toLowerCase())) return label;
+  }
+}
+
+/** "<leg> copy", then "<leg> copy 2" …: a duplicated leg never repeats a name (N154). */
+export function copyLabel(def: StrategyDefinition, label: string): string {
+  const taken = new Set(
+    [...def.entry.orders, ...def.exit.orders].map((o) => o.legLabel.trim().toLowerCase()),
+  );
+  for (let n = 1; ; n++) {
+    const suffix = n === 1 ? ' copy' : ` copy ${n}`;
+    const candidate = `${label.slice(0, 40 - suffix.length)}${suffix}`;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
   }
 }
 
@@ -127,10 +140,10 @@ export function OrdersEditor({
   const duplicate = (i: number) => {
     const source = orders[i];
     if (!source) return;
+    // Fresh ids for the leg and everything inside it, such as its leg condition (N154).
     const copy: PlannedOrder = {
-      ...structuredClone(source),
-      id: randomId(),
-      legLabel: `${source.legLabel} copy`.slice(0, 40),
+      ...cloneOrder(source),
+      legLabel: copyLabel(definition, source.legLabel),
     };
     const next = [...orders];
     next.splice(i + 1, 0, copy);

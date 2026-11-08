@@ -1,4 +1,9 @@
-import type { DealConfidence, DealConsideration, DealStatus } from '@tm/domain';
+import {
+  companyNameKey,
+  type DealConfidence,
+  type DealConsideration,
+  type DealStatus,
+} from '@tm/domain';
 import type { SecClient } from './client';
 import type { EdgarFiling } from './earnings';
 import type { SecSearchHit, SecSearchResult } from './types';
@@ -297,15 +302,5 @@ export const terminatesMerger = (text: string) =>
 // ---------------------------------------------------------------------------
 // Matching a target named by an acquirer to a listed company
 
-const SUFFIXES =
-  /\b(?:incorporated|inc|corporation|corp|company|co|limited|ltd|plc|holdings?|group|n\.?v|s\.?a|llc|l\.?p)\b\.?/gi;
-
-/** A company name reduced for matching: lower case, no punctuation or legal suffixes. */
-export const nameKey = (name: string) =>
-  name
-    .toLowerCase()
-    .replace(/&/g, ' and ')
-    .replace(SUFFIXES, ' ')
-    .replace(/[^a-z0-9 ]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+/** A company name reduced for matching (shared with the deal store, N152). */
+export const nameKey = companyNameKey;

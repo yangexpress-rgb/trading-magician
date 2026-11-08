@@ -5,6 +5,7 @@ import {
   findDeal,
   improveDeal,
   insertDeal,
+  linkDealFiling,
   markDealChecked,
   setScanState,
   type Database,
@@ -110,10 +111,19 @@ export async function processDealHit(
   const existing = await findDeal(o.db, {
     accession: h.accession,
     targetCik: target.cik,
+    targetSymbol: target.symbol,
     targetName: target.name,
     date: h.filedDate,
   });
   if (existing) {
+    // One deal, several filings (N152): link this one so a re-scan finds it read.
+    if (existing.accession !== h.accession)
+      await linkDealFiling(o.db, {
+        dealId: existing.dealId,
+        accession: h.accession,
+        filingUrl: `${o.client.wwwUrl}${h.documentPath}`,
+        filedDate: h.filedDate,
+      });
     // The target's own filing pins down what an acquirer's left open.
     if (existing.confidence === 'low' && confidence === 'high') {
       await improveDeal(o.db, existing.dealId, {
@@ -126,6 +136,13 @@ export async function processDealHit(
         parseNote: notes.join('; ') || null,
       });
       return 'improved';
+    }
+    // A listing the first filing could not name.
+    if ((!existing.targetSymbol && target.symbol) || (!existing.targetCik && target.cik)) {
+      await improveDeal(o.db, existing.dealId, {
+        ...(!existing.targetSymbol && target.symbol ? { targetSymbol: target.symbol } : {}),
+        ...(!existing.targetCik && target.cik ? { targetCik: target.cik } : {}),
+      });
     }
     return 'known';
   }
