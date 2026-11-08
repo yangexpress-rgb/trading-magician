@@ -64,6 +64,11 @@ describe('content and interface roles (N126–N133)', () => {
     }
     expect(rule('text-content')).toContain('font-weight: 500');
     expect(rule('text-content-strong')).toContain('font-weight: 600');
+    // Reading text: regular weight, proportional figures, relaxed leading (N134).
+    expect(rule('text-prose')).toContain('font-weight: 400');
+    expect(rule('text-prose')).toContain('font-variant-numeric: normal');
+    expect(rule('text-prose')).toContain('line-height: 1.625');
+    expect(rule('text-prose')).toContain('var(--tm-content)');
     expect(css).not.toMatch(/@import|@font-face|fonts\.googleapis/);
     // Exactly one new colour token, with light and dark values, and no --color-content.
     expect(css.match(/--tm-content:/g)).toHaveLength(2);

@@ -32,8 +32,8 @@ function label<T extends Record<string, string>>(map: T, key: string): string {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mt-5" aria-label={title}>
-      <h3 className="text-sm font-semibold">{title}</h3>
+    <section className="mt-6" aria-label={title}>
+      <h3 className="text-base font-semibold">{title}</h3>
       <div className="mt-2 text-sm">{children}</div>
     </section>
   );
@@ -291,7 +291,7 @@ export function OrderDrawer({
             <ol className="space-y-2 border-l border-line pl-3">
               {d.timeline.map((e) => (
                 <li key={e.seq}>
-                  <p className="text-content">{describeEvent(e)}</p>
+                  <p className="text-prose">{describeEvent(e)}</p>
                   <p className="text-xs text-ink-muted">
                     {when(e.providerAt ?? e.receivedAt)} ·{' '}
                     {EVENT_SOURCE_LABELS[e.source] ?? e.source}

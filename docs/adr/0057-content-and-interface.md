@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-08
-- **Design refs:** §5.1, §15; design v1.2 rows N126 to N133, open points O101 to O105; Yong's design
+- **Design refs:** §5.1, §15; design v1.2 rows N126 to N134, open points O101 to O105; Yong's design
   brief v2.2 "Tell content apart from interface (all text, not just numbers)", decisions D1 to D8
   (it supersedes the first brief, "make transactional data look different from titles")
 
@@ -30,6 +30,10 @@ or what the app produced as a strategy, a back test or an order).
 - **Units in headers (O102).** Money and percentage columns name their unit in the header; the cells
   show the formatter's digits, decimals and sign without the symbol (`bare` in
   `apps/web/lib/units.ts`).
+- **Reading text (N134).** Long text (Library prose, rules, descriptions) uses `text-prose`: the
+  content colour at regular weight, proportional figures and relaxed leading, on a scale of 30px
+  title, 18px card headings, 14px muted labels and 16px values, following how TradingView builds
+  hierarchy from size, weight and grey on one system font.
 - **No data font (O101).** Inter was briefly bundled, then dropped at Yong's choice; system stacks
   only.
 
