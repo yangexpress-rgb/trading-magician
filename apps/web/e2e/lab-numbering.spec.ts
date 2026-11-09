@@ -20,12 +20,13 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
   await signUpAndVerify(page, uniqueEmail('numbering'));
   const headers = { origin: baseURL! };
 
-  // A draft with no Entry legs has no number yet.
+  // A draft with no Entry legs has no theory record yet, but it has its strategy
+  // number from the start, with provisional letters (ADR 0068).
   const draft = await (
     await page.request.post('/api/v1/strategies', { data: { name: 'Empty draft' }, headers })
   ).json();
   expect(draft.library).toBeNull();
-  expect(draft.labNumber).toBeNull();
+  expect(draft.labNumber).toMatch(/^S\d{5}-SD$/);
   await page.goto(`/strategy-lab/${draft.id}`);
   await expect(page.getByText('Number assigned on first save with instruments.')).toBeVisible();
 
@@ -42,7 +43,15 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
   await page.goto('/strategy-lab');
   const row = page.getByRole('row', { name: /Numbered one/ });
   await expect(row.getByRole('link', { name: labNumber })).toBeVisible();
-  await expect(row.getByRole('link', { name: `Theory ${own}` })).toBeVisible();
+  // Its theory was auto-created from it, so the Theory column is blank (N187).
+  await expect(row.getByRole('link', { name: `Theory ${own}` })).toHaveCount(0);
+  // The list is sorted by strategy number, ascending (N188).
+  await expect(page.getByRole('columnheader', { name: /^Number/ })).toHaveAttribute(
+    'aria-sort',
+    'ascending',
+  );
+  const numbers = await page.getByRole('row').locator('td:nth-child(2)').allInnerTexts();
+  expect(numbers.map((n) => n.trim())).toEqual([...numbers.map((n) => n.trim())].sort());
   await page.getByLabel('Search').fill(labNumber);
   await page.getByRole('button', { name: 'Apply filters' }).click();
   await expect(page.getByRole('row', { name: /Numbered one/ })).toBeVisible();
@@ -65,6 +74,10 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
   await expect(page.getByText('All changes saved')).toBeVisible();
   await expect(card.getByRole('link', { name: 'T00009-SM' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Theory Library entry T00009-SM' })).toBeVisible();
+  await page.goto('/strategy-lab');
+  await expect(
+    page.getByRole('row', { name: /Numbered one/ }).getByRole('link', { name: 'Theory T00009-SM' }),
+  ).toBeVisible();
 
   // The Library shows the entry Built, and the old record Not built with its number.
   await page.goto('/library/T00009-SM');

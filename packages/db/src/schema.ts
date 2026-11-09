@@ -962,6 +962,12 @@ export const strategies = pgTable(
       (): AnyPgColumn => conventionVersions.label,
     ),
     labNumberedAt: timestamp('lab_numbered_at', { withTimezone: true }),
+    /**
+     * False while the letters are provisional (ADR 0068): a strategy is numbered
+     * when it is created, before it trades anything, with the default letters SD;
+     * the first save with instruments settles them. The digits never change.
+     */
+    labLettersSettled: boolean('lab_letters_settled').notNull().default(true),
     /** The share this strategy was copied from (ADR 0056); never changes once set. */
     receivedShareId: uuid('received_share_id').references((): AnyPgColumn => strategyShares.id),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
