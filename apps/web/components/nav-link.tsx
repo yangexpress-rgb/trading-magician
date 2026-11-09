@@ -11,16 +11,21 @@ export function NavLink({
   className,
   activeClassName,
   exact = false,
+  also,
 }: {
   href: string;
   /** Active only on this exact path, not on paths below it. */
   exact?: boolean | undefined;
+  /** Other paths (and the paths below them) that also mark this link current. */
+  also?: readonly string[] | undefined;
   children: ReactNode;
   className?: string;
   activeClassName?: string;
 }) {
   const pathname = usePathname();
-  const active = pathname === href || (!exact && pathname.startsWith(`${href}/`));
+  const under = (p: string) => pathname === p || pathname.startsWith(`${p}/`);
+  const active =
+    pathname === href || (!exact && pathname.startsWith(`${href}/`)) || (also ?? []).some(under);
   return (
     <Link
       href={href}

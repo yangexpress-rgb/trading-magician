@@ -4,14 +4,15 @@ import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 const TABS = [
   { name: 'Quantitative Research', path: '/research' },
-  { name: 'Strategy Library', path: '/library' },
-  { name: 'Strategy Lab', path: '/strategy-lab' },
+  { name: 'Trading Strategy', path: '/strategy-lab' },
   { name: 'Orders', path: '/orders' },
   { name: 'Performance', path: '/performance' },
   { name: 'Settings', path: '/settings/profile' },
 ];
 
 const OTHER_PAGES = [
+  '/library',
+  '/sharing',
   '/library/new',
   '/library/S00001-SD',
   '/library/S00001-SD/edit',
@@ -32,7 +33,7 @@ async function expectAccessible(page: Page) {
   ).toEqual([]);
 }
 
-test('shows the six tabs in the specified order and marks the current one', async ({ page }) => {
+test('shows the five tabs in the specified order and marks the current one', async ({ page }) => {
   await signUpAndVerify(page, uniqueEmail('nav'));
   const nav = page.getByRole('navigation', { name: 'Primary' });
   await expect(nav.getByRole('link')).toHaveText(TABS.map((t) => t.name));
@@ -43,6 +44,30 @@ test('shows the six tabs in the specified order and marks the current one', asyn
     await expect(nav.getByRole('link', { name: tab.name })).toHaveAttribute('aria-current', 'page');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   }
+});
+
+test('Trading Strategy holds the Library, Lab and Sharing as tabs', async ({ page }) => {
+  await signUpAndVerify(page, uniqueEmail('trading-tabs'));
+  const nav = page.getByRole('navigation', { name: 'Primary' });
+  await nav.getByRole('link', { name: 'Trading Strategy' }).click();
+  await expect(page).toHaveURL(/\/strategy-lab$/);
+  const tabs = page.getByRole('navigation', { name: 'Trading Strategy' });
+  await expect(tabs.getByRole('link')).toHaveText(['Library', 'Lab', 'Sharing']);
+  for (const [name, path, heading] of [
+    ['Lab', '/strategy-lab', 'Strategy Lab'],
+    ['Sharing', '/sharing', 'Sharing'],
+    ['Library', '/library', 'Strategy Library'],
+  ] as const) {
+    await tabs.getByRole('link', { name }).click();
+    await expect(page).toHaveURL(new RegExp(`${path}$`));
+    await expect(tabs.getByRole('link', { name })).toHaveAttribute('aria-current', 'page');
+    await expect(nav.getByRole('link', { name: 'Trading Strategy' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
+  }
+  await page.screenshot({ path: 'test-results/trading-strategy-tabs.png' });
 });
 
 test('every signed-in page passes automated accessibility checks', async ({ page }) => {
