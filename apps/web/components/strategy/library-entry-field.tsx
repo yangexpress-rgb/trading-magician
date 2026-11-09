@@ -112,12 +112,15 @@ export const toChoiceRequest = (pick: LibraryPick): LibraryChoiceRequest =>
     ? { kind: 'entry', registrationNumber: pick.registrationNumber }
     : { kind: 'new' };
 
-function EntrySearch({
+export function EntrySearch({
   currentId,
   onPick,
   onClose,
+  offerNew = true,
 }: {
   currentId: string | undefined;
+  /** False hides "New Library record" (a strategy that already has its own record). */
+  offerNew?: boolean;
   onPick: (pick: LibraryPick) => void;
   onClose: () => void;
 }) {
@@ -160,16 +163,18 @@ function EntrySearch({
       />
       {error && <p className="mt-2 text-sm text-danger">{error}</p>}
       <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-sm" aria-label="Library entries">
-        <li>
-          <button
-            type="button"
-            className="w-full rounded px-2 py-1 text-left hover:bg-surface-2"
-            onClick={() => onPick({ kind: 'new' })}
-          >
-            <span className="font-semibold">New Library record</span>{' '}
-            <span className="text-ink-muted">— created on save with the next number</span>
-          </button>
-        </li>
+        {offerNew && (
+          <li>
+            <button
+              type="button"
+              className="w-full rounded px-2 py-1 text-left hover:bg-surface-2"
+              onClick={() => onPick({ kind: 'new' })}
+            >
+              <span className="font-semibold">New Library record</span>{' '}
+              <span className="text-ink-muted">— created on save with the next number</span>
+            </button>
+          </li>
+        )}
         {items === null && !error && <li className="px-2 text-ink-muted">Loading…</li>}
         {items?.length === 0 && <li className="px-2 text-ink-muted">No entry matches.</li>}
         {items?.map((e) => {

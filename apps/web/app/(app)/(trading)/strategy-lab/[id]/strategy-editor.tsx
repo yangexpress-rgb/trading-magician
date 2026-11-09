@@ -44,6 +44,7 @@ import {
   type ValidationState,
 } from '@/components/strategy/lifecycle';
 import { PageSection, SectionNav } from '@/components/strategy/page-sections';
+import { useRowVersion } from '@/components/strategy/row-version';
 import { OrdersEditor } from '@/components/strategy/orders-editor';
 import {
   EntryStructure,
@@ -119,7 +120,8 @@ export function StrategyEditor({
   const [instruments, setInstruments] = useState(initialInstruments);
   const [definition, setDefinition] = useState(initialDefinition);
   const [savedJson, setSavedJson] = useState(() => canonicalJson(initialDefinition));
-  const [rowVersion, setRowVersion] = useState(initialRowVersion);
+  // Shared with the header's inline rename (N190).
+  const [rowVersion, setRowVersion] = useRowVersion(initialRowVersion);
   const [save, setSave] = useState<SaveState>({ kind: 'idle' });
   const [libraryPick, setLibraryPick] = useState<LibraryPick | null>(null);
 
