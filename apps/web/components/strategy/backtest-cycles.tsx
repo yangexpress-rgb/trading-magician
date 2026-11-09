@@ -930,7 +930,7 @@ function Legs({ c }: { c: CycleView }) {
       <tbody>
         {c.legs.map((l) => (
           <tr key={l.instrumentId}>
-            <Td className="text-ink">{legName(l)}</Td>
+            <Td className="min-w-36 text-ink">{legName(l)}</Td>
             <Td>{l.symbol}</Td>
             <Td numeric>{l.quantity ?? '—'}</Td>
             <Td numeric>{l.entryPrice ? bare(formatMoney(l.entryPrice)) : '—'}</Td>
