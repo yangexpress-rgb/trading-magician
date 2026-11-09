@@ -130,7 +130,8 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
                 {strategy.labNumber}
               </span>
             )}
-            {strategy.library && (
+            {/* Shown when it refers to a theory, not one auto-created from it (N185). */}
+            {strategy.library && !strategy.library.autoCreated && (
               <Link
                 href={`/library/${strategy.library.registrationNumber}`}
                 className="font-mono text-sm"

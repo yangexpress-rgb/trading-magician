@@ -3,7 +3,6 @@ import { listStrategies, schema, type StrategySummary, withTenant } from '@tm/db
 import {
   type DisplayPreferences,
   formatDateTime,
-  NUMBER_PENDING_TEXT,
   STATUS_LABELS,
   STRATEGY_STATUSES,
 } from '@tm/domain';
@@ -45,6 +44,7 @@ const SORTS = {
   updated: 'Recently updated',
   created: 'Recently created',
   number: 'Number',
+  theory: 'Theory',
   name: 'Name',
   status: 'Status',
   assets: 'Assets',
@@ -74,7 +74,10 @@ export default async function StrategyLabPage({
     archived: one('archived'),
     shared: one('shared'),
     sort: one('sort'),
-    direction: one('dir') ?? (one('sort') === 'name' ? 'asc' : 'desc'),
+    // Strategy number ascending by default (N186); name and numbers sort A to Z first.
+    direction:
+      one('dir') ??
+      (['name', 'number', 'theory', undefined].includes(one('sort')) ? 'asc' : 'desc'),
   });
   const q = parsed.success ? parsed.data : listStrategiesQuery.parse({});
   const updated = one('updated') as keyof typeof UPDATED_PRESETS | undefined;
@@ -261,6 +264,7 @@ export default async function StrategyLabPage({
                   <ShareCheckAll items={shareable} noun="strategies" />
                 </Th>
                 {header('number', 'Number')}
+                {header('theory', 'Theory')}
                 {header('name', 'Name')}
                 {header('status', 'Status')}
                 {header('assets', 'Assets')}
@@ -279,25 +283,23 @@ export default async function StrategyLabPage({
                 return (
                   <tr key={s.id}>
                     <Td>{item && <ShareCheckbox item={item} />}</Td>
-                    {/* Its own Lab number (ADR 0065) and the theory it builds (ADR 0054); never editable. */}
+                    {/* Its own Lab number (ADR 0065, ADR 0067); never editable. */}
                     <Td className="whitespace-nowrap font-mono text-xs">
                       {s.labNumber ? (
                         <Link href={`/strategy-lab/${s.id}`}>{s.labNumber}</Link>
                       ) : (
-                        <span className="text-ink-muted" title={NUMBER_PENDING_TEXT}>
-                          —
-                        </span>
+                        <span className="text-ink-muted">—</span>
                       )}
-                      {s.libraryNumber && (
-                        <p className="mt-0.5 text-ink-muted">
-                          <Link
-                            href={`/library/${s.libraryNumber}`}
-                            className="text-ink-muted"
-                            aria-label={`Theory ${s.libraryNumber}`}
-                          >
-                            Theory {s.libraryNumber}
-                          </Link>
-                        </p>
+                    </Td>
+                    {/* The theory it refers to (N185); blank when its theory was auto-created from it. */}
+                    <Td className="whitespace-nowrap font-mono text-xs">
+                      {s.theoryNumber && (
+                        <Link
+                          href={`/library/${s.theoryNumber}`}
+                          aria-label={`Theory ${s.theoryNumber}`}
+                        >
+                          {s.theoryNumber}
+                        </Link>
                       )}
                     </Td>
                     <Td>

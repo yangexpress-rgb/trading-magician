@@ -152,6 +152,12 @@ export function deriveLabCodes(
     : null;
 }
 
+/**
+ * The letters a strategy is numbered with when it is created before it trades
+ * anything (ADR 0067): stock, daily. The first save with instruments replaces them.
+ */
+export const PROVISIONAL_LAB_CODES = { timeframeCode: 'D', assetClassCode: 'S' } as const;
+
 /** True for a well-formed Strategy Lab number (S, five or more digits, two letters). */
 export function isLabNumber(value: string): boolean {
   return /^S(?:\d{5}|[1-9]\d{5,})-[A-Z]{2}$/.test(value.trim().toUpperCase());

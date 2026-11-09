@@ -119,16 +119,23 @@ describe('Strategy Lab numbers', () => {
     expect(s.labNumber).toBe(`S${seq(floor + 2)}-EN`);
   });
 
-  it('issues nothing for a draft without instruments, then numbers it on the save that adds them', async () => {
+  it('numbers a new draft at once with provisional letters, settled by the first save with instruments', async () => {
     const draft = await asA((tx) => createStrategy(tx, userA, { name: 'Empty draft' }));
-    expect(draft.labNumber).toBeNull();
-    const saved = await asA((tx) =>
+    expect(draft.labNumber).toBe(`S${seq(floor + 3)}-SD`);
+    const first = await asA((tx) =>
       updateStrategy(tx, userA, draft.id, {
         rowVersion: draft.rowVersion,
-        definition: definition(['DEMO-B']),
+        definition: definition(['DEMO-IDX']),
       }),
     );
-    expect(saved.labNumber).toBe(`S${seq(floor + 3)}-SD`);
+    expect(first.labNumber).toBe(`S${seq(floor + 3)}-ED`);
+    const later = await asA((tx) =>
+      updateStrategy(tx, userA, draft.id, {
+        rowVersion: first.rowVersion,
+        definition: definition(['DEMO-A']),
+      }),
+    );
+    expect(later.labNumber).toBe(`S${seq(floor + 3)}-ED`);
   });
 
   it('keeps the number and its letters when the strategy later trades something else', async () => {
@@ -143,11 +150,11 @@ describe('Strategy Lab numbers', () => {
     expect(after.labNumber).toBe(before.labNumber);
   });
 
-  it('never numbers a test fixture', async () => {
+  it('numbers every strategy, test fixtures included', async () => {
     const s = await asA((tx) =>
       createStrategy(tx, userA, { name: 'Fixture lab', definition: definition(['DEMO-A']) }),
     );
-    expect(s.labNumber).toBeNull();
+    expect(s.labNumber).toBe(`S${seq(floor + 4)}-SD`);
   });
 
   it('refuses any change to an issued number and ignores a number written by the app', async () => {
@@ -162,14 +169,23 @@ describe('Strategy Lab numbers', () => {
         tx.update(strategies).set({ labTimeframeCode: 'D' }).where(eq(strategies.id, s!.id)),
       ),
     ).rejects.toThrow();
-    const forged = await asA((tx) => createStrategy(tx, userA, { name: 'Forged' }));
+    // Provisional letters may change, but the digits never do, and the trigger lays out the number.
+    const draft = await asA((tx) => createStrategy(tx, userA, { name: 'Forged' }));
+    expect(draft.labNumber).toBe(`S${seq(floor + 5)}-SD`);
     await asA((tx) =>
-      tx
-        .update(strategies)
-        .set({ labNumber: 'S00001-SD', labSequenceNo: 1 })
-        .where(eq(strategies.id, forged.id)),
+      tx.update(strategies).set({ labNumber: 'S00001-SD' }).where(eq(strategies.id, draft.id)),
     );
-    expect((await asA((tx) => getStrategy(tx, forged.id))).labNumber).toBeNull();
+    expect((await asA((tx) => getStrategy(tx, draft.id))).labNumber).toBe(`S${seq(floor + 5)}-SD`);
+    await expect(
+      asA((tx) =>
+        tx.update(strategies).set({ labSequenceNo: 1 }).where(eq(strategies.id, draft.id)),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      asA((tx) =>
+        tx.update(strategies).set({ labAssetClassCode: 'Z' }).where(eq(strategies.id, draft.id)),
+      ),
+    ).rejects.toThrow();
   });
 
   it('never reuses the number of a deleted strategy', async () => {
@@ -180,15 +196,32 @@ describe('Strategy Lab numbers', () => {
     const next = await asA((tx) =>
       createStrategy(tx, userA, { name: 'Next one', definition: definition(['DEMO-C']) }),
     );
-    expect(next.labNumber).toBe(`S${seq(floor + 5)}-SD`);
-    expect(s.labNumber).toBe(`S${seq(floor + 4)}-SD`);
+    expect(s.labNumber).toBe(`S${seq(floor + 6)}-SD`);
+    expect(next.labNumber).toBe(`S${seq(floor + 7)}-SD`);
   });
 
-  it('shares one counter across workspaces, and a copy gets a new number', async () => {
+  it('shares one counter across workspaces', async () => {
     const b = await as(userB, (tx) =>
       createStrategy(tx, userB, { name: 'B trend', definition: definition(['DEMO-D']) }),
     );
-    expect(b.labNumber).toBe(`S${seq(floor + 6)}-SD`);
+    expect(b.labNumber).toBe(`S${seq(floor + 8)}-SD`);
+  });
+
+  it('lists the theory a strategy refers to, and none for a theory auto-created from it', async () => {
+    const linked = await asA((tx) =>
+      createStrategy(tx, userA, {
+        name: 'Built from a theory',
+        definition: definition(['DEMO-A']),
+        library: { kind: 'entry', registrationNumber: 'T00001-SD' },
+      }),
+    );
+    expect(linked.labNumber).toBe(`S${seq(floor + 9)}-SD`);
+    const { items } = await asA((tx) => listStrategies(tx, { sort: 'theory', direction: 'asc' }));
+    const byName = new Map(items.map((i) => [i.name, i]));
+    expect(byName.get('Built from a theory')?.theoryNumber).toBe('T00001-SD');
+    expect(byName.get('Trend A')?.theoryNumber).toBeNull();
+    expect(byName.get('Trend A')?.libraryNumber).toMatch(/^T\d{5}-SD$/);
+    expect(items[0]?.name).toBe('Built from a theory');
   });
 
   it('finds a strategy by its Lab number, in its own workspace only, and searches and sorts by it', async () => {
@@ -197,27 +230,37 @@ describe('Strategy Lab numbers', () => {
     expect(id).not.toBeNull();
     expect(await as(userB, (tx) => strategyIdByLabNumber(tx, number))).toBeNull();
     const found = await asA((tx) => listStrategies(tx, { search: number }));
-    expect(found.items.map((i) => i.id)).toEqual([id]);
+    // Search also matches a theory's former numbers (ADR 0066): S00001-SD finds the
+    // strategy numbered S00001-SD and the one built from T00001-SD (formerly S00001-SD).
+    expect(found.items.map((i) => i.id)).toContain(id);
+    expect(found.items.map((i) => i.name).sort()).toEqual(['Built from a theory', 'Trend A']);
     const sorted = await asA((tx) => listStrategies(tx, { sort: 'number', direction: 'asc' }));
-    const numbers = sorted.items.map((i) => i.labNumber).filter(Boolean);
+    const numbers = sorted.items.map((i) => i.labNumber);
+    expect(numbers.every(Boolean)).toBe(true);
     expect(numbers).toEqual([...numbers].sort());
   });
 
-  it('numbers strategies saved before Lab numbers existed, on deploy, oldest first', async () => {
+  it('numbers strategies that have no number yet on deploy, oldest first', async () => {
     const draft = await asA((tx) => createStrategy(tx, userA, { name: 'Older draft' }));
-    // As if saved with instruments before this change: rules in place, no number.
+    // As if saved before this change: rules in place, no number.
+    await t.ownerSql.unsafe(`
+      alter table strategy disable trigger strategy_lab_number;
+      update strategy set lab_number = null, lab_sequence_no = null, lab_timeframe_code = null,
+        lab_asset_class_code = null, lab_convention_version = null, lab_numbered_at = null
+       where id = '${draft.id}';
+      alter table strategy enable trigger strategy_lab_number;`);
     await t.owner.db
       .update(strategies)
       .set({ draftDefinition: definition(['DEMO-A']) })
       .where(eq(strategies.id, draft.id));
     const first = await t.owner.db.transaction((tx) => numberExistingLabStrategies(tx));
     expect(first.numbered).toBe(1);
-    expect((await asA((tx) => getStrategy(tx, draft.id))).labNumber).toBe(`S${seq(floor + 7)}-SD`);
+    expect((await asA((tx) => getStrategy(tx, draft.id))).labNumber).toBe(`S${seq(floor + 11)}-SD`);
     const again = await t.owner.db.transaction((tx) => numberExistingLabStrategies(tx));
     expect(again.numbered).toBe(0);
     const [counter] = await t.ownerSql<{ n: number }[]>`
       select last_issued as n from strategy_lab_sequence`;
-    expect(counter!.n).toBe(floor + 7);
+    expect(counter!.n).toBe(floor + 11);
   });
 
   it('migration 0080 renumbers Lab numbers issued above the former theory range from S00001', async () => {

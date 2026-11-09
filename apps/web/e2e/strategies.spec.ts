@@ -154,8 +154,11 @@ test.describe('strategy library', () => {
     await page.reload();
 
     const table = page.getByRole('table', { name: 'Strategies' });
-    // The rows' links; the header's sort links are left out.
-    const rowLinks = table.locator('tbody').getByRole('link');
+    // The rows' name links; the header's sort links and the number links are left out.
+    const rowLinks = table
+      .locator('tbody')
+      .getByRole('link')
+      .filter({ hasNotText: /^[ST]\d{5}-[A-Z]{2}$/ });
     await expect(table.getByRole('row')).toHaveCount(3);
     await expect(table.getByRole('row', { name: /Momentum A/ })).toContainText('DEMO-A');
     await expect(table.getByRole('row', { name: /Momentum A/ })).toContainText('Paper');
@@ -183,6 +186,10 @@ test.describe('strategy library', () => {
 
     // Clicking a column header sorts by it: ascending first, then descending (N167).
     await page.goto('/strategy-lab');
+    await expect(table.getByRole('columnheader', { name: /^Number/ })).toHaveAttribute(
+      'aria-sort',
+      'ascending',
+    );
     const nameHeader = table.getByRole('columnheader', { name: /^Name/ });
     await nameHeader.getByRole('link').click();
     await expect(nameHeader).toHaveAttribute('aria-sort', 'ascending');
@@ -198,7 +205,17 @@ test.describe('strategy library', () => {
     await expect(rowLinks).toHaveText(['Momentum A', 'Beverage pairs']);
     await assetsHeader.getByRole('link').click();
     await expect(rowLinks).toHaveText(['Momentum A', 'Beverage pairs']);
-    for (const label of ['Number', 'Status', 'Version', 'Account', 'Latest back test', 'Updated']) {
+    // By default the list is sorted by strategy number, ascending (N186); Number comes last
+    // here so its first click starts from another column.
+    for (const label of [
+      'Status',
+      'Version',
+      'Account',
+      'Latest back test',
+      'Updated',
+      'Theory',
+      'Number',
+    ]) {
       const header = table.getByRole('columnheader', { name: new RegExp(`^${label}`) });
       await header.getByRole('link').click();
       await expect(header).toHaveAttribute('aria-sort', 'ascending');

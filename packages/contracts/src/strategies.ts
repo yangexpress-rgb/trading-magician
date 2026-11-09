@@ -52,6 +52,7 @@ export const STRATEGY_SORTS = [
   'name',
   'status',
   'number',
+  'theory',
   'assets',
   'version',
   'account',
@@ -75,8 +76,9 @@ export const listStrategiesQuery = z.object({
     .enum(['1', 'true'])
     .transform(() => true)
     .optional(),
-  sort: z.enum(STRATEGY_SORTS).default('updated'),
-  direction: z.enum(['asc', 'desc']).default('desc'),
+  /** By strategy number, ascending, unless asked otherwise (N186). */
+  sort: z.enum(STRATEGY_SORTS).default('number'),
+  direction: z.enum(['asc', 'desc']).default('asc'),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -144,6 +146,8 @@ export interface StrategySummaryDto {
   labNumber: string | null;
   /** The number of the theory it builds (ADR 0054). */
   libraryNumber: string | null;
+  /** The theory it was built from; null when its theory was auto-created from it (N185). */
+  theoryNumber: string | null;
   description: string;
   tags: string[];
   status: StrategyStatus;
