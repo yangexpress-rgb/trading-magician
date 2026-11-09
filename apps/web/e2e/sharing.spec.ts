@@ -181,7 +181,7 @@ test('accepts several shares at once, then all the rest', async ({ page, newPage
   await signUpAndVerify(page, uniqueEmail('accept-many-sender'), 'Bulk Sender');
 
   await page.goto('/library');
-  for (const n of ['S00008', 'S00009', 'S00010']) {
+  for (const n of ['T00008', 'T00009', 'T00010']) {
     await page.getByRole('checkbox', { name: new RegExp(`^Select ${n}`) }).check();
   }
   await page.getByRole('button', { name: 'Share selected (3)' }).click();
@@ -194,17 +194,17 @@ test('accepts several shares at once, then all the rest', async ({ page, newPage
 
   await ben.goto('/sharing');
   await expect(ben.getByRole('button', { name: 'Accept selected', exact: true })).toBeDisabled();
-  await ben.getByRole('checkbox', { name: /^Select S00008/ }).check();
-  await ben.getByRole('checkbox', { name: /^Select S00009/ }).check();
+  await ben.getByRole('checkbox', { name: /^Select T00008/ }).check();
+  await ben.getByRole('checkbox', { name: /^Select T00009/ }).check();
   await ben.screenshot({ path: 'test-results/sharing-accept-many.png', fullPage: true });
   await ben.getByRole('button', { name: 'Accept selected (2)' }).click();
   await expect(ben.getByText(/Accepted 2 shares/)).toBeVisible();
-  await expect(ben.getByRole('row', { name: /S00008/ })).toContainText('Accepted');
-  await expect(ben.getByRole('row', { name: /S00009/ })).toContainText('Accepted');
-  await expect(ben.getByRole('row', { name: /S00010/ })).toContainText('Waiting for an answer');
+  await expect(ben.getByRole('row', { name: /T00008/ })).toContainText('Accepted');
+  await expect(ben.getByRole('row', { name: /T00009/ })).toContainText('Accepted');
+  await expect(ben.getByRole('row', { name: /T00010/ })).toContainText('Waiting for an answer');
 
   await ben.getByRole('button', { name: 'Accept all (1)' }).click();
   await expect(ben.getByText(/Accepted 1 share;/)).toBeVisible();
-  await expect(ben.getByRole('row', { name: /S00010/ })).toContainText('Accepted');
+  await expect(ben.getByRole('row', { name: /T00010/ })).toContainText('Accepted');
   await expect(ben.getByRole('button', { name: /^Accept all/ })).toHaveCount(0);
 });
