@@ -231,6 +231,7 @@ describe('earnings window, in trading days around the release (N186)', () => {
     if (!spec) throw new Error('earnings.window is missing');
     const at = closeOf(d);
     return computeMetric({ metric: spec.id, params: resolveMetricParams(spec, params) }, 'xyz', {
+      value: () => undefined,
       event: (id, metric) => eventPointAt(data, id, metric, at, 100),
     })?.toNumber();
   };
