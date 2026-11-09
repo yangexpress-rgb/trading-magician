@@ -240,40 +240,65 @@ export function BacktestCycles({
         </SelectField>
       </div>
 
-      <Table label="Cycles">
-        <thead>
-          <tr>
-            <Th>Cycle</Th>
-            <Th>Instrument</Th>
-            <Th>Entry</Th>
-            <Th>Exit</Th>
-            <Th numeric>Held days</Th>
-            <Th>Exit reason</Th>
-            <Th numeric>Net P/L $</Th>
-            <Th numeric>Return %</Th>
-          </tr>
-        </thead>
-        <tbody>
+      {/*
+        An ARIA table of grid rows rather than a <table>, so an opened cycle card
+        takes the list's width instead of the table's (O122: inline under its row).
+      */}
+      <div
+        role="table"
+        aria-label="Cycles"
+        className="rounded-lg border border-line bg-surface text-sm"
+      >
+        <div role="rowgroup">
+          <div role="row" className={cx(ROW_GRID, 'border-b border-line bg-surface-2')}>
+            {HEADERS.map(([label, numeric]) => (
+              <div
+                key={label}
+                role="columnheader"
+                className={cx(
+                  'px-3 py-2 text-xs font-semibold tracking-wide text-ink-muted uppercase',
+                  numeric && 'sm:text-right',
+                  'max-sm:sr-only',
+                )}
+              >
+                {label}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div role="rowgroup">
           {visible.length === 0 && (
-            <tr>
-              <td colSpan={8} className="px-3 py-2 text-ink-muted">
+            <div role="row">
+              <div role="cell" className="px-3 py-2 text-ink-muted">
                 No cycles match.
-              </td>
-            </tr>
+              </div>
+            </div>
           )}
           {visible.map((c) => {
             const expanded = open === c.cycle;
             const single = c.legs.length === 1 ? c.legs[0] : undefined;
+            const when = (at: string | null | undefined, price: string | null | undefined) =>
+              at ? (
+                <>
+                  {formatMarketTime(at, interval)}
+                  {price && <span className="text-ink-muted"> · {formatMoney(price)}</span>}
+                </>
+              ) : null;
             return (
               <Fragment key={c.cycle}>
-                <tr
-                  className={cx('cursor-pointer hover:bg-surface-2', expanded && 'bg-info-soft')}
+                <div
+                  role="row"
+                  className={cx(
+                    ROW_GRID,
+                    'cursor-pointer border-b border-line text-content hover:bg-surface-2',
+                    expanded && 'bg-info-soft',
+                  )}
                   onClick={() => toggle(expanded ? null : c.cycle)}
                 >
-                  <Td className="whitespace-nowrap">
+                  <div role="cell" className={CELL}>
                     <button
                       type="button"
-                      className="font-semibold text-ink underline-offset-2 hover:underline"
+                      className="font-semibold whitespace-nowrap text-ink underline-offset-2 hover:underline"
                       aria-expanded={expanded}
                       aria-controls={`${id}-cycle-${c.cycle}`}
                       onClick={(e) => {
@@ -289,55 +314,52 @@ export function BacktestCycles({
                     {c.status !== 'closed' && (
                       <div className="text-xs text-ink-muted">{CYCLE_STATUS[c.status].label}</div>
                     )}
-                  </Td>
-                  <Td>
-                    <div>{c.symbols.join(', ')}</div>
+                  </div>
+                  <div role="cell" className={CELL}>
+                    <div className="break-words">{c.symbols.join(', ')}</div>
                     <div className="text-xs text-ink-muted">
                       {DIRECTION_WORDS[c.direction]}
                       {c.trade?.group ? ` · ${c.trade.group}` : ''}
                     </div>
-                  </Td>
-                  <Td className="whitespace-nowrap">
-                    {c.trade?.entryTime ? (
-                      <>
-                        {formatMarketTime(c.trade.entryTime, interval)}
-                        {single?.entryPrice && (
-                          <span className="text-ink-muted">
-                            {' '}
-                            · {formatMoney(single.entryPrice)}
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <span className="text-ink-muted">Not filled</span>
+                  </div>
+                  <div role="cell" className={CELL}>
+                    <div>
+                      <span className="text-xs text-ink-muted">In </span>
+                      {when(c.trade?.entryTime, single?.entryPrice) ?? (
+                        <span className="text-ink-muted">not filled</span>
+                      )}
+                    </div>
+                    {c.trade?.exitTime && (
+                      <div>
+                        <span className="text-xs text-ink-muted">Out </span>
+                        {when(c.trade.exitTime, single?.exitPrice)}
+                      </div>
                     )}
-                  </Td>
-                  <Td className="whitespace-nowrap">
-                    {c.trade?.exitTime ? (
-                      <>
-                        {formatMarketTime(c.trade.exitTime, interval)}
-                        {single?.exitPrice && (
-                          <span className="text-ink-muted"> · {formatMoney(single.exitPrice)}</span>
-                        )}
-                      </>
-                    ) : (
-                      '—'
-                    )}
-                  </Td>
-                  <Td numeric>{c.heldDays ?? '—'}</Td>
-                  <Td>{c.exitReason ? EXIT_REASON_LABELS[c.exitReason] : '—'}</Td>
-                  <Td numeric className={tone(c.net)}>
+                  </div>
+                  <div role="cell" className={cx(CELL, 'sm:text-right')}>
+                    <span className="text-xs text-ink-muted sm:hidden">Held </span>
+                    {c.heldDays ?? '—'}
+                    <span className="text-xs text-ink-muted sm:hidden"> days</span>
+                  </div>
+                  <div role="cell" className={CELL}>
+                    {c.exitReason ? EXIT_REASON_LABELS[c.exitReason] : '—'}
+                  </div>
+                  <div role="cell" className={cx(CELL, 'sm:text-right', tone(c.net))}>
+                    <span className="sr-only">Net P/L </span>
                     {signed(c.net)}
-                  </Td>
-                  <Td numeric className={tone(c.trade?.returnPct ?? null)}>
+                  </div>
+                  <div
+                    role="cell"
+                    className={cx(CELL, 'sm:text-right', tone(c.trade?.returnPct ?? null))}
+                  >
                     {c.trade?.returnPct && c.status !== 'aborted'
-                      ? bare(formatPct(c.trade.returnPct, true))
+                      ? `${bare(formatPct(c.trade.returnPct, true))}%`
                       : '—'}
-                  </Td>
-                </tr>
+                  </div>
+                </div>
                 {expanded && (
-                  <tr>
-                    <td colSpan={8} className="border-b border-line bg-info-soft px-2 pb-3">
+                  <div role="row" className="border-b border-line bg-info-soft px-2 pb-3">
+                    <div role="cell">
                       <CycleCard
                         id={`${id}-cycle-${c.cycle}`}
                         c={c}
@@ -347,14 +369,14 @@ export function BacktestCycles({
                         next={cycles[cycles.indexOf(c) + 1]?.cycle}
                         go={go}
                       />
-                    </td>
-                  </tr>
+                    </div>
+                  </div>
                 )}
               </Fragment>
             );
           })}
-        </tbody>
-      </Table>
+        </div>
+      </div>
       {rows.length > shown && (
         <Button size="sm" variant="ghost" onClick={() => setShown((n) => n + PAGE)}>
           Show more cycles ({rows.length - shown} more)
@@ -369,6 +391,20 @@ export function BacktestCycles({
     </div>
   );
 }
+
+// The cycle list's columns: one grid row on wider screens, wrapped blocks on a phone.
+const ROW_GRID =
+  'flex flex-wrap gap-x-4 gap-y-1 px-1 py-1 sm:grid sm:grid-cols-[5.75rem_minmax(6.5rem,1fr)_minmax(8.5rem,1.5fr)_3rem_minmax(5rem,1fr)_5.5rem_4.5rem] sm:gap-0 sm:p-0';
+const CELL = 'min-w-0 px-2 py-1 sm:px-3 sm:py-2';
+const HEADERS: [string, boolean][] = [
+  ['Cycle', false],
+  ['Instrument', false],
+  ['Entry and Exit', false],
+  ['Held days', true],
+  ['Exit reason', false],
+  ['Net P/L $', true],
+  ['Return', true],
+];
 
 const SKIPPED_LABELS: Record<string, string> = {
   cycle_open: 'while a cycle was already open',
@@ -470,7 +506,7 @@ function CycleCard({
           disabled={prev === undefined}
           onClick={() => prev !== undefined && go(prev)}
         >
-          ← Cycle {prev ?? ''}
+          {prev === undefined ? '← Previous' : `← Cycle ${prev}`}
         </Button>
         <Button
           size="sm"
@@ -478,7 +514,7 @@ function CycleCard({
           disabled={next === undefined}
           onClick={() => next !== undefined && go(next)}
         >
-          Cycle {next ?? ''} →
+          {next === undefined ? 'Next →' : `Cycle ${next} →`}
         </Button>
       </div>
     </section>

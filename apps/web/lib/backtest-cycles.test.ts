@@ -68,7 +68,7 @@ const bar = (time: string, p: Partial<ConditionBar> = {}): ConditionBar => ({
 });
 
 const report = (bars: ConditionBar[]): PhaseConditionReport => ({
-  condition: { kind: 'group', id: 'g', op: 'and', children: [] },
+  condition: { kind: 'group', id: 'g', op: 'and', negate: false, children: [] },
   evaluated: bars.length,
   trueBars: 0,
   falseBars: 0,

@@ -168,7 +168,10 @@ test('a long and a short entry group: built, validated, back tested with directi
   await expect(page.getByRole('region', { name: 'Entry group 2: Short breakdown' })).toBeVisible();
   const results = page.getByRole('region', { name: 'Back test results' });
   await expect(
-    results.getByRole('table', { name: 'Trades' }).getByRole('columnheader', { name: 'Direction' }),
+    results
+      .getByRole('table', { name: 'Cycles' })
+      .getByText(/^(Long · Group 1|Short · Short breakdown)$/)
+      .first(),
   ).toBeVisible({ timeout: 15_000 });
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/entry-groups.png`, fullPage: true });
   const a11y = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
@@ -288,18 +291,16 @@ test('risk % of equity sized from ATR, with an ATR stop, explained per trade', a
     );
   }
 
-  // The trade list explains the sizing and labels the ATR stop.
-  await page.reload();
-  const table = page
+  // The cycle card explains the sizing and shows the ATR stop (N158, N160).
+  await page.goto(`${page.url().split('?')[0]}?cycle=1`);
+  const card = page
     .getByRole('region', { name: 'Back test results' })
-    .getByRole('table', { name: 'Trades' });
-  await expect(table.getByRole('columnheader', { name: 'Sizing' })).toBeVisible({
-    timeout: 15_000,
-  });
-  await expect(table.getByText('ATR stop', { exact: true }).first()).toBeVisible();
-  await expect(table.getByText(/^Risk 1% of \$[\d,.]+ equity = /).first()).toBeVisible();
+    .getByRole('region', { name: 'Cycle 1', exact: true });
+  await expect(card.getByText('Risk % of equity, ATR stop')).toBeVisible({ timeout: 15_000 });
+  await expect(card.getByText(/^Risk 1% of \$[\d,.]+ equity = /)).toBeVisible();
+  await card.getByText(/^While open/).click();
   await expect(
-    table.getByText(/^Stop [\d.]+ = entry [\d.]+ − 1 × ATR [\d.]+$/).first(),
+    card.getByText(/^Stop [\d.]+ = entry [\d.]+ − 1 × ATR [\d.]+$/).first(),
   ).toBeVisible();
   const csv = await (await page.request.get(`/api/v1/backtests/${run.id}/export`)).text();
   expect(csv.split('\r\n')[0]).toContain('risk_pct,atr_period,atr_at_entry');
