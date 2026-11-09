@@ -3,11 +3,12 @@ import {
   AUTO_CREATED_TAG,
   autoCreatedRecord,
   collectInstrumentUses,
+  deriveLabCodes,
   isFixtureName,
   parseDefinition,
   type LabAssetClass,
 } from '@tm/domain';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { Transaction } from './client';
 import {
   builtElsewhereMessage,
@@ -159,26 +160,7 @@ export async function autoCreateLibraryRecord(
     .from(strategies)
     .where(and(eq(strategies.id, strategyId), isNull(strategies.deletedAt)));
   if (!row) return null;
-  const definition = parseDefinition(row.draft);
-  const ids = [
-    ...new Set([
-      ...collectInstrumentUses(definition).map((u) => u.instrumentId),
-      ...(definition.entry.selection?.universe.type === 'list'
-        ? definition.entry.selection.universe.instrumentIds
-        : []),
-    ]),
-  ];
-  const known = ids.length
-    ? await tx
-        .select({
-          id: instruments.id,
-          symbol: instruments.symbol,
-          assetClass: instruments.assetClass,
-        })
-        .from(instruments)
-        .where(inArray(instruments.id, ids))
-    : [];
-  const byId = new Map(known.map((i) => [i.id, i]));
+  const { definition, byId } = await numberingSource(tx, row.draft);
   const record = autoCreatedRecord({
     strategyId: row.id,
     name: row.name,
@@ -203,12 +185,100 @@ export async function autoCreateLibraryRecord(
   return { registrationNumber: issued.registrationNumber };
 }
 
+/** The parsed draft and the instruments it names (symbol and asset class). */
+async function numberingSource(tx: Transaction, draft: unknown) {
+  const definition = parseDefinition(draft);
+  const ids = [
+    ...new Set([
+      ...collectInstrumentUses(definition).map((u) => u.instrumentId),
+      ...(definition.entry.selection?.universe.type === 'list'
+        ? definition.entry.selection.universe.instrumentIds
+        : []),
+    ]),
+  ];
+  const known = ids.length
+    ? await tx
+        .select({
+          id: instruments.id,
+          symbol: instruments.symbol,
+          assetClass: instruments.assetClass,
+        })
+        .from(instruments)
+        .where(inArray(instruments.id, ids))
+    : [];
+  const byId = new Map(known.map((i) => [i.id, i]));
+  return { definition, byId };
+}
+
+/**
+ * Gives a strategy its own Strategy Lab number (ADR 0065, N182) if it has
+ * none yet: sets the timeframe and asset-class letters derived from its
+ * draft, and the database trigger issues the next S number from the Lab's
+ * counter in this transaction. Nothing happens for a test fixture, a deleted
+ * strategy, or a draft with no traded instrument yet; a number, once issued,
+ * keeps its letters whatever the strategy later trades.
+ */
+export async function issueLabNumber(tx: Transaction, strategyId: string): Promise<string | null> {
+  const [row] = await tx
+    .select({
+      name: strategies.name,
+      draft: strategies.draftDefinition,
+      number: strategies.labNumber,
+    })
+    .from(strategies)
+    .where(and(eq(strategies.id, strategyId), isNull(strategies.deletedAt)));
+  if (!row) return null;
+  if (row.number) return row.number;
+  if (isFixtureName(row.name)) return null;
+  const { definition, byId } = await numberingSource(tx, row.draft);
+  const codes = deriveLabCodes(
+    definition,
+    (id) => byId.get(id)?.assetClass as LabAssetClass | undefined,
+  );
+  if (!codes) return null;
+  const [issued] = await tx
+    .update(strategies)
+    .set({ labTimeframeCode: codes.timeframeCode, labAssetClassCode: codes.assetClassCode })
+    .where(and(eq(strategies.id, strategyId), isNull(strategies.labNumber)))
+    .returning({ number: strategies.labNumber });
+  return issued?.number ?? null;
+}
+
+/**
+ * Numbers every live strategy that has none yet (ADR 0065), oldest first, so
+ * strategies saved before Lab numbers existed get theirs on the deploy that
+ * adds them. Runs after the migrations on the owner connection; idempotent.
+ */
+export async function numberExistingLabStrategies(
+  tx: Transaction,
+): Promise<{ numbered: number; skipped: number }> {
+  const rows = await tx
+    .select({ id: strategies.id })
+    .from(strategies)
+    .where(and(isNull(strategies.labNumber), isNull(strategies.deletedAt)))
+    .orderBy(asc(strategies.createdAt), asc(strategies.id));
+  let numbered = 0;
+  for (const r of rows) if (await issueLabNumber(tx, r.id)) numbered += 1;
+  return { numbered, skipped: rows.length - numbered };
+}
+
 /**
  * Runs after every save of a strategy (create, edit, copy). With a choice
  * from the picker it links or starts a new record; with none, a strategy
  * that has no record yet gets one (D3), unless it is a test fixture (O74).
  */
 export async function applyLibraryChoice(
+  tx: Transaction,
+  actorId: string,
+  strategyId: string,
+  choice: LibraryChoice | undefined,
+): Promise<void> {
+  await applyTheoryChoice(tx, actorId, strategyId, choice);
+  // Its own Lab number, in the same transaction (ADR 0065).
+  await issueLabNumber(tx, strategyId);
+}
+
+async function applyTheoryChoice(
   tx: Transaction,
   actorId: string,
   strategyId: string,
@@ -350,4 +420,18 @@ export async function backfillSeedLinks(
     });
   }
   return out;
+}
+
+/** The id of the caller's strategy with this Lab number (row-level security scopes it), or null. */
+export async function strategyIdByLabNumber(
+  tx: Transaction,
+  number: string,
+): Promise<string | null> {
+  const [row] = await tx
+    .select({ id: strategies.id })
+    .from(strategies)
+    .where(
+      and(eq(strategies.labNumber, number.trim().toUpperCase()), isNull(strategies.deletedAt)),
+    );
+  return row?.id ?? null;
 }

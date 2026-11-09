@@ -13,7 +13,7 @@ function oneLeg(ids: Record<string, string>, accountId: string) {
   };
 }
 
-test('Strategy Lab shows each strategy’s Library number and links entries from the builder', async ({
+test('Strategy Lab shows each strategy’s own S number and its theory, and links entries from the builder', async ({
   page,
   baseURL,
 }) => {
@@ -25,6 +25,7 @@ test('Strategy Lab shows each strategy’s Library number and links entries from
     await page.request.post('/api/v1/strategies', { data: { name: 'Empty draft' }, headers })
   ).json();
   expect(draft.library).toBeNull();
+  expect(draft.labNumber).toBeNull();
   await page.goto(`/strategy-lab/${draft.id}`);
   await expect(page.getByText('Number assigned on first save with instruments.')).toBeVisible();
 
@@ -34,10 +35,25 @@ test('Strategy Lab shows each strategy’s Library number and links entries from
   const own = detail.library.registrationNumber as string;
   expect(own).toMatch(/^T\d{5}-SD$/);
   expect(detail.library.autoCreated).toBe(true);
+  // Its own Strategy Lab number (ADR 0065): theory rules, letter S, above the former S theories.
+  const labNumber = detail.labNumber as string;
+  expect(labNumber).toMatch(/^S\d{5}-SD$/);
+  expect(Number(labNumber.slice(1, 6))).toBeGreaterThan(31);
 
   await page.goto('/strategy-lab');
   const row = page.getByRole('row', { name: /Numbered one/ });
-  await expect(row.getByRole('link', { name: own })).toBeVisible();
+  await expect(row.getByRole('link', { name: labNumber })).toBeVisible();
+  await expect(row.getByRole('link', { name: `Theory ${own}` })).toBeVisible();
+  await page.getByLabel('Search').fill(labNumber);
+  await page.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page.getByRole('row', { name: /Numbered one/ })).toBeVisible();
+
+  // The number opens the strategy, from the Lab and from the Library.
+  await page.goto(`/strategy-lab/${labNumber}`);
+  await expect(page).toHaveURL(new RegExp(`/strategy-lab/${saved.id}$`));
+  await expect(page.getByText(labNumber, { exact: true })).toBeVisible();
+  await page.goto(`/library/${labNumber}`);
+  await expect(page).toHaveURL(new RegExp(`/strategy-lab/${saved.id}$`));
 
   // The builder links an existing entry: the strategy takes its number.
   await page.goto(`/strategy-lab/${saved.id}`);

@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import type { Database } from './client';
 import { seedStrategyLibrary } from './library-seed';
+import { numberExistingLabStrategies } from './library-lab';
 import { renumberToTheories } from './library-theory';
 
 export const MIGRATIONS_FOLDER = fileURLToPath(new URL('../migrations', import.meta.url));
@@ -34,5 +35,15 @@ export async function runMigrations(
         `Strategy Library: theory numbers refused, nothing changed: ${error instanceof Error ? error.message : String(error)}\n`,
       );
     }
+  }
+  // Strategies saved before Lab numbers existed get theirs (ADR 0065). Its own
+  // transaction; a refusal is logged and never blocks a deploy.
+  try {
+    const { numbered } = await db.transaction((tx) => numberExistingLabStrategies(tx));
+    if (numbered) process.stderr.write(`Strategy Lab: numbered ${numbered} strategies.\n`);
+  } catch (error) {
+    process.stderr.write(
+      `Strategy Lab: numbering existing strategies refused, nothing changed: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
   }
 }

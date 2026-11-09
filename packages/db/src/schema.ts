@@ -947,6 +947,21 @@ export const strategies = pgTable(
     libraryEntryId: uuid('library_entry_id').references(
       (): AnyPgColumn => strategyLibraryEntries.id,
     ),
+    /**
+     * The strategy's own Strategy Lab number (ADR 0065, N182): convention v3
+     * rules with record type S, e.g. S00032-SD, from the Lab's own counter.
+     * Issued by a trigger once the timeframe and asset-class letters are set
+     * (first save with instruments); never changes or is reused.
+     */
+    labNumber: text('lab_number'),
+    labSequenceNo: integer('lab_sequence_no'),
+    labTimeframeCode: text('lab_timeframe_code'),
+    labAssetClassCode: text('lab_asset_class_code'),
+    /** The convention version whose letter tables the number was issued under. */
+    labConventionVersion: text('lab_convention_version').references(
+      (): AnyPgColumn => conventionVersions.label,
+    ),
+    labNumberedAt: timestamp('lab_numbered_at', { withTimezone: true }),
     /** The share this strategy was copied from (ADR 0056); never changes once set. */
     receivedShareId: uuid('received_share_id').references((): AnyPgColumn => strategyShares.id),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
@@ -970,6 +985,13 @@ export const strategies = pgTable(
     uniqueIndex('strategy_library_entry_uq')
       .on(t.libraryEntryId)
       .where(sql`${t.libraryEntryId} is not null and ${t.deletedAt} is null`),
+    // Lab numbers are global and never reused, deleted strategies included.
+    uniqueIndex('strategy_lab_number_uq').on(t.labNumber),
+    uniqueIndex('strategy_lab_sequence_uq').on(t.labSequenceNo),
+    check(
+      'strategy_lab_number_shape',
+      sql`${t.labNumber} is null or (${t.labNumber} = 'S' || lpad(${t.labSequenceNo}::text, greatest(5, length(${t.labSequenceNo}::text)), '0') || '-' || ${t.labAssetClassCode} || ${t.labTimeframeCode} and ${t.labConventionVersion} is not null and ${t.labNumberedAt} is not null)`,
+    ),
     check('strategy_name_length', sql`char_length(${t.name}) between 1 and 120`),
     check('strategy_description_length', sql`char_length(${t.description}) <= 2000`),
     check('strategy_tags_count', sql`coalesce(array_length(${t.tags}, 1), 0) <= 20`),
@@ -2146,6 +2168,19 @@ export const strategyLibrarySequence = pgTable(
   (t) => [
     check('strategy_library_sequence_single', sql`${t.id} = 1`),
     check('strategy_library_sequence_nonnegative', sql`${t.lastIssued} >= 0`),
+  ],
+);
+
+/** The Strategy Lab's own number counter (ADR 0065): one row, never decreases. */
+export const strategyLabSequence = pgTable(
+  'strategy_lab_sequence',
+  {
+    id: integer('id').primaryKey(),
+    lastIssued: integer('last_issued').notNull(),
+  },
+  (t) => [
+    check('strategy_lab_sequence_single', sql`${t.id} = 1`),
+    check('strategy_lab_sequence_nonnegative', sql`${t.lastIssued} >= 0`),
   ],
 );
 

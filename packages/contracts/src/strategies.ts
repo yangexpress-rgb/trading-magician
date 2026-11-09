@@ -140,6 +140,9 @@ export type StopStrategyRequest = z.input<typeof stopStrategyRequest>;
 export interface StrategySummaryDto {
   id: string;
   name: string;
+  /** The strategy's own Strategy Lab number (ADR 0065), e.g. S00032-SD. */
+  labNumber: string | null;
+  /** The number of the theory it builds (ADR 0054). */
   libraryNumber: string | null;
   description: string;
   tags: string[];
