@@ -421,7 +421,7 @@ export const libraryEntryFields = z
 /** Registration: the record plus the codes that become letters 1–3 of the number. */
 export const registerLibraryEntrySchema = libraryEntryFields
   .extend({
-    recordTypeCode: code('record type').default('S'),
+    recordTypeCode: code('record type').default('T'),
     timeframeCode: code('timeframe'),
     assetClassCode: code('asset class'),
   })

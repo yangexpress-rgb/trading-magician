@@ -11,7 +11,7 @@ const NOTE_MAX = 500;
 const message = (e: unknown, fallback: string) =>
   e instanceof ApiError ? (e.body.issues?.[0]?.message ?? e.message) : fallback;
 
-/** One thing to share, with its label ("S00012-SD Golden cross"). */
+/** One thing to share, with its label ("T00012-SD Golden cross"). */
 export interface ShareItem {
   source: ShareSourceDto;
   label: string;
@@ -30,7 +30,7 @@ export function ShareButton({
   size = 'md',
 }: {
   source: ShareSourceDto;
-  /** "S00012-SD Golden cross", for the dialog's title. */
+  /** "T00012-SD Golden cross", for the dialog's title. */
   label: string;
   isAdmin?: boolean;
   variant?: 'secondary' | 'ghost';

@@ -3,6 +3,7 @@ import {
   LIBRARY_V2_FIELD_NAMES,
   type LibraryMaturity,
   type LibraryV2Fields,
+  v3NumberFor,
 } from '@tm/domain';
 import { and, asc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { Transaction } from './client';
@@ -138,7 +139,8 @@ export async function planBackfillV2(tx: Transaction): Promise<BackfillPlan> {
 
   const bySeedNumber = new Map<string, SeedEntry[]>();
   for (const s of STRATEGY_LIBRARY_SEED) {
-    for (const n of [s.expectedNumber, s.v1Number]) {
+    for (const n of [v3NumberFor(s.expectedNumber), s.expectedNumber, s.v1Number]) {
+      if (!n) continue;
       bySeedNumber.set(n, [...(bySeedNumber.get(n) ?? []), s]);
     }
   }

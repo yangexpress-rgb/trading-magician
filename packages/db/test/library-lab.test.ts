@@ -137,8 +137,8 @@ describe('Strategy Lab numbering', () => {
         library: { kind: 'entry', registrationNumber: 'sds-0001' },
       }),
     );
-    expect(s.library).toMatchObject({ registrationNumber: 'S00001-SD', autoCreated: false });
-    const e = await entryOf(userA, 'S00001-SD');
+    expect(s.library).toMatchObject({ registrationNumber: 'T00001-SD', autoCreated: false });
+    const e = await entryOf(userA, 'T00001-SD');
     expect(e).toMatchObject({
       builtStatus: 'built',
       builtStrategy: { visibility: 'yours', id: ids.trend, name: 'Trend — SPY SMA200' },
@@ -152,7 +152,7 @@ describe('Strategy Lab numbering', () => {
         definition: definition(['DEMO-A']),
       }),
     );
-    expect(saved.library?.registrationNumber).toBe('S00001-SD');
+    expect(saved.library?.registrationNumber).toBe('T00001-SD');
     expect(await nextSeq()).toBe(32);
   });
 
@@ -167,8 +167,8 @@ describe('Strategy Lab numbering', () => {
     );
     ids.rotation = s.id;
     // Both demo instruments are ETFs, and the schedule is monthly: S, M, E.
-    expect(s.library).toMatchObject({ registrationNumber: 'S00032-EM', autoCreated: true });
-    const e = await entryOf(userA, 'S00032-EM');
+    expect(s.library).toMatchObject({ registrationNumber: 'T00032-EM', autoCreated: true });
+    const e = await entryOf(userA, 'T00032-EM');
     expect(e).toMatchObject({
       name: 'SPY/QQQ monthly rotation',
       status: 'registered',
@@ -195,7 +195,7 @@ describe('Strategy Lab numbering', () => {
         definition: definition(['DEMO-A']),
       }),
     );
-    expect(after.library?.registrationNumber).toBe('S00032-EM');
+    expect(after.library?.registrationNumber).toBe('T00032-EM');
     expect(await nextSeq()).toBe(33);
   });
 
@@ -204,14 +204,14 @@ describe('Strategy Lab numbering', () => {
     const s = await asA((tx) =>
       updateStrategy(tx, userA, ids.rotation!, {
         rowVersion: before.rowVersion,
-        library: { kind: 'entry', registrationNumber: 'S00002-SM' },
+        library: { kind: 'entry', registrationNumber: 'T00002-SM' },
       }),
     );
-    expect(s.library?.registrationNumber).toBe('S00002-SM');
-    const x = await entryOf(userA, 'S00032-EM');
-    expect(x).toMatchObject({ builtStatus: 'not_built', registrationNumber: 'S00032-EM' });
-    expect(x!.revisions[0]?.note).toContain('now uses S00002-SM');
-    expect((await entryOf(userA, 'S00002-SM'))!.builtStatus).toBe('built');
+    expect(s.library?.registrationNumber).toBe('T00002-SM');
+    const x = await entryOf(userA, 'T00032-EM');
+    expect(x).toMatchObject({ builtStatus: 'not_built', registrationNumber: 'T00032-EM' });
+    expect(x!.revisions[0]?.note).toContain('now uses T00002-SM');
+    expect((await entryOf(userA, 'T00002-SM'))!.builtStatus).toBe('built');
     expect(await nextSeq()).toBe(33);
   });
 
@@ -220,54 +220,54 @@ describe('Strategy Lab numbering', () => {
       createStrategy(tx, userA, { name: 'Another trend', definition: definition(['DEMO-A']) }),
     );
     ids.other = other.id;
-    expect(other.library?.registrationNumber).toBe('S00033-SD');
+    expect(other.library?.registrationNumber).toBe('T00033-SD');
 
     const taken = await rejects(
       asA((tx) =>
         updateStrategy(tx, userA, other.id, {
           rowVersion: other.rowVersion,
-          library: { kind: 'entry', registrationNumber: 'S00001-SD' },
+          library: { kind: 'entry', registrationNumber: 'T00001-SD' },
         }),
       ),
     );
     expect(taken.message).toBe(
-      'S00001-SD is already built by Trend — SPY SMA200 — unlink that strategy first',
+      'T00001-SD is already built by Trend — SPY SMA200 — unlink that strategy first',
     );
 
     const theirs = await as(userB, (tx) =>
       createStrategy(tx, userB, {
         name: 'B trend',
         definition: definition(['DEMO-A'], accountB),
-        library: { kind: 'entry', registrationNumber: 'S00003-SD' },
+        library: { kind: 'entry', registrationNumber: 'T00003-SD' },
       }),
     );
-    expect(theirs.library?.registrationNumber).toBe('S00003-SD');
+    expect(theirs.library?.registrationNumber).toBe('T00003-SD');
     const elsewhere = await rejects(
       asA((tx) =>
         updateStrategy(tx, userA, other.id, {
           rowVersion: other.rowVersion,
-          library: { kind: 'entry', registrationNumber: 'S00003-SD' },
+          library: { kind: 'entry', registrationNumber: 'T00003-SD' },
         }),
       ),
     );
-    expect(elsewhere.message).toBe("S00003-SD is built in another member's Strategy Lab");
+    expect(elsewhere.message).toBe("T00003-SD is built in another member's Strategy Lab");
 
-    const e = await asA((tx) => getLibraryEntry(tx, userA, 'S00012-SQ'));
+    const e = await asA((tx) => getLibraryEntry(tx, userA, 'T00012-SQ'));
     await asA((tx) =>
-      retireLibraryEntry(tx, userA, 'S00012-SQ', { reason: 'Test', rowVersion: e!.rowVersion }),
+      retireLibraryEntry(tx, userA, 'T00012-SQ', { reason: 'Test', rowVersion: e!.rowVersion }),
     );
     const retired = await rejects(
       asA((tx) =>
         updateStrategy(tx, userA, other.id, {
           rowVersion: other.rowVersion,
-          library: { kind: 'entry', registrationNumber: 'S00012-SQ' },
+          library: { kind: 'entry', registrationNumber: 'T00012-SQ' },
         }),
       ),
     );
-    expect(retired.message).toContain('S00012-SQ is retired');
+    expect(retired.message).toContain('T00012-SQ is retired');
     // A refusal changes nothing.
     const still = await asA((tx) => getStrategy(tx, other.id));
-    expect(still.library?.registrationNumber).toBe('S00033-SD');
+    expect(still.library?.registrationNumber).toBe('T00033-SD');
     expect(await nextSeq()).toBe(34);
   });
 
@@ -279,38 +279,38 @@ describe('Strategy Lab numbering', () => {
         library: { kind: 'new' },
       }),
     );
-    expect(s.library).toMatchObject({ registrationNumber: 'S00034-SD', autoCreated: true });
-    expect((await entryOf(userA, 'S00001-SD'))!.builtStatus).toBe('not_built');
+    expect(s.library).toMatchObject({ registrationNumber: 'T00034-SD', autoCreated: true });
+    expect((await entryOf(userA, 'T00001-SD'))!.builtStatus).toBe('not_built');
     expect(await nextSeq()).toBe(35);
   });
 
   it('shows the number in the Strategy Lab list', async () => {
     const list = await asA((tx) => listStrategies(tx, { sort: 'name', direction: 'asc' }));
     expect(Object.fromEntries(list.items.map((i) => [i.name, i.libraryNumber]))).toEqual({
-      'Another trend': 'S00033-SD',
-      'Renamed rotation': 'S00002-SM',
-      'Trend — SPY SMA200': 'S00034-SD',
+      'Another trend': 'T00033-SD',
+      'Renamed rotation': 'T00002-SM',
+      'Trend — SPY SMA200': 'T00034-SD',
     });
-    const found = await asA((tx) => listStrategies(tx, { search: 's00034-sd' }));
+    const found = await asA((tx) => listStrategies(tx, { search: 't00034-sd' }));
     expect(found.items.map((i) => i.name)).toEqual(['Trend — SPY SMA200']);
   });
 
   it('deleting a linked strategy reverts its entry; the record and number stay', async () => {
     const s = await asA((tx) => getStrategy(tx, ids.rotation!));
     await asA((tx) => deleteStrategy(tx, userA, s.id, { rowVersion: s.rowVersion }));
-    const e = await entryOf(userA, 'S00002-SM');
-    expect(e).toMatchObject({ builtStatus: 'not_built', registrationNumber: 'S00002-SM' });
+    const e = await entryOf(userA, 'T00002-SM');
+    expect(e).toMatchObject({ builtStatus: 'not_built', registrationNumber: 'T00002-SM' });
     expect(e!.revisions[0]?.note).toContain('was deleted');
     // The entry is free again for another strategy.
     const o = await asA((tx) => getStrategy(tx, ids.other!));
     const relinked = await asA((tx) =>
       updateStrategy(tx, userA, o.id, {
         rowVersion: o.rowVersion,
-        library: { kind: 'entry', registrationNumber: 'S00002-SM' },
+        library: { kind: 'entry', registrationNumber: 'T00002-SM' },
       }),
     );
-    expect(relinked.library?.registrationNumber).toBe('S00002-SM');
-    expect((await entryOf(userA, 'S00033-SD'))!.builtStatus).toBe('not_built');
+    expect(relinked.library?.registrationNumber).toBe('T00002-SM');
+    expect((await entryOf(userA, 'T00033-SD'))!.builtStatus).toBe('not_built');
   });
 
   it('gives fixtures no number, and a status or archive change is not a save', async () => {
@@ -330,14 +330,14 @@ describe('Strategy Lab numbering', () => {
     const renamed = await asA((tx) =>
       updateStrategy(tx, userA, f.id, { rowVersion: archived.rowVersion, name: 'Sector rotation' }),
     );
-    expect(renamed.library?.registrationNumber).toBe('S00035-SD');
+    expect(renamed.library?.registrationNumber).toBe('T00035-SD');
   });
 
   it('keeps both sides equal when the link changes from the Library', async () => {
     const s = await asA((tx) =>
       createStrategy(tx, userA, { name: 'Library-side', definition: definition(['DEMO-A']) }),
     );
-    expect(s.library?.registrationNumber).toBe('S00036-SD');
+    expect(s.library?.registrationNumber).toBe('T00036-SD');
     // Registering with the strategy as its built link moves the strategy to the new entry.
     const reg = await asA((tx) =>
       registerLibraryEntry(tx, userA, {
@@ -355,16 +355,16 @@ describe('Strategy Lab numbering', () => {
         builtStrategyId: s.id,
       }),
     );
-    expect(reg.registrationNumber).toBe('S00037-SD');
+    expect(reg.registrationNumber).toBe('T00037-SD');
     expect((await asA((tx) => getStrategy(tx, s.id))).library?.registrationNumber).toBe(
-      'S00037-SD',
+      'T00037-SD',
     );
-    expect((await entryOf(userA, 'S00036-SD'))!.builtStatus).toBe('not_built');
+    expect((await entryOf(userA, 'T00036-SD'))!.builtStatus).toBe('not_built');
 
     // Clearing the link in the Library's edit form: the strategy has no record until its next save.
-    const d = (await entryOf(userA, 'S00037-SD'))!;
+    const d = (await entryOf(userA, 'T00037-SD'))!;
     await asA((tx) =>
-      updateLibraryEntry(tx, userA, 'S00037-SD', {
+      updateLibraryEntry(tx, userA, 'T00037-SD', {
         name: d.name,
         category: d.category,
         tags: d.tags,
@@ -384,10 +384,10 @@ describe('Strategy Lab numbering', () => {
     expect(unlinked.library).toBeNull();
 
     // B can't take over or clear A's link from the Library.
-    const a = (await entryOf(userB, 'S00034-SD'))!;
+    const a = (await entryOf(userB, 'T00034-SD'))!;
     const takeover = await rejects(
       as(userB, (tx) =>
-        updateLibraryEntry(tx, userB, 'S00034-SD', {
+        updateLibraryEntry(tx, userB, 'T00034-SD', {
           name: a.name,
           category: a.category,
           tags: a.tags,
@@ -404,7 +404,7 @@ describe('Strategy Lab numbering', () => {
         }),
       ),
     );
-    expect(takeover.message).toBe("S00034-SD is built in another member's Strategy Lab");
+    expect(takeover.message).toBe("T00034-SD is built in another member's Strategy Lab");
   });
 
   it('copies get a record of their own', async () => {
@@ -412,7 +412,7 @@ describe('Strategy Lab numbering', () => {
     const copy = await asA((tx) =>
       createStrategy(tx, userA, { name: `Copy of ${source.name}`, definition: source.definition }),
     );
-    expect(copy.library?.registrationNumber).toBe('S00038-SD');
+    expect(copy.library?.registrationNumber).toBe('T00038-SD');
   });
 });
 
@@ -438,13 +438,13 @@ describe('backfill (brief D9)', () => {
     const rows = await as(userC, (tx) => backfillSeedLinks(tx, userC, { apply: false }));
     const by = Object.fromEntries(rows.map((r) => [r.registrationNumber, r.outcome.kind]));
     expect(by).toMatchObject({
-      'S00004-SD': 'would_link',
-      'S00006-SD': 'would_link',
-      'S00008-EM': 'ambiguous',
-      'S00012-SQ': 'retired',
-      // The fixture is never matched; S00001-SD is built in A's workspace.
-      'S00005-SD': 'none',
-      'S00001-SD': 'none',
+      'T00004-SD': 'would_link',
+      'T00006-SD': 'would_link',
+      'T00008-EM': 'ambiguous',
+      'T00012-SQ': 'retired',
+      // The fixture is never matched; T00001-SD is built in A's workspace.
+      'T00005-SD': 'none',
+      'T00001-SD': 'none',
     });
     const list = await as(userC, (tx) => listStrategies(tx));
     expect(list.items.every((i) => i.libraryNumber === null)).toBe(true);
@@ -457,15 +457,15 @@ describe('backfill (brief D9)', () => {
     expect(Object.fromEntries(list.items.map((i) => [i.name, i.libraryNumber]))).toEqual({
       'Fixture 2 — Breakout SPY Donchian 20/10': null,
       'Multi-factor value + momentum': null,
-      'Pairs PEP KO': 'S00004-SD',
+      'Pairs PEP KO': 'T00004-SD',
       'Sector rotation A': null,
       'Sector rotation B': null,
-      'VIX spike buys SPY': 'S00006-SD',
+      'VIX spike buys SPY': 'T00006-SD',
     });
-    expect((await entryOf(userC, 'S00006-SD'))!.builtStatus).toBe('built');
+    expect((await entryOf(userC, 'T00006-SD'))!.builtStatus).toBe('built');
     expect(await nextSeq()).toBe(seq);
     const again = await as(userC, (tx) => backfillSeedLinks(tx, userC, { apply: true }));
-    expect(again.find((r) => r.registrationNumber === 'S00006-SD')!.outcome).toEqual({
+    expect(again.find((r) => r.registrationNumber === 'T00006-SD')!.outcome).toEqual({
       kind: 'already_linked',
       strategyName: 'VIX spike buys SPY',
     });

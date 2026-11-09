@@ -57,3 +57,32 @@ export const RENUMBER_V2_FIELDS = ['registrationNumber', 'conventionVersion'] as
 export function renumberV2Note(newNumber: string, oldNumber: string): string {
   return `Renumbered to ${newNumber} under convention v2 (formerly ${oldNumber})`;
 }
+
+/**
+ * Convention v3 (N181): Library entries are theories, so the record-type
+ * letter becomes T (Theory). Layout, digits, sequence and the other two
+ * letters stay: S00001-SD becomes T00001-SD, and the old number is kept as a
+ * former number that still resolves.
+ */
+export const THEORY_RECORD_TYPE = { code: 'T', meaning: 'Theory' } as const;
+
+/** The v3 number for a v2 number (mechanical; null if not a v2 number). */
+export function v3NumberFor(v2Number: string): string | null {
+  const parsed = parseRegistrationNumber(v2Number);
+  if (!parsed || parsed.layout !== 'sequence-first') return null;
+  return layoutNumber(
+    'sequence-first',
+    { ...parsed.codes, recordType: THEORY_RECORD_TYPE.code },
+    parsed.sequence,
+  );
+}
+
+export const RENUMBER_V3_FIELDS = [
+  'registrationNumber',
+  'conventionVersion',
+  'recordTypeCode',
+] as const;
+
+export function renumberV3Note(newNumber: string, oldNumber: string): string {
+  return `Renumbered to ${newNumber} under convention v3: Library entries are theories (formerly ${oldNumber})`;
+}

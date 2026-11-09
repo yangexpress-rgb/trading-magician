@@ -32,7 +32,7 @@ test('Strategy Lab shows each strategy’s Library number and links entries from
   const saved = await createStrategyWithRules(page, baseURL!, 'Numbered one', oneLeg);
   const detail = await (await page.request.get(`/api/v1/strategies/${saved.id}`)).json();
   const own = detail.library.registrationNumber as string;
-  expect(own).toMatch(/^S\d{5}-SD$/);
+  expect(own).toMatch(/^T\d{5}-SD$/);
   expect(detail.library.autoCreated).toBe(true);
 
   await page.goto('/strategy-lab');
@@ -46,15 +46,15 @@ test('Strategy Lab shows each strategy’s Library number and links entries from
   await card.getByRole('button', { name: 'Change entry' }).click();
   await card.getByLabel('Search the Library by number or name').fill('SMS-0009');
   // A former number finds the entry under its current number (ADR 0055).
-  await card.getByRole('button', { name: /S00009-SM/ }).click();
-  await expect(card.getByText(`uses S00009-SM`)).toBeVisible();
+  await card.getByRole('button', { name: /T00009-SM/ }).click();
+  await expect(card.getByText(`uses T00009-SM`)).toBeVisible();
   await page.getByRole('button', { name: 'Save draft' }).click();
   await expect(page.getByText('All changes saved')).toBeVisible();
-  await expect(card.getByRole('link', { name: 'S00009-SM' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Theory Library entry S00009-SM' })).toBeVisible();
+  await expect(card.getByRole('link', { name: 'T00009-SM' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Theory Library entry T00009-SM' })).toBeVisible();
 
   // The Library shows the entry Built, and the old record Not built with its number.
-  await page.goto('/library/S00009-SM');
+  await page.goto('/library/T00009-SM');
   await expect(page.getByRole('link', { name: 'Numbered one' })).toBeVisible();
   const old = await (await page.request.get(`/api/v1/library/${own}`)).json();
   expect(old.builtStatus).toBe('not_built');

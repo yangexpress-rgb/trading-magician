@@ -119,6 +119,22 @@ export function assertCodesInConvention(
   }
 }
 
+/**
+ * The record type a registration takes under `version`: the code asked for
+ * when the version has it, otherwise the version's only record type (v1 and
+ * v2 issue S, v3 issues T; a copy or Lab record asking for the other letter
+ * gets the current one). Unchanged when there is no single answer.
+ */
+export function resolveRecordType(
+  version: Pick<ConventionVersion, 'tables'>,
+  code: string,
+): string {
+  const types = version.tables.recordType;
+  if (types.some((c) => c.code === code)) return code;
+  const [only] = types;
+  return types.length === 1 && only ? only.code : code;
+}
+
 /** The three code letters in v1 order (record type, timeframe, asset class). */
 export function registrationLetters(codes: RegistrationCodes): string {
   return `${codes.recordType}${codes.timeframe}${codes.assetClass}`;

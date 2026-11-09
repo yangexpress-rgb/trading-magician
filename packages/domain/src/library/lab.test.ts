@@ -46,7 +46,7 @@ function withLegs(...instrumentIds: string[]): StrategyDefinition {
 describe('letters for an auto-created record (brief D4)', () => {
   it('takes the one asset class traded, A for more than one, and ignores watch-only indices', () => {
     expect(deriveLibraryCodes(withLegs(STOCK_A, STOCK_B), classOf)).toEqual({
-      recordTypeCode: 'S',
+      recordTypeCode: 'T',
       timeframeCode: 'D',
       assetClassCode: 'S',
     });

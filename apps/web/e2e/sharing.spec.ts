@@ -50,8 +50,8 @@ test('shares a Library record and a Lab strategy, and the recipient accepts copi
   const annCode = await memberId(page);
 
   // A Library record: the dialog finds Ben by member ID and sends it with a note.
-  await page.goto('/library/S00003-SD');
-  await page.getByRole('button', { name: /^Share S00003-SD/ }).click();
+  await page.goto('/library/T00003-SD');
+  await page.getByRole('button', { name: /^Share T00003-SD/ }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Member ID or email').fill(annCode);
   await dialog.getByRole('button', { name: 'Add' }).click();
@@ -61,7 +61,7 @@ test('shares a Library record and a Lab strategy, and the recipient accepts copi
   // Ben sees it waiting, previews it, and accepts.
   await ben.goto('/sharing');
   await expect(ben.getByRole('link', { name: /^Sharing/ })).toContainText('1');
-  const row = ben.getByRole('row', { name: /S00003-SD/ });
+  const row = ben.getByRole('row', { name: /T00003-SD/ });
   await expect(row).toContainText(`Ann Sender (${annCode})`);
   await expect(row).toContainText('Waiting for an answer');
   await row.getByRole('link').first().click();
@@ -69,9 +69,9 @@ test('shares a Library record and a Lab strategy, and the recipient accepts copi
   await expect(ben.getByRole('heading', { name: 'What was shared' })).toBeVisible();
   await ben.screenshot({ path: 'test-results/sharing-preview.png', fullPage: true });
   await ben.getByRole('button', { name: 'Accept and make my copy' }).click();
-  await expect(ben).toHaveURL(/\/library\/S\d{5}-SD$/);
-  const copy = /S\d{5}-SD$/.exec(ben.url())![0];
-  expect(copy).not.toBe('S00003-SD');
+  await expect(ben).toHaveURL(/\/library\/T\d{5}-SD$/);
+  const copy = /T\d{5}-SD$/.exec(ben.url())![0];
+  expect(copy).not.toBe('T00003-SD');
   await expect(ben.getByText(`Ann Sender (${annCode})`)).toBeVisible();
   await expect(ben.getByText('#shared')).toBeVisible();
   await ben.screenshot({ path: 'test-results/sharing-library-copy.png', fullPage: true });
@@ -79,10 +79,10 @@ test('shares a Library record and a Lab strategy, and the recipient accepts copi
   // Ann is told, and sees the copy's number in what she shared.
   await page.goto('/notifications');
   await expect(
-    page.getByText(`Ben Recipient (${benCode}) accepted S00003-SD; their copy is ${copy}`),
+    page.getByText(`Ben Recipient (${benCode}) accepted T00003-SD; their copy is ${copy}`),
   ).toBeVisible();
   await page.goto('/sharing?box=sent');
-  await expect(page.getByRole('row', { name: /S00003-SD/ })).toContainText('Accepted');
+  await expect(page.getByRole('row', { name: /T00003-SD/ })).toContainText('Accepted');
 
   // A Lab strategy: shared from the Strategy Lab list.
   const saved = await createStrategyWithRules(page, baseURL!, 'Ann’s shared strategy', oneLeg);
@@ -103,7 +103,7 @@ test('shares a Library record and a Lab strategy, and the recipient accepts copi
   await expect(ben).toHaveURL(/\/strategy-lab\/[0-9a-f-]{36}$/);
   await expect(ben.getByRole('heading', { name: 'Ann’s shared strategy' })).toBeVisible();
   await expect(ben.getByText(`Ann Sender (${annCode})`)).toBeVisible();
-  const own = ben.getByRole('link', { name: /^Theory Library entry S\d{5}-SD$/ });
+  const own = ben.getByRole('link', { name: /^Theory Library entry T\d{5}-SD$/ });
   await expect(own).toBeVisible();
   await expect(own).not.toHaveText(source);
   await ben.screenshot({ path: 'test-results/sharing-lab-copy.png', fullPage: true });
@@ -118,16 +118,16 @@ test('declines and withdraws', async ({ page, newPage }) => {
   const code = await memberId(ben);
   await signUpAndVerify(page, uniqueEmail('share-withdraw'), 'Will Draws');
 
-  await page.goto('/library/S00004-SD');
-  await page.getByRole('button', { name: /^Share S00004-SD/ }).click();
+  await page.goto('/library/T00004-SD');
+  await page.getByRole('button', { name: /^Share T00004-SD/ }).click();
   await shareWith(page, code);
-  await page.goto('/library/S00005-SD');
-  await page.getByRole('button', { name: /^Share S00005-SD/ }).click();
+  await page.goto('/library/T00005-SD');
+  await page.getByRole('button', { name: /^Share T00005-SD/ }).click();
   await shareWith(page, code);
 
   await ben.goto('/sharing');
   await ben
-    .getByRole('row', { name: /S00004-SD/ })
+    .getByRole('row', { name: /T00004-SD/ })
     .getByRole('link')
     .first()
     .click();
@@ -136,14 +136,14 @@ test('declines and withdraws', async ({ page, newPage }) => {
 
   await page.goto('/sharing?box=sent');
   await page
-    .getByRole('row', { name: /S00005-SD/ })
+    .getByRole('row', { name: /T00005-SD/ })
     .getByRole('link')
     .first()
     .click();
   await page.getByRole('button', { name: 'Withdraw' }).click();
   await expect(page.getByText('This share is closed: withdrawn.')).toBeVisible();
   await page.goto('/sharing?box=sent');
-  await expect(page.getByRole('row', { name: /S00004-SD/ })).toContainText('Declined');
+  await expect(page.getByRole('row', { name: /T00004-SD/ })).toContainText('Declined');
 });
 
 test('shares several Library theories in one send', async ({ page, newPage }) => {
@@ -154,12 +154,12 @@ test('shares several Library theories in one send', async ({ page, newPage }) =>
 
   await page.goto('/library');
   await expect(page.getByRole('button', { name: 'Share selected', exact: true })).toBeDisabled();
-  await page.getByRole('checkbox', { name: /^Select S00006-SD/ }).check();
-  await page.getByRole('checkbox', { name: /^Select S00007-SY/ }).check();
+  await page.getByRole('checkbox', { name: /^Select T00006-SD/ }).check();
+  await page.getByRole('checkbox', { name: /^Select T00007-SY/ }).check();
   await page.getByRole('button', { name: 'Share selected (2)' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('heading', { name: 'Share 2 theories' })).toBeVisible();
-  await expect(dialog.getByRole('list', { name: 'Sharing these' })).toContainText('S00007-SY');
+  await expect(dialog.getByRole('list', { name: 'Sharing these' })).toContainText('T00007-SY');
   await dialog.getByLabel('Member ID or email').fill(code);
   await dialog.getByRole('button', { name: 'Add' }).click();
   await expect(dialog.getByRole('list', { name: 'Sharing with' })).toContainText(code);
@@ -170,8 +170,8 @@ test('shares several Library theories in one send', async ({ page, newPage }) =>
   await expect(page.getByRole('button', { name: 'Share selected', exact: true })).toBeDisabled();
 
   await ben.goto('/sharing');
-  await expect(ben.getByRole('row', { name: /S00006-SD/ })).toContainText('Waiting for an answer');
-  await expect(ben.getByRole('row', { name: /S00007-SY/ })).toContainText('Waiting for an answer');
+  await expect(ben.getByRole('row', { name: /T00006-SD/ })).toContainText('Waiting for an answer');
+  await expect(ben.getByRole('row', { name: /T00007-SY/ })).toContainText('Waiting for an answer');
 });
 
 test('accepts several shares at once, then all the rest', async ({ page, newPage }) => {

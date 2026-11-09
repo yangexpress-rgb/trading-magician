@@ -17,7 +17,7 @@ export interface SharedByProps {
 
 /**
  * The provenance line on a received copy (ADR 0056): "Shared by Yong (U0001)
- * on 8 Nov 2026, from S00012-SD". It stays for good, even after edits.
+ * on 8 Nov 2026, from T00012-SD". It stays for good, even after edits.
  */
 export function SharedBy({ sharedBy, copiedFrom, prefs }: SharedByProps) {
   if (!sharedBy) {

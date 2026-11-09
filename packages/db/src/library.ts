@@ -2,6 +2,7 @@ import {
   composeRegistrationNumber,
   ConventionCodeError,
   currentConvention,
+  resolveRecordType,
   editLibraryEntrySchema,
   interpretRegistrationNumber,
   LIBRARY_V2_FIELD_LABELS,
@@ -215,7 +216,11 @@ export async function previewRegistrationNumber(
   const version = await getCurrentConvention(tx);
   try {
     return {
-      registrationNumber: composeRegistrationNumber(version, codes, await nextLibrarySequence(tx)),
+      registrationNumber: composeRegistrationNumber(
+        version,
+        { ...codes, recordType: resolveRecordType(version, codes.recordType) },
+        await nextLibrarySequence(tx),
+      ),
       conventionVersion: version.label,
     };
   } catch (error) {
@@ -594,12 +599,12 @@ export async function registerLibraryEntry(
   } = {},
 ): Promise<{ id: string; registrationNumber: string; conventionVersion: string }> {
   const data = parseInput(registerLibraryEntrySchema, input);
+  const version = await getCurrentConvention(tx);
   const codes = {
-    recordType: data.recordTypeCode,
+    recordType: resolveRecordType(version, data.recordTypeCode),
     timeframe: data.timeframeCode,
     assetClass: data.assetClassCode,
   };
-  const version = await getCurrentConvention(tx);
   try {
     composeRegistrationNumber(version, codes, 1);
   } catch (error) {

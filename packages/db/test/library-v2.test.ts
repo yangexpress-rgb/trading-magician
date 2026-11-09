@@ -11,6 +11,7 @@ import {
   updateLibraryEntry,
 } from '../src/library';
 import { applyRenumberV2, planRenumberV2 } from '../src/library-renumber';
+import { applyRenumberV3 } from '../src/library-theory';
 import { seedStrategyLibrary, STRATEGY_LIBRARY_SEED } from '../src/library-seed';
 import { provisionWorkspace } from '../src/provision';
 import { users } from '../src/schema';
@@ -285,6 +286,79 @@ describe('applying the renumber', () => {
     expect(again.rows.every((r) => r.action === 'already_v2')).toBe(true);
     expect(await seedStrategyLibrary(t.owner.db)).toBe('already_seeded');
     expect(STRATEGY_LIBRARY_SEED).toHaveLength(31);
+  });
+});
+
+describe('theories: convention v3 on a v2 library (as staging is, N181)', () => {
+  it('renumbers every entry S to T, keeping S and v1 numbers as former numbers', async () => {
+    const before = await t.ownerSql`select last_issued from strategy_library_sequence`;
+    const outcome = await t.owner.db.transaction((tx) => applyRenumberV3(tx));
+    expect(outcome.kind).toBe('renumbered');
+    const rows = await t.ownerSql`
+      select registration_number, record_type_code, convention_version, former_numbers, related_entries
+        from strategy_library_entries order by sequence_no`;
+    expect(rows).toHaveLength(33);
+    for (const r of rows) {
+      expect(r.registration_number).toMatch(/^T\d{5}-[A-Z]{2}$/);
+      expect(r.record_type_code).toBe('T');
+      expect(r.convention_version).toBe('v3');
+      expect((r.former_numbers as string[]).at(-1)).toBe(
+        `S${(r.registration_number as string).slice(1)}`,
+      );
+      for (const n of r.related_entries as string[]) expect(n).toMatch(/^T\d{5}-[A-Z]{2}$/);
+    }
+    expect(rows[0]!.former_numbers).toEqual(['SDS-0001', 'S00001-SD']);
+    const after = await t.ownerSql`select last_issued from strategy_library_sequence`;
+    expect(after[0]!.last_issued).toBe(before[0]!.last_issued);
+    const [history] = await t.ownerSql`
+      select r.note from strategy_library_revisions r
+        join strategy_library_entries e on e.id = r.entry_id
+       where e.registration_number = 'T00001-SD' order by r.edited_at desc limit 1`;
+    expect(history!.note).toBe(
+      'Renumbered to T00001-SD under convention v3: Library entries are theories (formerly S00001-SD)',
+    );
+  });
+
+  it('old numbers still find the same theory, and the Lab shows the T number', async () => {
+    for (const n of ['T00001-SD', 'S00001-SD', 'SDS-0001', 's00001-sd']) {
+      const e = await as(userA, (tx) => getLibraryEntry(tx, userA, n));
+      expect(e?.registrationNumber).toBe('T00001-SD');
+      expect(e?.letters.recordType?.meaning).toBe('Theory');
+    }
+    const s = await as(userA, (tx) => getStrategy(tx, strategyId));
+    expect(s.library?.registrationNumber).toBe('T00001-SD');
+    const found = await as(userA, (tx) => listStrategies(tx, { search: 'S00001-SD' }));
+    expect(found.items.map((i) => i.id)).toEqual([strategyId]);
+  });
+
+  it('new registrations take T numbers, whichever record letter is asked for', async () => {
+    for (const recordType of ['S', 'T']) {
+      const preview = await as(userA, (tx) =>
+        previewRegistrationNumber(tx, { recordType, timeframe: 'D', assetClass: 'S' }),
+      );
+      expect(preview).toEqual({ registrationNumber: 'T00034-SD', conventionVersion: 'v3' });
+    }
+    const issued = await as(userA, (tx) =>
+      registerLibraryEntry(tx, userA, entry({ recordTypeCode: 'S' })),
+    );
+    expect(issued.registrationNumber).toBe('T00034-SD');
+  });
+
+  it('the app login still cannot change a record letter', async () => {
+    const e = await rejects(
+      as(userA, (tx) =>
+        tx.execute(
+          sql`update strategy_library_entries set record_type_code = 'S', registration_number = 'S00034-SD' where registration_number = 'T00034-SD'`,
+        ),
+      ),
+    );
+    expect(pgCode(e)).toBe('42501');
+  });
+
+  it('running it again changes nothing, and the seed check passes on T numbers', async () => {
+    const again = await t.owner.db.transaction((tx) => applyRenumberV3(tx));
+    expect(again.kind).toBe('already_theories');
+    expect(await seedStrategyLibrary(t.owner.db)).toBe('already_seeded');
   });
 });
 

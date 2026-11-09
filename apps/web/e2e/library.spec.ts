@@ -12,9 +12,9 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   await page.goto('/library');
   await expect(page.getByRole('heading', { level: 1, name: 'Theory Library' })).toBeVisible();
   const rows = page.getByRole('table', { name: 'Theory Library entries' }).locator('tbody tr');
-  await expect(rows.first()).toContainText('S00001-SD');
-  await expect(rows.nth(17)).toContainText('S00018-AM');
-  await expect(rows.nth(30)).toContainText('S00031-FS');
+  await expect(rows.first()).toContainText('T00001-SD');
+  await expect(rows.nth(17)).toContainText('T00018-AM');
+  await expect(rows.nth(30)).toContainText('T00031-FS');
 
   // Clicking a column header sorts by it: ascending, then descending (N168).
   const table = page.getByRole('table', { name: 'Theory Library entries' });
@@ -22,10 +22,10 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   await expect(numberHeader).toHaveAttribute('aria-sort', 'ascending');
   await numberHeader.getByRole('link').click();
   await expect(numberHeader).toHaveAttribute('aria-sort', 'descending');
-  await expect(rows.first()).not.toContainText('S00001-SD');
-  await expect(rows.last()).toContainText('S00001-SD');
+  await expect(rows.first()).not.toContainText('T00001-SD');
+  await expect(rows.last()).toContainText('T00001-SD');
   await numberHeader.getByRole('link').click();
-  await expect(rows.first()).toContainText('S00001-SD');
+  await expect(rows.first()).toContainText('T00001-SD');
   const categoryHeader = table.getByRole('columnheader', { name: /^Category/ });
   const categories = () => rows.locator('td:nth-child(6)').allInnerTexts();
   const byText = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' });
@@ -44,7 +44,7 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   await page.getByLabel('Data needs').selectOption('earnings_consensus');
   await page.getByRole('button', { name: 'Apply filters' }).click();
   await expect(page.getByText('1 entry', { exact: true })).toBeVisible();
-  await expect(rows.first()).toContainText('S00026-SD');
+  await expect(rows.first()).toContainText('T00026-SD');
   await page.getByRole('link', { name: 'Clear' }).click();
   await expect(page).toHaveURL(/\/library$/);
 
@@ -57,8 +57,11 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   // The seed detail: number, prose, provenance with its evidence level.
   // A former number redirects to the current one.
   await page.goto('/library/SDS-0005');
-  await expect(page).toHaveURL(/\/library\/S00005-SD$/);
-  await expect(page.getByText('S00005-SD', { exact: true }).first()).toBeVisible();
+  await expect(page).toHaveURL(/\/library\/T00005-SD$/);
+  // So does the S number it had before Library entries became theories (N181).
+  await page.goto('/library/S00005-SD');
+  await expect(page).toHaveURL(/\/library\/T00005-SD$/);
+  await expect(page.getByText('T00005-SD', { exact: true }).first()).toBeVisible();
   // Former numbers resolve but are not shown (Yong, 2026-11-08).
   await expect(page.getByText(/^Formerly /)).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Parameters' })).toBeVisible();
@@ -72,7 +75,7 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   await page.getByLabel('Timeframe (decision timescale)').selectOption('W');
   await page.getByLabel('Asset class (what it trades)').selectOption('E');
   const preview = page.getByTestId('number-preview');
-  await expect(preview).toContainText(/S\d{5}-EW/);
+  await expect(preview).toContainText(/T\d{5}-EW/);
   const expected = (await preview.locator('.font-mono').textContent())?.trim() ?? '';
   await page.getByLabel('Name').fill('Weekly ETF test entry');
   await page.getByLabel('Category').selectOption('trend');

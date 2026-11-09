@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { parseRegistrationNumber, type RegisterLibraryEntryInput } from '@tm/domain';
+import { parseRegistrationNumber, v3NumberFor, type RegisterLibraryEntryInput } from '@tm/domain';
 import type { Database, Transaction } from './client';
 import { registerLibraryEntry } from './library';
 import { LIBRARY_V2_BACKFILL } from './library-backfill-v2-data';
@@ -846,9 +846,12 @@ export async function seedStrategyLibrary(
   });
 }
 
-/** A seed entry holds its v2 number, or its v1 number while the library is still on v1. */
+/**
+ * A seed entry holds its theory number (v3), its v2 number while the library
+ * is still on v2, or its v1 number while it is still on v1.
+ */
 function seedNumberMatches(number: string, entry: SeedEntry): boolean {
-  if (number === entry.expectedNumber) return true;
+  if (number === entry.expectedNumber || number === v3NumberFor(entry.expectedNumber)) return true;
   return number === entry.v1Number && parseRegistrationNumber(number)?.layout === 'letters-first';
 }
 
@@ -859,7 +862,7 @@ function verify(rows: { n: string; key: string | null }[]): void {
     if (!entry) throw new Error(`Unknown seed key ${row.key ?? ''} holds ${row.n}`);
     if (!seedNumberMatches(row.n, entry)) {
       throw new Error(
-        `Seed ${entry.seedKey} holds ${row.n}, expected ${entry.expectedNumber} (or ${entry.v1Number} before v2)`,
+        `Seed ${entry.seedKey} holds ${row.n}, expected ${v3NumberFor(entry.expectedNumber) ?? ''} (or ${entry.expectedNumber} before v3, ${entry.v1Number} before v2)`,
       );
     }
   }
@@ -894,7 +897,7 @@ async function linkRelated(tx: Transaction, entries: readonly SeedEntry[]): Prom
 
 export interface SeedLinkMatch {
   seedKey: string;
-  /** The seed entry's v2 number (the backfill shows the entry's current one). */
+  /** The seed entry's theory number (the backfill shows the entry's current one). */
   registrationNumber: string;
   name: string;
   /** The single strategy matched, or why none was. */
@@ -932,7 +935,7 @@ export function matchSeedLinks(
     }
     out.push({
       seedKey: seed.seedKey,
-      registrationNumber: seed.expectedNumber,
+      registrationNumber: v3NumberFor(seed.expectedNumber) ?? seed.expectedNumber,
       name: seed.input.name,
       result,
     });

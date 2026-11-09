@@ -145,17 +145,17 @@ describe('Library v2 fields on a fresh library', () => {
     expect(await numbers({ maturity: 'researched' })).toHaveLength(31);
   });
 
-  it('earnings consensus is needed by S00026-SD alone', async () => {
-    expect(await numbers({ dataNeed: 'earnings_consensus' })).toEqual(['S00026-SD']);
+  it('earnings consensus is needed by T00026-SD alone', async () => {
+    expect(await numbers({ dataNeed: 'earnings_consensus' })).toEqual(['T00026-SD']);
   });
 
   it('filters by direction', async () => {
     const neutral = await numbers({ side: 'market_neutral' });
-    expect(neutral).toContain('S00024-SN');
-    expect(neutral).not.toContain('S00001-SD');
+    expect(neutral).toContain('T00024-SN');
+    expect(neutral).not.toContain('T00001-SD');
     expect(await numbers({ side: 'long_only', dataNeed: 'fundamentals' })).toEqual([
-      'S00007-SY',
-      'S00012-SQ',
+      'T00007-SY',
+      'T00012-SQ',
     ]);
   });
 });
@@ -176,15 +176,15 @@ describe('The backfill', () => {
         dataNeeds: [],
         universe: null,
       })
-      .where(sql`${entries.registrationNumber} in ('S00001-SD', 'S00003-SD', 'S00012-SQ')`);
-    await buildAndLink('S00001-SD', 'Trend — SPY SMA200', true);
-    await buildAndLink('S00003-SD', 'RSI-2', true);
-    await buildAndLink('S00012-SQ', 'Multi-factor', true);
+      .where(sql`${entries.registrationNumber} in ('T00001-SD', 'T00003-SD', 'T00012-SQ')`);
+    await buildAndLink('T00001-SD', 'Trend — SPY SMA200', true);
+    await buildAndLink('T00003-SD', 'RSI-2', true);
+    await buildAndLink('T00012-SQ', 'Multi-factor', true);
     // Linked but never back tested: stays Researched.
-    await buildAndLink('S00005-SD', 'Donchian', false);
+    await buildAndLink('T00005-SD', 'Donchian', false);
 
     const plan = await t.owner.db.transaction((tx) => planBackfillV2(tx));
-    const s1 = plan.entries.find((e) => e.registrationNumber === 'S00001-SD')!;
+    const s1 = plan.entries.find((e) => e.registrationNumber === 'T00001-SD')!;
     expect(s1.fields.filter((f) => f.action === 'set').map((f) => f.field)).toEqual([
       'direction',
       'parameters',
@@ -198,7 +198,7 @@ describe('The backfill', () => {
     ]);
     expect(s1.fields.find((f) => f.field === 'keyRisks')?.source).toBe("brief's worked example");
     expect(s1.fields.find((f) => f.field === 'stopLoss')?.unspecified).toBe(true);
-    const s5 = plan.entries.find((e) => e.registrationNumber === 'S00005-SD')!;
+    const s5 = plan.entries.find((e) => e.registrationNumber === 'T00005-SD')!;
     expect(s5.fields.find((f) => f.field === 'maturity')).toMatchObject({
       action: 'same',
       value: 'researched',
@@ -208,14 +208,14 @@ describe('The backfill', () => {
     const result = await t.owner.db.transaction((tx) => applyBackfillV2(tx));
     expect(result.updated).toBe(3);
     expect(await numbers({ maturity: 'backtested' })).toEqual([
-      'S00001-SD',
-      'S00003-SD',
-      'S00012-SQ',
+      'T00001-SD',
+      'T00003-SD',
+      'T00012-SQ',
     ]);
   });
 
   it('reads the brief’s three worked examples exactly', async () => {
-    expect(await entryOf('S00001-SD')).toMatchObject({
+    expect(await entryOf('T00001-SD')).toMatchObject({
       direction: 'long_only',
       parameters: [{ name: 'SMA lookback', value: '200', unit: 'days' }],
       positionSizing: { method: 'unspecified' },
@@ -227,7 +227,7 @@ describe('The backfill', () => {
       dataNeeds: ['daily_bars'],
       universe: { kind: 'single_instrument', detail: 'SPY' },
     });
-    expect(await entryOf('S00003-SD')).toMatchObject({
+    expect(await entryOf('T00003-SD')).toMatchObject({
       direction: 'long_only',
       parameters: [
         { name: 'RSI lookback', value: '2', unit: 'bars' },
@@ -243,7 +243,7 @@ describe('The backfill', () => {
       dataNeeds: ['daily_bars'],
       universe: { kind: 'single_instrument', detail: 'SPY' },
     });
-    const s12 = await entryOf('S00012-SQ');
+    const s12 = await entryOf('T00012-SQ');
     expect(s12).toMatchObject({
       direction: 'long_only',
       parameters: [
@@ -275,9 +275,9 @@ describe('The backfill', () => {
   });
 
   it('keeps a value someone wrote, and never moves Paper trading back', async () => {
-    const e = (await entryOf('S00002-SM'))!;
+    const e = (await entryOf('T00002-SM'))!;
     await asA((tx) =>
-      updateLibraryEntry(tx, userA, 'S00002-SM', {
+      updateLibraryEntry(tx, userA, 'T00002-SM', {
         ...editable(e),
         keyRisks: 'Written by a person.',
         maturity: 'paper_trading',
@@ -288,15 +288,15 @@ describe('The backfill', () => {
     await t.owner.db
       .update(entries)
       .set({ direction: null })
-      .where(eq(entries.registrationNumber, 'S00002-SM'));
+      .where(eq(entries.registrationNumber, 'T00002-SM'));
     const plan = await t.owner.db.transaction((tx) => planBackfillV2(tx));
-    const s2 = plan.entries.find((x) => x.registrationNumber === 'S00002-SM')!;
+    const s2 = plan.entries.find((x) => x.registrationNumber === 'T00002-SM')!;
     const action = (f: string) => s2.fields.find((x) => x.field === f)?.action;
     expect(action('keyRisks')).toBe('kept');
     expect(action('maturity')).toBe('kept');
     expect(action('direction')).toBe('set');
     await t.owner.db.transaction((tx) => applyBackfillV2(tx));
-    expect(await entryOf('S00002-SM')).toMatchObject({
+    expect(await entryOf('T00002-SM')).toMatchObject({
       keyRisks: 'Written by a person.',
       maturity: 'paper_trading',
       direction: 'long_only',
@@ -338,9 +338,9 @@ function editable(e: NonNullable<Awaited<ReturnType<typeof entryOf>>>) {
 
 describe('Editing a v2 field', () => {
   it('writes history naming the field and leaves number, version and link alone', async () => {
-    const e = (await entryOf('S00026-SD'))!;
+    const e = (await entryOf('T00026-SD'))!;
     const saved = await asA((tx) =>
-      updateLibraryEntry(tx, userA, 'S00026-SD', {
+      updateLibraryEntry(tx, userA, 'T00026-SD', {
         ...editable(e),
         stopLoss: { method: 'time_stop', detail: 'Out after 60 trading days' },
         changeNote: 'Name the time stop',
@@ -348,10 +348,10 @@ describe('Editing a v2 field', () => {
       }),
     );
     expect(saved.changedFields).toEqual(['stopLoss']);
-    const after = (await entryOf('S00026-SD'))!;
+    const after = (await entryOf('T00026-SD'))!;
     expect(after).toMatchObject({
-      registrationNumber: 'S00026-SD',
-      conventionVersion: 'v2',
+      registrationNumber: 'T00026-SD',
+      conventionVersion: 'v3',
       builtStrategyId: e.builtStrategyId,
       stopLoss: { method: 'time_stop', detail: 'Out after 60 trading days' },
     });
@@ -362,7 +362,7 @@ describe('Editing a v2 field', () => {
   });
 
   it('keeps the v2 fields when an older client sends none of them', async () => {
-    const e = (await entryOf('S00004-SD'))!;
+    const e = (await entryOf('T00004-SD'))!;
     const {
       direction,
       parameters,
@@ -387,7 +387,7 @@ describe('Editing a v2 field', () => {
       universe,
     ];
     const saved = await asA((tx) =>
-      updateLibraryEntry(tx, userA, 'S00004-SD', {
+      updateLibraryEntry(tx, userA, 'T00004-SD', {
         ...older,
         name: 'Pairs trading — PEP vs KO (renamed)',
         changeNote: 'Rename',
@@ -395,20 +395,20 @@ describe('Editing a v2 field', () => {
       }),
     );
     expect(saved.changedFields).toEqual(['name']);
-    expect(await entryOf('S00004-SD')).toMatchObject({
+    expect(await entryOf('T00004-SD')).toMatchObject({
       direction: 'long_short',
       universe: { kind: 'list', detail: 'PEP and KO' },
     });
   });
 
   it('refuses a save that would clear parameters the form did not load', async () => {
-    const e = (await entryOf('S00005-SD'))!;
+    const e = (await entryOf('T00005-SD'))!;
     expect(e.parameters).toEqual([
       { name: 'Entry channel', value: '20', unit: 'days' },
       { name: 'Exit channel', value: '10', unit: 'days' },
     ]);
     const refused = await asA((tx) =>
-      updateLibraryEntry(tx, userA, 'S00005-SD', {
+      updateLibraryEntry(tx, userA, 'T00005-SD', {
         ...editable(e),
         parameters: [],
         longDescription: `${e.longDescription} More.`,
@@ -427,14 +427,14 @@ describe('Editing a v2 field', () => {
     });
     expect((refused as LibraryError).message).toMatch(/Parameters did not load/);
     // Nothing was written.
-    const after = (await entryOf('S00005-SD'))!;
+    const after = (await entryOf('T00005-SD'))!;
     expect(after.parameters).toEqual(e.parameters);
     expect(after.rowVersion).toBe(e.rowVersion);
     expect(after.longDescription).toBe(e.longDescription);
   });
 
   it('refuses to empty any other stored profile field unless it is named as cleared', async () => {
-    const e = (await entryOf('S00004-SD'))!;
+    const e = (await entryOf('T00004-SD'))!;
     const emptied = {
       direction: null,
       positionSizing: null,
@@ -450,7 +450,7 @@ describe('Editing a v2 field', () => {
     );
     expect(stored.length).toBeGreaterThan(0);
     const refused = await asA((tx) =>
-      updateLibraryEntry(tx, userA, 'S00004-SD', {
+      updateLibraryEntry(tx, userA, 'T00004-SD', {
         ...editable(e),
         ...emptied,
         changeNote: 'Lost fields',
@@ -465,10 +465,10 @@ describe('Editing a v2 field', () => {
   });
 
   it('clears parameters when the editor removed them on purpose', async () => {
-    const e = (await entryOf('S00006-SD'))!;
+    const e = (await entryOf('T00006-SD'))!;
     expect(e.parameters.length).toBeGreaterThan(0);
     const saved = await asA((tx) =>
-      updateLibraryEntry(tx, userA, 'S00006-SD', {
+      updateLibraryEntry(tx, userA, 'T00006-SD', {
         ...editable(e),
         parameters: [],
         clearedFields: ['parameters'],
@@ -477,13 +477,13 @@ describe('Editing a v2 field', () => {
       }),
     );
     expect(saved.changedFields).toEqual(['parameters']);
-    expect((await entryOf('S00006-SD'))!.parameters).toEqual([]);
+    expect((await entryOf('T00006-SD'))!.parameters).toEqual([]);
   });
 
   it('an unrelated edit keeps the parameters and does not list them as changed', async () => {
-    const e = (await entryOf('S00005-SD'))!;
+    const e = (await entryOf('T00005-SD'))!;
     const saved = await asA((tx) =>
-      updateLibraryEntry(tx, userA, 'S00005-SD', {
+      updateLibraryEntry(tx, userA, 'T00005-SD', {
         ...editable(e),
         longDescription: `${e.longDescription} More.`,
         changeNote: 'Longer description',
@@ -491,15 +491,15 @@ describe('Editing a v2 field', () => {
       }),
     );
     expect(saved.changedFields).toEqual(['longDescription']);
-    expect((await entryOf('S00005-SD'))!.parameters).toEqual(e.parameters);
+    expect((await entryOf('T00005-SD'))!.parameters).toEqual(e.parameters);
   });
 
   it('refuses an eleventh parameter and an unknown data need', async () => {
-    const e = (await entryOf('S00004-SD'))!;
+    const e = (await entryOf('T00004-SD'))!;
     const tooMany = Array.from({ length: 11 }, (_, i) => ({ name: `p${i}`, value: '1' }));
     await expect(
       asA((tx) =>
-        updateLibraryEntry(tx, userA, 'S00004-SD', {
+        updateLibraryEntry(tx, userA, 'T00004-SD', {
           ...editable(e),
           parameters: tooMany,
           changeNote: 'Too many',
@@ -509,7 +509,7 @@ describe('Editing a v2 field', () => {
     ).rejects.toMatchObject({ code: 'bad_request' });
     await expect(
       asA((tx) =>
-        updateLibraryEntry(tx, userA, 'S00004-SD', {
+        updateLibraryEntry(tx, userA, 'T00004-SD', {
           ...editable(e),
           dataNeeds: ['tea_leaves'] as never,
           changeNote: 'Unknown',

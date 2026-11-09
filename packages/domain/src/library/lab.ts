@@ -127,10 +127,10 @@ export function deriveTimeframeCode(def: StrategyDefinition): string {
 export function deriveLibraryCodes(
   def: StrategyDefinition,
   classOf: (instrumentId: string) => LabAssetClass | undefined,
-): { recordTypeCode: 'S'; timeframeCode: string; assetClassCode: string } | null {
+): { recordTypeCode: 'T'; timeframeCode: string; assetClassCode: string } | null {
   const assetClassCode = deriveAssetClassCode(def, classOf);
   if (!assetClassCode) return null;
-  return { recordTypeCode: 'S', timeframeCode: deriveTimeframeCode(def), assetClassCode };
+  return { recordTypeCode: 'T', timeframeCode: deriveTimeframeCode(def), assetClassCode };
 }
 
 const DAILY: MeasuredDuration = { kind: 'every', value: 1, unit: 'days' };
