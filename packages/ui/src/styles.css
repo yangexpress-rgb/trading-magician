@@ -35,6 +35,10 @@
   --color-cond-soft: var(--tm-cond-soft);
   --color-order: var(--tm-order);
   --color-order-soft: var(--tm-order-soft);
+  /* Strategy page sections (N171): 1 Strategy, 2 Back test, 3 Execution. */
+  --color-sec-1: var(--tm-sec-1);
+  --color-sec-2: var(--tm-sec-2);
+  --color-sec-3: var(--tm-sec-3);
   /* Chart series in fixed order (validated for colour-vision deficiency): calls, then puts. */
   --color-series-1: var(--tm-series-1);
   --color-series-2: var(--tm-series-2);
@@ -70,6 +74,9 @@
   --tm-cond-soft: #eef6fc;
   --tm-order: #b45309;
   --tm-order-soft: #fdf7ec;
+  --tm-sec-1: #334e7a;
+  --tm-sec-2: #6d3fb3;
+  --tm-sec-3: #0f766e;
   --tm-series-1: #2a78d6;
   --tm-series-2: #eb6834;
   /* Content text (brief v2.2 D1, N126): what the user entered or the app produced.
@@ -108,6 +115,9 @@
     --tm-cond-soft: #10202e;
     --tm-order: #fcd34d;
     --tm-order-soft: #231d10;
+    --tm-sec-1: #9db6dd;
+    --tm-sec-2: #c4a6f2;
+    --tm-sec-3: #5eead4;
     --tm-series-1: #3987e5;
     --tm-series-2: #d95926;
     /* 10.2:1 on surface, 11.0:1 on canvas. */

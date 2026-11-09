@@ -141,16 +141,16 @@ export function ExecutionAndRisk({
 
   return (
     <>
-      <Card aria-labelledby="execution-heading">
-        <h2 id="execution-heading" className="text-lg font-semibold">
-          Execution
+      <Card aria-labelledby="order-handling-heading">
+        <h2 id="order-handling-heading" className="scroll-mt-16 text-lg font-semibold">
+          Order handling
         </h2>
         <p className="mb-3 text-sm text-ink-muted">
           How legs are sent and what happens when one doesn&rsquo;t fill. Brokers rarely fill
-          several instruments as one atomic order.
+          several instruments as one atomic order. Back tests use these settings too.
         </p>
         <fieldset disabled={!editable} className="grid-fields-wide gap-3">
-          <legend className="sr-only">Execution policy</legend>
+          <legend className="sr-only">Order handling</legend>
           <MiniSelect
             id="exec-policy"
             label="Send legs"
@@ -353,8 +353,8 @@ export function ExecutionAndRisk({
           Risk limits
         </h2>
         <p className="mb-3 text-sm text-ink-muted">
-          Checked before every order. Limits marked required must be set before the strategy can
-          start. Amounts are in {baseCurrency}.
+          Checked before every order, in back tests and on paper. Limits marked required must be set
+          before the strategy can start. Amounts are in {baseCurrency}.
         </p>
         <fieldset disabled={!editable} className="grid-fields-wide gap-3">
           <legend className="sr-only">Risk limits</legend>

@@ -13,8 +13,9 @@ import {
   type PhaseName,
   type StrategyDefinition,
   type StrategyStatus,
+  STATUS_LABELS,
 } from '@tm/domain';
-import { Alert, Button, Card, cx } from '@tm/ui';
+import { Alert, Button, Card, cx, ModeBadge } from '@tm/ui';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ConditionTreeEditor } from '@/components/strategy/condition-editor';
@@ -32,7 +33,17 @@ import {
   toChoiceRequest,
   type LibraryPick,
 } from '@/components/strategy/library-entry-field';
-import { BackTestPanel, useValidation, ValidationPanel } from '@/components/strategy/lifecycle';
+import { useBacktests } from '@/components/strategy/backtest';
+import {
+  BackTestSection,
+  backtestStanding,
+  type DraftTested,
+  ExecutionSection,
+  useValidation,
+  ValidationPanel,
+  type ValidationState,
+} from '@/components/strategy/lifecycle';
+import { PageSection, SectionNav } from '@/components/strategy/page-sections';
 import { OrdersEditor } from '@/components/strategy/orders-editor';
 import {
   EntryStructure,
@@ -65,8 +76,8 @@ interface Props {
   accounts: AccountOption[];
   timeZone: string;
   baseCurrency: string;
-  /** Rendered after the Back Test panel. */
-  children?: ReactNode;
+  /** Versions and status history, rendered last in the Execution section. */
+  history?: ReactNode;
 }
 
 type SaveState =
@@ -102,7 +113,7 @@ export function StrategyEditor({
   accounts,
   timeZone,
   baseCurrency,
-  children,
+  history,
 }: Props) {
   const router = useRouter();
   const [instruments, setInstruments] = useState(initialInstruments);
@@ -120,6 +131,19 @@ export function StrategyEditor({
   const dirty = rulesDirty || libraryPick !== null;
   const issues = useMemo(() => structuralIssues(definition), [definition]);
   const { state: validation, recheck } = useValidation(strategyId, rowVersion);
+  const backtests = useBacktests(strategyId);
+  const { latestText, draftTested } = backtestStanding(backtests, validation, rulesDirty);
+
+  // When a run ends, check again so validation picks up the new back test.
+  const activeId = backtests.active?.id;
+  const [watching, setWatching] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (activeId) setWatching(activeId);
+    else if (watching) {
+      setWatching(undefined);
+      recheck();
+    }
+  }, [activeId, watching, recheck]);
 
   // Warn before leaving with unsaved edits (§5.1).
   useEffect(() => {
@@ -232,19 +256,13 @@ export function StrategyEditor({
         <p id="save-state" className="text-sm text-ink-muted" role="status" aria-live="polite">
           {stateText}
         </p>
-        {validation.kind === 'ready' &&
-          (validation.result.errors.length > 0 || validation.result.warnings.length > 0) && (
-            <a href="#validation" className="text-sm">
-              {[
-                validation.result.errors.length > 0 &&
-                  `${validation.result.errors.length} ${validation.result.errors.length === 1 ? 'problem' : 'problems'}`,
-                validation.result.warnings.length > 0 &&
-                  `${validation.result.warnings.length} ${validation.result.warnings.length === 1 ? 'warning' : 'warnings'}`,
-              ]
-                .filter(Boolean)
-                .join(', ')}
-            </a>
-          )}
+        <SectionNav
+          states={{
+            strategy: dirty ? 'unsaved changes' : strategyState(validation),
+            'back-test': BACKTEST_STATE[draftTested],
+            execution: STATUS_LABELS[status],
+          }}
+        />
         {editable && (
           <Button
             variant="primary"
@@ -275,105 +293,150 @@ export function StrategyEditor({
         </div>
       )}
 
-      <div className="space-y-6">
-        <LibraryEntryField
-          current={library}
-          strategyName={strategyName}
-          choice={libraryPick}
-          onChoose={(pick) => {
-            setLibraryPick(pick);
-            setSave({ kind: 'idle' });
-          }}
-          editable={editable}
-        />
-        <InstrumentFinder
-          instruments={instruments}
-          editable={editable}
-          onFound={(found) =>
-            setInstruments((list) =>
-              list.some((i) => i.id === found.id)
-                ? list
-                : [...list, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
-            )
-          }
-        />
-        <PhaseCards
-          definition={definition}
-          onChange={edit}
-          slotMode={slotMode}
-          groupTitle={hasGroups(definition) ? 'Group 1' : undefined}
-        />
-        {(definition.groups ?? []).map((g, i) => (
-          <section
-            key={g.id}
-            aria-label={`Entry group ${i + 2}: ${g.label}`}
-            className="rounded-lg border border-line p-3"
-          >
-            {/* One summary row per group, so two groups don't read as two strategies (ADR 0049). */}
-            <details>
-              <summary className="cursor-pointer text-sm">
-                <span className="font-semibold">
-                  Entry group {i + 2}: {g.label}
-                </span>{' '}
-                <span className="text-ink-muted">
-                  · {DIRECTION_LABELS[directionOf(g.entry)].split(':')[0]} · {g.entry.orders.length}{' '}
-                  Entry {g.entry.orders.length === 1 ? 'leg' : 'legs'}, {g.exit.orders.length} Exit{' '}
-                  {g.exit.orders.length === 1 ? 'leg' : 'legs'}
-                </span>
-              </summary>
-              <div className="mt-3 space-y-4">
-                <GroupHeader definition={definition} index={i} onChange={edit} />
-                <GroupScope definition={definition} index={i} onChange={edit}>
-                  {(own, set) => (
-                    <PhaseCards
-                      definition={own}
-                      onChange={set}
-                      slotMode="none"
-                      groupTitle={g.label}
-                      idPrefix={`group-${g.id}-`}
-                    />
-                  )}
-                </GroupScope>
-              </div>
-            </details>
-          </section>
-        ))}
-        {editable && slotMode === 'none' && (definition.groups?.length ?? 0) < MAX_GROUPS && (
-          <div className="flex flex-wrap items-center gap-3">
-            <Button variant="secondary" size="sm" onClick={() => edit((d) => addGroup(d))}>
-              Add an entry group
-            </Button>
-            <p className="text-sm text-ink-muted">
-              For example a short breakdown beside a long breakout. The strategy holds one position
-              at a time: a group enters only while no position is open, and never flips one.
-            </p>
-          </div>
-        )}
-        <ExecutionAndRisk definition={definition} onChange={edit} />
-        <ValidationPanel
-          validation={validation}
-          definition={definition}
-          dirty={rulesDirty}
-          onRecheck={recheck}
-        />
-        <BackTestPanel
-          strategyId={strategyId}
-          strategyName={strategyName}
-          status={status}
-          rowVersion={rowVersion}
-          dirty={rulesDirty}
-          definition={definition}
-          validation={validation}
-          onBacktestFinished={recheck}
-          onChanged={(detail) => {
-            setRowVersion(detail.rowVersion);
-            router.refresh();
-          }}
-        />
-        {children}
+      <div className="space-y-10">
+        <PageSection
+          id="strategy"
+          description="What it trades, when it enters and exits, how orders are sent and the limits they must stay inside."
+        >
+          <LibraryEntryField
+            current={library}
+            strategyName={strategyName}
+            choice={libraryPick}
+            onChoose={(pick) => {
+              setLibraryPick(pick);
+              setSave({ kind: 'idle' });
+            }}
+            editable={editable}
+          />
+          <InstrumentFinder
+            instruments={instruments}
+            editable={editable}
+            onFound={(found) =>
+              setInstruments((list) =>
+                list.some((i) => i.id === found.id)
+                  ? list
+                  : [...list, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
+              )
+            }
+          />
+          <PhaseCards
+            definition={definition}
+            onChange={edit}
+            slotMode={slotMode}
+            groupTitle={hasGroups(definition) ? 'Group 1' : undefined}
+          />
+          {(definition.groups ?? []).map((g, i) => (
+            <section
+              key={g.id}
+              aria-label={`Entry group ${i + 2}: ${g.label}`}
+              className="rounded-lg border border-line p-3"
+            >
+              {/* One summary row per group, so two groups don't read as two strategies (ADR 0049). */}
+              <details>
+                <summary className="cursor-pointer text-sm">
+                  <span className="font-semibold">
+                    Entry group {i + 2}: {g.label}
+                  </span>{' '}
+                  <span className="text-ink-muted">
+                    · {DIRECTION_LABELS[directionOf(g.entry)].split(':')[0]} ·{' '}
+                    {g.entry.orders.length} Entry {g.entry.orders.length === 1 ? 'leg' : 'legs'},{' '}
+                    {g.exit.orders.length} Exit {g.exit.orders.length === 1 ? 'leg' : 'legs'}
+                  </span>
+                </summary>
+                <div className="mt-3 space-y-4">
+                  <GroupHeader definition={definition} index={i} onChange={edit} />
+                  <GroupScope definition={definition} index={i} onChange={edit}>
+                    {(own, set) => (
+                      <PhaseCards
+                        definition={own}
+                        onChange={set}
+                        slotMode="none"
+                        groupTitle={g.label}
+                        idPrefix={`group-${g.id}-`}
+                      />
+                    )}
+                  </GroupScope>
+                </div>
+              </details>
+            </section>
+          ))}
+          {editable && slotMode === 'none' && (definition.groups?.length ?? 0) < MAX_GROUPS && (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="secondary" size="sm" onClick={() => edit((d) => addGroup(d))}>
+                Add an entry group
+              </Button>
+              <p className="text-sm text-ink-muted">
+                For example a short breakdown beside a long breakout. The strategy holds one
+                position at a time: a group enters only while no position is open, and never flips
+                one.
+              </p>
+            </div>
+          )}
+          <ExecutionAndRisk definition={definition} onChange={edit} />
+          <ValidationPanel
+            validation={validation}
+            definition={definition}
+            dirty={rulesDirty}
+            onRecheck={recheck}
+          />
+        </PageSection>
+        <PageSection
+          id="back-test"
+          description="Runs the saved rules over historical data. Results are estimates, not guarantees."
+        >
+          <BackTestSection
+            backtests={backtests}
+            dirty={rulesDirty}
+            validation={validation}
+            latestText={latestText}
+            draftTested={draftTested}
+          />
+        </PageSection>
+        <PageSection
+          id="execution"
+          badge={<ModeBadge mode="paper" />}
+          description="Starting it sends orders to your paper account. Nothing here trades real money."
+        >
+          <ExecutionSection
+            strategyId={strategyId}
+            strategyName={strategyName}
+            status={status}
+            rowVersion={rowVersion}
+            dirty={rulesDirty}
+            definition={definition}
+            validation={validation}
+            latestText={latestText}
+            draftTested={draftTested}
+            onChanged={(detail) => {
+              setRowVersion(detail.rowVersion);
+              router.refresh();
+            }}
+            history={history}
+          />
+        </PageSection>
       </div>
     </EditorContext.Provider>
   );
+}
+
+const BACKTEST_STATE: Record<DraftTested, string> = {
+  not_tested: 'not tested',
+  unsaved: 'unsaved changes',
+  checking: 'checking…',
+  matches: 'matches latest',
+  changed: 'changed since latest',
+};
+
+/** The Strategy jump link's state: what Validation found in the saved draft. */
+function strategyState(validation: ValidationState): string {
+  if (validation.kind === 'loading') return 'checking…';
+  if (validation.kind === 'error') return 'not checked';
+  const { errors, warnings } = validation.result;
+  const parts = [
+    errors.length > 0 && `${errors.length} ${errors.length === 1 ? 'problem' : 'problems'}`,
+    warnings.length > 0 && `${warnings.length} ${warnings.length === 1 ? 'warning' : 'warnings'}`,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : 'saved';
 }
 
 /**

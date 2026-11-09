@@ -48,6 +48,7 @@ test('VIX: added from search, watched by conditions, charted, never traded', asy
     await page.request.post('/api/v1/strategies', { data: { name: 'VIX watcher' }, headers })
   ).json();
   await page.goto(`/strategy-lab/${created.id}`);
+  await page.getByText('Find a stock, ETF or index').click();
   await page.getByLabel('Symbol').fill('VIX');
   await page.getByRole('button', { name: 'Find' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Added VIX' })).toContainText(

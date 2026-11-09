@@ -82,9 +82,9 @@ export function VersionSummary({
           </Card>
         );
       })}
-      <Card aria-labelledby="execution-heading">
-        <h2 id="execution-heading" className="mb-3 text-lg font-semibold">
-          Execution
+      <Card aria-labelledby="order-handling-heading">
+        <h2 id="order-handling-heading" className="mb-3 text-lg font-semibold">
+          Order handling
         </h2>
         <Rows
           rows={[

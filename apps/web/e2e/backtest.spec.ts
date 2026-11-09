@@ -13,7 +13,7 @@ test('back test a pair strategy, read the results beside their assumptions, and 
   const strategy = await createTestedStrategy(page, baseURL!, 'Pair back test', { pair: true });
   await page.goto(`/strategy-lab/${strategy.id}`);
 
-  const panel = page.getByRole('region', { name: 'Back Test', exact: true });
+  const panel = page.getByRole('region', { name: 'Run a back test', exact: true });
   await expect(panel.getByText('None yet')).toBeVisible();
   await panel.getByLabel('From').fill('2023-01-03');
   await panel.getByLabel('To').fill('2023-12-29');
@@ -156,14 +156,15 @@ test('back test a pair strategy, read the results beside their assumptions, and 
     validation.getByText('The strategy changed after its latest back test'),
   ).toBeVisible();
 
-  await panel.getByRole('button', { name: 'Start execution' }).click();
+  const execution = page.getByRole('region', { name: 'Execution', exact: true });
+  await execution.getByRole('button', { name: 'Start execution' }).click();
   const dialog = page.getByRole('dialog', { name: 'Start on paper?' });
   await expect(dialog.getByText('Latest back test', { exact: true })).toBeVisible();
   await expect(dialog.getByText(/\(version 1\)$/)).toBeVisible();
   await expect(dialog.getByText('Changed since the latest back test')).toBeVisible();
   for (const box of await dialog.getByRole('checkbox').all()) await box.check();
   await dialog.getByRole('button', { name: 'Start on paper' }).click();
-  await expect(panel.getByText('Status: Actively executing')).toBeVisible();
+  await expect(execution.getByText('Status: Actively executing')).toBeVisible();
   const started = await (await page.request.get(`/api/v1/strategies/${strategy.id}`)).json();
   expect(started.statusHistory[0]).toMatchObject({
     toStatus: 'actively_executing',

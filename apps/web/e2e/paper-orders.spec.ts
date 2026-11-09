@@ -42,14 +42,14 @@ function enterOnly(
 
 async function startFromLab(page: Page, strategyId: string) {
   await page.goto(`/strategy-lab/${strategyId}`);
-  const backTest = page.getByRole('region', { name: 'Back Test', exact: true });
-  await backTest.getByRole('button', { name: 'Start execution' }).click();
+  const execution = page.getByRole('region', { name: 'Execution', exact: true });
+  await execution.getByRole('button', { name: 'Start execution' }).click();
   const dialog = page.getByRole('dialog', { name: 'Start on paper?' });
   await expect(dialog.getByText('Existing positions')).toBeVisible();
   for (const box of await dialog.getByRole('checkbox').all()) await box.check();
   await dialog.getByRole('button', { name: 'Start on paper' }).click();
   await expect(dialog).toBeHidden();
-  return backTest;
+  return execution;
 }
 
 async function startByApi(page: Page, baseURL: string, id: string, rowVersion: number) {
@@ -93,8 +93,8 @@ test('start on paper, watch Entry fill live, read its timeline, cancel, stop and
     'Paper buyer',
     enterOnly('DEMO-A', (ids, account) => [leg('buy-a', 'Buy A', ids['DEMO-A']!, account, 'buy')]),
   );
-  const backTest = await startFromLab(page, buyer.id);
-  await backTest.getByRole('link', { name: 'Follow its orders in Orders' }).click();
+  const execution = await startFromLab(page, buyer.id);
+  await execution.getByRole('link', { name: 'Follow its orders in Orders' }).click();
   await expect(page).toHaveURL(/\/orders\?started=/);
   await expect(page.getByRole('listitem', { name: 'Paper buyer, just started' })).toBeVisible();
   await expect(page.getByText('Live updates on')).toBeVisible();
@@ -179,7 +179,7 @@ test('start on paper, watch Entry fill live, read its timeline, cancel, stop and
   // Stopping offers closing as a separate choice; the close is the person's order.
   await page.goto(`/strategy-lab/${buyer.id}`);
   await page
-    .getByRole('region', { name: 'Back Test', exact: true })
+    .getByRole('region', { name: 'Execution', exact: true })
     .getByRole('button', { name: 'Stop execution' })
     .click();
   const stop = page.getByRole('dialog', { name: 'Stop execution?' });

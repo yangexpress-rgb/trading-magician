@@ -82,7 +82,7 @@ test('dual momentum with per-leg conditions and no shared Entry condition valida
   const checks = page.getByRole('region', { name: 'Validation' });
   await expect(checks.getByRole('heading', { name: /problems? blocks? starting/ })).toHaveCount(0);
   await expect(page.getByText('Add at least one Entry condition')).toHaveCount(0);
-  const panel = page.getByRole('region', { name: 'Back Test', exact: true });
+  const panel = page.getByRole('region', { name: 'Run a back test', exact: true });
   await panel.getByLabel('From').fill('2023-01-03');
   await panel.getByLabel('To').fill('2024-12-31');
   await panel.getByRole('button', { name: 'Run back test' }).click();

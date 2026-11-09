@@ -57,7 +57,7 @@ test('build a Selection group with a time stop, back test it, and read the ranki
   const a11y = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(a11y.violations).toEqual([]);
 
-  const panel = page.getByRole('region', { name: 'Back Test', exact: true });
+  const panel = page.getByRole('region', { name: 'Run a back test', exact: true });
   await panel.getByLabel('From').fill('2023-01-03');
   await panel.getByLabel('To').fill('2023-12-29');
   await panel.getByRole('button', { name: 'Run back test' }).click();

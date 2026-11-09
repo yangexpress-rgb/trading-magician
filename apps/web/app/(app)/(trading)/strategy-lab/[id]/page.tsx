@@ -58,6 +58,54 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
     isDefault: a.id === loaded.preferredAccountId,
   }));
 
+  // Moved from the side column into the Execution section (N176).
+  const versionsCard = (
+    <Card aria-labelledby="versions-heading">
+      <h2 id="versions-heading" className="text-lg font-semibold">
+        Versions and status history
+      </h2>
+      {strategy.versions.length === 0 ? (
+        <p className="mt-1 text-sm text-ink-muted">
+          Draft only. A version is saved when the strategy starts.
+        </p>
+      ) : (
+        <ul className="mt-2 space-y-1 text-sm">
+          {strategy.versions.map((v) => (
+            <li key={v.id}>
+              <Link href={`/strategy-lab/${strategy.id}/versions/${v.versionNo}`}>
+                Version {v.versionNo}
+              </Link>
+              {v.id === strategy.currentVersion?.id && ' (current)'} ·{' '}
+              {formatDateTime(v.createdAt, prefs)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {strategy.hasUnpublishedChanges && strategy.currentVersion && (
+        <p className="mt-2 text-sm text-ink-muted">
+          The draft has changes since the current version.
+        </p>
+      )}
+      {strategy.statusHistory.length > 0 && (
+        <>
+          <h3 className="mt-4 text-sm font-semibold">Status history</h3>
+          <ul className="mt-1 space-y-1 text-sm">
+            {strategy.statusHistory.map((h) => (
+              <li key={`${h.changedAt.toISOString()}-${h.toStatus}`}>
+                {STATUS_LABELS[h.fromStatus]} → {STATUS_LABELS[h.toStatus]}
+                {h.versionNo !== null && h.toStatus === 'actively_executing'
+                  ? ` (version ${h.versionNo})`
+                  : ''}{' '}
+                · {formatDateTime(h.changedAt, prefs)}
+                {h.reason && <span className="block text-ink-muted">{h.reason}</span>}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Card>
+  );
+
   return (
     <>
       <p className="mb-2 text-sm">
@@ -103,73 +151,24 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
           <SharedBy sharedBy={strategy.sharedBy} prefs={prefs} />
         </div>
       )}
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-        <div className="min-w-0">
-          <StrategyEditor
-            strategyId={strategy.id}
-            strategyName={strategy.name}
-            status={strategy.status}
-            library={strategy.library}
-            initialDefinition={strategy.definition}
-            initialRowVersion={strategy.rowVersion}
-            instruments={instruments}
-            optionUnderlyings={optionUnderlyings.map((u) => ({
-              id: u.id,
-              symbol: u.symbol,
-              latestAsOf: u.latestAsOf,
-            }))}
-            accounts={accounts}
-            timeZone={profile.timezone}
-            baseCurrency={profile.baseCurrency}
-          />
-        </div>
-        <aside className="space-y-4">
-          <Card aria-labelledby="versions-heading">
-            <h2 id="versions-heading" className="text-lg font-semibold">
-              Versions
-            </h2>
-            {strategy.versions.length === 0 ? (
-              <p className="mt-1 text-sm text-ink-muted">
-                Draft only. A version is saved when the strategy starts.
-              </p>
-            ) : (
-              <ul className="mt-2 space-y-1 text-sm">
-                {strategy.versions.map((v) => (
-                  <li key={v.id}>
-                    <Link href={`/strategy-lab/${strategy.id}/versions/${v.versionNo}`}>
-                      Version {v.versionNo}
-                    </Link>
-                    {v.id === strategy.currentVersion?.id && ' (current)'} ·{' '}
-                    {formatDateTime(v.createdAt, prefs)}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {strategy.hasUnpublishedChanges && strategy.currentVersion && (
-              <p className="mt-2 text-sm text-ink-muted">
-                The draft has changes since the current version.
-              </p>
-            )}
-            {strategy.statusHistory.length > 0 && (
-              <>
-                <h3 className="mt-4 text-sm font-semibold">Status history</h3>
-                <ul className="mt-1 space-y-1 text-sm">
-                  {strategy.statusHistory.map((h) => (
-                    <li key={`${h.changedAt.toISOString()}-${h.toStatus}`}>
-                      {STATUS_LABELS[h.fromStatus]} → {STATUS_LABELS[h.toStatus]}
-                      {h.versionNo !== null && h.toStatus === 'actively_executing'
-                        ? ` (version ${h.versionNo})`
-                        : ''}{' '}
-                      · {formatDateTime(h.changedAt, prefs)}
-                      {h.reason && <span className="block text-ink-muted">{h.reason}</span>}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </Card>
-        </aside>
-      </div>
+      <StrategyEditor
+        strategyId={strategy.id}
+        strategyName={strategy.name}
+        status={strategy.status}
+        library={strategy.library}
+        initialDefinition={strategy.definition}
+        initialRowVersion={strategy.rowVersion}
+        instruments={instruments}
+        optionUnderlyings={optionUnderlyings.map((u) => ({
+          id: u.id,
+          symbol: u.symbol,
+          latestAsOf: u.latestAsOf,
+        }))}
+        accounts={accounts}
+        timeZone={profile.timezone}
+        baseCurrency={profile.baseCurrency}
+        history={versionsCard}
+      />
     </>
   );
 }
