@@ -18,7 +18,7 @@ type Params = { number: string };
 
 export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
   const { number } = await params;
-  return { title: `Edit ${decodeURIComponent(number).toUpperCase()} · Strategy Library` };
+  return { title: `Edit ${decodeURIComponent(number).toUpperCase()} · Theory Library` };
 }
 
 export default async function EditLibraryEntryPage({ params }: { params: Promise<Params> }) {
@@ -47,7 +47,7 @@ export default async function EditLibraryEntryPage({ params }: { params: Promise
   return (
     <>
       <nav aria-label="Breadcrumb" className="mb-3 text-sm">
-        <Link href="/library">Strategy Library</Link> ›{' '}
+        <Link href="/library">Theory Library</Link> ›{' '}
         <Link href={`/library/${entry.registrationNumber}`}>{entry.registrationNumber}</Link>
       </nav>
       <PageHeader

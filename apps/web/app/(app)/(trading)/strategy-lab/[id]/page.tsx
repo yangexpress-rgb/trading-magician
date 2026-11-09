@@ -121,7 +121,7 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
               <Link
                 href={`/library/${strategy.library.registrationNumber}`}
                 className="font-mono text-sm font-semibold"
-                aria-label={`Strategy Library entry ${strategy.library.registrationNumber}`}
+                aria-label={`Theory Library entry ${strategy.library.registrationNumber}`}
               >
                 {strategy.library.registrationNumber}
               </Link>

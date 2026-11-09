@@ -22,7 +22,7 @@ import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
 import { ShareActions } from './share-actions';
 
-export const metadata: Metadata = { title: 'Shared strategy' };
+export const metadata: Metadata = { title: 'Shared theory or strategy' };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -106,7 +106,7 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
               {recipient
                 ? share.kind === 'lab'
                   ? 'Accepting adds a copy of this strategy to your Strategy Lab, with its own new Library number. Its order legs move to your paper account. Back tests, orders and run history are not part of it.'
-                  : 'Accepting adds a copy of this record to the Library, registered by you with its own new number.'
+                  : 'Accepting adds a copy of this theory to the Library, registered by you with its own new number.'
                 : `Waiting for an answer. It expires on ${formatDateTime(share.expiresAt, prefs, { dateStyle: 'medium' })} if nobody answers.`}
             </p>
             <ShareActions id={share.id} role={share.role} />
@@ -152,7 +152,7 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
           </Card>
         )}
         <Card className="space-y-2">
-          <h3 className="font-semibold">Library record</h3>
+          <h3 className="font-semibold">Library theory</h3>
           <Field label="Name">{r.name}</Field>
           <Field label="Category">
             {CATEGORY_LABELS[r.category as LibraryCategory] ?? r.category}

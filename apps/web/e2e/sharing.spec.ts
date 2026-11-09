@@ -103,7 +103,7 @@ test('shares a Library record and a Lab strategy, and the recipient accepts copi
   await expect(ben).toHaveURL(/\/strategy-lab\/[0-9a-f-]{36}$/);
   await expect(ben.getByRole('heading', { name: 'Ann’s shared strategy' })).toBeVisible();
   await expect(ben.getByText(`Ann Sender (${annCode})`)).toBeVisible();
-  const own = ben.getByRole('link', { name: /^Strategy Library entry S\d{5}-SD$/ });
+  const own = ben.getByRole('link', { name: /^Theory Library entry S\d{5}-SD$/ });
   await expect(own).toBeVisible();
   await expect(own).not.toHaveText(source);
   await ben.screenshot({ path: 'test-results/sharing-lab-copy.png', fullPage: true });
@@ -146,7 +146,7 @@ test('declines and withdraws', async ({ page, newPage }) => {
   await expect(page.getByRole('row', { name: /S00004-SD/ })).toContainText('Declined');
 });
 
-test('shares several Library records in one send', async ({ page, newPage }) => {
+test('shares several Library theories in one send', async ({ page, newPage }) => {
   const ben = await newPage();
   await signUpAndVerify(ben, uniqueEmail('share-many'), 'Manny Recipient');
   const code = await memberId(ben);
@@ -158,7 +158,7 @@ test('shares several Library records in one send', async ({ page, newPage }) => 
   await page.getByRole('checkbox', { name: /^Select S00007-SY/ }).check();
   await page.getByRole('button', { name: 'Share selected (2)' }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('heading', { name: 'Share 2 records' })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Share 2 theories' })).toBeVisible();
   await expect(dialog.getByRole('list', { name: 'Sharing these' })).toContainText('S00007-SY');
   await dialog.getByLabel('Member ID or email').fill(code);
   await dialog.getByRole('button', { name: 'Add' }).click();

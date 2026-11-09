@@ -6,7 +6,7 @@ import { LibraryEntryForm } from '@/components/library/entry-form';
 import { appDb } from '@/lib/server/db';
 import { requireTenant } from '@/lib/server/session';
 
-export const metadata: Metadata = { title: 'Register a strategy · Strategy Library' };
+export const metadata: Metadata = { title: 'Register a theory · Theory Library' };
 
 export default async function RegisterLibraryEntryPage() {
   const tenant = await requireTenant();
@@ -18,10 +18,10 @@ export default async function RegisterLibraryEntryPage() {
   return (
     <>
       <nav aria-label="Breadcrumb" className="mb-3 text-sm">
-        <Link href="/library">Strategy Library</Link>
+        <Link href="/library">Theory Library</Link>
       </nav>
       <PageHeader
-        title="Register a strategy"
+        title="Register a theory"
         description="Every entry answers the same questions: what it is, what it trades, when it enters and exits, how often and for how long, who used it before and what the evidence shows."
       />
       <div className="max-w-4xl">

@@ -40,7 +40,7 @@ import { isAdmin } from '@/lib/server/admin';
 import { appDb } from '@/lib/server/db';
 import { requireTenant } from '@/lib/server/session';
 
-export const metadata: Metadata = { title: 'Strategy Library' };
+export const metadata: Metadata = { title: 'Theory Library' };
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -205,11 +205,11 @@ export default async function LibraryPage({
   return (
     <>
       <PageHeader
-        title="Strategy Library"
-        description="Every strategy we know about, built in Strategy Lab or not, with one permanent registration number each."
+        title="Theory Library"
+        description="Every theory we know about, built in Strategy Lab or not, with one permanent registration number each."
         actions={
           <Link href="/library/new" className={buttonClasses('primary')}>
-            Register a strategy
+            Register a theory
           </Link>
         }
       />
@@ -316,7 +316,7 @@ export default async function LibraryPage({
         <EmptyState icon={<LibraryIcon />} title={filtered ? 'No entries match' : 'No entries yet'}>
           {filtered
             ? 'Try a different search or clear the filters.'
-            : 'Register a strategy to start the library.'}
+            : 'Register a theory to start the library.'}
         </EmptyState>
       ) : (
         <ShareSelection>
@@ -324,13 +324,13 @@ export default async function LibraryPage({
             <p className="text-sm text-ink-muted" aria-live="polite">
               {total === 1 ? '1 entry' : `${total} entries`}
             </p>
-            <ShareSelectedBar isAdmin={admin} noun="records" />
+            <ShareSelectedBar isAdmin={admin} noun="theories" />
           </div>
-          <Table label="Strategy Library entries">
+          <Table label="Theory Library entries">
             <thead>
               <tr>
                 <Th>
-                  <ShareCheckAll items={shareable} noun="records" />
+                  <ShareCheckAll items={shareable} noun="theories" />
                 </Th>
                 {header('number', 'Number')}
                 {header('name', 'Name')}

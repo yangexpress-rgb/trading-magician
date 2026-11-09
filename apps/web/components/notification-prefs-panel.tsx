@@ -23,9 +23,9 @@ const KIND_TEXT: Record<NotificationKindDto, string> = {
   risk_pause: 'A strategy is paused for safety',
   reconciliation_mismatch: 'Orders or positions disagree with the broker',
   billing: 'Your plan or payment changes',
-  share_received: 'Someone shares a strategy with you',
-  share_accepted: 'Someone accepts a strategy you shared',
-  share_declined: 'Someone declines a strategy you shared',
+  share_received: 'Someone shares a theory or strategy with you',
+  share_accepted: 'Someone accepts a theory or strategy you shared',
+  share_declined: 'Someone declines a theory or strategy you shared',
 };
 
 const isLocked = (kind: NotificationKindDto) =>

@@ -38,7 +38,7 @@ type Params = { number: string };
 
 export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
   const { number } = await params;
-  return { title: `${decodeURIComponent(number).toUpperCase()} · Strategy Library` };
+  return { title: `${decodeURIComponent(number).toUpperCase()} · Theory Library` };
 }
 
 /** One Strategy Library entry: the full standard record (ADR 0051). */
@@ -60,7 +60,7 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
   return (
     <>
       <nav aria-label="Breadcrumb" className="mb-3 text-sm">
-        <Link href="/library">Strategy Library</Link>
+        <Link href="/library">Theory Library</Link>
       </nav>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
@@ -122,7 +122,7 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
           className="mb-4 rounded-md border border-warn/40 bg-warn-soft px-3 py-2 text-sm"
         >
           Retired{e.retiredAt ? ` ${formatDateTime(e.retiredAt, prefs)}` : ''}: {e.retiredReason}.
-          It keeps its number; a strategy that returns is registered again under a new number.
+          It keeps its number; a theory that returns is registered again under a new number.
         </p>
       )}
 

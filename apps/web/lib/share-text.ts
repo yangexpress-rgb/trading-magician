@@ -10,6 +10,6 @@ export const SHARE_STATUS_LABELS = {
 } as const satisfies Record<string, { label: string; tone: Tone }>;
 
 export const SHARE_KIND_LABELS = {
-  library: 'Library record',
+  library: 'Library theory',
   lab: 'Strategy Lab strategy',
 } as const;

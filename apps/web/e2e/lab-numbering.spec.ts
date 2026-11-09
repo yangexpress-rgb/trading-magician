@@ -51,7 +51,7 @@ test('Strategy Lab shows each strategy’s Library number and links entries from
   await page.getByRole('button', { name: 'Save draft' }).click();
   await expect(page.getByText('All changes saved')).toBeVisible();
   await expect(card.getByRole('link', { name: 'S00009-SM' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Strategy Library entry S00009-SM' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Theory Library entry S00009-SM' })).toBeVisible();
 
   // The Library shows the entry Built, and the old record Not built with its number.
   await page.goto('/library/S00009-SM');
