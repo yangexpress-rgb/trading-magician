@@ -5,6 +5,8 @@ import {
   buildCycles,
   cycleCounts,
   cyclesCsv,
+  entryKeyData,
+  exitKeyData,
   matchesFilter,
   matchesSearch,
   skippedSignals,
@@ -310,5 +312,62 @@ describe('the cycle list', () => {
     );
     expect(lines[2]).toContain(',-68.88');
     expect(lines[3]).toMatch(/^3,pending,DEMO-A,Buy A,,/);
+  });
+});
+
+describe('key data for each side of a cycle', () => {
+  const { result, trades } = demo(true);
+  const [c1, c2, c3] = buildCycles(result, trades);
+
+  it('counts the Entry checks since the previous Entry signal', () => {
+    const k1 = entryKeyData(c1!, result.fills).conditions!;
+    expect([k1.since, k1.checked, k1.trueBars, k1.firstTrue, k1.firedAt]).toEqual([
+      null,
+      2,
+      1,
+      day('01-12'),
+      day('01-12'),
+    ]);
+    const k2 = entryKeyData(c2!, result.fills).conditions!;
+    expect([k2.since, k2.checked]).toEqual([day('01-12'), 1]);
+    // A firing that found a cycle open still ends the window.
+    const k3 = entryKeyData(c3!, result.fills).conditions!;
+    expect([k3.since, k3.bars.map((b) => b.time)]).toEqual([day('02-22'), [day('03-31')]]);
+  });
+
+  it('times the signal to the fill and prices each fill against the last close', () => {
+    const c = {
+      ...c1!,
+      entryOrders: c1!.entryOrders.map((o) => ({ ...o, referencePrice: '160' })),
+    };
+    const k = entryKeyData(c, result.fills);
+    expect(k.timing).toMatchObject({
+      signalAt: day('01-12'),
+      filledAt: day('01-13', 14),
+      daysToFill: 1,
+    });
+    expect(k.execution[0]).toMatchObject({
+      label: 'Buy A',
+      fillPrice: '160.82',
+      costPct: '0.51',
+      commission: '0.01',
+      slippage: '0.01',
+    });
+    const x = exitKeyData(c1!, result.fills);
+    expect(x.conditions).toMatchObject({ checked: 2, trueBars: 1, firedAt: day('02-03') });
+    expect(x.timing).toMatchObject({ signalAt: day('02-03'), daysToFill: 3 });
+    // Covering a short below the last close is a better price.
+    const short = {
+      ...c1!,
+      entryOrders: c1!.entryOrders.map((o) => ({ ...o, side: 'sell_short' as const })),
+      exitOrders: c1!.exitOrders.map((o) => ({
+        ...o,
+        side: 'close' as const,
+        referencePrice: '163',
+      })),
+    };
+    expect(exitKeyData(short, result.fills).execution[0]!.costPct).toBe('-0.50');
+    // Pending: no fill yet.
+    expect(entryKeyData(c3!, result.fills).timing.filledAt).toBeNull();
   });
 });

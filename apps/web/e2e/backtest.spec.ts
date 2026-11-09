@@ -25,6 +25,9 @@ test('back test a pair strategy, read the results beside their assumptions, and 
   // The run queues, the worker picks it up, and the results replace the progress line.
   const results = page.getByRole('region', { name: 'Back test results' });
   await expect(results.getByText('Completed')).toBeVisible({ timeout: 30_000 });
+  // The run summary is collapsed until opened (N170).
+  await expect(results.getByText(/Engine engine@1/)).toBeHidden();
+  await results.getByText('Run summary').click();
   await expect(
     results.getByText('Version 1 · Jan 3, 2023 to Dec 29, 2023 · Daily bars'),
   ).toBeVisible();
@@ -58,6 +61,15 @@ test('back test a pair strategy, read the results beside their assumptions, and 
   await expect(cycleEntry.getByText('Sell short 20 DEMO-B · Market · Day')).toBeVisible();
   await expect(cycle.getByText(/^Signal: .* close$/).first()).toBeVisible();
   await expect(cycle.getByText('crosses above').first()).toBeVisible();
+  // Key data on each side: conditions, timing and execution (N169).
+  const entryKey = cycle.getByRole('region', { name: 'Entry key data' });
+  await expect(entryKey.getByText(/^\d+ bars?: true on \d+/)).toBeVisible();
+  await expect(entryKey.getByText('Could fill from')).toBeVisible();
+  await expect(entryKey.getByText(/^last close \$[\d,.]+ → filled 20 at/).first()).toBeVisible();
+  await entryKey.getByText(/^Bars up to the signal/).click();
+  await expect(entryKey.getByText('Fired: orders planned').first()).toBeVisible();
+  const exitKey = cycle.getByRole('region', { name: 'Exit key data' });
+  await expect(exitKey.getByText('While the position was open')).toBeVisible();
   const legs = cycle.getByRole('table', { name: 'Cycle 1: legs' });
   await expect(legs.getByRole('cell', { name: 'DEMO-A', exact: true })).toBeVisible();
   await expect(legs.getByRole('cell', { name: 'DEMO-B', exact: true })).toBeVisible();
