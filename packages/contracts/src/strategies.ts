@@ -46,7 +46,17 @@ export interface StrategyLibraryDto {
   autoCreated: boolean;
 }
 
-export const STRATEGY_SORTS = ['updated', 'created', 'name', 'status'] as const;
+export const STRATEGY_SORTS = [
+  'updated',
+  'created',
+  'name',
+  'status',
+  'number',
+  'assets',
+  'version',
+  'account',
+  'backtest',
+] as const;
 export const ARCHIVE_FILTERS = ['exclude', 'include', 'only'] as const;
 
 /** Query string for GET /strategies. Repeated `status` params filter by several statuses. */

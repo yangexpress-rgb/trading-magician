@@ -154,6 +154,8 @@ test.describe('strategy library', () => {
     await page.reload();
 
     const table = page.getByRole('table', { name: 'Strategies' });
+    // The rows' links; the header's sort links are left out.
+    const rowLinks = table.locator('tbody').getByRole('link');
     await expect(table.getByRole('row')).toHaveCount(3);
     await expect(table.getByRole('row', { name: /Momentum A/ })).toContainText('DEMO-A');
     await expect(table.getByRole('row', { name: /Momentum A/ })).toContainText('Paper');
@@ -169,15 +171,40 @@ test.describe('strategy library', () => {
       await page.getByRole('button', { name: 'Apply filters' }).click();
     };
     await filter({ Search: 'MOMENTUM' });
-    await expect(table.getByRole('link')).toHaveText(['Momentum A']);
+    await expect(rowLinks).toHaveText(['Momentum A']);
     await filter({ Status: 'Under testing' });
-    await expect(table.getByRole('link')).toHaveText(['Momentum A']);
+    await expect(rowLinks).toHaveText(['Momentum A']);
     await filter({ Asset: 'DEMO-A' });
-    await expect(table.getByRole('link')).toHaveText(['Momentum A']);
+    await expect(rowLinks).toHaveText(['Momentum A']);
     await filter({ Search: 'nothing like this' });
     await expect(page.getByRole('heading', { name: 'No strategies match' })).toBeVisible();
     await filter({ 'Sort by': 'Name' });
-    await expect(table.getByRole('link')).toHaveText(['Beverage pairs', 'Momentum A']);
+    await expect(rowLinks).toHaveText(['Beverage pairs', 'Momentum A']);
+
+    // Clicking a column header sorts by it: ascending first, then descending (N167).
+    await page.goto('/strategy-lab');
+    const nameHeader = table.getByRole('columnheader', { name: /^Name/ });
+    await nameHeader.getByRole('link').click();
+    await expect(nameHeader).toHaveAttribute('aria-sort', 'ascending');
+    await expect(rowLinks).toHaveText(['Beverage pairs', 'Momentum A']);
+    await nameHeader.getByRole('link').click();
+    await expect(nameHeader).toHaveAttribute('aria-sort', 'descending');
+    await expect(rowLinks).toHaveText(['Momentum A', 'Beverage pairs']);
+    const assetsHeader = table.getByRole('columnheader', { name: /^Assets/ });
+    await assetsHeader.getByRole('link').click();
+    await expect(assetsHeader).toHaveAttribute('aria-sort', 'ascending');
+    await expect(nameHeader).toHaveAttribute('aria-sort', 'none');
+    // A strategy with no assets sorts last either way.
+    await expect(rowLinks).toHaveText(['Momentum A', 'Beverage pairs']);
+    await assetsHeader.getByRole('link').click();
+    await expect(rowLinks).toHaveText(['Momentum A', 'Beverage pairs']);
+    for (const label of ['Number', 'Status', 'Version', 'Account', 'Latest back test', 'Updated']) {
+      const header = table.getByRole('columnheader', { name: new RegExp(`^${label}`) });
+      await header.getByRole('link').click();
+      await expect(header).toHaveAttribute('aria-sort', 'ascending');
+      await expect(rowLinks).toHaveCount(2);
+    }
+    await page.goto('/strategy-lab');
 
     // Rename.
     await page.getByRole('button', { name: 'Rename Beverage pairs' }).click();
@@ -194,7 +221,7 @@ test.describe('strategy library', () => {
     await page.getByRole('button', { name: 'Archive Copy of Beverage spread' }).click();
     await expect(table.getByRole('link', { name: 'Copy of Beverage spread' })).toHaveCount(0);
     await filter({ Show: 'Archived' });
-    await expect(table.getByRole('link')).toHaveText(['Copy of Beverage spread']);
+    await expect(rowLinks).toHaveText(['Copy of Beverage spread']);
     await expectAccessible(page);
 
     // Delete with confirmation.
