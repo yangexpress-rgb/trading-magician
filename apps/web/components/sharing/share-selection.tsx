@@ -53,7 +53,7 @@ export function ShareSelectedBar({
   noun,
 }: {
   isAdmin?: boolean;
-  /** "strategies" or "records". */
+  /** "strategies" or "theories". */
   noun: string;
 }) {
   const { selected, set } = useSelection();

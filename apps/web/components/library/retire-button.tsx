@@ -47,7 +47,7 @@ export function RetireButton({
         open={open}
         onClose={() => setOpen(false)}
         title={`Retire ${registrationNumber}`}
-        description="The entry stays visible with a Retired badge and keeps its number for good. A strategy that comes back is registered again under a new number."
+        description="The entry stays visible with a Retired badge and keeps its number for good. A theory that comes back is registered again under a new number."
       >
         <form action={retire} className="space-y-4">
           {error && <Alert tone="danger">{error}</Alert>}

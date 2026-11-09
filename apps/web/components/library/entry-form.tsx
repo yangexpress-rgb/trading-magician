@@ -314,8 +314,8 @@ export function LibraryEntryForm({
           <h2 className="mb-1 font-semibold">Registration number</h2>
           <p className="mb-3 text-sm text-ink-muted">
             The letters come from convention {conventionLabel}: record type, the timeframe the
-            strategy decides on (not how long it holds), and what it trades. The number is issued
-            when you save and never changes.
+            theory decides on (not how long it holds), and what it trades. The number is issued when
+            you save and never changes.
           </p>
           <div className="grid-fields gap-3">
             {tables.recordType.length > 1 && (
@@ -510,7 +510,7 @@ export function LibraryEntryForm({
       </Card>
 
       <Card>
-        <h2 className="mb-1 font-semibold">Strategy profile</h2>
+        <h2 className="mb-1 font-semibold">Theory profile</h2>
         <p className="mb-3 text-sm text-ink-muted">
           What the research says about how it trades. Leave a choice at Not specified when the
           research does not say; it is shown as such, never left blank.

@@ -150,7 +150,7 @@ export function ShareDialog({
   const lab = items[0]?.source.kind === 'lab';
   const many = items.length > 1;
   const plural = (n: number) =>
-    lab ? (n === 1 ? 'strategy' : 'strategies') : n === 1 ? 'record' : 'records';
+    lab ? (n === 1 ? 'strategy' : 'strategies') : n === 1 ? 'theory' : 'theories';
 
   return (
     <Dialog
@@ -162,7 +162,7 @@ export function ShareDialog({
       description={
         lab
           ? `They get a copy of ${many ? 'each strategy' : 'this strategy'} as it is now, with its own new number, in their Strategy Lab. Your back tests, orders, accounts and run history are not sent.`
-          : `They get a copy of ${many ? 'each record' : 'this record'} as it is now, with its own new number, in the Library. Nothing changes on your side.`
+          : `They get a copy of ${many ? 'each theory' : 'this theory'} as it is now, with its own new number, in the Library. Nothing changes on your side.`
       }
     >
       {sent !== null ? (

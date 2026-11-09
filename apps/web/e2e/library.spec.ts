@@ -10,14 +10,14 @@ import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 test('lists the seed, registers with a previewed number, edits and retires', async ({ page }) => {
   await signUpAndVerify(page, uniqueEmail('library'));
   await page.goto('/library');
-  await expect(page.getByRole('heading', { level: 1, name: 'Strategy Library' })).toBeVisible();
-  const rows = page.getByRole('table', { name: 'Strategy Library entries' }).locator('tbody tr');
+  await expect(page.getByRole('heading', { level: 1, name: 'Theory Library' })).toBeVisible();
+  const rows = page.getByRole('table', { name: 'Theory Library entries' }).locator('tbody tr');
   await expect(rows.first()).toContainText('S00001-SD');
   await expect(rows.nth(17)).toContainText('S00018-AM');
   await expect(rows.nth(30)).toContainText('S00031-FS');
 
   // Clicking a column header sorts by it: ascending, then descending (N168).
-  const table = page.getByRole('table', { name: 'Strategy Library entries' });
+  const table = page.getByRole('table', { name: 'Theory Library entries' });
   const numberHeader = table.getByRole('columnheader', { name: /^Number/ });
   await expect(numberHeader).toHaveAttribute('aria-sort', 'ascending');
   await numberHeader.getByRole('link').click();

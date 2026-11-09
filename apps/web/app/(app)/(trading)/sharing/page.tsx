@@ -38,7 +38,7 @@ export default async function SharingPage({
     <>
       <PageHeader
         title="Sharing"
-        description="Strategies other members shared with you, and the ones you shared. Accepting makes your own copy with a new number; nothing changes for the sender."
+        description="Theories and strategies other members shared with you, and the ones you shared. Accepting makes your own copy with a new number; nothing changes for the sender."
       />
       <nav aria-label="Sharing" className="mb-4 flex gap-2 border-b border-line">
         {(['received', 'sent'] as const).map((b) => (
@@ -64,8 +64,8 @@ export default async function SharingPage({
           }
         >
           {box === 'received'
-            ? 'When a member shares a strategy with you, it shows here for you to accept or decline.'
-            : 'Use Share on a Library record or a Strategy Lab strategy to send someone a copy.'}
+            ? 'When a member shares a theory or strategy with you, it shows here for you to accept or decline.'
+            : 'Use Share on a Library theory or a Strategy Lab strategy to send someone a copy.'}
         </EmptyState>
       ) : (
         <>
@@ -83,7 +83,7 @@ export default async function SharingPage({
                       <AnswerCheckAll pending={answerable} />
                     </Th>
                   )}
-                  <Th>Strategy</Th>
+                  <Th>Theory or strategy</Th>
                   <Th>{box === 'received' ? 'From' : 'To'}</Th>
                   <Th>Kind</Th>
                   <Th>Status</Th>

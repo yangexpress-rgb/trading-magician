@@ -56,7 +56,7 @@ test('Trading Strategy holds the Library, Lab and Sharing as tabs', async ({ pag
   for (const [name, path, heading] of [
     ['Lab', '/strategy-lab', 'Strategy Lab'],
     ['Sharing', '/sharing', 'Sharing'],
-    ['Library', '/library', 'Strategy Library'],
+    ['Library', '/library', 'Theory Library'],
   ] as const) {
     await tabs.getByRole('link', { name }).click();
     await expect(page).toHaveURL(new RegExp(`${path}$`));

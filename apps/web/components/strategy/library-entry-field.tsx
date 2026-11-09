@@ -75,8 +75,8 @@ export function LibraryEntryField({
         )}
       </div>
       <p className="mt-1 text-xs text-ink-muted">
-        The strategy&apos;s number is its Strategy Library entry&apos;s number. It never changes
-        when you edit the strategy; edit the entry itself in the Library.
+        The strategy&apos;s number is its Theory Library entry&apos;s number. It never changes when
+        you edit the strategy; edit the entry itself in the Library.
       </p>
       {choice && (
         <p className="mt-2 text-sm" role="status">
