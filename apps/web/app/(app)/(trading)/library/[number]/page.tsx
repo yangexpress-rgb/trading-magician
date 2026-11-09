@@ -1,6 +1,7 @@
-import { getLibraryEntry, withTenant } from '@tm/db';
+import { getLibraryEntry, strategyIdByLabNumber, withTenant } from '@tm/db';
 import {
   CATEGORY_LABELS,
+  isLabNumber,
   DATA_NEED_LABELS,
   DIRECTION_LABELS,
   EVIDENCE_LABELS,
@@ -47,9 +48,17 @@ export default async function LibraryEntryPage({ params }: { params: Promise<Par
   const profile = await getProfile(tenant);
   const prefs: DisplayPreferences = { timeZone: profile.timezone, locale: profile.locale };
   const { number } = await params;
-  const e = await withTenant(appDb(), tenant, (tx) =>
-    getLibraryEntry(tx, tenant.userId, decodeURIComponent(number)),
-  );
+  const found = await withTenant(appDb(), tenant, async (tx) => {
+    const entry = await getLibraryEntry(tx, tenant.userId, decodeURIComponent(number));
+    // Not a theory: a Strategy Lab number of one of your strategies opens it there (ADR 0065).
+    const strategyId =
+      !entry && isLabNumber(decodeURIComponent(number))
+        ? await strategyIdByLabNumber(tx, decodeURIComponent(number))
+        : null;
+    return { entry, strategyId };
+  });
+  if (found.strategyId) redirect(`/strategy-lab/${found.strategyId}`);
+  const e = found.entry;
   if (!e) notFound();
   // A former number (ADR 0055) redirects to the entry's current, canonical URL.
   if (decodeURIComponent(number) !== e.registrationNumber) {

@@ -133,6 +133,30 @@ export function deriveLibraryCodes(
   return { recordTypeCode: 'T', timeframeCode: deriveTimeframeCode(def), assetClassCode };
 }
 
+/**
+ * Strategy Lab numbers (ADR 0065, N182): a Lab strategy's own number follows
+ * the theory rules (convention v3: sequence-first, five digits, asset class
+ * then timeframe) with record type S, from the Lab's own counter, e.g.
+ * S00032-SD. The letters are derived as for an auto-created record (D4).
+ */
+export const LAB_RECORD_TYPE = 'S';
+
+/** The letters of a Lab number, or null while none can be issued (no traded instrument yet). */
+export function deriveLabCodes(
+  def: StrategyDefinition,
+  classOf: (instrumentId: string) => LabAssetClass | undefined,
+): { timeframeCode: string; assetClassCode: string } | null {
+  const codes = deriveLibraryCodes(def, classOf);
+  return codes
+    ? { timeframeCode: codes.timeframeCode, assetClassCode: codes.assetClassCode }
+    : null;
+}
+
+/** True for a well-formed Strategy Lab number (S, five or more digits, two letters). */
+export function isLabNumber(value: string): boolean {
+  return /^S(?:\d{5}|[1-9]\d{5,})-[A-Z]{2}$/.test(value.trim().toUpperCase());
+}
+
 const DAILY: MeasuredDuration = { kind: 'every', value: 1, unit: 'days' };
 const FREQUENCY: Record<string, MeasuredDuration> = {
   N: { kind: 'every', value: 1, unit: 'minutes' },

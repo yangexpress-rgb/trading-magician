@@ -155,7 +155,9 @@ export interface StrategyListQuery {
 export interface StrategySummary {
   id: string;
   name: string;
-  /** The Strategy Library number (ADR 0054); null until the first save with instruments. */
+  /** Its own Strategy Lab number (ADR 0065); null until the first save with instruments. */
+  labNumber: string | null;
+  /** The number of the theory it builds (ADR 0054); null until the first save with instruments. */
   libraryNumber: string | null;
   description: string;
   tags: string[];
@@ -199,7 +201,8 @@ export async function listStrategies(
         ilike(strategies.name, pattern),
         ilike(strategies.description, pattern),
         sql`array_to_string(${strategies.tags}, ' ') ilike ${pattern}`,
-        // Its Strategy Library number (ADR 0054).
+        // Its own Lab number (ADR 0065), or the number of the theory it builds (ADR 0054).
+        ilike(strategies.labNumber, pattern),
         sql`exists (select 1 from ${strategyLibraryEntries} where ${strategyLibraryEntries.id} = ${strategies.libraryEntryId} and (${strategyLibraryEntries.registrationNumber} ilike ${pattern} or array_to_string(${strategyLibraryEntries.formerNumbers}, ' ') ilike ${pattern}))`,
       ) as SQL,
     );
@@ -231,7 +234,7 @@ export async function listStrategies(
     created: sql`${strategies.createdAt}`,
     name: sql`lower(${strategies.name})`,
     status: sql`${strategies.status}`,
-    number: sql`(select ${strategyLibraryEntries.registrationNumber} from ${strategyLibraryEntries} where ${strategyLibraryEntries.id} = ${strategies.libraryEntryId})`,
+    number: sql`${strategies.labSequenceNo}`,
     assets: sql`(select string_agg(distinct ${instruments.symbol}, ',' order by ${instruments.symbol}) from ${strategyInstruments} join ${instruments} on ${instruments.id} = ${strategyInstruments.instrumentId} where ${strategyInstruments.strategyId} = ${strategies.id})`,
     version: sql`${strategyVersions.versionNo}`,
     account: sql`${tradingAccounts.mode}`,
@@ -295,6 +298,7 @@ export async function listStrategies(
     items: rows.map(({ s, currentVersionNo, accountMode }) => ({
       id: s.id,
       name: s.name,
+      labNumber: s.labNumber,
       libraryNumber: s.libraryEntryId ? (numbers.get(s.libraryEntryId) ?? null) : null,
       description: s.description,
       tags: s.tags,
@@ -325,6 +329,8 @@ export interface StrategyVersionSummary {
 export interface StrategyDetail {
   id: string;
   name: string;
+  /** Its own Strategy Lab number (ADR 0065); null until the first save with instruments. */
+  labNumber: string | null;
   /** Its Strategy Library record (ADR 0054); null until the first save with instruments. */
   library: StrategyLibraryRecord | null;
   /** Who shared this copy (ADR 0056); null for a strategy made here. */
@@ -396,6 +402,7 @@ export async function getStrategy(tx: Transaction, id: string): Promise<Strategy
   return {
     id: row.id,
     name: row.name,
+    labNumber: row.labNumber,
     library: await strategyLibraryRecord(tx, row.libraryEntryId),
     sharedBy: await sharedProvenance(tx, row.receivedShareId),
     description: row.description,

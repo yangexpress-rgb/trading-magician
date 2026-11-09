@@ -279,14 +279,25 @@ export default async function StrategyLabPage({
                 return (
                   <tr key={s.id}>
                     <Td>{item && <ShareCheckbox item={item} />}</Td>
-                    {/* The Strategy Library number (ADR 0054); never editable. */}
+                    {/* Its own Lab number (ADR 0065) and the theory it builds (ADR 0054); never editable. */}
                     <Td className="whitespace-nowrap font-mono text-xs">
-                      {s.libraryNumber ? (
-                        <Link href={`/library/${s.libraryNumber}`}>{s.libraryNumber}</Link>
+                      {s.labNumber ? (
+                        <Link href={`/strategy-lab/${s.id}`}>{s.labNumber}</Link>
                       ) : (
                         <span className="text-ink-muted" title={NUMBER_PENDING_TEXT}>
                           —
                         </span>
+                      )}
+                      {s.libraryNumber && (
+                        <p className="mt-0.5 text-ink-muted">
+                          <Link
+                            href={`/library/${s.libraryNumber}`}
+                            className="text-ink-muted"
+                            aria-label={`Theory ${s.libraryNumber}`}
+                          >
+                            Theory {s.libraryNumber}
+                          </Link>
+                        </p>
                       )}
                     </Td>
                     <Td>

@@ -6,13 +6,14 @@ import {
   preferredLegAccountId,
   schema,
   StrategyError,
+  strategyIdByLabNumber,
   withTenant,
 } from '@tm/db';
-import { formatDateTime, STATUS_LABELS } from '@tm/domain';
+import { formatDateTime, isLabNumber, STATUS_LABELS } from '@tm/domain';
 import { Badge, buttonClasses, Card, ModeBadge, PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { ShareButton } from '@/components/sharing/share-button';
 import { SharedBy } from '@/components/sharing/shared-by';
 import { StrategyStatusBadge } from '@/components/strategy-status-badge';
@@ -28,8 +29,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default async function StrategyPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  if (!UUID.test(id)) notFound();
   const tenant = await requireTenant();
+  // A Lab number (ADR 0065) opens the strategy's canonical URL.
+  if (!UUID.test(id)) {
+    const number = decodeURIComponent(id);
+    if (!isLabNumber(number)) notFound();
+    const found = await withTenant(appDb(), tenant, (tx) => strategyIdByLabNumber(tx, number));
+    if (!found) notFound();
+    redirect(`/strategy-lab/${found}`);
+  }
   const profile = await getProfile(tenant);
   const prefs = { timeZone: profile.timezone, locale: profile.locale };
   const loaded = await withTenant(appDb(), tenant, async (tx) => ({
@@ -116,14 +124,19 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
         description={strategy.description || undefined}
         actions={
           <>
-            {/* The Strategy Library number (ADR 0054), read-only. */}
+            {/* Its own Lab number (ADR 0065) and the theory it builds (ADR 0054), read-only. */}
+            {strategy.labNumber && (
+              <span className="font-mono text-sm font-semibold" title="Strategy number">
+                {strategy.labNumber}
+              </span>
+            )}
             {strategy.library && (
               <Link
                 href={`/library/${strategy.library.registrationNumber}`}
-                className="font-mono text-sm font-semibold"
+                className="font-mono text-sm"
                 aria-label={`Theory Library entry ${strategy.library.registrationNumber}`}
               >
-                {strategy.library.registrationNumber}
+                Theory {strategy.library.registrationNumber}
               </Link>
             )}
             {strategy.currentVersion && <Badge>Version {strategy.currentVersion.versionNo}</Badge>}
