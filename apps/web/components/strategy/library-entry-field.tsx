@@ -1,109 +1,14 @@
 'use client';
 
-import type {
-  LibraryChoiceRequest,
-  LibraryEntrySummaryDto,
-  StrategyLibraryDto,
-} from '@tm/contracts';
-import { isFixtureName, NUMBER_PENDING_TEXT } from '@tm/domain';
-import { Badge, Button, Card } from '@tm/ui';
-import Link from 'next/link';
+import type { LibraryChoiceRequest, LibraryEntrySummaryDto } from '@tm/contracts';
+import { Button } from '@tm/ui';
 import { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 
 /**
- * The builder's "Library entry" picker (ADR 0054, brief D2, D5, D7). Every
- * strategy is one Strategy Library record and shows that record's number,
- * read-only. The picker changes which record: an existing entry (its number
- * is used, nothing is issued) or a new record of the strategy's own. The
- * change is saved with the draft. There is no "no record" choice.
+ * The Library search used by the theory line under a strategy's name (N191).
+ * The builder's "Library entry" card that also held it was removed (N192).
  */
-export function LibraryEntryField({
-  current,
-  strategyName,
-  choice,
-  onChoose,
-  editable,
-}: {
-  current: StrategyLibraryDto | null;
-  strategyName: string;
-  /** The pending change, saved with the draft; null keeps the current record. */
-  choice: LibraryPick | null;
-  onChoose: (choice: LibraryPick | null) => void;
-  editable: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const fixture = isFixtureName(strategyName);
-
-  return (
-    <Card aria-labelledby="library-entry-heading">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 id="library-entry-heading" className="text-lg font-semibold">
-          Library entry
-        </h2>
-        {current ? (
-          <p className="text-sm">
-            <Link
-              href={`/library/${current.registrationNumber}`}
-              className="font-mono font-semibold"
-            >
-              {current.registrationNumber}
-            </Link>{' '}
-            <span className="text-ink-muted">{current.name}</span>
-            {current.autoCreated && (
-              <Badge tone="info" className="ml-2">
-                Auto-created
-              </Badge>
-            )}
-            {current.status === 'retired' && (
-              <Badge tone="warn" className="ml-2">
-                Retired
-              </Badge>
-            )}
-          </p>
-        ) : (
-          <p className="text-sm text-ink-muted" id="library-number-pending">
-            {fixture
-              ? 'Test fixtures get no number. Pick an entry to give it one.'
-              : NUMBER_PENDING_TEXT}
-          </p>
-        )}
-        {editable && !open && (
-          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setOpen(true)}>
-            Change entry
-          </Button>
-        )}
-      </div>
-      <p className="mt-1 text-xs text-ink-muted">
-        The strategy&apos;s number is its Theory Library entry&apos;s number. It never changes when
-        you edit the strategy; edit the entry itself in the Library.
-      </p>
-      {choice && (
-        <p className="mt-2 text-sm" role="status">
-          <span className="font-semibold">On save:</span>{' '}
-          {choice.kind === 'entry'
-            ? `uses ${choice.registrationNumber} (${choice.name})`
-            : 'gets a new Library record and the next number'}
-          {current && `; ${current.registrationNumber} goes back to Not built`}.{' '}
-          <button type="button" className="underline" onClick={() => onChoose(null)}>
-            Keep {current ? current.registrationNumber : 'as is'}
-          </button>
-        </p>
-      )}
-      {open && (
-        <EntrySearch
-          currentId={current?.entryId}
-          onPick={(pick) => {
-            onChoose(pick);
-            setOpen(false);
-          }}
-          onClose={() => setOpen(false)}
-        />
-      )}
-    </Card>
-  );
-}
-
 export type LibraryPick =
   { kind: 'entry'; registrationNumber: string; name: string } | { kind: 'new' };
 
