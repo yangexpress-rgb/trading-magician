@@ -4,6 +4,7 @@ import {
   autoCreatedRecord,
   collectInstrumentUses,
   deriveLabCodes,
+  PROVISIONAL_LAB_CODES,
   isFixtureName,
   parseDefinition,
   type LabAssetClass,
@@ -59,6 +60,7 @@ export async function strategyLibraryRecord(
       name: entries.name,
       status: entries.status,
       tags: entries.tags,
+      share: entries.receivedShareId,
     })
     .from(entries)
     .where(eq(entries.id, entryId));
@@ -68,22 +70,38 @@ export async function strategyLibraryRecord(
     registrationNumber: row.registrationNumber,
     name: row.name,
     status: row.status as 'registered' | 'retired',
-    autoCreated: row.tags.includes(AUTO_CREATED_TAG),
+    autoCreated: autoCreatedHere(row.tags, row.share),
   };
 }
 
-/** Numbers for many strategies at once (the Strategy Lab list). */
+/**
+ * A theory auto-created from the strategy itself (ADR 0054 D3), as opposed to
+ * one the strategy refers to (N187). A shared copy keeps the sender's tags but
+ * was received, so it counts as referred.
+ */
+function autoCreatedHere(tags: readonly string[], receivedShareId: string | null): boolean {
+  return tags.includes(AUTO_CREATED_TAG) && receivedShareId === null;
+}
+
+/** Theory numbers for many strategies at once (the Strategy Lab list). */
 export async function libraryNumbers(
   tx: Transaction,
   entryIds: readonly string[],
-): Promise<Map<string, string>> {
+): Promise<Map<string, { number: string; autoCreated: boolean }>> {
   const ids = [...new Set(entryIds)];
   if (!ids.length) return new Map();
   const rows = await tx
-    .select({ id: entries.id, n: entries.registrationNumber })
+    .select({
+      id: entries.id,
+      n: entries.registrationNumber,
+      tags: entries.tags,
+      share: entries.receivedShareId,
+    })
     .from(entries)
     .where(inArray(entries.id, ids));
-  return new Map(rows.map((r) => [r.id, r.n]));
+  return new Map(
+    rows.map((r) => [r.id, { number: r.n, autoCreated: autoCreatedHere(r.tags, r.share) }]),
+  );
 }
 
 type StrategyRow = NonNullable<Awaited<ReturnType<typeof strategyLinkRow>>>;
@@ -211,35 +229,40 @@ async function numberingSource(tx: Transaction, draft: unknown) {
 }
 
 /**
- * Gives a strategy its own Strategy Lab number (ADR 0065, N182) if it has
- * none yet: sets the timeframe and asset-class letters derived from its
- * draft, and the database trigger issues the next S number from the Lab's
- * counter in this transaction. Nothing happens for a test fixture, a deleted
- * strategy, or a draft with no traded instrument yet; a number, once issued,
- * keeps its letters whatever the strategy later trades.
+ * Gives a strategy its own Strategy Lab number (ADR 0065, ADR 0068, N186).
+ * Every strategy is numbered when it is created: the database trigger issues
+ * the next S number from the Lab's counter, in this transaction, once the two
+ * letters are set. They are derived from the draft; a draft that trades
+ * nothing yet gets the provisional letters SD (stock, daily), which the first
+ * save with instruments replaces. Settled letters, and the digits, never
+ * change, whatever the strategy later trades.
  */
 export async function issueLabNumber(tx: Transaction, strategyId: string): Promise<string | null> {
   const [row] = await tx
     .select({
-      name: strategies.name,
       draft: strategies.draftDefinition,
       number: strategies.labNumber,
+      settled: strategies.labLettersSettled,
     })
     .from(strategies)
     .where(and(eq(strategies.id, strategyId), isNull(strategies.deletedAt)));
   if (!row) return null;
-  if (row.number) return row.number;
-  if (isFixtureName(row.name)) return null;
+  if (row.number && row.settled) return row.number;
   const { definition, byId } = await numberingSource(tx, row.draft);
   const codes = deriveLabCodes(
     definition,
     (id) => byId.get(id)?.assetClass as LabAssetClass | undefined,
   );
-  if (!codes) return null;
+  // Provisional letters stay until there is something to derive them from.
+  if (row.number && !codes) return row.number;
   const [issued] = await tx
     .update(strategies)
-    .set({ labTimeframeCode: codes.timeframeCode, labAssetClassCode: codes.assetClassCode })
-    .where(and(eq(strategies.id, strategyId), isNull(strategies.labNumber)))
+    .set({
+      labTimeframeCode: codes?.timeframeCode ?? PROVISIONAL_LAB_CODES.timeframeCode,
+      labAssetClassCode: codes?.assetClassCode ?? PROVISIONAL_LAB_CODES.assetClassCode,
+      labLettersSettled: codes !== null,
+    })
+    .where(eq(strategies.id, strategyId))
     .returning({ number: strategies.labNumber });
   return issued?.number ?? null;
 }

@@ -213,7 +213,7 @@ describe('days counted in trading days (ADR 0060)', () => {
   });
 });
 
-describe('earnings window, in trading days around the release (N186)', () => {
+describe('earnings window, in trading days around the release (N189)', () => {
   const day = 86_400_000;
   // Released Wednesday 2026-11-04 after the close; the next one Monday 2027-02-01.
   const release = (announcedDate: string): EarningsSignal => ({

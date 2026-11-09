@@ -1,6 +1,6 @@
 # ADR 0058: Free earnings, deals and rates data
 
-- **Status:** accepted; amended 2026-11-09: the two earnings day counts are in NYSE trading days (N185), and an Earnings window metric takes a From/To range of trading days (N186)
+- **Status:** accepted; amended 2026-11-09: the two earnings day counts are in NYSE trading days (N185), and an Earnings window metric takes a From/To range of trading days (N189)
 - **Date:** 2026-11-08
 - **Design refs:** §6.4, §9.2, §11, §13.6, §20; design v1.2 rows N135 to N146, open points O106 to
   O114; free data feeds brief v1 (earnings + deals). Builds on ADR 0031 (SEC EDGAR company data),
@@ -63,9 +63,9 @@ family, point-in-time back test reads, a history rebuild to February 2024.
   the close counts from the next bar, and a deal's status change counts from the
   next trading day. The spread is null, never zero, without a high-confidence cash offer and an
   active deal. The Lab lists them under "Earnings, deals and rates (EDGAR, FRED)"; no new condition
-  type. A seventh, `earnings.window` (N186), is 1 when the bar is within a From/To range of trading
+  type. A seventh, `earnings.window` (N189), is 1 when the bar is within a From/To range of trading
   days around a release (default −1 to +1); before the calendar feed listed a stock, back tests use
-  the actual release date for the days before it (O136).
+  the actual release date for the days before it (O137).
 - **Back tests.** The engine loads only the rows a definition names. A check's values say which record
   they used. A run that ends before the first record fails by name ("No earnings data for AAPL yet: the
   recording starts with the next release", "No earnings data for AAPL before 2024-02-01", and the deal

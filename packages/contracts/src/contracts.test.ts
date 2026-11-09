@@ -45,8 +45,8 @@ describe('request schemas', () => {
   it('parses list queries with defaults and repeated statuses', () => {
     expect(listStrategiesQuery.parse({})).toEqual({
       archived: 'exclude',
-      sort: 'updated',
-      direction: 'desc',
+      sort: 'number',
+      direction: 'asc',
       limit: 50,
       offset: 0,
     });

@@ -163,10 +163,10 @@ export function daysToNextEarnings(
 
 /**
  * NYSE trading days from the bar date to the next earnings date as a run
- * knew it then (N186): the calendar feed's next scheduled date while the feed
+ * knew it then (N189): the calendar feed's next scheduled date while the feed
  * covered the stock; before the feed's first listing for it, the stock's
  * actual next release on EDGAR stands in, as companies announce their dates
- * weeks ahead (O136). Undefined when neither is known.
+ * weeks ahead (O137). Undefined when neither is known.
  */
 export function daysToNextEarningsDate(
   schedule: readonly ScheduledEarnings[] | undefined,

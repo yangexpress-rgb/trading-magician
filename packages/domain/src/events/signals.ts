@@ -22,7 +22,7 @@ export const EVENT_METRIC_IDS = [
   'earnings.sue_ts',
   'earnings.surprise_pct',
   'earnings.next_earnings_days',
-  // The earnings window's look ahead (N186); not offered in the builder on its own.
+  // The earnings window's look ahead (N189); not offered in the builder on its own.
   'earnings.next_date_days',
   'deals.spread_pct',
   'rates.tbill_3m',

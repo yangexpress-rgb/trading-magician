@@ -672,7 +672,7 @@ export const EARNINGS_WINDOW_MAX_DAYS = 20;
 
 /**
  * Whether the bar falls within a range of NYSE trading days around an
- * earnings date (N186): 1 inside, 0 outside, unknown with no earnings dates
+ * earnings date (N189): 1 inside, 0 outside, unknown with no earnings dates
  * on record. Day 0 is the release day, −1 the trading day before, +1 the
  * trading day after. Past dates are EDGAR releases; coming ones are the
  * calendar feed's, with the actual release standing in before the feed began.
