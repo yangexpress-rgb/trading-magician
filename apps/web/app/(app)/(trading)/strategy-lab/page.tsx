@@ -74,7 +74,7 @@ export default async function StrategyLabPage({
     archived: one('archived'),
     shared: one('shared'),
     sort: one('sort'),
-    // Strategy number ascending by default (N186); name and numbers sort A to Z first.
+    // Strategy number ascending by default (N188); name and numbers sort A to Z first.
     direction:
       one('dir') ??
       (['name', 'number', 'theory', undefined].includes(one('sort')) ? 'asc' : 'desc'),
@@ -283,7 +283,7 @@ export default async function StrategyLabPage({
                 return (
                   <tr key={s.id}>
                     <Td>{item && <ShareCheckbox item={item} />}</Td>
-                    {/* Its own Lab number (ADR 0065, ADR 0067); never editable. */}
+                    {/* Its own Lab number (ADR 0065, ADR 0068); never editable. */}
                     <Td className="whitespace-nowrap font-mono text-xs">
                       {s.labNumber ? (
                         <Link href={`/strategy-lab/${s.id}`}>{s.labNumber}</Link>
@@ -291,7 +291,7 @@ export default async function StrategyLabPage({
                         <span className="text-ink-muted">—</span>
                       )}
                     </Td>
-                    {/* The theory it refers to (N185); blank when its theory was auto-created from it. */}
+                    {/* The theory it refers to (N187); blank when its theory was auto-created from it. */}
                     <Td className="whitespace-nowrap font-mono text-xs">
                       {s.theoryNumber && (
                         <Link

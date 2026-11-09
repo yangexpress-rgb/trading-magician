@@ -1,5 +1,5 @@
 ALTER TABLE "strategy" ADD COLUMN "lab_letters_settled" boolean DEFAULT true NOT NULL;--> statement-breakpoint
--- Every strategy is numbered when it is created (N184, ADR 0067). A new draft
+-- Every strategy is numbered when it is created (N186, ADR 0068). A new draft
 -- trades nothing yet, so its letters may be provisional (the default SD, with
 -- lab_letters_settled false); the first save with instruments settles them.
 -- Until then the trigger lets the two letters change and lays the number out

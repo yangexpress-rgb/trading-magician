@@ -154,7 +154,7 @@ export function deriveLabCodes(
 
 /**
  * The letters a strategy is numbered with when it is created before it trades
- * anything (ADR 0067): stock, daily. The first save with instruments replaces them.
+ * anything (ADR 0068): stock, daily. The first save with instruments replaces them.
  */
 export const PROVISIONAL_LAB_CODES = { timeframeCode: 'D', assetClassCode: 'S' } as const;
 

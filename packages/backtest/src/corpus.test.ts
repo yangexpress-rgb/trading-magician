@@ -42,7 +42,9 @@ function rebuild(run: Run): SimulationInput {
 }
 
 /** Runs whose result changes on purpose, with the reason (see docs/adr). */
-const EXPECTED_CHANGES: Record<number, string> = {};
+const EXPECTED_CHANGES: Record<number, string> = {
+  21: 'ADR 0067: daily-bar rules on an hourly run now check Entry once a day after the close, not every hourly bar',
+};
 
 describe('every recorded fixture strategy back tests as before (corpus)', () => {
   it.each(corpus.runs.map((r, i) => [i, r.test || '(module level)', r] as const))(

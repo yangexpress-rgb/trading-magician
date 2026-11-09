@@ -571,6 +571,9 @@ export const entryGroupSchema = z.object({
 export type EntryGroup = z.infer<typeof entryGroupSchema>;
 
 export const SCHEDULE_FREQUENCIES = [
+  'bar1m',
+  'bar5m',
+  'bar1h',
   'daily',
   'weekly',
   'monthEnd',
@@ -578,7 +581,12 @@ export const SCHEDULE_FREQUENCIES = [
   'yearEnd',
 ] as const;
 export type ScheduleFrequency = (typeof SCHEDULE_FREQUENCIES)[number];
-/** When Entry and re-selection are evaluated; Exit rules run on every bar regardless. */
+/**
+ * When Entry and re-selection are evaluated; Exit rules run on every bar
+ * regardless. bar1m/bar5m/bar1h: every bar of that size (N184); daily: once a
+ * day after the NYSE close; the rest: once a calendar period. Absent: the
+ * cadence of the finest bars the rules read (`defaultSchedule`).
+ */
 export const scheduleSchema = z.object({ frequency: z.enum(SCHEDULE_FREQUENCIES) });
 export type Schedule = z.infer<typeof scheduleSchema>;
 

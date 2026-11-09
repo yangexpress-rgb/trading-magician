@@ -205,7 +205,7 @@ test.describe('strategy library', () => {
     await expect(rowLinks).toHaveText(['Momentum A', 'Beverage pairs']);
     await assetsHeader.getByRole('link').click();
     await expect(rowLinks).toHaveText(['Momentum A', 'Beverage pairs']);
-    // By default the list is sorted by strategy number, ascending (N186); Number comes last
+    // By default the list is sorted by strategy number, ascending (N188); Number comes last
     // here so its first click starts from another column.
     for (const label of [
       'Status',

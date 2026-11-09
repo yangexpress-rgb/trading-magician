@@ -76,7 +76,7 @@ export async function strategyLibraryRecord(
 
 /**
  * A theory auto-created from the strategy itself (ADR 0054 D3), as opposed to
- * one the strategy refers to (N185). A shared copy keeps the sender's tags but
+ * one the strategy refers to (N187). A shared copy keeps the sender's tags but
  * was received, so it counts as referred.
  */
 function autoCreatedHere(tags: readonly string[], receivedShareId: string | null): boolean {
@@ -229,7 +229,7 @@ async function numberingSource(tx: Transaction, draft: unknown) {
 }
 
 /**
- * Gives a strategy its own Strategy Lab number (ADR 0065, ADR 0067, N184).
+ * Gives a strategy its own Strategy Lab number (ADR 0065, ADR 0068, N186).
  * Every strategy is numbered when it is created: the database trigger issues
  * the next S number from the Lab's counter, in this transaction, once the two
  * letters are set. They are derived from the draft; a draft that trades

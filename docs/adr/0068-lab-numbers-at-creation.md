@@ -1,8 +1,8 @@
-# ADR 0067: Every Lab strategy is numbered when it is created; Theory column; sort by number
+# ADR 0068: Every Lab strategy is numbered when it is created; Theory column; sort by number
 
 - **Status:** accepted
 - **Date:** 2026-11-09
-- **Design refs:** design v1.2 rows N184 to N186, open point O135. Amends ADR 0065 and ADR 0066
+- **Design refs:** design v1.2 rows N186 to N188, open point O136. Amends ADR 0065 and ADR 0066
 
 ## Context
 
@@ -16,7 +16,7 @@ Until now a Lab number was issued on the first save with instruments, because it
 
 ## Decision
 
-- **Numbered at creation (N184).** Every strategy, fixtures included, gets its S number in the
+- **Numbered at creation (N186).** Every strategy, fixtures included, gets its S number in the
   transaction that creates it (and on copy and accepted share, which create one). A draft that
   trades nothing yet gets the provisional letters SD (stock, daily), marked
   `lab_letters_settled = false` (migration 0081). The first save with instruments derives the real
@@ -24,11 +24,11 @@ Until now a Lab number was issued on the first save with instruments, because it
   S00005-SD may become S00005-ED once. The digits, the convention version and the issue time
   never change, and settled letters never change. Strategies still unnumbered are numbered on the
   deploy that adds this, after the migrations, oldest first.
-- **Theory column (N185).** The Strategy Lab list has its own Theory column with the number of the
+- **Theory column (N187).** The Strategy Lab list has its own Theory column with the number of the
   theory the strategy refers to, linking to it. It is blank when the strategy's theory record was
   auto-created from the strategy (ADR 0054 D3: tagged auto-created and not received by sharing).
   The strategy header shows "Theory T…" on the same rule. The column sorts by theory sequence.
-- **Sorted by number (N186).** The Lab list, and `GET /api/v1/strategies`, sort by strategy number
+- **Sorted by number (N188).** The Lab list, and `GET /api/v1/strategies`, sort by strategy number
   ascending unless another sort or direction is asked for.
 
 ## Consequences

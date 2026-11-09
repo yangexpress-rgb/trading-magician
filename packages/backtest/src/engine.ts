@@ -34,6 +34,9 @@ import {
   rankUniverse,
   scheduledPeriod,
   scheduleOf,
+  isCalendarSchedule,
+  SCHEDULE_BAR_MINUTES,
+  SCHEDULE_LABELS,
   selectLegs,
   slotDefinition,
   slotKey,
@@ -72,7 +75,7 @@ import {
 } from './data';
 import { quoteFill, stopReached, volumeCap, type Direction } from './fills';
 import { ConditionRecorder, whyNotFired } from './explain';
-import { describeAssumptions, type BacktestInputs } from './inputs';
+import { describeAssumptions, type BacktestInputs, type BacktestInterval } from './inputs';
 import { MarketView } from './market';
 import { describeCoverage, optionsCoverage } from './options-coverage';
 import { describeEarningsCoverage } from './events-coverage';
@@ -90,6 +93,17 @@ import {
   type SelectionLog,
   type SelectionRound,
 } from './results';
+
+const BACKTEST_INTERVAL_MINUTES: Record<BacktestInterval, number> = {
+  '5m': 5,
+  '1h': 60,
+  '1d': 1440,
+};
+const BAR_SIZE_TEXT: Record<BacktestInterval, string> = {
+  '5m': '5-minute',
+  '1h': 'hourly',
+  '1d': 'daily',
+};
 
 /**
  * The back-test engine (Design v1.0 §7.2). It replays bars in time order and
@@ -302,8 +316,9 @@ export function simulate({
   const warnings = new Warnings();
   const mode = slotModeOf(def);
   const frequency = scheduleOf(def);
+  const calendar = isCalendarSchedule(frequency);
   /** v1.2 features in use: results then say why each cycle exited. */
-  const v12 = mode !== 'none' || frequency !== 'daily' || (def.exit.rules?.length ?? 0) > 0;
+  const v12 = mode !== 'none' || calendar || (def.exit.rules?.length ?? 0) > 0;
   for (const w of data.warnings) warnings.add(`data:${w}`, w);
   const watchOnly = watchOnlyInstruments(instruments);
   const view = new MarketView(data.series, watchOnly, data.fundamentals, data.options, data.events);
@@ -347,6 +362,15 @@ export function simulate({
   }
   const steps = [...stepSet].sort((a, b) => a - b);
   if (steps.length === 0) warnings.add('no_bars', 'There are no bars in the selected dates');
+  // A bar cadence finer than the run's bars can only check Entry once a run bar (N184).
+  const cadence = SCHEDULE_BAR_MINUTES[frequency];
+  const runMinutes = BACKTEST_INTERVAL_MINUTES[inputs.interval];
+  if (cadence !== undefined && cadence < runMinutes) {
+    warnings.add(
+      'schedule_finer_than_bars',
+      `Entry is set to "${SCHEDULE_LABELS[frequency]}", but this run steps on ${BAR_SIZE_TEXT[inputs.interval]} bars, so Entry was checked once a ${BAR_SIZE_TEXT[inputs.interval]} bar`,
+    );
+  }
   // Options metrics read end-of-day signals: say how many bars had one (options brief v2 §5.3).
   if (data.options && steps.length > 0)
     for (const c of optionsCoverage(steps, data.options, symbol))
@@ -1173,7 +1197,7 @@ export function simulate({
       .map((c) => ({ key: slotKey(c.slot as Slot), id: String(c.no), open: c.state === 'open' }));
     const plan = planSlots({
       mode,
-      scheduled: frequency !== 'daily',
+      scheduled: calendar,
       candidates,
       held,
       halted,
@@ -1192,7 +1216,7 @@ export function simulate({
     if (halted && candidates.length > 0) round.halted = true;
     // Keep scheduled evaluations and the ones that traded; daily no-change rounds are many.
     const keep =
-      frequency !== 'daily' ||
+      calendar ||
       selectionRounds.length === 0 ||
       round.entered.length > 0 ||
       round.exited.length > 0;
@@ -1292,9 +1316,9 @@ export function simulate({
       staleSteps += 1;
     }
     // The schedule gates Entry and re-selection; Exit rules run on every bar (v1.2 item 4).
-    const period = scheduledPeriod(def.schedule, now, lastPeriod);
+    const period = scheduledPeriod(frequency, now, lastPeriod);
     const evaluateEntry = period !== undefined;
-    if (evaluateEntry && frequency !== 'daily') lastPeriod = period;
+    if (evaluateEntry) lastPeriod = period;
     if (evaluateEntry) entryEvaluations += 1;
 
     if (mode === 'none') {
@@ -1432,7 +1456,7 @@ export function simulate({
       `The selection log keeps the first ${MAX_SELECTION_ROUNDS} evaluations; ${roundsDropped} later ones are not shown`,
     );
   }
-  const evaluatedSteps = frequency === 'daily' ? steps.length : entryEvaluations;
+  const evaluatedSteps = entryEvaluations;
   if (mode === 'none' && evaluatedSteps > 0 && unknownEntrySteps / evaluatedSteps > 0.2) {
     warnings.add(
       'insufficient_data',

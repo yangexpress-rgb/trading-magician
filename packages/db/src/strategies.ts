@@ -162,7 +162,7 @@ export interface StrategySummary {
   /** The number of the theory it builds (ADR 0054); null until the first save with instruments. */
   libraryNumber: string | null;
   /**
-   * The theory it was built from (N185): its number when the strategy refers to
+   * The theory it was built from (N187): its number when the strategy refers to
    * a theory of its own choosing; null when its theory was auto-created from it.
    */
   theoryNumber: string | null;

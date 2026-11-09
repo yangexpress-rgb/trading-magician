@@ -21,7 +21,7 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
   const headers = { origin: baseURL! };
 
   // A draft with no Entry legs has no theory record yet, but it has its strategy
-  // number from the start, with provisional letters (ADR 0067).
+  // number from the start, with provisional letters (ADR 0068).
   const draft = await (
     await page.request.post('/api/v1/strategies', { data: { name: 'Empty draft' }, headers })
   ).json();
@@ -43,9 +43,9 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
   await page.goto('/strategy-lab');
   const row = page.getByRole('row', { name: /Numbered one/ });
   await expect(row.getByRole('link', { name: labNumber })).toBeVisible();
-  // Its theory was auto-created from it, so the Theory column is blank (N185).
+  // Its theory was auto-created from it, so the Theory column is blank (N187).
   await expect(row.getByRole('link', { name: `Theory ${own}` })).toHaveCount(0);
-  // The list is sorted by strategy number, ascending (N186).
+  // The list is sorted by strategy number, ascending (N188).
   await expect(page.getByRole('columnheader', { name: /^Number/ })).toHaveAttribute(
     'aria-sort',
     'ascending',

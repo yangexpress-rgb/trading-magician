@@ -963,7 +963,7 @@ export const strategies = pgTable(
     ),
     labNumberedAt: timestamp('lab_numbered_at', { withTimezone: true }),
     /**
-     * False while the letters are provisional (ADR 0067): a strategy is numbered
+     * False while the letters are provisional (ADR 0068): a strategy is numbered
      * when it is created, before it trades anything, with the default letters SD;
      * the first save with instruments settles them. The digits never change.
      */

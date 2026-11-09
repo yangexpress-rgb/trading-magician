@@ -76,7 +76,7 @@ export const listStrategiesQuery = z.object({
     .enum(['1', 'true'])
     .transform(() => true)
     .optional(),
-  /** By strategy number, ascending, unless asked otherwise (N186). */
+  /** By strategy number, ascending, unless asked otherwise (N188). */
   sort: z.enum(STRATEGY_SORTS).default('number'),
   direction: z.enum(['asc', 'desc']).default('asc'),
   limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -146,7 +146,7 @@ export interface StrategySummaryDto {
   labNumber: string | null;
   /** The number of the theory it builds (ADR 0054). */
   libraryNumber: string | null;
-  /** The theory it was built from; null when its theory was auto-created from it (N185). */
+  /** The theory it was built from; null when its theory was auto-created from it (N187). */
   theoryNumber: string | null;
   description: string;
   tags: string[];

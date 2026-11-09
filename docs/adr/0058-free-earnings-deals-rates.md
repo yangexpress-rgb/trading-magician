@@ -1,6 +1,6 @@
 # ADR 0058: Free earnings, deals and rates data
 
-- **Status:** accepted
+- **Status:** accepted; amended 2026-11-09: the two earnings day counts are in NYSE trading days (N185)
 - **Date:** 2026-11-08
 - **Design refs:** §6.4, §9.2, §11, §13.6, §20; design v1.2 rows N135 to N146, open points O106 to
   O114; free data feeds brief v1 (earnings + deals). Builds on ADR 0031 (SEC EDGAR company data),
@@ -59,7 +59,8 @@ family, point-in-time back test reads, a history rebuild to February 2024.
 - **Metrics.** Six registry metrics in three categories: `earnings.days_since_earnings`,
   `earnings.sue_ts`, `earnings.surprise_pct`, `earnings.next_earnings_days` (stocks), `deals.spread_pct`
   (stocks) and `rates.tbill_3m` (any priced instrument). Each reads the latest record on or before the
-  bar; a release after the close counts from the next bar, and a deal's status change counts from the
+  bar, counting days as NYSE trading days (weekends and holidays skipped, N185); a release after
+  the close counts from the next bar, and a deal's status change counts from the
   next trading day. The spread is null, never zero, without a high-confidence cash offer and an
   active deal. The Lab lists them under "Earnings, deals and rates (EDGAR, FRED)"; no new condition
   type.
