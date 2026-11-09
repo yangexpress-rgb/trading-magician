@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, useContext, useMemo, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 
-/** A pending share the recipient can answer, with its label ("S00012-SD Golden cross"). */
+/** A pending share the recipient can answer, with its label ("T00012-SD Golden cross"). */
 export interface PendingShare {
   id: string;
   label: string;

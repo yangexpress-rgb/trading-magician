@@ -7,8 +7,9 @@ import {
   formatSequence,
   interpretRegistrationNumber,
   parseRegistrationNumber,
+  resolveRecordType,
 } from './convention';
-import { LIBRARY_V2_RENUMBER_TABLE, v2NumberFor } from './renumber';
+import { LIBRARY_V2_RENUMBER_TABLE, renumberV3Note, v2NumberFor, v3NumberFor } from './renumber';
 import { formatDuration, frequencySchema, turnaroundSchema } from './duration';
 import { editLibraryEntrySchema, registerLibraryEntrySchema } from './entry';
 import { parseMarkdown } from './markdown';
@@ -229,9 +230,9 @@ const valid = {
 };
 
 describe('entry validation', () => {
-  it('accepts a minimal record and defaults the record type to S', () => {
+  it('accepts a minimal record and defaults the record type to T (theory)', () => {
     const parsed = registerLibraryEntrySchema.parse(valid);
-    expect(parsed.recordTypeCode).toBe('S');
+    expect(parsed.recordTypeCode).toBe('T');
     expect(parsed.usedBy).toEqual([]);
     expect(parsed.builtStrategyId).toBeNull();
   });
@@ -375,5 +376,38 @@ describe('markdown subset', () => {
       kind: 'paragraph',
       inlines: [{ kind: 'text', text: '[x](javascript:alert(1))' }],
     });
+  });
+});
+
+describe('theory numbers (convention v3, N181)', () => {
+  it('turns a v2 number into its T number and leaves anything else alone', () => {
+    expect(v3NumberFor('S00001-SD')).toBe('T00001-SD');
+    expect(v3NumberFor('S00031-FS')).toBe('T00031-FS');
+    expect(v3NumberFor('SDS-0001')).toBeNull();
+    expect(v3NumberFor('not a number')).toBeNull();
+    for (const row of LIBRARY_V2_RENUMBER_TABLE) {
+      expect(v3NumberFor(row.new)).toBe(`T${row.new.slice(1)}`);
+    }
+    expect(renumberV3Note('T00001-SD', 'S00001-SD')).toContain('formerly S00001-SD');
+  });
+
+  it("takes the version's only record type when the one asked for is not in it", () => {
+    const one = (code: string) => ({
+      tables: { recordType: [{ code, meaning: code }], timeframe: [], assetClass: [] },
+    });
+    expect(resolveRecordType(one('T'), 'S')).toBe('T');
+    expect(resolveRecordType(one('S'), 'T')).toBe('S');
+    expect(resolveRecordType(one('T'), 'T')).toBe('T');
+    const two = {
+      tables: {
+        recordType: [
+          { code: 'S', meaning: 'Strategy' },
+          { code: 'T', meaning: 'Theory' },
+        ],
+        timeframe: [],
+        assetClass: [],
+      },
+    };
+    expect(resolveRecordType(two, 'X')).toBe('X');
   });
 });

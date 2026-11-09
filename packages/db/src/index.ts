@@ -104,6 +104,7 @@ export * from './sharing';
 export * from './share-provenance';
 export { seedStrategyLibrary, STRATEGY_LIBRARY_SEED, type SeedOutcome } from './library-seed';
 export * from './library-renumber';
+export * from './library-theory';
 export * from './library-backfill-v2';
 export { LIBRARY_V2_BACKFILL } from './library-backfill-v2-data';
 export * from './events';

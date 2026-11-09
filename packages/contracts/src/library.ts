@@ -74,7 +74,7 @@ export const nextNumberQuery = z.object({
     .trim()
     .toUpperCase()
     .regex(/^[A-Z]$/)
-    .default('S'),
+    .default('T'),
   timeframe: z
     .string()
     .trim()

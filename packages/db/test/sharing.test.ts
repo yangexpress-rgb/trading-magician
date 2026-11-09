@@ -166,7 +166,7 @@ describe('sharing a Library record', () => {
     await refused(
       as(u.a, (tx) =>
         createShares(tx, u.a, {
-          source: { kind: 'library', number: 'S00001-SD' },
+          source: { kind: 'library', number: 'T00001-SD' },
           recipients: ['U0002'],
         }),
       ),
@@ -174,14 +174,14 @@ describe('sharing a Library record', () => {
     );
     await refused(
       as(u.a, (tx) =>
-        createShares(tx, u.a, { source: { kind: 'library', number: 'S00001-SD' }, recipients: [] }),
+        createShares(tx, u.a, { source: { kind: 'library', number: 'T00001-SD' }, recipients: [] }),
       ),
       /Choose who/,
     );
     await refused(
       as(u.a, (tx) =>
         createShares(tx, u.a, {
-          source: { kind: 'library', number: 'S00001-SD' },
+          source: { kind: 'library', number: 'T00001-SD' },
           recipients: ['U0077'],
         }),
       ),
@@ -190,7 +190,7 @@ describe('sharing a Library record', () => {
     await refused(
       as(u.a, (tx) =>
         createShares(tx, u.a, {
-          source: { kind: 'library', number: 'S00001-SD' },
+          source: { kind: 'library', number: 'T00001-SD' },
           recipients: ['U0003'],
           allMembers: true,
         }),
@@ -212,7 +212,7 @@ describe('sharing a Library record', () => {
       kind: 'library',
       status: 'pending',
       role: 'sender',
-      sourceNumber: 'S00001-SD',
+      sourceNumber: 'T00001-SD',
       sender: { code: 'U0002', name: 'Ann', isAdmin: false, label: 'Ann (U0002)' },
       recipient: { code: 'U0003', label: 'Ben (U0003)' },
       note: 'Worth a look',
@@ -224,7 +224,7 @@ describe('sharing a Library record', () => {
     const inbox = await as(u.b, (tx) => listNotifications(tx));
     expect(inbox.notifications[0]).toMatchObject({
       kind: 'share_received',
-      title: expect.stringMatching(/^Ann \(U0002\) shared S00001-SD .+ with you$/),
+      title: expect.stringMatching(/^Ann \(U0002\) shared T00001-SD .+ with you$/),
       body: 'Worth a look',
       link: `/sharing/${share!.id}`,
     });
@@ -240,7 +240,7 @@ describe('sharing a Library record', () => {
     await refused(
       as(u.a, (tx) =>
         createShares(tx, u.a, {
-          source: { kind: 'library', number: 'S00001-SD' },
+          source: { kind: 'library', number: 'T00001-SD' },
           recipients: ['U0003'],
         }),
       ),
@@ -272,28 +272,28 @@ describe('sharing a Library record', () => {
     const accepted = await as(u.b, (tx) => acceptShare(tx, u.b, ids.libShare!));
     expect(accepted).toEqual({
       kind: 'library',
-      number: `S${String(expected).padStart(5, '0')}-SD`,
+      number: `T${String(expected).padStart(5, '0')}-SD`,
       strategyId: null,
     });
     ids.libCopy = accepted.number;
     const copy = await as(u.b, (tx) => getLibraryEntry(tx, u.b, accepted.number));
-    const source = await as(u.b, (tx) => getLibraryEntry(tx, u.b, 'S00001-SD'));
+    const source = await as(u.b, (tx) => getLibraryEntry(tx, u.b, 'T00001-SD'));
     expect(copy).toMatchObject({
       name: source!.name,
       entry: source!.entry,
       registeredBy: 'you',
       builtStatus: 'not_built',
-      copiedFrom: 'S00001-SD',
-      sharedBy: { senderName: 'Ann', senderCode: 'U0002', sourceNumber: 'S00001-SD' },
+      copiedFrom: 'T00001-SD',
+      sharedBy: { senderName: 'Ann', senderCode: 'U0002', sourceNumber: 'T00001-SD' },
     });
     expect(copy!.tags).toContain('shared');
-    expect(copy!.revisions.map((r) => r.note)).toContain('Copied from S00001-SD, shared by U0002');
+    expect(copy!.revisions.map((r) => r.note)).toContain('Copied from T00001-SD, shared by U0002');
     // The sender sees it too; anyone else sees only where it was copied from.
     expect(
       (await as(u.a, (tx) => getLibraryEntry(tx, u.a, accepted.number)))?.sharedBy,
     ).toBeTruthy();
     const other = await as(u.c, (tx) => getLibraryEntry(tx, u.c, accepted.number));
-    expect(other).toMatchObject({ copiedFrom: 'S00001-SD', sharedBy: null });
+    expect(other).toMatchObject({ copiedFrom: 'T00001-SD', sharedBy: null });
 
     const sent = await as(u.a, (tx) => getShare(tx, u.a, ids.libShare!));
     expect(sent).toMatchObject({
@@ -303,7 +303,7 @@ describe('sharing a Library record', () => {
     const told = await as(u.a, (tx) => listNotifications(tx));
     expect(told.notifications[0]).toMatchObject({
       kind: 'share_accepted',
-      title: `Ben (U0003) accepted S00001-SD; their copy is ${accepted.number}`,
+      title: `Ben (U0003) accepted T00001-SD; their copy is ${accepted.number}`,
     });
     expect(await as(u.b, (tx) => pendingShareCount(tx, u.b))).toBe(0);
   });
@@ -404,7 +404,7 @@ describe('sharing a Strategy Lab strategy', () => {
     const expected = await nextNumber();
     const accepted = await as(u.b, (tx) => acceptShare(tx, u.b, share!.id));
     expect(accepted.kind).toBe('lab');
-    expect(accepted.number.slice(0, 6)).toBe(`S${String(expected).padStart(5, '0')}`);
+    expect(accepted.number.slice(0, 6)).toBe(`T${String(expected).padStart(5, '0')}`);
     expect(accepted.number).not.toBe(sourceNumber);
 
     const copy = await as(u.b, (tx) => getStrategy(tx, accepted.strategyId!));
@@ -564,12 +564,12 @@ describe('sharing several at once', () => {
         createShares(tx, u.c, {
           sources: [
             { kind: 'library', number: num(4) },
-            { kind: 'library', number: 'S99999-SD' },
+            { kind: 'library', number: 'T99999-SD' },
           ],
           recipients: ['U0003'],
         }),
       ),
-      /S99999-SD is not in the Library/,
+      /T99999-SD is not in the Library/,
     );
     expect(await sent()).toBe(before);
   });

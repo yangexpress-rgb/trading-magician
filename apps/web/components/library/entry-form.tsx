@@ -145,7 +145,7 @@ export function LibraryEntryForm({
 }) {
   const router = useRouter();
   const [recordType, setRecordType] = useState(
-    entry?.recordTypeCode ?? tables.recordType[0]?.code ?? 'S',
+    entry?.recordTypeCode ?? tables.recordType[0]?.code ?? 'T',
   );
   const [timeframe, setTimeframe] = useState(entry?.timeframeCode ?? '');
   const [assetClass, setAssetClass] = useState(entry?.assetClassCode ?? '');

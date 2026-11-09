@@ -6,7 +6,7 @@ import {
   unloadedProfileFields,
 } from './library-profile-form';
 
-/** S00005-SD as stored, with every other profile field set too. */
+/** T00005-SD as stored, with every other profile field set too. */
 const stored = {
   direction: 'long_only' as const,
   parameters: [
