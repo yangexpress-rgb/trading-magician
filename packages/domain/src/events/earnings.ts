@@ -1,4 +1,4 @@
-import { addDays, nyDate } from '../market/calendar';
+import { addDays, nyDate, tradingDaysBetween } from '../market/calendar';
 
 /**
  * Earnings data (free data feeds brief v1, ADR 0058): each reported quarter's
@@ -133,7 +133,7 @@ const SCHEDULE_MATCH_DAYS = 3;
 const SCHEDULE_STALE_DAYS = 3;
 
 /**
- * Calendar days from `barDate` to the next scheduled release known at
+ * NYSE trading days from `barDate` to the next scheduled release known at
  * `atMs` (calendar feed only): dates the feed listed by then and was still
  * listing, on or after the bar date, not already reported. Undefined in
  * EDGAR-only mode or with nothing scheduled.
@@ -158,7 +158,7 @@ export function daysToNextEarnings(
       continue;
     if (!best || s.date < best) best = s.date;
   }
-  return best === undefined ? undefined : calendarDaysBetween(barDate, best);
+  return best === undefined ? undefined : tradingDaysBetween(barDate, best);
 }
 
 /**

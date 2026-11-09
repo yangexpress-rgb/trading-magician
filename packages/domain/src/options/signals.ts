@@ -1,4 +1,4 @@
-import { addDays, isTradingDay, regularSession } from '../market/calendar';
+import { addDays, isTradingDay, regularSession, tradingDaysBetween } from '../market/calendar';
 
 /**
  * Options signals (options data brief v2, ADR 0047): one row of derived
@@ -65,13 +65,6 @@ export function signalAvailableFrom(asOfDate: string): number {
   return Date.parse(
     session?.close ?? `${asOfDate}T21:00:00Z`, // a non-trading day: after any close
   );
-}
-
-/** Trading days after `from` up to and including `to` (0 when the same day). */
-export function tradingDaysBetween(from: string, to: string): number {
-  let n = 0;
-  for (let d = addDays(from, 1); d <= to; d = addDays(d, 1)) if (isTradingDay(d)) n++;
-  return n;
 }
 
 /**

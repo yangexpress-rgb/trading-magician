@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { regularSession } from '../market/calendar';
+import { isTradingDay, regularSession, tradingDays, tradingDaysBetween } from '../market/calendar';
 import { activeDealAt, dealSpread, dealStatusOn, formatDealId, type DealSignal } from './deals';
 import {
   daysToNextEarnings,
@@ -158,7 +158,7 @@ describe('next earnings (calendar feed only)', () => {
   it('is unknown in EDGAR-only mode', () => {
     expect(daysToNextEarnings(undefined, [], closeOf('2026-11-05'))).toBeUndefined();
   });
-  it('counts calendar days to the next date the feed still lists', () => {
+  it('counts trading days to the next date the feed still lists', () => {
     const at = closeOf('2026-11-05');
     const schedule = [
       { date: '2026-11-12', firstSeenMs: at - 10 * day, lastSeenMs: at - day },
@@ -167,7 +167,48 @@ describe('next earnings (calendar feed only)', () => {
       // Not known yet at the bar.
       { date: '2026-11-10', firstSeenMs: at + day, lastSeenMs: at + day },
     ];
-    expect(daysToNextEarnings(schedule, [], at)).toBe(7);
+    // Thursday 5 to Thursday 12 November: 5 trading days (Wednesday 11 is not a NYSE holiday).
+    expect(daysToNextEarnings(schedule, [], at)).toBe(5);
+  });
+});
+
+describe('days counted in trading days (ADR 0060)', () => {
+  it('skips weekends and NYSE holidays', () => {
+    expect(tradingDaysBetween('2026-11-06', '2026-11-06')).toBe(0);
+    // Friday to Monday is one trading day, not three.
+    expect(tradingDaysBetween('2026-11-06', '2026-11-09')).toBe(1);
+    expect(tradingDaysBetween('2026-11-09', '2026-11-06')).toBe(-1);
+    // Wednesday 25 to Friday 27 November 2026 skips Thanksgiving.
+    expect(tradingDaysBetween('2026-11-25', '2026-11-27')).toBe(1);
+    // A Saturday release counts 1 on Monday.
+    expect(tradingDaysBetween('2026-11-07', '2026-11-09')).toBe(1);
+    // A year: 2025 had 250 NYSE sessions.
+    expect(tradingDaysBetween('2024-12-31', '2025-12-31')).toBe(250);
+    // Matches counting the sessions one by one.
+    for (const [a, b] of [
+      ['2024-02-01', '2024-07-05'],
+      ['2025-12-20', '2026-01-05'],
+    ] as const)
+      expect(tradingDaysBetween(a, b)).toBe(
+        tradingDays(a, b).length - 1 + (isTradingDay(a) ? 0 : 1),
+      );
+  });
+
+  it('days since earnings: a Friday release is 1 on Monday', () => {
+    const release = {
+      fiscalQuarterEnd: '2026-09-30',
+      announcedAt: '2026-11-06T21:05:00Z',
+      announcedDate: '2026-11-06',
+      reportedEps: 1,
+      sue: 2,
+      surprisePct: null,
+      source: 'recorded' as const,
+    };
+    const data: EventData = { ...emptyEventData(), earnings: new Map([['xyz', [release]]]) };
+    const days = (d: string) =>
+      eventPointAt(data, 'xyz', 'earnings.days_since_earnings', closeOf(d), 100)?.value.toNumber();
+    expect(days('2026-11-09')).toBe(1);
+    expect(days('2026-11-13')).toBe(5);
   });
 });
 
