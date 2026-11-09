@@ -213,7 +213,10 @@ export type ConditionOutcome =
 export interface ConditionBar {
   /** The close of the bar the conditions were checked on. */
   time: string;
-  /** Exit only: the cycle whose position the Exit was watching. */
+  /**
+   * Exit: the cycle whose position the Exit was watching. Entry: the cycle a
+   * firing opened, added to or triggered (N166; absent on older runs).
+   */
   cycle?: number;
   truth: StoredTruth;
   outcome?: ConditionOutcome;
@@ -284,6 +287,39 @@ export interface BacktestOrder {
   bestPrice: string | null;
 }
 
+/** One instrument's share of one cycle's P/L (N166): marked to the last close while still open. */
+export interface CycleInstrumentPnl {
+  instrumentId: string;
+  symbol: string;
+  grossPnl: string;
+  costs: string;
+  netPnl: string;
+}
+
+/** The trailing stop as it stood when a cycle ended or the test did (N166, ADR 0059). */
+export interface TrailingStopRecord {
+  percent: string;
+  direction: 'long' | 'short';
+  entryPrice: string;
+  /** The best daily close since entry (from the entry price) before the last check. */
+  peak: string;
+  /** The stop level the last daily close was compared with. */
+  level: string;
+  /** The last daily close checked, and when. */
+  close: string;
+  time: string;
+  /** Daily closes checked while the position was open. */
+  checks: number;
+  hit: boolean;
+}
+
+/** What the cycle card needs beyond the trade row (N166), stored with the run's result. */
+export interface CycleDetail {
+  cycle: number;
+  instruments: CycleInstrumentPnl[];
+  trailingStop?: TrailingStopRecord;
+}
+
 export interface BacktestResult {
   engineVersion: string;
   dataVersions: string[];
@@ -313,4 +349,6 @@ export interface BacktestResult {
   symbols?: Record<string, string>;
   /** Selection group rankings or per-leg selections, evaluation by evaluation (v1.2). */
   selections?: SelectionLog;
+  /** Per-cycle detail for the cycle card (N166). Absent on older runs. */
+  cycles?: CycleDetail[];
 }

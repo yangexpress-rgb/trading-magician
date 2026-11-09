@@ -84,6 +84,7 @@ import {
   type BacktestOrder,
   type BacktestResult,
   type BacktestTrade,
+  type CycleDetail,
   type EquityPoint,
   type InstrumentContribution,
   type SelectionLog,
@@ -222,6 +223,18 @@ interface Cycle {
   moveAtEntry?: Decimal;
   /** Trailing stop (ADR 0059): the best daily close since Entry filled, from the entry price. */
   trailPeak?: Decimal;
+  /** The trailing stop's last check, for the cycle card (N166). */
+  trail?: {
+    percent: string;
+    long: boolean;
+    entryPrice: Decimal;
+    peak: Decimal;
+    level: Decimal;
+    close: Decimal;
+    time: number;
+    checks: number;
+    hit: boolean;
+  };
   expectedMove?: {
     movePct: Decimal;
     multiple: string;
@@ -959,7 +972,7 @@ export function simulate({
   }
 
   /** Whether a daily close is more than the trailing percent off the best close since entry (ADR 0059). */
-  function checkTrailingStop(c: Cycle): boolean {
+  function checkTrailingStop(c: Cycle, now: number): boolean {
     const rule = trailingStopRuleOf(c.def);
     const instrument = atrStopInstrument(c.def);
     if (!rule || !instrument) return false;
@@ -968,10 +981,23 @@ export function simulate({
     const long = p.quantity.gt(0);
     const close = evaluateExpr(stopCloseExpr(instrument, inputs.adjustment), view);
     if (close === undefined) return false;
-    const start = c.trailPeak ?? p.entryCost.div(p.entryQuantity);
+    const entryPrice = p.entryCost.div(p.entryQuantity);
+    const start = c.trailPeak ?? entryPrice;
     // The level is from the peak before this close; then the close may raise the peak.
-    const hit = trailingStopHit(close, trailingStopLevel(start, rule.percent, long), long);
+    const level = trailingStopLevel(start, rule.percent, long);
+    const hit = trailingStopHit(close, level, long);
     c.trailPeak = trailingPeak(start, close, long);
+    c.trail = {
+      percent: rule.percent,
+      long,
+      entryPrice,
+      peak: start,
+      level,
+      close,
+      time: now,
+      checks: (c.trail?.checks ?? 0) + 1,
+      hit,
+    };
     return hit;
   }
 
@@ -1297,13 +1323,18 @@ export function simulate({
           d.kind === 'add_batch' || d.kind === 'trigger_cycle'
             ? cycles[Number(d.cycleId) - 1]
             : undefined;
-        if (d.kind === 'new_cycle') newCycle(now, d.triggered, undefined, 1, g.key);
-        else if (d.kind === 'add_batch' && target) addEntryBatch(target);
+        const opened =
+          d.kind === 'new_cycle' ? newCycle(now, d.triggered, undefined, 1, g.key) : target;
+        if (d.kind === 'add_batch' && target) addEntryBatch(target);
         else if (d.kind === 'trigger_cycle' && target) {
           target.entryTriggeredAt = now;
           target.events.set('entry_trigger', now);
         }
         if (!entryRow) continue;
+        // The cycle this firing opened, added to or triggered (N166).
+        const fireOpens = !(d.kind === 'none' || (d.kind === 'new_cycle' && !d.triggered));
+        if (planned.fired && !dailyHalt && !drawdownHalt && fireOpens && opened)
+          entryRow.cycle = opened.no;
         if (planned.fired && dailyHalt) g.entryRec.markFired(entryRow, 'daily_loss');
         else if (planned.fired && drawdownHalt) g.entryRec.markFired(entryRow, 'drawdown');
         else if (planned.fired)
@@ -1348,7 +1379,7 @@ export function simulate({
         // The expected-move exit, also by OR (ADR 0053).
         if (c.state === 'open' && checkExpectedMove(c)) forceExit(c, now, 'expected_move');
         // The trailing stop, also by OR (ADR 0059).
-        if (c.state === 'open' && checkTrailingStop(c)) forceExit(c, now, 'trailing_stop');
+        if (c.state === 'open' && checkTrailingStop(c, now)) forceExit(c, now, 'trailing_stop');
       }
       if (c.state === 'open' || c.state === 'exiting') {
         const exitTriggeredAt = c.state === 'exiting' ? c.legEvents.get('exit:trigger') : undefined;
@@ -1415,6 +1446,42 @@ export function simulate({
       staleSteps,
     );
   }
+
+  // Per-instrument P/L and the trailing stop's last check, for the cycle card (N166).
+  const cycleDetails: CycleDetail[] = cycles
+    .filter((c) => c.firstFill !== undefined)
+    .map((c) => {
+      const instrumentsPnl = [...c.positions].map(([id, p]) => {
+        const value = p.quantity.times(mark(id) ?? ZERO);
+        return {
+          instrumentId: id,
+          symbol: symbol(id),
+          grossPnl: p.grossCash.plus(value).toDecimalPlaces(2).toString(),
+          costs: p.commission.plus(p.slippage).plus(p.borrow).toDecimalPlaces(2).toString(),
+          netPnl: p.cash.plus(value).toDecimalPlaces(2).toString(),
+        };
+      });
+      const t = c.trail;
+      return {
+        cycle: c.no,
+        instruments: instrumentsPnl,
+        ...(t
+          ? {
+              trailingStop: {
+                percent: t.percent,
+                direction: t.long ? ('long' as const) : ('short' as const),
+                entryPrice: t.entryPrice.toDecimalPlaces(4).toString(),
+                peak: t.peak.toDecimalPlaces(4).toString(),
+                level: t.level.toDecimalPlaces(4).toString(),
+                close: t.close.toDecimalPlaces(4).toString(),
+                time: iso(t.time),
+                checks: t.checks,
+                hit: t.hit,
+              },
+            }
+          : {}),
+      };
+    });
 
   const trades: BacktestTrade[] = cycles
     .filter((c) => c.firstFill !== undefined || c.state === 'aborted')
@@ -1646,6 +1713,7 @@ export function simulate({
     contributions,
     warnings: warnings.list(),
     ...(mode !== 'none' ? { selections: selectionLog() } : {}),
+    cycles: cycleDetails,
   };
 
   function withSizing(sizing: RiskSizing | undefined): { sizing?: RiskSizing } {
