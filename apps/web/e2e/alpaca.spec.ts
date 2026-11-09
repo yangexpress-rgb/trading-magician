@@ -43,24 +43,32 @@ test('connects an Alpaca feed and finds a US stock for a strategy', async ({ pag
     })
   ).json();
   await page.goto(`/strategy-lab/${created.id}`);
-  await page.getByText('Find a stock, ETF or index').click();
-  await page.getByLabel('Symbol').fill('ztsta');
-  await page.getByRole('button', { name: 'Find' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Added ZTSTA' })).toContainText(
-    'Test Alpha Inc. Common Stock',
-  );
-  const yours = page.getByRole('list', { name: 'Your US stocks, ETFs and indices' });
-  await expect(yours).toContainText('ZTSTA');
-  await expect(yours).toContainText('NASDAQ');
+  // Any symbol can be typed straight into a leg's picker: no list to add to first (N190).
+  await page.getByRole('button', { name: '+ Add Entry order' }).click();
+  const leg = page.getByRole('region', { name: 'Entry leg 1', exact: true });
+  const picker = leg.getByLabel('Instrument', { exact: true });
+  await picker.selectOption({ label: 'Another stock, ETF or index…' });
+  await leg.getByLabel('Symbol or company name').fill('ztsta');
+  await leg.getByRole('button', { name: 'Use', exact: true }).click();
+  await expect(picker.locator('option:checked')).toContainText('ZTSTA');
+  await expect(picker.locator('option:checked')).toContainText('Test Alpha Inc. Common Stock');
+  await expect(leg.getByLabel('Symbol or company name')).toBeHidden();
 
-  await page.getByLabel('Symbol').fill('NOSUCH');
-  await page.getByRole('button', { name: 'Find' }).click();
-  await expect(page.getByText('No US stock or ETF matches “NOSUCH”.')).toBeVisible();
+  await picker.selectOption({ label: 'Another stock, ETF or index…' });
+  await leg.getByLabel('Symbol or company name').fill('NOSUCH');
+  await leg.getByRole('button', { name: 'Use', exact: true }).click();
+  await expect(leg.getByText('No US stock or ETF matches “NOSUCH”.')).toBeVisible();
+  await expect(picker.locator('option:checked')).toContainText('ZTSTA');
 
   // It stays available to this person's strategies.
   await page.reload();
-  await page.getByText('Find a stock, ETF or index').click();
-  await expect(yours).toContainText('ZTSTA');
+  await page.getByRole('button', { name: '+ Add Entry order' }).click();
+  await expect(
+    page
+      .getByRole('region', { name: 'Entry leg 1', exact: true })
+      .getByLabel('Instrument', { exact: true })
+      .locator('option', { hasText: 'ZTSTA' }),
+  ).toHaveCount(1);
 
   const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(

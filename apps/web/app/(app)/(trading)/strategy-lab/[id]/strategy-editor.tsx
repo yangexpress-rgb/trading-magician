@@ -27,7 +27,6 @@ import {
   type InstrumentOption,
   type OptionUnderlying,
 } from '@/components/strategy/editor-context';
-import { InstrumentFinder } from '@/components/strategy/instrument-finder';
 import {
   LibraryEntryField,
   toChoiceRequest,
@@ -216,9 +215,21 @@ export function StrategyEditor({
     return [...classes];
   }, [universeKey, instruments]);
 
+  // Any symbol a picker looks up joins every picker at once (N190, ADR 0069).
+  const addInstrument = useCallback(
+    (found: InstrumentOption) =>
+      setInstruments((list) =>
+        list.some((i) => i.id === found.id)
+          ? list
+          : [...list, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
+      ),
+    [],
+  );
+
   const ctx: EditorContextValue = useMemo(
     () => ({
       instruments,
+      addInstrument,
       accounts,
       timeZone,
       baseCurrency,
@@ -230,6 +241,7 @@ export function StrategyEditor({
     }),
     [
       instruments,
+      addInstrument,
       accounts,
       timeZone,
       baseCurrency,
@@ -307,17 +319,6 @@ export function StrategyEditor({
               setSave({ kind: 'idle' });
             }}
             editable={editable}
-          />
-          <InstrumentFinder
-            instruments={instruments}
-            editable={editable}
-            onFound={(found) =>
-              setInstruments((list) =>
-                list.some((i) => i.id === found.id)
-                  ? list
-                  : [...list, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
-              )
-            }
           />
           <PhaseCards
             definition={definition}
