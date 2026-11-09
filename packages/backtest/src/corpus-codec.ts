@@ -37,7 +37,9 @@ export function decode(value: unknown): unknown {
 /**
  * A result's behaviour: everything a back test decided and produced, leaving
  * out the copies of the definition the condition reports carry (the condition
- * tree and trigger settings), whose representation the schema migrations change.
+ * tree and trigger settings), whose representation the schema migrations change,
+ * and the report-only links for the cycle card (N166): the cycle number on Entry
+ * bars and the per-cycle detail, which explain decisions without changing them.
  */
 export function behaviour(r: BacktestResult): string {
   const strip = (p: { condition?: unknown; trigger?: unknown }) => {
@@ -46,15 +48,25 @@ export function behaviour(r: BacktestResult): string {
     void _t;
     return rest;
   };
+  type Report = NonNullable<BacktestResult['conditions']>['entry'];
+  const stripEntry = (p: Report) => ({
+    ...strip(p),
+    bars: p.bars.map(({ cycle: _cycle, ...bar }) => {
+      void _cycle;
+      return bar;
+    }),
+  });
+  const { cycles: _cycles, ...rest } = r;
+  void _cycles;
   const picked = {
-    ...r,
+    ...rest,
     conditions: r.conditions && {
-      entry: strip(r.conditions.entry),
+      entry: stripEntry(r.conditions.entry),
       exit: strip(r.conditions.exit),
     },
     groupConditions: r.groupConditions?.map((g) => ({
       ...g,
-      entry: strip(g.entry),
+      entry: stripEntry(g.entry),
       exit: strip(g.exit),
     })),
   };

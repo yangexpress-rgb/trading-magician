@@ -35,7 +35,7 @@ import { describeCondition, describeExpr, OPERATOR_LABELS } from '@/lib/strategy
 const PAGE = 50;
 type Interval = BacktestRunDto['inputs']['interval'];
 
-function Truth({ value }: { value: StoredTruth }) {
+export function Truth({ value }: { value: StoredTruth }) {
   const t = truthOf(value);
   return <Badge tone={t.tone}>{t.label}</Badge>;
 }
@@ -241,7 +241,7 @@ function ConditionReport({
   );
 }
 
-function ComparisonText({
+export function ComparisonText({
   c,
   symbol,
 }: {
@@ -489,7 +489,7 @@ export function describeMetric(ref: SelectionLog['metric']): string {
   return params.length > 0 ? `${spec.label} (${params.join(', ')})` : spec.label;
 }
 
-function metricText(ref: SelectionLog['metric'], value: string | null): string {
+export function metricText(ref: SelectionLog['metric'], value: string | null): string {
   if (value === null) return '—';
   const unit = ref ? getMetric(ref.metric)?.unit : undefined;
   const n = Number(value);

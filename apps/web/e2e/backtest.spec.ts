@@ -3,6 +3,8 @@ import { expect } from '@playwright/test';
 import { createTestedStrategy } from './backtest-fixtures';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
+const SHOTS = process.env.E2E_SCREENSHOT_DIR;
+
 test('back test a pair strategy, read the results beside their assumptions, and start through the gate', async ({
   page,
   baseURL,
@@ -45,10 +47,27 @@ test('back test a pair strategy, read the results beside their assumptions, and 
   await expect(results.getByRole('img', { name: /^Equity from \$100,000\.00 to/ })).toBeVisible();
   await expect(results.getByRole('img', { name: /^Gross exposure between/ })).toBeVisible();
 
-  // Each cycle links Entry and Exit across both legs.
-  const trades = results.getByRole('table', { name: 'Trades' });
-  await expect(trades.getByRole('row').nth(1)).toContainText('Buy 20 DEMO-A');
-  await expect(trades.getByRole('row').nth(1)).toContainText('Sell short 20 DEMO-B');
+  // One row per cycle (N157); opening it shows Entry beside Exit and each leg (N158, N159).
+  const cycles = results.getByRole('table', { name: 'Cycles' });
+  await expect(cycles.getByRole('row').nth(1)).toContainText('DEMO-A, DEMO-B');
+  await cycles.getByRole('button', { name: 'Cycle 1', exact: true }).click();
+  await expect(page).toHaveURL(/[?&]cycle=1\b/);
+  const cycle = results.getByRole('region', { name: 'Cycle 1', exact: true });
+  const cycleEntry = cycle.getByRole('list', { name: 'Entry orders' });
+  await expect(cycleEntry.getByText('Buy 20 DEMO-A · Market · Day')).toBeVisible();
+  await expect(cycleEntry.getByText('Sell short 20 DEMO-B · Market · Day')).toBeVisible();
+  await expect(cycle.getByText(/^Signal: .* close$/).first()).toBeVisible();
+  await expect(cycle.getByText('crosses above').first()).toBeVisible();
+  const legs = cycle.getByRole('table', { name: 'Cycle 1: legs' });
+  await expect(legs.getByRole('cell', { name: 'DEMO-A', exact: true })).toBeVisible();
+  await expect(legs.getByRole('cell', { name: 'DEMO-B', exact: true })).toBeVisible();
+  await expect(legs.getByRole('cell', { name: 'Cycle total' })).toBeVisible();
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/cycle-card.png`, fullPage: true });
+  await cycle.getByRole('button', { name: /^Cycle 2 →/ }).click();
+  await expect(results.getByRole('region', { name: 'Cycle 2', exact: true })).toBeVisible();
+
+  // The full logs are kept, collapsed (N164).
+  await results.getByText('Rules and full logs').click();
   // Entry and Exit say what each condition found and what came of each order.
   const entry = results.getByRole('region', { name: 'Entry', exact: true });
   await expect(

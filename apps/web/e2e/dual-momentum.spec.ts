@@ -88,6 +88,7 @@ test('dual momentum with per-leg conditions and no shared Entry condition valida
   await panel.getByRole('button', { name: 'Run back test' }).click();
   const results = page.getByRole('region', { name: 'Back test results' });
   await expect(results.getByText('Completed')).toBeVisible({ timeout: 60_000 });
+  await results.getByText('Rules and full logs').click();
   await expect(results.getByRole('heading', { name: 'Leg rounds' })).toBeVisible();
 
   // Start is not refused for want of a shared Entry condition.

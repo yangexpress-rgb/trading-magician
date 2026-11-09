@@ -11,11 +11,8 @@ import { addDays, nyDate } from '@tm/domain';
 import { Alert, Badge, Button, Card, SelectField, Table, Td, TextField, Th, Stat } from '@tm/ui';
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { LineChart } from '@/components/line-chart';
-import {
-  EXIT_REASON_LABELS,
-  PhaseReports,
-  SelectionRounds,
-} from '@/components/strategy/backtest-detail';
+import { BacktestCycles } from '@/components/strategy/backtest-cycles';
+import { PhaseReports, SelectionRounds } from '@/components/strategy/backtest-detail';
 import { apiClient } from '@/lib/api-client';
 import {
   describeRun,
@@ -26,14 +23,9 @@ import {
   isActive,
   metricTiles,
   RUN_STATUS,
-  sizingText,
-  atrStopText,
-  expectedMoveText,
   thin,
-  DIRECTION_WORDS,
-  tradeDirection,
 } from '@/lib/backtest-text';
-import { ADJUSTMENT_LABELS, SIDE_LABELS } from '@/lib/strategy-text';
+import { ADJUSTMENT_LABELS } from '@/lib/strategy-text';
 import { bare } from '@/lib/units';
 
 /**
@@ -384,27 +376,6 @@ export function RunHistory({ state }: { state: BacktestsState }) {
 // ---------------------------------------------------------------------------
 // Results
 
-const TRADE_STATUS: Record<BacktestTradeDto['status'], string> = {
-  closed: 'Closed',
-  open: 'Open at end',
-  aborted: 'Entry not filled',
-};
-
-function TradeLegs({ trade }: { trade: BacktestTradeDto }) {
-  if (trade.legs.length === 0) return <span className="text-ink-muted">No fills</span>;
-  return (
-    <ul className="space-y-0.5">
-      {trade.legs.map((l) => (
-        <li key={`${l.phase}-${l.legId}`} className="whitespace-nowrap">
-          {l.phase === 'flatten' ? 'Closed after a failed leg: ' : ''}
-          {SIDE_LABELS[l.side]} {l.quantity} {l.symbol}
-          {l.averagePrice ? ` at ${formatMoney(l.averagePrice)}` : ''}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function Section({ title, children }: { title: string; children: ReactNode }) {
   const id = useId();
   return (
@@ -421,7 +392,6 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
   const selected = state.selected;
   if (!selected) return null;
   const { run, trades } = selected;
-  const sized = trades?.some((t) => t.sizing) ?? false;
   const interval = run.inputs.interval;
   return (
     <Card aria-labelledby="bt-results-heading">
@@ -494,140 +464,91 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
 
       {run.status === 'completed' && run.metrics && run.result && (
         <div className="mt-6 space-y-6">
-          <Section title="What happened">
-            <PhaseReports run={run} />
-          </Section>
-
-          {run.result.selections && (
-            <Section
-              title={run.result.selections.kind === 'ranking' ? 'Selection rounds' : 'Leg rounds'}
-            >
-              <SelectionRounds log={run.result.selections} interval={interval} />
-            </Section>
-          )}
-
-          <Section title="Trades">
-            {trades && trades.length > 0 ? (
-              <Table label="Trades">
-                <thead>
-                  <tr>
-                    <Th>Cycle</Th>
-                    <Th>Direction</Th>
-                    <Th>Entry</Th>
-                    <Th>Exit</Th>
-                    <Th>Legs</Th>
-                    {sized && <Th>Sizing</Th>}
-                    <Th numeric>Net P/L $</Th>
-                    <Th numeric>Return %</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {trades.map((t) => (
-                    <tr key={t.cycle}>
-                      <Td>
-                        <div>{t.cycle}</div>
-                        <div className="text-xs text-ink-muted">{TRADE_STATUS[t.status]}</div>
-                      </Td>
-                      <Td>
-                        <div>{DIRECTION_WORDS[tradeDirection(t)]}</div>
-                        {t.group && <div className="text-xs text-ink-muted">{t.group}</div>}
-                      </Td>
-                      <Td className="whitespace-nowrap text-content">
-                        {formatMarketTime(t.entryTime, interval)}
-                      </Td>
-                      <Td className="whitespace-nowrap">
-                        <div className="text-content">{formatMarketTime(t.exitTime, interval)}</div>
-                        {t.exitReason && (
-                          <div className="text-xs text-ink-muted">
-                            {EXIT_REASON_LABELS[t.exitReason]}
-                          </div>
-                        )}
-                        {t.atrStop && (
-                          <div className="text-xs text-ink-muted">{atrStopText(t.atrStop)}</div>
-                        )}
-                        {t.expectedMove && (
-                          <div className="text-xs text-ink-muted">
-                            {expectedMoveText(t.expectedMove)}
-                          </div>
-                        )}
-                      </Td>
-                      <Td>
-                        <TradeLegs trade={t} />
-                      </Td>
-                      {sized && (
-                        <Td className="min-w-56 text-xs">
-                          {t.sizing ? (
-                            <>
-                              <div className="font-medium">Risk % of equity, ATR stop</div>
-                              {sizingText(t.sizing).map((line) => (
-                                <div key={line} className="text-ink-muted">
-                                  {line}
-                                </div>
-                              ))}
-                            </>
-                          ) : (
-                            <span className="text-ink-muted">As set on the leg</span>
-                          )}
-                        </Td>
-                      )}
-                      <Td numeric>{bare(formatSignedMoney(t.netPnl))}</Td>
-                      <Td numeric>{bare(formatPct(t.returnPct, true))}</Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
+          <Section title="Cycles">
+            {trades ? (
+              <BacktestCycles run={run} trades={trades} />
             ) : (
-              <p className="text-sm text-ink-muted">The strategy made no trades in this period.</p>
-            )}
-            <p className="text-xs text-ink-muted">Times are New York market time.</p>
-          </Section>
-
-          {run.result.contributions.length > 0 && (
-            <Section title="Contribution by instrument">
-              <Table label="Contribution by instrument">
-                <thead>
-                  <tr>
-                    <Th>Instrument</Th>
-                    <Th>Legs</Th>
-                    <Th numeric>Fills</Th>
-                    <Th numeric>Gross P/L $</Th>
-                    <Th numeric>Costs $</Th>
-                    <Th numeric>Net P/L $</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {run.result.contributions.map((c) => (
-                    <tr key={c.instrumentId}>
-                      <Td className="font-medium">{c.symbol}</Td>
-                      <Td>{c.legs.join(', ') || '—'}</Td>
-                      <Td numeric>{c.fills}</Td>
-                      <Td numeric>{bare(formatSignedMoney(c.grossPnl))}</Td>
-                      <Td numeric>{bare(formatMoney(c.costs))}</Td>
-                      <Td numeric>{bare(formatSignedMoney(c.netPnl))}</Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Section>
-          )}
-
-          <Section title="Warnings">
-            {run.result.warnings.length > 0 ? (
-              <ul className="space-y-1 text-sm">
-                {run.result.warnings.map((w) => (
-                  <li key={w.code} className="flex gap-2">
-                    <Badge tone="warn">Warning</Badge>
-                    <span>
-                      {w.message}
-                      {w.count > 1 ? ` (${w.count} times)` : ''}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-ink-muted">No warnings.</p>
+              <p className="text-sm text-ink-muted">Loading the cycles…</p>
             )}
           </Section>
+
+          <details className="rounded-md border border-line p-3">
+            <summary className="cursor-pointer text-base font-semibold">
+              Rules and full logs
+              {run.result.warnings.length > 0 && (
+                <span className="ml-2 text-sm font-normal text-warn">
+                  {run.result.warnings.length}{' '}
+                  {run.result.warnings.length === 1 ? 'warning' : 'warnings'}
+                </span>
+              )}
+            </summary>
+            <div className="mt-4 space-y-6">
+              <p className="text-sm text-ink-muted">
+                Every bar the conditions were checked on, across all cycles, and the tables behind
+                the cycles above.
+              </p>
+              <Section title="What happened">
+                <PhaseReports run={run} />
+              </Section>
+
+              {run.result.selections && (
+                <Section
+                  title={
+                    run.result.selections.kind === 'ranking' ? 'Selection rounds' : 'Leg rounds'
+                  }
+                >
+                  <SelectionRounds log={run.result.selections} interval={interval} />
+                </Section>
+              )}
+
+              {run.result.contributions.length > 0 && (
+                <Section title="Contribution by instrument">
+                  <Table label="Contribution by instrument">
+                    <thead>
+                      <tr>
+                        <Th>Instrument</Th>
+                        <Th>Legs</Th>
+                        <Th numeric>Fills</Th>
+                        <Th numeric>Gross P/L $</Th>
+                        <Th numeric>Costs $</Th>
+                        <Th numeric>Net P/L $</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {run.result.contributions.map((c) => (
+                        <tr key={c.instrumentId}>
+                          <Td className="font-medium">{c.symbol}</Td>
+                          <Td>{c.legs.join(', ') || '—'}</Td>
+                          <Td numeric>{c.fills}</Td>
+                          <Td numeric>{bare(formatSignedMoney(c.grossPnl))}</Td>
+                          <Td numeric>{bare(formatMoney(c.costs))}</Td>
+                          <Td numeric>{bare(formatSignedMoney(c.netPnl))}</Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </Section>
+              )}
+
+              <Section title="Warnings">
+                {run.result.warnings.length > 0 ? (
+                  <ul className="space-y-1 text-sm">
+                    {run.result.warnings.map((w) => (
+                      <li key={w.code} className="flex gap-2">
+                        <Badge tone="warn">Warning</Badge>
+                        <span>
+                          {w.message}
+                          {w.count > 1 ? ` (${w.count} times)` : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-ink-muted">No warnings.</p>
+                )}
+              </Section>
+            </div>
+          </details>
         </div>
       )}
     </Card>

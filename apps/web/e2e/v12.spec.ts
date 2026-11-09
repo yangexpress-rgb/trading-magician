@@ -64,6 +64,7 @@ test('build a Selection group with a time stop, back test it, and read the ranki
   const results = page.getByRole('region', { name: 'Back test results' });
   await expect(results.getByText('Completed')).toBeVisible({ timeout: 60_000 });
 
+  await results.getByText('Rules and full logs').click();
   await expect(results.getByRole('heading', { name: 'Selection rounds' })).toBeVisible();
   await expect(results.getByText(/Ranked by Return \(lookback \(months\) 3/)).toBeVisible();
   const table = results.getByRole('table', { name: /^Round of/ });
