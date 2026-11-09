@@ -7,8 +7,8 @@ import { requireTenant } from '@/lib/server/session';
 
 /** The Trading Strategy tab's three sections (N156); the URLs stay as they were. */
 const SECTIONS = [
-  { href: '/library', label: 'Library' },
   { href: '/strategy-lab', label: 'Lab' },
+  { href: '/library', label: 'Library' },
   { href: '/sharing', label: 'Sharing' },
 ] as const;
 

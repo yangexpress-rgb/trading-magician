@@ -25,14 +25,18 @@ export function Th({
   children,
   className,
   numeric = false,
+  sort,
 }: {
   children?: ReactNode;
   className?: string | undefined;
   numeric?: boolean;
+  /** The column's sort state, for a sortable column. */
+  sort?: 'ascending' | 'descending' | 'none' | undefined;
 }) {
   return (
     <th
       scope="col"
+      aria-sort={sort}
       className={cx(
         'border-b border-line bg-surface-2 px-3 py-2 text-xs font-semibold tracking-wide text-ink-muted uppercase',
         numeric ? 'text-right' : 'text-left',

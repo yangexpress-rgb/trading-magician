@@ -52,7 +52,7 @@ test('Trading Strategy holds the Library, Lab and Sharing as tabs', async ({ pag
   await nav.getByRole('link', { name: 'Trading Strategy' }).click();
   await expect(page).toHaveURL(/\/strategy-lab$/);
   const tabs = page.getByRole('navigation', { name: 'Trading Strategy' });
-  await expect(tabs.getByRole('link')).toHaveText(['Library', 'Lab', 'Sharing']);
+  await expect(tabs.getByRole('link')).toHaveText(['Lab', 'Library', 'Sharing']);
   for (const [name, path, heading] of [
     ['Lab', '/strategy-lab', 'Strategy Lab'],
     ['Sharing', '/sharing', 'Sharing'],

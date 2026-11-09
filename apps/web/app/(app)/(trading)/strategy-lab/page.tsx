@@ -44,9 +44,15 @@ const UPDATED_PRESETS = { '7d': 7, '30d': 30, '90d': 90 } as const;
 const SORTS = {
   updated: 'Recently updated',
   created: 'Recently created',
+  number: 'Number',
   name: 'Name',
   status: 'Status',
+  assets: 'Assets',
+  version: 'Version',
+  account: 'Account',
+  backtest: 'Latest back test %',
 } as const;
+type SortKey = keyof typeof SORTS;
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -68,7 +74,7 @@ export default async function StrategyLabPage({
     archived: one('archived'),
     shared: one('shared'),
     sort: one('sort'),
-    direction: one('sort') === 'name' ? 'asc' : 'desc',
+    direction: one('dir') ?? (one('sort') === 'name' ? 'asc' : 'desc'),
   });
   const q = parsed.success ? parsed.data : listStrategiesQuery.parse({});
   const updated = one('updated') as keyof typeof UPDATED_PRESETS | undefined;
@@ -121,6 +127,41 @@ export default async function StrategyLabPage({
         }
       : null;
   const shareable = items.map(shareItem).filter((i) => i !== null);
+
+  // Column headers sort the list (N157): the first click sorts ascending, the
+  // next descending. Filters stay as they are.
+  const sortHref = (key: SortKey) => {
+    const params = new URLSearchParams();
+    for (const k of ['q', 'status', 'asset', 'updated', 'archived', 'shared']) {
+      const v = one(k);
+      if (v) params.set(k, v);
+    }
+    params.set('sort', key);
+    params.set('dir', q.sort === key && q.direction === 'asc' ? 'desc' : 'asc');
+    return `/strategy-lab?${params.toString()}`;
+  };
+  const header = (key: SortKey, label: string, numeric = false) => {
+    const active = q.sort === key;
+    return (
+      <Th
+        numeric={numeric}
+        sort={active ? (q.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+      >
+        <Link
+          href={sortHref(key)}
+          className={`inline-flex items-center gap-1 no-underline hover:text-ink ${active ? 'text-ink' : 'text-ink-muted'}`}
+        >
+          {label}
+          <span aria-hidden="true" className={active ? '' : 'opacity-30'}>
+            {active && q.direction === 'asc' ? '▲' : '▼'}
+          </span>
+          <span className="sr-only">
+            {active && q.direction === 'asc' ? ', sort descending' : ', sort ascending'}
+          </span>
+        </Link>
+      </Th>
+    );
+  };
 
   return (
     <>
@@ -219,14 +260,14 @@ export default async function StrategyLabPage({
                 <Th>
                   <ShareCheckAll items={shareable} noun="strategies" />
                 </Th>
-                <Th>Number</Th>
-                <Th>Name</Th>
-                <Th>Status</Th>
-                <Th>Assets</Th>
-                <Th>Version</Th>
-                <Th>Account</Th>
-                <Th numeric>Latest back test %</Th>
-                <Th>Updated ({prefs.timeZone})</Th>
+                {header('number', 'Number')}
+                {header('name', 'Name')}
+                {header('status', 'Status')}
+                {header('assets', 'Assets')}
+                {header('version', 'Version')}
+                {header('account', 'Account')}
+                {header('backtest', 'Latest back test %', true)}
+                {header('updated', `Updated (${prefs.timeZone})`)}
                 <Th>
                   <span className="sr-only">Actions</span>
                 </Th>
