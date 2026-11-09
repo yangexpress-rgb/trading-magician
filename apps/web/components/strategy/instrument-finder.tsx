@@ -38,67 +38,77 @@ export function InstrumentFinder({
       : '';
 
   return (
+    // Collapsed (N174): a lookup tool, opened when a leg needs another symbol.
     <Card>
-      <h2 id="instruments-heading" className="text-lg font-semibold">
-        US stocks, ETFs and indices
-      </h2>
-      <p className="mb-3 text-sm text-ink-muted">
-        A strategy can use any US stock or ETF your data feed can find. Indices such as the VIX
-        (search &ldquo;VIX&rdquo;) can be watched in conditions but not traded; their daily history
-        comes from the CBOE feed. Feeds are set up in{' '}
-        <Link href="/settings/data-feeds">Settings › Data feeds</Link>.
-      </p>
-      {real.length > 0 && (
-        <ul
-          aria-label="Your US stocks, ETFs and indices"
-          className="mb-3 flex flex-wrap gap-2 text-sm"
-        >
-          {real.map((i) => (
-            <li key={i.id} className="rounded border border-line px-2 py-1">
-              <span className="font-medium">{i.symbol}</span>{' '}
-              <span className="text-ink-muted">
-                {i.displayName} · {ASSET_CLASS_LABELS[i.assetClass] ?? i.assetClass} · {i.venue}
-              </span>
-              {isIndicatorOnlyClass(i.assetClass) && <IndexBadge />}
-            </li>
-          ))}
-        </ul>
-      )}
-      {editable && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void find(text);
-          }}
-          className="flex flex-wrap items-end gap-2"
-        >
-          <TextField
-            name="instrument-symbol"
-            label="Symbol or company name"
-            required
-            maxLength={60}
-            autoComplete="off"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
+      <details>
+        <summary className="cursor-pointer">
+          <h2 id="instruments-heading" className="inline text-lg font-semibold">
+            Find a stock, ETF or index
+          </h2>{' '}
+          {real.length > 0 && (
+            <span className="text-sm text-ink-muted">
+              · {real.length} {real.length === 1 ? 'instrument' : 'instruments'} added
+            </span>
+          )}
+        </summary>
+        <p className="mt-2 mb-3 text-sm text-ink-muted">
+          A strategy can use any US stock or ETF your data feed can find. Indices such as the VIX
+          (search &ldquo;VIX&rdquo;) can be watched in conditions but not traded; their daily
+          history comes from the CBOE feed. Feeds are set up in{' '}
+          <Link href="/settings/data-feeds">Settings › Data feeds</Link>.
+        </p>
+        {real.length > 0 && (
+          <ul
+            aria-label="Your US stocks, ETFs and indices"
+            className="mb-3 flex flex-wrap gap-2 text-sm"
+          >
+            {real.map((i) => (
+              <li key={i.id} className="rounded border border-line px-2 py-1">
+                <span className="font-medium">{i.symbol}</span>{' '}
+                <span className="text-ink-muted">
+                  {i.displayName} · {ASSET_CLASS_LABELS[i.assetClass] ?? i.assetClass} · {i.venue}
+                </span>
+                {isIndicatorOnlyClass(i.assetClass) && <IndexBadge />}
+              </li>
+            ))}
+          </ul>
+        )}
+        {editable && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void find(text);
+            }}
+            className="flex flex-wrap items-end gap-2"
+          >
+            <TextField
+              name="instrument-symbol"
+              label="Symbol or company name"
+              required
+              maxLength={60}
+              autoComplete="off"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+            <Button type="submit" disabled={pending || !text.trim()}>
+              Find
+            </Button>
+          </form>
+        )}
+        <p role="status" aria-live="polite" className="mt-2 text-sm">
+          {status}
+        </p>
+        {(error || lookup?.status === 'not_found' || lookup?.status === 'failed') && (
+          <Alert>{error ?? lookup?.message}</Alert>
+        )}
+        {editable && lookup?.status === 'not_found' && (
+          <CandidateList
+            candidates={lookup.candidates}
+            disabled={pending}
+            onPick={(symbol) => void find(symbol)}
           />
-          <Button type="submit" disabled={pending || !text.trim()}>
-            Find
-          </Button>
-        </form>
-      )}
-      <p role="status" aria-live="polite" className="mt-2 text-sm">
-        {status}
-      </p>
-      {(error || lookup?.status === 'not_found' || lookup?.status === 'failed') && (
-        <Alert>{error ?? lookup?.message}</Alert>
-      )}
-      {editable && lookup?.status === 'not_found' && (
-        <CandidateList
-          candidates={lookup.candidates}
-          disabled={pending}
-          onPick={(symbol) => void find(symbol)}
-        />
-      )}
+        )}
+      </details>
     </Card>
   );
 }

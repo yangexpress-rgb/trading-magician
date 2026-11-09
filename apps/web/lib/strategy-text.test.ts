@@ -163,7 +163,7 @@ describe('strategy text', () => {
     expect(describeIssueLocation(['exit', 'orders', 1, 'side'], def)).toBe('Exit leg 2 (Cover B)');
     expect(describeIssueLocation(['entry', 'condition', 'children'], def)).toBe('Entry conditions');
     expect(describeIssueLocation(['risk', 'dailyLossLimit'], def)).toBe('Risk limits');
-    expect(describeIssueLocation(['execution', 'legOrder'], def)).toBe('Execution');
+    expect(describeIssueLocation(['execution', 'legOrder'], def)).toBe('Order handling');
     expect(describeIssueLocation([], def)).toBe('Strategy');
   });
 });
