@@ -72,6 +72,7 @@ import {
   rankUniverse,
   scheduledPeriod,
   scheduleOf,
+  isCalendarSchedule,
   selectionCount,
   selectLegs,
   slotDefinition,
@@ -689,9 +690,13 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   const newData = dataTime > 0 && dataTime > (state.lastDataTime ?? 0);
   if (newData) state.lastDataTime = dataTime;
   // The schedule gates Entry and re-selection; Exit rules run on every bar (v1.2 item 4).
-  const period = newData ? scheduledPeriod(def.schedule, t, state.lastSchedulePeriod) : undefined;
+  // Bar cadences count the newest bar's end; once a day and calendar periods count closes (N184).
+  const frequency = scheduleOf(def);
+  const period = newData
+    ? scheduledPeriod(frequency, t, state.lastSchedulePeriod, dataTime)
+    : undefined;
   const entryDue = period !== undefined;
-  if (entryDue && scheduleOf(def) !== 'daily') state.lastSchedulePeriod = period;
+  if (entryDue) state.lastSchedulePeriod = period;
   const evaluate = (phase: PhaseName, r: SeriesResolver = view, d = def): Truth =>
     evaluateCondition(d[phase].condition, r);
   /** The view plus a cycle's positions, for Exit rules and Exit order prices. */
@@ -879,7 +884,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     entryEventId = randomUUID();
     const plan = planSlots({
       mode,
-      scheduled: scheduleOf(def) !== 'daily',
+      scheduled: isCalendarSchedule(frequency),
       candidates,
       held: work.cycles
         .filter((c) => c.cycle.slot)

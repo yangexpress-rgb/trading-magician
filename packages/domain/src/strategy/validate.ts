@@ -17,6 +17,7 @@ import {
 import { extendedHoursEligible } from './extended-hours';
 import { groupDefinition } from './groups';
 import { checkTiming } from './timing';
+import { isCalendarSchedule } from './schedule';
 import {
   collectInstrumentUses,
   exprDepth,
@@ -283,7 +284,9 @@ function checkCondition(
         ? mode !== 'none'
         : (def.exit.rules?.length ?? 0) > 0 ||
           mode === 'selection' ||
-          (mode === 'legs' && (def.schedule?.frequency ?? 'daily') !== 'daily');
+          (mode === 'legs' &&
+            def.schedule !== undefined &&
+            isCalendarSchedule(def.schedule.frequency));
     if (!allTimingOnly && !decidedElsewhere) {
       add(
         'error',

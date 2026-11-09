@@ -64,6 +64,22 @@ describe('the run interval that matches the rules (N179)', () => {
     expect(matchingBacktestInterval(def)).toEqual({ interval: '1d', finest: undefined });
   });
 
+  it('runs at least as finely as a picked Entry bar cadence (N184)', () => {
+    const daily = readingAt('1d');
+    expect(matchingBacktestInterval({ ...daily, schedule: { frequency: 'bar5m' } }).interval).toBe(
+      '5m',
+    );
+    expect(matchingBacktestInterval({ ...daily, schedule: { frequency: 'bar1m' } }).interval).toBe(
+      '5m',
+    );
+    expect(matchingBacktestInterval({ ...daily, schedule: { frequency: 'bar1h' } }).interval).toBe(
+      '1h',
+    );
+    expect(
+      matchingBacktestInterval({ ...readingAt('5m'), schedule: { frequency: 'daily' } }).interval,
+    ).toBe('5m');
+  });
+
   it('says when the run steps more coarsely than the rules', () => {
     expect(coarserThan('1h', '5m')).toBe(true);
     expect(coarserThan('5m', '1m')).toBe(true);
