@@ -162,6 +162,27 @@ export function daysToNextEarnings(
 }
 
 /**
+ * NYSE trading days from the bar date to the next earnings date as a run
+ * knew it then (N189): the calendar feed's next scheduled date while the feed
+ * covered the stock; before the feed's first listing for it, the stock's
+ * actual next release on EDGAR stands in, as companies announce their dates
+ * weeks ahead (O137). Undefined when neither is known.
+ */
+export function daysToNextEarningsDate(
+  schedule: readonly ScheduledEarnings[] | undefined,
+  releases: readonly EarningsSignal[] | undefined,
+  atMs: number,
+): { days: number; standIn: boolean } | undefined {
+  const scheduled = daysToNextEarnings(schedule, releases, atMs);
+  if (scheduled !== undefined) return { days: scheduled, standIn: false };
+  // The feed already listed this stock by then and has nothing coming: no stand-in.
+  if (schedule?.some((s) => s.firstSeenMs <= atMs)) return undefined;
+  const next = releases?.find((r) => Date.parse(r.announcedAt) > atMs);
+  if (!next) return undefined;
+  return { days: tradingDaysBetween(nyDate(new Date(atMs)), next.announcedDate), standIn: true };
+}
+
+/**
  * The fiscal quarter a release on `filedDate` reports: the latest known
  * quarter end before it (within 120 days), or, when the quarter's figures
  * aren't filed yet, the quarter after the latest known one.

@@ -13,6 +13,7 @@ import {
 } from './earnings';
 import { rateOn } from './rates';
 import { emptyEventData, eventPointAt, type EventData } from './signals';
+import { checkMetricRef, computeMetric, getMetric, resolveMetricParams } from '../strategy/metrics';
 
 /** The worked fixtures of the free data feeds brief v1 §7, asserted to the number. */
 
@@ -209,6 +210,78 @@ describe('days counted in trading days (ADR 0060)', () => {
       eventPointAt(data, 'xyz', 'earnings.days_since_earnings', closeOf(d), 100)?.value.toNumber();
     expect(days('2026-11-09')).toBe(1);
     expect(days('2026-11-13')).toBe(5);
+  });
+});
+
+describe('earnings window, in trading days around the release (N189)', () => {
+  const day = 86_400_000;
+  // Released Wednesday 2026-11-04 after the close; the next one Monday 2027-02-01.
+  const release = (announcedDate: string): EarningsSignal => ({
+    fiscalQuarterEnd: '2026-09-30',
+    announcedAt: `${announcedDate}T21:05:00Z`,
+    announcedDate,
+    reportedEps: 1,
+    sue: 2,
+    surprisePct: null,
+    source: 'recorded',
+  });
+  const releases = [release('2026-11-04'), release('2027-02-01')];
+  const spec = getMetric('earnings.window');
+  const inWindow = (data: EventData, d: string, params: Record<string, number> = {}) => {
+    if (!spec) throw new Error('earnings.window is missing');
+    const at = closeOf(d);
+    return computeMetric({ metric: spec.id, params: resolveMetricParams(spec, params) }, 'xyz', {
+      value: () => undefined,
+      event: (id, metric) => eventPointAt(data, id, metric, at, 100),
+    })?.toNumber();
+  };
+
+  it('covers −1 to +1 by default, skipping weekends', () => {
+    // Back test before the calendar feed: the actual release stands in for the coming date.
+    const data: EventData = { ...emptyEventData(), earnings: new Map([['xyz', releases]]) };
+    expect(inWindow(data, '2026-11-02')).toBe(0); // Monday, day −2
+    expect(inWindow(data, '2026-11-03')).toBe(1); // Tuesday, day −1
+    expect(inWindow(data, '2026-11-04')).toBe(1); // release day
+    expect(inWindow(data, '2026-11-05')).toBe(1); // Thursday, day +1
+    expect(inWindow(data, '2026-11-06')).toBe(0); // Friday, day +2
+    // A Monday release: the Friday before is day −1.
+    expect(inWindow(data, '2027-01-28', { fromDay: -1, toDay: 0 })).toBe(0);
+    expect(inWindow(data, '2027-01-29', { fromDay: -1, toDay: 0 })).toBe(1);
+  });
+
+  it('takes any range, e.g. +2 to +5 after the release', () => {
+    const data: EventData = { ...emptyEventData(), earnings: new Map([['xyz', releases]]) };
+    // Wednesday release: Friday is +2, the next Wednesday +5, Thursday +6.
+    expect(inWindow(data, '2026-11-05', { fromDay: 2, toDay: 5 })).toBe(0);
+    expect(inWindow(data, '2026-11-06', { fromDay: 2, toDay: 5 })).toBe(1);
+    expect(inWindow(data, '2026-11-11', { fromDay: 2, toDay: 5 })).toBe(1);
+    expect(inWindow(data, '2026-11-12', { fromDay: 2, toDay: 5 })).toBe(0);
+  });
+
+  it('reads the calendar feed once it lists the stock, not the actual release', () => {
+    const at = closeOf('2027-01-29');
+    const data: EventData = {
+      ...emptyEventData(),
+      earnings: new Map([['xyz', releases]]),
+      // The feed lists Monday 2027-02-08 (a week later): Friday the 29th is then day −6, not −1.
+      calendar: new Map([['xyz', [{ date: '2027-02-08', firstSeenMs: at - day, lastSeenMs: at }]]]),
+    };
+    expect(inWindow(data, '2027-01-29')).toBe(0);
+    expect(inWindow(data, '2027-01-29', { fromDay: -6, toDay: -6 })).toBe(1);
+  });
+
+  it('is unknown with no earnings dates on record', () => {
+    expect(inWindow(emptyEventData(), '2026-11-04')).toBeUndefined();
+  });
+
+  it('refuses From after To and ranges past 20 days', () => {
+    expect(
+      checkMetricRef({ metric: 'earnings.window', params: { fromDay: 1, toDay: -1 } }),
+    ).toEqual(['From day must not be after To day']);
+    expect(
+      checkMetricRef({ metric: 'earnings.window', params: { fromDay: -21, toDay: 1 } }),
+    ).toHaveLength(1);
+    expect(checkMetricRef({ metric: 'earnings.window', params: {} })).toEqual([]);
   });
 });
 
