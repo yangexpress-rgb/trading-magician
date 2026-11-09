@@ -28,7 +28,10 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
   expect(draft.library).toBeNull();
   expect(draft.labNumber).toMatch(/^S\d{5}-SD$/);
   await page.goto(`/strategy-lab/${draft.id}`);
-  await expect(page.getByText('Number assigned on first save with instruments.')).toBeVisible();
+  await expect(page.getByText(draft.labNumber, { exact: true })).toBeVisible();
+  await expect(page.getByTitle('Double-click to change the theory').first()).toContainText(
+    'Theory none referred',
+  );
 
   // Saved with an instrument and no link, it gets a record of its own.
   const saved = await createStrategyWithRules(page, baseURL!, 'Numbered one', oneLeg);
@@ -61,18 +64,14 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
   await expect(page).toHaveURL(new RegExp(`/strategy-lab/${saved.id}$`));
   await expect(page.getByText(labNumber, { exact: true })).toBeVisible();
 
-  // The builder links an existing entry: the strategy takes its number.
+  // The line under its name links an existing theory (N191); it saves at once.
   await page.goto(`/strategy-lab/${saved.id}`);
-  const card = page.getByRole('region', { name: 'Library entry' });
-  await expect(card.getByRole('link', { name: own })).toBeVisible();
-  await card.getByRole('button', { name: 'Change entry' }).click();
-  await card.getByLabel('Search the Library by number or name').fill('SMS-0009');
+  const theory = page.getByTitle('Double-click to change the theory').first();
+  await expect(theory).toContainText('Theory none referred');
+  await theory.dblclick();
+  await page.getByLabel('Search the Library by number or name').fill('SMS-0009');
   // A former number finds the entry under its current number (ADR 0055).
-  await card.getByRole('button', { name: /T00009-SM/ }).click();
-  await expect(card.getByText(`uses T00009-SM`)).toBeVisible();
-  await page.getByRole('button', { name: 'Save draft' }).click();
-  await expect(page.getByText('All changes saved')).toBeVisible();
-  await expect(card.getByRole('link', { name: 'T00009-SM' })).toBeVisible();
+  await page.getByRole('button', { name: /T00009-SM/ }).click();
   await expect(page.getByRole('link', { name: 'Theory Library entry T00009-SM' })).toBeVisible();
   await page.goto('/strategy-lab');
   await expect(

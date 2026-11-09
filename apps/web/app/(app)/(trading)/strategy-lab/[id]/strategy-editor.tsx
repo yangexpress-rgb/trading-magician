@@ -1,6 +1,6 @@
 'use client';
 
-import { ApiError, type StrategyLibraryDto } from '@tm/contracts';
+import { ApiError } from '@tm/contracts';
 import {
   canonicalJson,
   DEFAULT_TRIGGER,
@@ -28,11 +28,6 @@ import {
   type OptionUnderlying,
 } from '@/components/strategy/editor-context';
 import { InstrumentFinder } from '@/components/strategy/instrument-finder';
-import {
-  LibraryEntryField,
-  toChoiceRequest,
-  type LibraryPick,
-} from '@/components/strategy/library-entry-field';
 import { useBacktests } from '@/components/strategy/backtest';
 import {
   BackTestSection,
@@ -67,8 +62,6 @@ interface Props {
   strategyId: string;
   strategyName: string;
   status: StrategyStatus;
-  /** Its Strategy Library record (ADR 0054); null until the first save with instruments. */
-  library: StrategyLibraryDto | null;
   initialDefinition: StrategyDefinition;
   initialRowVersion: number;
   instruments: InstrumentOption[];
@@ -106,7 +99,6 @@ export function StrategyEditor({
   strategyId,
   strategyName,
   status,
-  library,
   initialDefinition,
   initialRowVersion,
   instruments: initialInstruments,
@@ -123,14 +115,13 @@ export function StrategyEditor({
   // Shared with the header's inline rename (N190).
   const [rowVersion, setRowVersion] = useRowVersion(initialRowVersion);
   const [save, setSave] = useState<SaveState>({ kind: 'idle' });
-  const [libraryPick, setLibraryPick] = useState<LibraryPick | null>(null);
 
   const editable = status !== 'actively_executing';
   const rulesDirty = useMemo(
     () => canonicalJson(definition) !== savedJson,
     [definition, savedJson],
   );
-  const dirty = rulesDirty || libraryPick !== null;
+  const dirty = rulesDirty;
   const issues = useMemo(() => structuralIssues(definition), [definition]);
   const { state: validation, recheck } = useValidation(strategyId, rowVersion);
   const backtests = useBacktests(strategyId);
@@ -173,9 +164,7 @@ export function StrategyEditor({
       const saved = await apiClient.strategies.update(strategyId, {
         rowVersion,
         definition,
-        ...(libraryPick ? { library: toChoiceRequest(libraryPick) } : {}),
       });
-      setLibraryPick(null);
       setRowVersion(saved.rowVersion);
       setSavedJson(canonicalJson(saved.definition));
       setDefinition(saved.definition);
@@ -300,16 +289,7 @@ export function StrategyEditor({
           id="strategy"
           description="What it trades, when it enters and exits, how orders are sent and the limits they must stay inside."
         >
-          <LibraryEntryField
-            current={library}
-            strategyName={strategyName}
-            choice={libraryPick}
-            onChoose={(pick) => {
-              setLibraryPick(pick);
-              setSave({ kind: 'idle' });
-            }}
-            editable={editable}
-          />
+          {/* Its theory is changed from the line under its name (N191, N192). */}
           <InstrumentFinder
             instruments={instruments}
             editable={editable}
