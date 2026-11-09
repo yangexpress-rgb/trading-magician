@@ -1,7 +1,10 @@
 import { createDefinition, type StrategyDefinition } from '@tm/domain';
 import { eq } from 'drizzle-orm';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Transaction } from '../src/client';
+import { MIGRATIONS_FOLDER } from '../src/migrate';
 import { numberExistingLabStrategies, strategyIdByLabNumber } from '../src/library-lab';
 import { provisionWorkspace } from '../src/provision';
 import { instruments, strategies, tradingAccounts, users } from '../src/schema';
@@ -18,7 +21,7 @@ import { createTestDatabase, type TestDatabase } from './harness';
 /**
  * Strategy Lab numbers (ADR 0065, N182): each Lab strategy has its own S
  * number, laid out by the theory rules, from the Lab's own counter, which
- * starts above every theory sequence that ever had an S number. Tests run in
+ * starts at S00001, separate from the theory range (ADR 0066). Tests run in
  * order and share one database, so numbers follow on.
  */
 
@@ -26,7 +29,8 @@ let t: TestDatabase;
 let userA: string;
 let userB: string;
 let accountA: string;
-let floor: number;
+/** Lab numbers start at S00001, a range of their own (ADR 0066). */
+const floor = 0;
 const ids: Record<string, string> = {};
 
 const as = <T>(userId: string, fn: (tx: Transaction) => Promise<T>) =>
@@ -86,10 +90,6 @@ beforeAll(async () => {
   await provisionWorkspace(t.app.db, { userId: userB, displayName: 'B' });
   for (const r of await t.owner.db.select().from(instruments)) ids[r.symbol] = r.id;
   accountA = (await asA((tx) => tx.select().from(tradingAccounts)))[0]!.id;
-  const [row] = await t.ownerSql<{ floor: number }[]>`
-    select coalesce(max(sequence_no), 0)::int as floor from strategy_library_entries
-     where exists (select 1 from unnest(former_numbers) f where f ~ '^S[0-9]')`;
-  floor = row!.floor;
 }, 60_000);
 
 afterAll(async () => {
@@ -97,21 +97,16 @@ afterAll(async () => {
 });
 
 describe('Strategy Lab numbers', () => {
-  it('starts above every former S theory number, so no string names both', () => {
-    // The seeded library is renumbered to T; its S numbers live on as former numbers.
-    expect(floor).toBeGreaterThan(0);
-  });
-
   it('gives a strategy saved with instruments its own S number and its theory a T number', async () => {
     const s = await asA((tx) =>
       createStrategy(tx, userA, { name: 'Trend A', definition: definition(['DEMO-A']) }),
     );
     expect(s.labNumber).toBe(`S${seq(floor + 1)}-SD`);
     expect(s.library?.registrationNumber).toMatch(/^T\d{5}-SD$/);
+    // S00001-SD is also a former theory number; the ranges are separate (ADR 0066).
     const theories = await t.ownerSql`
-      select 1 from strategy_library_entries
-       where registration_number = ${s.labNumber} or ${s.labNumber} = any(former_numbers)`;
-    expect(theories).toHaveLength(0);
+      select 1 from strategy_library_entries where ${s.labNumber} = any(former_numbers)`;
+    expect(theories).toHaveLength(1);
   });
 
   it('takes the letters from the strategy as theories do (ETF, minute bars)', async () => {
@@ -223,5 +218,33 @@ describe('Strategy Lab numbers', () => {
     const [counter] = await t.ownerSql<{ n: number }[]>`
       select last_issued as n from strategy_lab_sequence`;
     expect(counter!.n).toBe(floor + 7);
+  });
+
+  it('migration 0080 renumbers Lab numbers issued above the former theory range from S00001', async () => {
+    // As on staging after 0079: numbers issued from S00032.
+    await t.ownerSql.unsafe(`
+      alter table strategy disable trigger strategy_lab_number;
+      update strategy set lab_sequence_no = lab_sequence_no + 31,
+        lab_number = strategy_library_compose('sequence-first', 5, 'S',
+          lab_timeframe_code, lab_asset_class_code, lab_sequence_no + 31)
+       where lab_number is not null;
+      alter table strategy enable trigger strategy_lab_number;
+      update strategy_lab_sequence set last_issued = last_issued + 31;`);
+    const before = await t.ownerSql<{ id: string; n: string }[]>`
+      select id, lab_number as n from strategy where lab_number is not null order by lab_sequence_no`;
+    expect(before[0]!.n).toBe('S00032-SD');
+    const file = readFileSync(join(MIGRATIONS_FOLDER, '0080_lab_numbers_from_one.sql'), 'utf8');
+    const renumber = file.slice(file.indexOf('ALTER TABLE "strategy" DISABLE'));
+    for (const statement of renumber.split('--> statement-breakpoint')) {
+      if (statement.trim()) await t.ownerSql.unsafe(statement);
+    }
+    const after = await t.ownerSql<{ id: string; n: string }[]>`
+      select id, lab_number as n from strategy where lab_number is not null order by lab_sequence_no`;
+    expect(after.map((r) => r.id)).toEqual(before.map((r) => r.id));
+    expect(after.map((r) => r.n)).toEqual(before.map((r, i) => `S${seq(i + 1)}-${r.n.slice(-2)}`));
+    const next = await asA((tx) =>
+      createStrategy(tx, userA, { name: 'After renumber', definition: definition(['DEMO-A']) }),
+    );
+    expect(next.labNumber).toBe(`S${seq(after.length + 1)}-SD`);
   });
 });

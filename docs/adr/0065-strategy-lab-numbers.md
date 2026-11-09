@@ -1,6 +1,6 @@
 # ADR 0065: Strategy Lab strategies have their own S numbers
 
-- **Status:** accepted
+- **Status:** accepted; the starting point is superseded by ADR 0066 (Lab numbers start at S00001)
 - **Date:** 2026-11-09
 - **Design refs:** design v1.2 row N182, open point O134. Builds on ADR 0054 (Lab numbering),
   ADR 0055 (convention v2) and ADR 0064 (theory numbers, T)
