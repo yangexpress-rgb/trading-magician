@@ -3,6 +3,7 @@ import { nyDate, tradingDaysBetween } from '../market/calendar';
 import { activeDealAt, dealSpread, type DealSignal } from './deals';
 import {
   daysToNextEarnings,
+  daysToNextEarningsDate,
   latestRelease,
   type EarningsSignal,
   type ScheduledEarnings,
@@ -21,6 +22,8 @@ export const EVENT_METRIC_IDS = [
   'earnings.sue_ts',
   'earnings.surprise_pct',
   'earnings.next_earnings_days',
+  // The earnings window's look ahead (N186); not offered in the builder on its own.
+  'earnings.next_date_days',
   'deals.spread_pct',
   'rates.tbill_3m',
 ] as const;
@@ -93,6 +96,14 @@ export function eventPointAt(
         atMs,
       );
       return d === undefined ? undefined : point(d, barDate);
+    }
+    case 'earnings.next_date_days': {
+      const d = daysToNextEarningsDate(
+        data.calendar.get(instrumentId),
+        data.earnings.get(instrumentId),
+        atMs,
+      );
+      return d === undefined ? undefined : point(d.days, barDate, d.standIn ? 'edgar' : undefined);
     }
     case 'deals.spread_pct': {
       const deal = activeDealAt(data.deals.get(instrumentId), atMs);

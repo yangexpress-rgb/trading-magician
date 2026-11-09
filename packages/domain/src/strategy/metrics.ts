@@ -96,6 +96,8 @@ export interface MetricSpec {
   assetClasses: readonly string[];
   /** The daily series it reads, with enough history, for loading bars ahead of a run. */
   requirements(instrumentId: string, params: Record<string, number | string>): DailySeries[];
+  /** Problems with the resolved params beyond each one's own range, e.g. From after To. */
+  checkParams?(params: Record<string, number | string>): string[];
   compute(
     instrumentId: string,
     params: Record<string, number | string>,
@@ -665,6 +667,51 @@ function eventMetric(
   };
 }
 
+/** The widest earnings window, in trading days either side of the release. */
+export const EARNINGS_WINDOW_MAX_DAYS = 20;
+
+/**
+ * Whether the bar falls within a range of NYSE trading days around an
+ * earnings date (N186): 1 inside, 0 outside, unknown with no earnings dates
+ * on record. Day 0 is the release day, −1 the trading day before, +1 the
+ * trading day after. Past dates are EDGAR releases; coming ones are the
+ * calendar feed's, with the actual release standing in before the feed began.
+ */
+function earningsWindowMetric(): MetricSpec {
+  const day = (name: string, label: string, value: number): MetricParamSpec => ({
+    name,
+    label,
+    kind: 'int',
+    min: -EARNINGS_WINDOW_MAX_DAYS,
+    max: EARNINGS_WINDOW_MAX_DAYS,
+    default: value,
+  });
+  return {
+    id: 'earnings.window',
+    label: 'Earnings window',
+    help: 'Whether the bar date is within the chosen range of trading days around an earnings release (weekends and market holidays skipped): 1 inside, 0 outside. Day 0 is the release day, −1 the trading day before, +1 the trading day after; −1 to +1 covers three trading days. Use it as "Earnings window = 1". Coming dates come from the earnings calendar feed; in back tests before the feed began, the actual release date stands in. Unknown with no earnings dates on record.',
+    category: 'earnings',
+    unit: 'number',
+    params: [day('fromDay', 'From day (− before)', -1), day('toDay', 'To day (+ after)', 1)],
+    assetClasses: ['stock'],
+    requirements: (instrumentId) => [rawClose(instrumentId)],
+    checkParams: (params) =>
+      Number(params.fromDay) > Number(params.toDay) ? ['From day must not be after To day'] : [],
+    compute: (instrumentId, params, r, barsBack) => {
+      const from = Number(params.fromDay);
+      const to = Number(params.toDay);
+      const since = r.event?.(instrumentId, 'earnings.days_since_earnings', barsBack)?.value;
+      const next = r.event?.(instrumentId, 'earnings.next_date_days', barsBack)?.value;
+      if (since === undefined && next === undefined) return undefined;
+      const inside = (offset: number) => offset >= from && offset <= to;
+      const hit =
+        (since !== undefined && inside(since.toNumber())) ||
+        (next !== undefined && inside(-next.toNumber()));
+      return new Decimal(hit ? 1 : 0);
+    },
+  };
+}
+
 /**
  * Earnings, deals and rates (free data feeds brief v1 §4, ADR 0058). Earnings
  * and deals come from the app's own record of EDGAR filings; the T-bill rate
@@ -679,6 +726,7 @@ const EVENT_METRICS: readonly MetricSpec[] = [
     'number',
     ['stock'],
   ),
+  earningsWindowMetric(),
   eventMetric(
     'earnings.sue_ts',
     'earnings',
@@ -807,6 +855,7 @@ export function checkMetricRef(ref: MetricRef): string[] {
       }
     }
   }
+  if (problems.length === 0 && spec.checkParams) problems.push(...spec.checkParams(params));
   return problems;
 }
 
