@@ -71,3 +71,11 @@ each goes to each person as its own share, in one transaction, so a refusal (nam
 shares nothing. Shares stay one per strategy and person, so accepting, declining and notifications
 are unchanged. Migration 0074 then removes the sharing limits at Yong's request: no hourly or pending
 limit and no cap on people or strategies per send (O104).
+
+## Amendment: answering several shares at once (N155, 2026-11-09)
+
+Yong asked for recipients to accept one, several or all shares at once. "Shared with me" gains a
+tick box on each pending share, a header box, and "Accept selected", "Decline selected" and
+"Accept all". The page answers each share through the existing accept and decline endpoints, one
+after another, so each copy is made in its own transaction exactly as a single accept makes it, and
+a share that fails (withdrawn or expired meanwhile) is reported without undoing the others (O120).

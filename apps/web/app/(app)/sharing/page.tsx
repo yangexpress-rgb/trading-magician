@@ -3,6 +3,7 @@ import { formatDateTime } from '@tm/domain';
 import { Badge, EmptyState, PageHeader, Table, Td, Th } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { AnswerCheckAll, AnswerCheckbox, BulkAnswer, type PendingShare } from './bulk-answer';
 import { SHARE_KIND_LABELS, SHARE_STATUS_LABELS } from '@/lib/share-text';
 import { appDb } from '@/lib/server/db';
 import { getProfile } from '@/lib/server/profile';
@@ -25,6 +26,13 @@ export default async function SharingPage({
   const box = raw.box === 'sent' ? 'sent' : 'received';
   const items = await withTenant(appDb(), tenant, (tx) => listShares(tx, tenant.userId, { box }));
   const pending = items.filter((s) => s.status === 'pending').length;
+  // What the recipient can still answer, for the tick boxes (N155).
+  const answerable: PendingShare[] =
+    box === 'received'
+      ? items
+          .filter((s) => s.status === 'pending')
+          .map((s) => ({ id: s.id, label: `${s.sourceNumber} ${s.sourceName}` }))
+      : [];
 
   return (
     <>
@@ -66,51 +74,67 @@ export default async function SharingPage({
               {pending === 1 ? '1 share is' : `${pending} shares are`} waiting for your answer.
             </p>
           )}
-          <Table label={box === 'received' ? 'Shared with me' : 'Shared by me'}>
-            <thead>
-              <tr>
-                <Th>Strategy</Th>
-                <Th>{box === 'received' ? 'From' : 'To'}</Th>
-                <Th>Kind</Th>
-                <Th>Status</Th>
-                <Th>Shared ({prefs.timeZone})</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((s) => (
-                <tr key={s.id}>
-                  <Td>
-                    <Link href={`/sharing/${s.id}`} className="font-medium">
-                      <span className="font-mono">{s.sourceNumber}</span> {s.sourceName}
-                    </Link>
-                    {s.note && <p className="mt-0.5 text-xs text-ink-muted">“{s.note}”</p>}
-                  </Td>
-                  <Td>
-                    {box === 'received' ? s.sender.label : s.recipient.label}
-                    {box === 'received' && s.sender.isAdmin && (
-                      <Badge tone="warn" icon={false} className="ml-2">
-                        Admin
-                      </Badge>
-                    )}
-                  </Td>
-                  <Td className="text-xs">{SHARE_KIND_LABELS[s.kind]}</Td>
-                  <Td>
-                    <Badge tone={SHARE_STATUS_LABELS[s.status].tone}>
-                      {SHARE_STATUS_LABELS[s.status].label}
-                    </Badge>
-                    {s.result?.number && (
-                      <p className="mt-0.5 font-mono text-xs">
-                        Copy: <Link href={`/library/${s.result.number}`}>{s.result.number}</Link>
-                      </p>
-                    )}
-                  </Td>
-                  <Td className="whitespace-nowrap text-content">
-                    {formatDateTime(s.createdAt, prefs)}
-                  </Td>
+          <BulkAnswer pending={answerable}>
+            <Table label={box === 'received' ? 'Shared with me' : 'Shared by me'}>
+              <thead>
+                <tr>
+                  {box === 'received' && (
+                    <Th>
+                      <AnswerCheckAll pending={answerable} />
+                    </Th>
+                  )}
+                  <Th>Strategy</Th>
+                  <Th>{box === 'received' ? 'From' : 'To'}</Th>
+                  <Th>Kind</Th>
+                  <Th>Status</Th>
+                  <Th>Shared ({prefs.timeZone})</Th>
                 </tr>
-              ))}
-            </tbody>
-          </Table>
+              </thead>
+              <tbody>
+                {items.map((s) => (
+                  <tr key={s.id}>
+                    {box === 'received' && (
+                      <Td>
+                        {s.status === 'pending' && (
+                          <AnswerCheckbox
+                            share={{ id: s.id, label: `${s.sourceNumber} ${s.sourceName}` }}
+                          />
+                        )}
+                      </Td>
+                    )}
+                    <Td>
+                      <Link href={`/sharing/${s.id}`} className="font-medium">
+                        <span className="font-mono">{s.sourceNumber}</span> {s.sourceName}
+                      </Link>
+                      {s.note && <p className="mt-0.5 text-xs text-ink-muted">“{s.note}”</p>}
+                    </Td>
+                    <Td>
+                      {box === 'received' ? s.sender.label : s.recipient.label}
+                      {box === 'received' && s.sender.isAdmin && (
+                        <Badge tone="warn" icon={false} className="ml-2">
+                          Admin
+                        </Badge>
+                      )}
+                    </Td>
+                    <Td className="text-xs">{SHARE_KIND_LABELS[s.kind]}</Td>
+                    <Td>
+                      <Badge tone={SHARE_STATUS_LABELS[s.status].tone}>
+                        {SHARE_STATUS_LABELS[s.status].label}
+                      </Badge>
+                      {s.result?.number && (
+                        <p className="mt-0.5 font-mono text-xs">
+                          Copy: <Link href={`/library/${s.result.number}`}>{s.result.number}</Link>
+                        </p>
+                      )}
+                    </Td>
+                    <Td className="whitespace-nowrap text-content">
+                      {formatDateTime(s.createdAt, prefs)}
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </BulkAnswer>
         </>
       )}
     </>
