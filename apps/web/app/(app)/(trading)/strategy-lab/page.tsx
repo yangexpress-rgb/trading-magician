@@ -128,7 +128,7 @@ export default async function StrategyLabPage({
       : null;
   const shareable = items.map(shareItem).filter((i) => i !== null);
 
-  // Column headers sort the list (N157): the first click sorts ascending, the
+  // Column headers sort the list (N167): the first click sorts ascending, the
   // next descending. Filters stay as they are.
   const sortHref = (key: SortKey) => {
     const params = new URLSearchParams();

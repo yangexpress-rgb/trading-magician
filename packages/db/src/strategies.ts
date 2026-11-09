@@ -225,7 +225,7 @@ export async function listStrategies(
   }
 
   const dir = query.direction === 'asc' ? 'asc' : 'desc';
-  // Every column of the Lab list can sort (N157); empty values always go last.
+  // Every column of the Lab list can sort (N167); empty values always go last.
   const sortColumn = {
     updated: sql`${strategies.updatedAt}`,
     created: sql`${strategies.createdAt}`,

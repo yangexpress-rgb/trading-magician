@@ -181,7 +181,7 @@ test.describe('strategy library', () => {
     await filter({ 'Sort by': 'Name' });
     await expect(rowLinks).toHaveText(['Beverage pairs', 'Momentum A']);
 
-    // Clicking a column header sorts by it: ascending first, then descending (N157).
+    // Clicking a column header sorts by it: ascending first, then descending (N167).
     await page.goto('/strategy-lab');
     const nameHeader = table.getByRole('columnheader', { name: /^Name/ });
     await nameHeader.getByRole('link').click();
