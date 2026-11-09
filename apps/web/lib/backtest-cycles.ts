@@ -371,3 +371,170 @@ export function cyclesCsv(cycles: readonly CycleView[]): string {
   }
   return lines.join('\r\n') + '\r\n';
 }
+
+// ---------------------------------------------------------------------------
+// Key data for each side of a cycle (N169): how the conditions, the timing and
+// the execution played out up to and after the signal.
+
+export interface ConditionKeyData {
+  /** What the window covers, e.g. since the previous Entry signal. */
+  since: string | null;
+  checked: number;
+  trueBars: number;
+  unknownBars: number;
+  firstTrue: string | null;
+  /** The bar that fired, when one did. */
+  firedAt: string | null;
+  /** The checks in the window, oldest first, ending with the signal bar. */
+  bars: ConditionBar[];
+}
+
+export interface ExecutionKeyData {
+  label: string;
+  symbol: string;
+  side: BacktestOrder['side'];
+  outcome: BacktestOrder['outcome'];
+  /** The last close when it was sent, the price a fill is compared with. */
+  reference: string | null;
+  fillPrice: string | null;
+  /** Fill against the reference, in %, signed so that positive is a worse price. */
+  costPct: string | null;
+  filled: string;
+  quantity: string | null;
+  barsWorking: number;
+  bestPrice: string | null;
+  commission: string;
+  slippage: string;
+}
+
+export interface PhaseKeyData {
+  conditions: ConditionKeyData | null;
+  timing: {
+    /** When the signal happened (bar close), the orders could first fill, and the last fill. */
+    signalAt: string | null;
+    activeFrom: string | null;
+    filledAt: string | null;
+    /** Calendar days from the signal to the last fill. */
+    daysToFill: number | null;
+    /** Most bars any leg worked before it ended. */
+    barsWorking: number;
+  };
+  execution: ExecutionKeyData[];
+}
+
+function earliest(xs: (string | null)[]): string | null {
+  const v = xs.filter((x): x is string => x !== null).sort();
+  return v[0] ?? null;
+}
+
+function latest(xs: (string | null)[]): string | null {
+  const v = xs.filter((x): x is string => x !== null).sort();
+  return v.at(-1) ?? null;
+}
+
+function executionOf(
+  orders: readonly BacktestOrder[],
+  fills: readonly BacktestFill[],
+  entryOrders: readonly BacktestOrder[],
+): ExecutionKeyData[] {
+  /** Close and reduce buy back a short and sell a long, by the instrument's Entry side. */
+  const buys = (o: BacktestOrder) =>
+    BUYS.has(o.side) ||
+    ((o.side === 'close' || o.side === 'reduce') &&
+      entryOrders.some((e) => e.instrumentId === o.instrumentId && e.side === 'sell_short'));
+  return orders.map((o) => {
+    const own = fills.filter(
+      (f) => f.cycle === o.cycle && f.legId === o.legId && f.phase === o.phase,
+    );
+    const ref = o.referencePrice === null ? null : Number(o.referencePrice);
+    const px = o.averagePrice === null ? null : Number(o.averagePrice);
+    const buying = buys(o);
+    const cost =
+      ref && px !== null && ref > 0 ? ((buying ? px - ref : ref - px) / ref) * 100 : null;
+    return {
+      label: o.phase === 'flatten' ? 'Close after a failed leg' : o.legLabel,
+      symbol: o.symbol,
+      side: o.side,
+      outcome: o.outcome,
+      reference: o.referencePrice,
+      fillPrice: o.averagePrice,
+      costPct: cost === null ? null : cost.toFixed(2),
+      filled: o.filledQuantity,
+      quantity: o.quantity,
+      barsWorking: o.barsWorking,
+      bestPrice: o.bestPrice,
+      commission: fixed(sum(own.map((f) => Number(f.commission)))) ?? '0.00',
+      slippage: fixed(sum(own.map((f) => Number(f.slippage)))) ?? '0.00',
+    };
+  });
+}
+
+function timingOf(signalAt: string | null, orders: readonly BacktestOrder[]) {
+  const filledAt = latest(orders.filter((o) => Number(o.filledQuantity) > 0).map((o) => o.endedAt));
+  const start = signalAt ?? earliest(orders.map((o) => o.decidedAt));
+  return {
+    signalAt: start,
+    activeFrom: earliest(orders.map((o) => o.activeFrom)),
+    filledAt,
+    daysToFill:
+      start && filledAt ? Math.round((Date.parse(filledAt) - Date.parse(start)) / DAY_MS) : null,
+    barsWorking: Math.max(0, ...orders.map((o) => o.barsWorking)),
+  };
+}
+
+function summarize(bars: ConditionBar[], since: string | null, firedAt: string | null) {
+  return {
+    since,
+    checked: bars.length,
+    trueBars: bars.filter((b) => b.truth === true).length,
+    unknownBars: bars.filter((b) => b.truth === null).length,
+    firstTrue: bars.find((b) => b.truth === true)?.time ?? null,
+    firedAt,
+    bars,
+  };
+}
+
+/**
+ * The Entry side: the Entry checks since the previous Entry signal (or the
+ * start of the test) up to this cycle's signal bar, the timing from signal
+ * to fill, and each Entry order's fill against the last close.
+ */
+export function entryKeyData(c: CycleView, fills: readonly BacktestFill[]): PhaseKeyData {
+  const report = c.entry.report;
+  const signal = c.entry.bar;
+  let conditions: ConditionKeyData | null = null;
+  if (report && signal) {
+    const all = report.bars;
+    const end = all.indexOf(signal);
+    let start = 0;
+    for (let i = end - 1; i >= 0; i--) {
+      const o = all[i]?.outcome;
+      if (o === 'fired' || o === 'cycle_open') {
+        start = i + 1;
+        break;
+      }
+    }
+    const since = start > 0 ? (all[start - 1]?.time ?? null) : null;
+    conditions = summarize(all.slice(start, end + 1), since, signal.time);
+  }
+  return {
+    conditions,
+    timing: timingOf(signal?.time ?? c.entry.decidedAt, c.entryOrders),
+    execution: executionOf(c.entryOrders, fills, c.entryOrders),
+  };
+}
+
+/** The Exit side: the Exit checks while the cycle was open, then timing and execution. */
+export function exitKeyData(c: CycleView, fills: readonly BacktestFill[]): PhaseKeyData {
+  const bars = c.exit.bars;
+  const firedAt = c.exit.bar?.time ?? null;
+  const upTo = firedAt ? bars.filter((b) => b.time <= firedAt) : bars;
+  return {
+    conditions:
+      c.exit.report && bars.length > 0
+        ? summarize(upTo, c.trade?.entryTime ?? null, firedAt)
+        : null,
+    timing: timingOf(c.exit.decidedAt, c.exitOrders),
+    execution: executionOf(c.exitOrders, fills, c.entryOrders),
+  };
+}

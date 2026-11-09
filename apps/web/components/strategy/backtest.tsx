@@ -410,16 +410,61 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
           </a>
         )}
       </div>
-      <p className="mt-1 text-sm">{describeRun(run)}</p>
-      <p className="text-xs text-ink-muted">
-        {[
-          run.finishedAt && `Finished ${new Date(run.finishedAt).toLocaleString('en-US')}`,
-          run.engineVersion && `Engine ${run.engineVersion}`,
-          run.dataVersions.length > 0 && `Data ${run.dataVersions.join(', ')}`,
-        ]
-          .filter(Boolean)
-          .join(' · ')}
-      </p>
+      {/* The run's dates, figures, charts and assumptions, collapsed by default (N170). */}
+      <details className="mt-3 rounded-md border border-line p-3">
+        <summary className="cursor-pointer text-sm font-medium">
+          Run summary
+          {run.metrics && (
+            <span className="ml-2 font-normal text-ink-muted">
+              net return {formatPct(run.metrics.netReturnPct, true)}
+            </span>
+          )}
+        </summary>
+        <div className="mt-3">
+          <p className="text-sm">{describeRun(run)}</p>
+          <p className="text-xs text-ink-muted">
+            {[
+              run.finishedAt && `Finished ${new Date(run.finishedAt).toLocaleString('en-US')}`,
+              run.engineVersion && `Engine ${run.engineVersion}`,
+              run.dataVersions.length > 0 && `Data ${run.dataVersions.join(', ')}`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+
+          {run.status === 'completed' && run.metrics && run.result && (
+            <div className="mt-3 grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div className="min-w-0 space-y-6">
+                <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {metricTiles(run.metrics).map((t) => (
+                    <Stat
+                      key={t.label}
+                      className="rounded-md border border-line p-3"
+                      label={t.label}
+                      value={t.value}
+                      comparison={t.detail}
+                    />
+                  ))}
+                </dl>
+
+                {run.result.equity.length > 0 && <Charts run={run} />}
+              </div>
+
+              <aside aria-labelledby="bt-assumptions-heading" className="space-y-2 text-sm">
+                <h3 id="bt-assumptions-heading" className="text-base font-semibold">
+                  Assumptions
+                </h3>
+                <ul className="list-disc space-y-1 pl-5">
+                  {run.result.assumptions.map((a) => (
+                    <li key={a}>{a}</li>
+                  ))}
+                </ul>
+                <p className="text-xs text-ink-muted">Sharpe ratio: {run.result.sharpeMethod}</p>
+              </aside>
+            </div>
+          )}
+        </div>
+      </details>
 
       {run.status === 'failed' && (
         <div className="mt-3">
@@ -428,38 +473,6 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
       )}
       {run.status === 'canceled' && (
         <p className="mt-3 text-sm">This back test was canceled before it finished.</p>
-      )}
-
-      {run.status === 'completed' && run.metrics && run.result && (
-        <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-          <div className="min-w-0 space-y-6">
-            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {metricTiles(run.metrics).map((t) => (
-                <Stat
-                  key={t.label}
-                  className="rounded-md border border-line p-3"
-                  label={t.label}
-                  value={t.value}
-                  comparison={t.detail}
-                />
-              ))}
-            </dl>
-
-            {run.result.equity.length > 0 && <Charts run={run} />}
-          </div>
-
-          <aside aria-labelledby="bt-assumptions-heading" className="space-y-2 text-sm">
-            <h3 id="bt-assumptions-heading" className="text-base font-semibold">
-              Assumptions
-            </h3>
-            <ul className="list-disc space-y-1 pl-5">
-              {run.result.assumptions.map((a) => (
-                <li key={a}>{a}</li>
-              ))}
-            </ul>
-            <p className="text-xs text-ink-muted">Sharpe ratio: {run.result.sharpeMethod}</p>
-          </aside>
-        </div>
       )}
 
       {run.status === 'completed' && run.metrics && run.result && (

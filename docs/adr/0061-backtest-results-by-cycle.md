@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-09
-- **Design refs:** §7.2, §7.3; design v1.2 rows N157 to N166, open points O122 to O127.
+- **Design refs:** §7.2, §7.3; design v1.2 rows N157 to N166, N169 and N170, open points O122 to O127.
   Builds on C19 ("What happened"), N12 (selection rounds) and ADR 0059 (trailing stop)
 
 ## Context
@@ -42,6 +42,13 @@ but not per instrument within a cycle, and the trailing stop kept no peak or lev
 - **Older runs still read.** Without `cycles` and Entry bar cycle numbers, the card matches the
   Entry bar to the cycle's Entry order by decision time and works out leg P/L from the fills
   (borrow costs, which aren't in the fills, are then left out).
+
+- **Follow-up the same day (N169, N170).** After seeing it on staging, Yong asked for the run's
+  dates and figures to be collapsed and for each cycle to show how the conditions, timing and
+  execution played out before it fired. Each side of the card gains a Key data block (the checks
+  since the previous Entry signal or while the position was open, signal-to-fill timing, and each
+  fill against the last close), worked out in the browser from the stored bars, orders and fills;
+  the run summary becomes one collapsed section.
 
 ## Consequences
 

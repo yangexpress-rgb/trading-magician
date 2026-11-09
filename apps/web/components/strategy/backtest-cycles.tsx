@@ -25,6 +25,8 @@ import {
   CYCLE_STATUS,
   cycleCounts,
   cyclesCsv,
+  entryKeyData,
+  exitKeyData,
   matchesFilter,
   matchesSearch,
   skippedSignals,
@@ -33,6 +35,7 @@ import {
   type CycleSort,
   type CycleView,
   type LegRow,
+  type PhaseKeyData,
 } from '@/lib/backtest-cycles';
 import {
   atrStopText,
@@ -463,6 +466,13 @@ function CycleCard({
       <div className="grid gap-3 lg:grid-cols-2">
         <Side phase="entry" title={sideTitle('Entry', c.entry.decidedAt, interval)}>
           <EntrySignal c={c} result={result} interval={interval} symbol={symbol} />
+          <KeyData
+            phase="entry"
+            data={entryKeyData(c, result.fills)}
+            report={c.entry.report}
+            interval={interval}
+            symbol={symbol}
+          />
           {t?.sizing && (
             <div className="text-xs">
               <div className="font-medium">Risk % of equity, ATR stop</div>
@@ -482,6 +492,13 @@ function CycleCard({
         </Side>
         <Side phase="exit" title={sideTitle('Exit', c.exit.decidedAt, interval)}>
           <ExitSignal c={c} interval={interval} symbol={symbol} />
+          <KeyData
+            phase="exit"
+            data={exitKeyData(c, result.fills)}
+            report={c.exit.report}
+            interval={interval}
+            symbol={symbol}
+          />
           <Orders
             title="Exit orders"
             orders={c.exitOrders}
@@ -962,5 +979,156 @@ function Legs({ c }: { c: CycleView }) {
         )}
       </tbody>
     </Table>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Key data for each side (N169): conditions, timing and execution at a glance
+
+/** A fill against the last close: "0.36% worse", "0.51% better" or "at the close". */
+const costText = (pct: number) =>
+  pct === 0 ? 'at the close' : `${Math.abs(pct).toFixed(2)}% ${pct > 0 ? 'worse' : 'better'}`;
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+function KeyRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <>
+      <dt className="text-ink-muted">{label}</dt>
+      <dd className="text-content">{children}</dd>
+    </>
+  );
+}
+
+function KeyData({
+  phase,
+  data,
+  report,
+  interval,
+  symbol,
+}: {
+  phase: 'entry' | 'exit';
+  data: PhaseKeyData;
+  report: PhaseConditionReport | null;
+  interval: Interval;
+  symbol: (id: string) => string | undefined;
+}) {
+  const name = phase === 'entry' ? 'Entry' : 'Exit';
+  const { conditions: k, timing: t, execution } = data;
+  const at = (v: string | null) => (v ? formatMarketTime(v, interval) : '—');
+  const window =
+    phase === 'entry'
+      ? k?.since
+        ? `Since the previous Entry signal (${at(k.since)})`
+        : 'Since the start of the test'
+      : 'While the position was open';
+  return (
+    <section aria-label={`${name} key data`} className="space-y-2">
+      <SubHeading kind="cond">Key data</SubHeading>
+      <div className="space-y-3 rounded-md border border-line bg-surface p-2 text-sm">
+        {k && (
+          <div className="space-y-1">
+            <h6 className="text-xs font-semibold text-ink-muted">Conditions</h6>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+              <KeyRow label="Window">{window}</KeyRow>
+              <KeyRow label="Checked">
+                {plural(k.checked, 'bar')}: true on {k.trueBars}, false on{' '}
+                {k.checked - k.trueBars - k.unknownBars}
+                {k.unknownBars > 0 ? `, no data on ${k.unknownBars}` : ''}
+              </KeyRow>
+              <KeyRow label="First true">{at(k.firstTrue)}</KeyRow>
+              <KeyRow label="Fired">{k.firedAt ? at(k.firedAt) : 'Not by its condition'}</KeyRow>
+            </dl>
+            {report && k.bars.length > 0 && (
+              <details>
+                <summary className="cursor-pointer text-xs font-medium">
+                  {phase === 'entry'
+                    ? `Bars up to the signal (${k.bars.length > 10 ? 'last 10 of ' : ''}${k.bars.length})`
+                    : `Bars up to the Exit (${k.bars.length > 10 ? 'last 10 of ' : ''}${k.bars.length})`}
+                </summary>
+                <ul className="mt-2 space-y-2">
+                  {k.bars.slice(-10).map((b) => (
+                    <li key={b.time} className="border-t border-line pt-1">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="font-medium text-ink">{at(b.time)}</span>
+                        <Truth value={b.truth} />
+                        {b.outcome && (
+                          <span className="text-ink-muted">{CONDITION_OUTCOMES[b.outcome]}</span>
+                        )}
+                      </div>
+                      <BarValues report={report} bar={b} symbol={symbol} />
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
+        <div className="space-y-1">
+          <h6 className="text-xs font-semibold text-ink-muted">Timing</h6>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+            <KeyRow label="Signal">{t.signalAt ? `${at(t.signalAt)} close` : '—'}</KeyRow>
+            <KeyRow label="Could fill from">{at(t.activeFrom)}</KeyRow>
+            <KeyRow label="Filled">
+              {t.filledAt ? at(t.filledAt) : 'Not filled'}
+              {t.daysToFill !== null
+                ? ` (${plural(t.daysToFill, 'day')} after the signal${t.barsWorking > 0 ? `, ${plural(t.barsWorking, 'bar')} working` : ''})`
+                : ''}
+            </KeyRow>
+          </dl>
+        </div>
+        {execution.length > 0 && (
+          <div className="space-y-1">
+            <h6 className="text-xs font-semibold text-ink-muted">Execution</h6>
+            <ul className="space-y-1">
+              {execution.map((e, i) => (
+                <li key={`${e.label}-${i}`}>
+                  <span className="font-medium text-ink">{e.label}</span>{' '}
+                  <span className="text-content">
+                    {e.reference ? `last close ${formatMoney(e.reference)}` : 'no reference close'}
+                    {e.fillPrice
+                      ? ` → filled ${e.filled} at ${formatMoney(e.fillPrice)}`
+                      : ' → not filled'}
+                    {e.costPct !== null ? ` (${costText(Number(e.costPct))})` : ''}
+                  </span>
+                  <div className="text-xs text-ink-muted">
+                    Slippage {formatMoney(e.slippage)} · commission {formatMoney(e.commission)}
+                    {e.bestPrice ? ` · best price while working ${formatMoney(e.bestPrice)}` : ''}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** One bar's condition values, compactly. */
+function BarValues({
+  report,
+  bar,
+  symbol,
+}: {
+  report: PhaseConditionReport;
+  bar: ConditionBar;
+  symbol: (id: string) => string | undefined;
+}) {
+  return (
+    <ul className="text-xs">
+      {comparisonsOf(report.condition).map((cmp) => {
+        const check = bar.checks.find((x) => x.id === cmp.id);
+        return (
+          <li key={cmp.id} className="flex flex-wrap items-center gap-1">
+            <span className="text-ink-muted">
+              <ComparisonText c={cmp} symbol={symbol} />:
+            </span>
+            <span className="text-content">{describeValues(cmp, check)}</span>
+            {check && comparisonsOf(report.condition).length > 1 && <Truth value={check.truth} />}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
