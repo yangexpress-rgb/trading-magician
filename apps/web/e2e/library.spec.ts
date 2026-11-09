@@ -16,6 +16,30 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   await expect(rows.nth(17)).toContainText('S00018-AM');
   await expect(rows.nth(30)).toContainText('S00031-FS');
 
+  // Clicking a column header sorts by it: ascending, then descending (N168).
+  const table = page.getByRole('table', { name: 'Strategy Library entries' });
+  const numberHeader = table.getByRole('columnheader', { name: /^Number/ });
+  await expect(numberHeader).toHaveAttribute('aria-sort', 'ascending');
+  await numberHeader.getByRole('link').click();
+  await expect(numberHeader).toHaveAttribute('aria-sort', 'descending');
+  await expect(rows.first()).not.toContainText('S00001-SD');
+  await expect(rows.last()).toContainText('S00001-SD');
+  await numberHeader.getByRole('link').click();
+  await expect(rows.first()).toContainText('S00001-SD');
+  const categoryHeader = table.getByRole('columnheader', { name: /^Category/ });
+  const categories = () => rows.locator('td:nth-child(6)').allInnerTexts();
+  const byText = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' });
+  await categoryHeader.getByRole('link').click();
+  await expect(categoryHeader).toHaveAttribute('aria-sort', 'ascending');
+  await expect(numberHeader).toHaveAttribute('aria-sort', 'none');
+  const up = await categories();
+  expect(up).toEqual([...up].sort(byText));
+  await categoryHeader.getByRole('link').click();
+  await expect(categoryHeader).toHaveAttribute('aria-sort', 'descending');
+  const down = await categories();
+  expect(down).toEqual([...down].sort(byText).reverse());
+  await page.goto('/library');
+
   // Library v2 filters (ADR 0055): one entry needs earnings consensus.
   await page.getByLabel('Data needs').selectOption('earnings_consensus');
   await page.getByRole('button', { name: 'Apply filters' }).click();
