@@ -35,10 +35,9 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
   const own = detail.library.registrationNumber as string;
   expect(own).toMatch(/^T\d{5}-SD$/);
   expect(detail.library.autoCreated).toBe(true);
-  // Its own Strategy Lab number (ADR 0065): theory rules, letter S, above the former S theories.
+  // Its own Strategy Lab number (ADR 0065): theory rules, letter S, a range of its own (ADR 0066).
   const labNumber = detail.labNumber as string;
   expect(labNumber).toMatch(/^S\d{5}-SD$/);
-  expect(Number(labNumber.slice(1, 6))).toBeGreaterThan(31);
 
   await page.goto('/strategy-lab');
   const row = page.getByRole('row', { name: /Numbered one/ });
@@ -48,12 +47,10 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
   await page.getByRole('button', { name: 'Apply filters' }).click();
   await expect(page.getByRole('row', { name: /Numbered one/ })).toBeVisible();
 
-  // The number opens the strategy, from the Lab and from the Library.
+  // In the Lab the number opens the strategy (on Library pages an S number may be a former theory number, ADR 0066).
   await page.goto(`/strategy-lab/${labNumber}`);
   await expect(page).toHaveURL(new RegExp(`/strategy-lab/${saved.id}$`));
   await expect(page.getByText(labNumber, { exact: true })).toBeVisible();
-  await page.goto(`/library/${labNumber}`);
-  await expect(page).toHaveURL(new RegExp(`/strategy-lab/${saved.id}$`));
 
   // The builder links an existing entry: the strategy takes its number.
   await page.goto(`/strategy-lab/${saved.id}`);
