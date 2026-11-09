@@ -26,6 +26,14 @@ describe('back-test requests', () => {
     });
     expect(hourly.success).toBe(false);
     expect(hourly.error?.issues[0]?.message).toBe('Hourly back tests can cover at most 1 year');
+    const fiveMinute = startBacktestRequest.safeParse({
+      from: '2024-01-02',
+      to: '2024-02-15',
+      interval: '5m',
+    });
+    expect(fiveMinute.error?.issues[0]?.message).toBe(
+      '5-minute back tests can cover at most 31 days',
+    );
     expect(startBacktestRequest.safeParse({ from: '2024-02-01', to: '2024-01-01' }).success).toBe(
       false,
     );

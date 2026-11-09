@@ -428,12 +428,15 @@ export function BackTestSection({
   validation,
   latestText,
   draftTested,
+  definition,
 }: {
   backtests: BacktestsState;
   dirty: boolean;
   validation: ValidationState;
   latestText: string;
   draftTested: DraftTested;
+  /** The rules: the Bars choice starts at the interval they read (N179). */
+  definition: StrategyDefinition;
 }) {
   return (
     <>
@@ -447,6 +450,7 @@ export function BackTestSection({
         <BacktestInputsForm
           state={backtests}
           blocked={blockedByChecks(dirty, validation, 'running a back test')}
+          definition={definition}
         />
         <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt className="text-ink-muted">Latest back test</dt>

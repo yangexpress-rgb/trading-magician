@@ -1,6 +1,13 @@
 'use client';
 
-import { DEFAULT_BACKTEST_INPUTS, type BacktestInputs } from '@tm/backtest';
+import {
+  DEFAULT_BACKTEST_INPUTS,
+  MAX_RANGE_DAYS,
+  matchingBacktestInterval,
+  type BacktestInputs,
+  type BacktestInterval,
+} from '@tm/backtest';
+import type { StrategyDefinition } from '@tm/domain';
 import {
   ApiError,
   type BacktestRunDto,
@@ -17,6 +24,7 @@ import { apiClient } from '@/lib/api-client';
 import {
   describeRun,
   formatMarketTime,
+  intervalHint,
   formatMoney,
   formatPct,
   formatSignedMoney,
@@ -138,10 +146,21 @@ export function useBacktests(strategyId: string): BacktestsState {
 type FormValues = Record<keyof BacktestInputs, string>;
 type FieldErrors = Partial<Record<keyof BacktestInputs, string>>;
 
-/** A year of daily bars ending yesterday. */
-function defaultValues(): FormValues {
+/** Days a run covers by default: a year, or as much as the interval allows. */
+const defaultSpan = (interval: BacktestInterval) => Math.min(365, MAX_RANGE_DAYS[interval]);
+
+/** Bars that match the rules (N179), over a year or the interval's longest range, ending yesterday. */
+function defaultValues(interval: BacktestInterval): FormValues {
   const to = addDays(nyDate(new Date().toISOString()), -1);
-  return { ...DEFAULT_BACKTEST_INPUTS, from: addDays(to, -364), to };
+  return { ...DEFAULT_BACKTEST_INPUTS, interval, from: addDays(to, 1 - defaultSpan(interval)), to };
+}
+
+/** Moves the start up when the range is longer than the interval allows. */
+function fitRange(v: FormValues, interval: BacktestInterval): FormValues {
+  const max = MAX_RANGE_DAYS[interval];
+  const days = (Date.parse(v.to) - Date.parse(v.from)) / 86_400_000;
+  if (!(days > max)) return { ...v, interval };
+  return { ...v, interval, from: addDays(v.to, 1 - defaultSpan(interval)) };
 }
 
 function fieldErrorsFrom(e: unknown): FieldErrors {
@@ -157,12 +176,22 @@ function fieldErrorsFrom(e: unknown): FieldErrors {
 export function BacktestInputsForm({
   state,
   blocked,
+  definition,
 }: {
   state: BacktestsState;
   /** Why a run can't start now, or null. */
   blocked: string | null;
+  /** The rules being tested: the Bars choice starts at the interval they read (N179). */
+  definition?: StrategyDefinition | undefined;
 }) {
-  const [values, setValues] = useState<FormValues>(defaultValues);
+  const matching = definition ? matchingBacktestInterval(definition) : undefined;
+  const matchingInterval = matching?.interval ?? DEFAULT_BACKTEST_INPUTS.interval;
+  const [values, setValues] = useState<FormValues>(() => defaultValues(matchingInterval));
+  // Until the person picks Bars, the choice follows the rules as they are edited.
+  const [intervalPicked, setIntervalPicked] = useState(false);
+  useEffect(() => {
+    if (!intervalPicked) setValues((v) => fitRange(v, matchingInterval));
+  }, [matchingInterval, intervalPicked]);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -223,12 +252,16 @@ export function BacktestInputsForm({
           name="bt-interval"
           label="Bars"
           value={values.interval}
-          onChange={set('interval')}
+          onChange={(e: { target: { value: string } }) => {
+            setIntervalPicked(true);
+            setValues((v) => fitRange(v, e.target.value as BacktestInterval));
+          }}
           error={errors.interval}
-          hint="Up to 5 years daily or 1 year hourly"
+          hint={intervalHint(values.interval as BacktestInterval, matching?.finest)}
         >
           <option value="1d">Daily</option>
           <option value="1h">Hourly</option>
+          <option value="5m">5 minutes</option>
         </SelectField>
         {field('initialCapital', 'Initial capital (USD)', { inputMode: 'decimal' })}
         <SelectField

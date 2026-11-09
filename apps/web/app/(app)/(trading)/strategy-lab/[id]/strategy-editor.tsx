@@ -390,6 +390,7 @@ export function StrategyEditor({
             validation={validation}
             latestText={latestText}
             draftTested={draftTested}
+            definition={definition}
           />
         </PageSection>
         <PageSection

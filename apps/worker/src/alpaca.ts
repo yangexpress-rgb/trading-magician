@@ -39,7 +39,7 @@ export interface AlpacaProviderOptions {
 }
 
 function clientFactory(options: AlpacaProviderOptions) {
-  return (ctx: Pick<ProviderContext, 'credential'>) => {
+  return (ctx: Pick<ProviderContext, 'credential' | 'background'>) => {
     const fields = ctx.credential?.fields;
     if (ctx.credential?.provider !== 'alpaca' || !fields?.keyId || !fields.secretKey) {
       throw new Error('No Alpaca key is stored for this feed');
@@ -47,6 +47,7 @@ function clientFactory(options: AlpacaProviderOptions) {
     return new AlpacaClient({
       credentials: { keyId: fields.keyId, secretKey: fields.secretKey },
       fetch: options.fetch,
+      background: ctx.background ?? false,
       ...(options.fake
         ? { tradingUrl: options.fake.tradingUrl, dataUrl: options.fake.dataUrl, allowLocal: true }
         : {}),

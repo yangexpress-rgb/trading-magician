@@ -162,7 +162,7 @@ if (databaseUrl) {
   });
   loop = startBacktestLoop({
     db,
-    provider: (userId) =>
+    provider: (userId, run) =>
       createRoutedHistory({
         inTenant: (fn) => withTenant(db, { userId }, fn),
         userId,
@@ -170,6 +170,7 @@ if (databaseUrl) {
         providers,
         privateKey: credentialKey,
         patient: true,
+        background: run.background,
       }),
     resolveUniverse: (userId) =>
       resolveBuiltinUniverse({

@@ -6,11 +6,33 @@ import { z } from 'zod';
  * §20 #5 and #6 on 2026-10-04; every one is editable on each run.
  */
 
-export const BACKTEST_INTERVALS = ['1d', '1h'] as const;
+export const BACKTEST_INTERVALS = ['1d', '1h', '5m'] as const;
 export type BacktestInterval = (typeof BACKTEST_INTERVALS)[number];
 
-/** Longest range per run, in days (§20 #5): five years of daily bars, one of hourly. */
-export const MAX_RANGE_DAYS: Record<BacktestInterval, number> = { '1d': 5 * 366, '1h': 366 };
+/**
+ * Longest range per run, in days (§20 #5): five years of daily bars, one of
+ * hourly, one month of 5-minute (N178, ADR 0063). A month of 5-minute bars is
+ * about as many bars per instrument as a year of hourly ones (some 1,700), and
+ * one Alpaca page (10,000 bars) per instrument.
+ */
+export const MAX_RANGE_DAYS: Record<BacktestInterval, number> = {
+  '1d': 5 * 366,
+  '1h': 366,
+  '5m': 31,
+};
+
+/** How each run interval is named in text: "Daily bars", "a daily back test". */
+export const BACKTEST_INTERVAL_NAMES: Record<BacktestInterval, string> = {
+  '1d': 'Daily',
+  '1h': 'Hourly',
+  '5m': '5-minute',
+};
+
+const RANGE_LIMIT_TEXT: Record<BacktestInterval, string> = {
+  '1d': 'Daily back tests can cover at most 5 years',
+  '1h': 'Hourly back tests can cover at most 1 year',
+  '5m': '5-minute back tests can cover at most 31 days',
+};
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 const nonNegative = decimalString.refine((v) => Number(v) >= 0, 'Must be zero or more');
@@ -41,10 +63,7 @@ export const backtestInputsSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['from'],
-        message:
-          v.interval === '1d'
-            ? 'Daily back tests can cover at most 5 years'
-            : 'Hourly back tests can cover at most 1 year',
+        message: RANGE_LIMIT_TEXT[v.interval],
       });
     }
   });
@@ -68,7 +87,7 @@ export function describeAssumptions(inputs: BacktestInputs): string[] {
       ? 'No commission'
       : `Commission ${inputs.commissionPerShare} per share, at least ${inputs.commissionMin} per fill`;
   return [
-    `${inputs.interval === '1d' ? 'Daily' : 'Hourly'} bars from ${inputs.from} to ${inputs.to}, starting with ${inputs.initialCapital}`,
+    `${BACKTEST_INTERVAL_NAMES[inputs.interval]} bars from ${inputs.from} to ${inputs.to}, starting with ${inputs.initialCapital}`,
     'Conditions are checked when each bar closes, using only bars that have closed',
     'Orders decided while the market is closed wait for the next regular session',
     `Market orders fill at the next bar's open with ${inputs.slippageBps} bps of slippage; stops fill at the stop or a worse open, with the same slippage`,

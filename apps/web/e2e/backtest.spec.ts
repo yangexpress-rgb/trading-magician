@@ -134,6 +134,11 @@ test('back test a pair strategy, read the results beside their assumptions, and 
   await panel.getByRole('button', { name: 'Run back test' }).click();
   await expect(panel.getByText('Hourly back tests can cover at most 1 year')).toBeVisible();
 
+  // 5-minute bars (N178): picking them moves the start inside their 31 days.
+  await panel.getByLabel('Bars').selectOption('5m');
+  await expect(panel.getByLabel('From')).not.toHaveValue('2021-01-04');
+  await expect(panel.getByText(/31 days of 5-minute bars/)).toBeVisible();
+
   // Validation picked up the finished run: no back-test warning remains.
   const validation = page.getByRole('region', { name: 'Validation' });
   await expect(
