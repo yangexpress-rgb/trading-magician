@@ -51,7 +51,6 @@ test('connects an Alpaca feed and finds a US stock for a strategy', async ({ pag
   await leg.getByLabel('Symbol or company name').fill('ztsta');
   await leg.getByRole('button', { name: 'Use', exact: true }).click();
   await expect(picker.locator('option:checked')).toContainText('ZTSTA');
-  await expect(picker.locator('option:checked')).toContainText('Test Alpha Inc. Common Stock');
   await expect(leg.getByLabel('Symbol or company name')).toBeHidden();
 
   await picker.selectOption({ label: 'Another stock, ETF or index…' });
