@@ -153,6 +153,38 @@ function computeSession(date: string): TradingSession | undefined {
   };
 }
 
+const DAY_MS = 86_400_000;
+/** Days since 1970-01-01 for a calendar date. */
+const dayNumber = (date: string) => Math.round(Date.parse(`${date}T00:00:00Z`) / DAY_MS);
+/** Weekdays (Monday to Friday) among day numbers 0..n-1 (day 0 was a Thursday). */
+function weekdaysBefore(n: number): number {
+  const weeks = Math.floor(n / 7);
+  let count = weeks * 5;
+  for (let d = weeks * 7; d < n; d++) {
+    const dow = (d + 4) % 7; // 0 = Sunday
+    if (dow !== 0 && dow !== 6) count += 1;
+  }
+  return count;
+}
+
+/**
+ * NYSE trading days after `from` up to and including `to` (ADR 0060): 0 on
+ * the same day, 1 from a Friday to the next Monday, weekends and full-day
+ * holidays skipped. Negative when `to` is before `from`.
+ */
+export function tradingDaysBetween(from: string, to: string): number {
+  if (to < from) return -tradingDaysBetween(to, from);
+  const a = dayNumber(from);
+  const b = dayNumber(to);
+  let n = weekdaysBefore(b + 1) - weekdaysBefore(a + 1);
+  for (let y = Number(from.slice(0, 4)); y <= Number(to.slice(0, 4)); y++) {
+    for (const h of nyseHolidays(y).keys()) {
+      if (h > from && h <= to && weekday(h) !== 0 && weekday(h) !== 6) n -= 1;
+    }
+  }
+  return n;
+}
+
 /** Trading days from `from` to `to`, both inclusive. */
 export function tradingDays(from: string, to: string): string[] {
   const days: string[] = [];

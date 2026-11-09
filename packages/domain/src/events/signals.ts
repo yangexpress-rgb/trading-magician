@@ -1,8 +1,7 @@
 import Decimal from 'decimal.js';
-import { nyDate } from '../market/calendar';
+import { nyDate, tradingDaysBetween } from '../market/calendar';
 import { activeDealAt, dealSpread, type DealSignal } from './deals';
 import {
-  calendarDaysBetween,
   daysToNextEarnings,
   latestRelease,
   type EarningsSignal,
@@ -83,7 +82,7 @@ export function eventPointAt(
       if (!r) return undefined;
       const note = r.source === 'rebuilt' ? 'rebuilt' : undefined;
       if (metric === 'earnings.days_since_earnings')
-        return point(calendarDaysBetween(r.announcedDate, barDate), r.announcedDate, note);
+        return point(tradingDaysBetween(r.announcedDate, barDate), r.announcedDate, note);
       const v = metric === 'earnings.sue_ts' ? r.sue : r.surprisePct;
       return v === null ? undefined : point(v, r.announcedDate, note);
     }
