@@ -87,4 +87,14 @@ describe('simulate over demo history', () => {
     // Orders fill on hourly bars, so fills land on the hour inside the session.
     for (const f of r.fills) expect(new Date(f.time).getUTCMinutes() % 30).toBe(0);
   });
+
+  it('runs on 5-minute bars (N178)', async () => {
+    const def = pair();
+    const run = backtestInputsSchema.parse(inputs('2024-03-01', '2024-03-29', { interval: '5m' }));
+    const data = await loadData(provider, planSeries(def, run), INSTRUMENTS);
+    const r = simulate({ definition: def, instruments: INSTRUMENTS, inputs: run, data });
+    // About 78 bars a session over 20 sessions.
+    expect(r.equity.length).toBeGreaterThan(1400);
+    for (const f of r.fills) expect(new Date(f.time).getUTCMinutes() % 5).toBe(0);
+  });
 });

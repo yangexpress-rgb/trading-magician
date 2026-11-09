@@ -1,6 +1,7 @@
 import type { BacktestMetrics } from '@tm/backtest';
 import { describe, expect, it } from 'vitest';
 import {
+  intervalHint,
   describeRun,
   DIRECTION_WORDS,
   tradeDirection,
@@ -141,5 +142,28 @@ describe('tradeDirection', () => {
     expect(tradeDirection({ direction: 'short', legs: [leg('entry', 'buy')] })).toBe('long');
     expect(tradeDirection({ direction: 'short', legs: [] })).toBe('short');
     expect(tradeDirection({ legs: [] })).toBe('long');
+  });
+});
+
+describe('intervalHint (N179)', () => {
+  it('says when the bars match the conditions and when they are coarser', () => {
+    expect(intervalHint('5m', '5m')).toMatch(
+      /^Matches your conditions, which check every 5 minutes\./,
+    );
+    expect(intervalHint('1h', '5m')).toMatch(
+      /^Your conditions check every 5 minutes, so hourly bars check them less often/,
+    );
+    expect(intervalHint('1d', undefined)).toBe(
+      'Up to 5 years daily, 1 year hourly or 31 days of 5-minute bars.',
+    );
+  });
+
+  it('names 5-minute runs', () => {
+    expect(
+      describeRun({
+        versionNo: 2,
+        inputs: { from: '2025-03-03', to: '2025-03-31', interval: '5m' },
+      } as never),
+    ).toBe('Version 2 · Mar 3, 2025 to Mar 31, 2025 · 5-minute bars');
   });
 });

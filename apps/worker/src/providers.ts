@@ -33,6 +33,12 @@ export interface ProviderContext {
    * hundreds of series set it; paper runtimes and charts do not.
    */
   patient?: boolean | undefined;
+  /**
+   * Many requests a person is not waiting on bar by bar (a 5-minute back
+   * test): providers with a per-key request budget pace them as background
+   * work, keeping room for strategies and charts (ADR 0052, ADR 0063).
+   */
+  background?: boolean | undefined;
 }
 
 /** What a provider found for a symbol, before it is registered. */

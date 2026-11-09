@@ -1,5 +1,12 @@
 import type { BacktestRunStatusDto, BacktestRunSummaryDto, BacktestTradeDto } from '@tm/contracts';
-import type { BacktestMetrics } from '@tm/backtest';
+import {
+  BACKTEST_INTERVAL_NAMES,
+  coarserThan,
+  type BacktestInterval,
+  type BacktestMetrics,
+} from '@tm/backtest';
+import type { BarInterval } from '@tm/domain';
+import { INTERVAL_LABELS } from '@tm/domain/strategy-text';
 import type { Tone } from '@tm/ui';
 
 /** Words for back-test runs and results (Design v1.0 §7.3). */
@@ -31,8 +38,8 @@ const dateTimeFmt = new Intl.DateTimeFormat('en-US', {
   minute: '2-digit',
 });
 
-/** A market timestamp as a date (daily bars) or date and time (hourly), in New York time. */
-export function formatMarketTime(iso: string | null, interval: '1d' | '1h'): string {
+/** A market timestamp as a date (daily bars) or date and time (hourly, 5-minute), in New York time. */
+export function formatMarketTime(iso: string | null, interval: BacktestInterval): string {
   if (!iso) return '—';
   return (interval === '1d' ? dateFmt : dateTimeFmt).format(new Date(iso));
 }
@@ -120,7 +127,7 @@ export function metricTiles(m: BacktestMetrics, currency = 'USD'): MetricTile[] 
 export function describeRun(run: Pick<BacktestRunSummaryDto, 'versionNo' | 'inputs'>): string {
   const { inputs } = run;
   return `Version ${run.versionNo} · ${formatDay(inputs.from)} to ${formatDay(inputs.to)} · ${
-    inputs.interval === '1d' ? 'Daily' : 'Hourly'
+    BACKTEST_INTERVAL_NAMES[inputs.interval]
   } bars`;
 }
 
@@ -229,4 +236,15 @@ export function tradeDirection(t: {
   if (entries.length === 0) return t.direction ?? 'long';
   if (short === entries.length) return 'short';
   return short > 0 ? 'long_short' : 'long';
+}
+
+/** What the Bars choice means for these rules (N179). */
+export function intervalHint(interval: BacktestInterval, finest: BarInterval | undefined): string {
+  const limits = 'Up to 5 years daily, 1 year hourly or 31 days of 5-minute bars.';
+  if (!finest) return limits;
+  const rules = INTERVAL_LABELS[finest];
+  if (coarserThan(interval, finest)) {
+    return `Your conditions check every ${rules}, so ${BACKTEST_INTERVAL_NAMES[interval].toLowerCase()} bars check them less often than paper trading would. ${limits}`;
+  }
+  return `Matches your conditions, which check every ${rules}. ${limits}`;
 }

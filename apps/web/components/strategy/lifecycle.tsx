@@ -505,7 +505,7 @@ export function BackTestPanel({
           Runs the saved rules over historical data. Results are estimates, not guarantees.
         </p>
 
-        <BacktestInputsForm state={backtests} blocked={runBlocked} />
+        <BacktestInputsForm state={backtests} blocked={runBlocked} definition={definition} />
         <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt className="text-ink-muted">Latest back test</dt>
           <dd className="text-content">{latestText}</dd>

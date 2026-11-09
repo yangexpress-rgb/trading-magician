@@ -23,7 +23,7 @@ import {
   type StrategyDefinition,
   UnsupportedBarRequestError,
 } from '@tm/domain';
-import type { BacktestInputs } from './inputs';
+import type { BacktestInputs, BacktestInterval } from './inputs';
 
 /** One bar series the run needs: an instrument at an interval, adjustment and session. */
 export interface SeriesSpec {
@@ -263,4 +263,40 @@ export async function loadData(
     );
   }
   return { series, dataVersions: [...versions].sort(), warnings: [...warnings] };
+}
+
+/** Minutes in each bar size, to compare them. */
+const INTERVAL_MINUTES: Record<BarInterval, number> = {
+  '1m': 1,
+  '5m': 5,
+  '15m': 15,
+  '30m': 30,
+  '1h': 60,
+  '4h': 240,
+  '1d': 1440,
+  '1w': 10_080,
+};
+
+/**
+ * The run interval that matches the rules (N179, ADR 0063): conditions on
+ * bars shorter than an hour run on 5-minute bars, on hourly or 4-hour bars
+ * hourly, otherwise daily. `finest` is the shortest bar size any condition,
+ * indicator or order price reads, or undefined when none reads bars.
+ */
+export function matchingBacktestInterval(def: StrategyDefinition): {
+  interval: BacktestInterval;
+  finest: BarInterval | undefined;
+} {
+  let finest: BarInterval | undefined;
+  // "This instrument" stands for itself, so a Selection group's rules count before its universe is known.
+  for (const e of seriesExprs(def, [CONTEXT_INSTRUMENT_ID])) {
+    if (!finest || INTERVAL_MINUTES[e.interval] < INTERVAL_MINUTES[finest]) finest = e.interval;
+  }
+  const minutes = finest ? INTERVAL_MINUTES[finest] : INTERVAL_MINUTES['1d'];
+  return { interval: minutes < 60 ? '5m' : minutes < 1440 ? '1h' : '1d', finest };
+}
+
+/** Whether a run interval steps more coarsely than the rules' finest bars. */
+export function coarserThan(run: BacktestInterval, rules: BarInterval): boolean {
+  return INTERVAL_MINUTES[run] > INTERVAL_MINUTES[rules];
 }

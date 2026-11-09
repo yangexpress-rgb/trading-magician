@@ -24,6 +24,8 @@ export function createRoutedHistory(options: {
   privateKey: CredentialKey | undefined;
   /** Wait out feeds' rate limits (back tests over many instruments). */
   patient?: boolean;
+  /** Pace requests as background work within each key's budget (5-minute back tests, ADR 0063). */
+  background?: boolean;
   /** Told which feed answers each instrument, e.g. to name the source on a chart. */
   onFeed?: (instrumentId: string, feed: { id: string; name: string; provider: string }) => void;
 }): HistoricalDataProvider {
@@ -79,6 +81,7 @@ export function createRoutedHistory(options: {
             userId: options.userId,
             inTenant: options.inTenant,
             patient: options.patient ?? false,
+            background: options.background ?? false,
           });
         }
       }

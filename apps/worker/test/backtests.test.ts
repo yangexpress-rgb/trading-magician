@@ -68,11 +68,11 @@ function crossover(): StrategyDefinition {
   return def;
 }
 
-async function queueRun() {
+async function queueRun(patch: Partial<typeof inputs> = {}) {
   const s = await asUser((tx) =>
     createStrategy(tx, userId, { name: 'Crossover', definition: crossover() }),
   );
-  return asUser((tx) => startBacktest(tx, userId, s.id, inputs));
+  return asUser((tx) => startBacktest(tx, userId, s.id, { ...inputs, ...patch }));
 }
 
 beforeAll(async () => {
@@ -117,6 +117,25 @@ describe('back-test worker', () => {
     expect(await processNextRun({ db: t.app.db, provider, workerId: 'w1', logger: quiet })).toBe(
       'idle',
     );
+  });
+
+  it('loads a 5-minute run as background work within the key budget (N178, ADR 0063)', async () => {
+    const asked: { userId: string; background: boolean }[] = [];
+    const factory = (id: string, run: { background: boolean }) => {
+      asked.push({ userId: id, background: run.background });
+      return provider;
+    };
+    const run = await queueRun({ interval: '5m', from: '2023-03-01', to: '2023-03-31' });
+    expect(
+      await processNextRun({ db: t.app.db, provider: factory, workerId: 'w1', logger: quiet }),
+    ).toBe('completed');
+    expect(asked).toEqual([{ userId, background: true }]);
+    const done = await asUser((tx) => getBacktest(tx, run.id));
+    expect(done.result?.assumptions[0]).toMatch(/^5-minute bars from 2023-03-01/);
+
+    await queueRun();
+    await processNextRun({ db: t.app.db, provider: factory, workerId: 'w1', logger: quiet });
+    expect(asked[1]).toEqual({ userId, background: false });
   });
 
   it('fails a run with a safe message when the data source breaks', async () => {

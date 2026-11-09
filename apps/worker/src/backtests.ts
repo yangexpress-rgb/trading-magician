@@ -45,8 +45,14 @@ import { NO_COMPANY_FEED, type FundamentalsLoader } from './fundamentals';
 
 export interface BacktestWorkerOptions {
   db: Database;
-  /** Bars for a run: one provider, or one per tenant that resolves its routes (ADR 0017). */
-  provider: HistoricalDataProvider | ((userId: string) => HistoricalDataProvider);
+  /**
+   * Bars for a run: one provider, or one per tenant that resolves its routes
+   * (ADR 0017). A 5-minute run asks for its bars as background work, paced
+   * within each Alpaca key's request budget (ADR 0063).
+   */
+  provider:
+    | HistoricalDataProvider
+    | ((userId: string, run: { background: boolean }) => HistoricalDataProvider);
   workerId: string;
   logger: Pick<Logger, 'info' | 'warn' | 'error'>;
   leaseSeconds?: number;
@@ -95,8 +101,6 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
   });
   if (!claim) return 'idle';
   const { runId, userId } = claim;
-  const provider =
-    typeof options.provider === 'function' ? options.provider(userId) : options.provider;
   const inTenant = <T>(fn: Parameters<typeof withTenant<T>>[2]) => withTenant(db, { userId }, fn);
   const started = Date.now();
   logger.info({ runId }, 'back test claimed');
@@ -104,6 +108,10 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
   try {
     const work = await inTenant((tx) => loadRunWork(tx, runId, workerId));
     if (!work) return 'lost';
+    const provider =
+      typeof options.provider === 'function'
+        ? options.provider(userId, { background: work.inputs.interval === '5m' })
+        : options.provider;
     if (work.cancelRequested)
       return (await inTenant((tx) => finishCanceled(tx, runId, workerId))) ?? 'lost';
 
