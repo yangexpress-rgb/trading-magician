@@ -28,10 +28,10 @@ interface NavItem {
 export const PRIMARY_NAV: readonly NavItem[] = [
   { href: '/research', label: 'Quantitative Research', icon: <ResearchIcon /> },
   {
-    href: '/library',
+    href: '/strategy-lab',
     label: 'Trading Strategy',
     icon: <LabIcon />,
-    also: ['/strategy-lab', '/sharing'],
+    also: ['/library', '/sharing'],
   },
   { href: '/orders', label: 'Orders', icon: <OrdersIcon /> },
   { href: '/performance', label: 'Performance', icon: <ChartIcon /> },
@@ -79,7 +79,7 @@ export function AppShell({
                 >
                   {item.icon}
                   {item.label}
-                  {item.href === '/library' && pendingShares > 0 && (
+                  {item.label === 'Trading Strategy' && pendingShares > 0 && (
                     <Badge tone="info" icon={false}>
                       {pendingShares}
                       <span className="sr-only"> shares waiting for your answer</span>

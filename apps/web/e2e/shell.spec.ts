@@ -4,14 +4,14 @@ import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 const TABS = [
   { name: 'Quantitative Research', path: '/research' },
-  { name: 'Trading Strategy', path: '/library' },
+  { name: 'Trading Strategy', path: '/strategy-lab' },
   { name: 'Orders', path: '/orders' },
   { name: 'Performance', path: '/performance' },
   { name: 'Settings', path: '/settings/profile' },
 ];
 
 const OTHER_PAGES = [
-  '/strategy-lab',
+  '/library',
   '/sharing',
   '/library/new',
   '/library/S00001-SD',
@@ -50,7 +50,7 @@ test('Trading Strategy holds the Library, Lab and Sharing as tabs', async ({ pag
   await signUpAndVerify(page, uniqueEmail('trading-tabs'));
   const nav = page.getByRole('navigation', { name: 'Primary' });
   await nav.getByRole('link', { name: 'Trading Strategy' }).click();
-  await expect(page).toHaveURL(/\/library$/);
+  await expect(page).toHaveURL(/\/strategy-lab$/);
   const tabs = page.getByRole('navigation', { name: 'Trading Strategy' });
   await expect(tabs.getByRole('link')).toHaveText(['Library', 'Lab', 'Sharing']);
   for (const [name, path, heading] of [
