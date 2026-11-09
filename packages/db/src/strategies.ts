@@ -124,7 +124,17 @@ function parseOrThrow(input: unknown): StrategyDefinition {
 // ---------------------------------------------------------------------------
 // Reading
 
-export const STRATEGY_SORTS = ['updated', 'created', 'name', 'status'] as const;
+export const STRATEGY_SORTS = [
+  'updated',
+  'created',
+  'name',
+  'status',
+  'number',
+  'assets',
+  'version',
+  'account',
+  'backtest',
+] as const;
 export type StrategySort = (typeof STRATEGY_SORTS)[number];
 
 export interface StrategyListQuery {
@@ -214,12 +224,18 @@ export async function listStrategies(
     );
   }
 
-  const dir = query.direction === 'asc' ? asc : desc;
+  const dir = query.direction === 'asc' ? 'asc' : 'desc';
+  // Every column of the Lab list can sort (N167); empty values always go last.
   const sortColumn = {
-    updated: strategies.updatedAt,
-    created: strategies.createdAt,
+    updated: sql`${strategies.updatedAt}`,
+    created: sql`${strategies.createdAt}`,
     name: sql`lower(${strategies.name})`,
-    status: strategies.status,
+    status: sql`${strategies.status}`,
+    number: sql`(select ${strategyLibraryEntries.registrationNumber} from ${strategyLibraryEntries} where ${strategyLibraryEntries.id} = ${strategies.libraryEntryId})`,
+    assets: sql`(select string_agg(distinct ${instruments.symbol}, ',' order by ${instruments.symbol}) from ${strategyInstruments} join ${instruments} on ${instruments.id} = ${strategyInstruments.instrumentId} where ${strategyInstruments.strategyId} = ${strategies.id})`,
+    version: sql`${strategyVersions.versionNo}`,
+    account: sql`${tradingAccounts.mode}`,
+    backtest: sql`(select (${backtestRuns.summary} ->> 'netReturnPct')::numeric from ${backtestRuns} where ${backtestRuns.strategyId} = ${strategies.id} order by ${backtestRuns.createdAt} desc limit 1)`,
   }[query.sort ?? 'updated'];
 
   const rows = await tx
@@ -233,7 +249,11 @@ export async function listStrategies(
     .leftJoin(strategyVersions, eq(strategyVersions.id, strategies.currentVersionId))
     .leftJoin(tradingAccounts, eq(tradingAccounts.id, strategies.defaultAccountId))
     .where(and(...where))
-    .orderBy(dir(sortColumn), desc(strategies.updatedAt), asc(strategies.id))
+    .orderBy(
+      sql`${sortColumn} ${sql.raw(dir)} nulls last`,
+      desc(strategies.updatedAt),
+      asc(strategies.id),
+    )
     .limit(Math.min(query.limit ?? 50, 200))
     .offset(query.offset ?? 0);
 
