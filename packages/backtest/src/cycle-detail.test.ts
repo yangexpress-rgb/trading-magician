@@ -49,7 +49,11 @@ describe('the cycle card records', () => {
     const fired = r.conditions!.entry.bars.filter((b) => b.outcome === 'fired');
     expect(fired.map((b) => b.cycle)).toEqual([1, 2]);
     // Bars that didn't fire carry no cycle.
-    expect(r.conditions!.entry.bars.filter((b) => b.outcome !== 'fired').every((b) => b.cycle === undefined)).toBe(true);
+    expect(
+      r
+        .conditions!.entry.bars.filter((b) => b.outcome !== 'fired')
+        .every((b) => b.cycle === undefined),
+    ).toBe(true);
     // The firing bar is when the cycle's Entry order was decided.
     for (const b of fired) {
       const order = r.orders!.find((o) => o.cycle === b.cycle && o.phase === 'entry');
