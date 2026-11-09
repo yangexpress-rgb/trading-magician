@@ -9,6 +9,7 @@ import {
   isIndicatorOnlyClass,
   referencedInstruments,
   resolveIndicatorParams,
+  SCHEDULE_BAR_MINUTES,
   riskSeries,
   type Bar,
   type BarInterval,
@@ -280,7 +281,8 @@ const INTERVAL_MINUTES: Record<BarInterval, number> = {
 /**
  * The run interval that matches the rules (N179, ADR 0063): conditions on
  * bars shorter than an hour run on 5-minute bars, on hourly or 4-hour bars
- * hourly, otherwise daily. `finest` is the shortest bar size any condition,
+ * hourly, otherwise daily; a picked bar cadence for Entry (N184) counts as a
+ * condition on bars of its size. `finest` is the shortest bar size any condition,
  * indicator or order price reads, or undefined when none reads bars.
  */
 export function matchingBacktestInterval(def: StrategyDefinition): {
@@ -292,7 +294,10 @@ export function matchingBacktestInterval(def: StrategyDefinition): {
   for (const e of seriesExprs(def, [CONTEXT_INSTRUMENT_ID])) {
     if (!finest || INTERVAL_MINUTES[e.interval] < INTERVAL_MINUTES[finest]) finest = e.interval;
   }
-  const minutes = finest ? INTERVAL_MINUTES[finest] : INTERVAL_MINUTES['1d'];
+  let minutes = finest ? INTERVAL_MINUTES[finest] : INTERVAL_MINUTES['1d'];
+  // A picked bar cadence for Entry asks for bars at least that fine (N184).
+  const cadence = def.schedule ? SCHEDULE_BAR_MINUTES[def.schedule.frequency] : undefined;
+  if (cadence !== undefined) minutes = Math.min(minutes, cadence);
   return { interval: minutes < 60 ? '5m' : minutes < 1440 ? '1h' : '1d', finest };
 }
 

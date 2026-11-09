@@ -8,6 +8,8 @@ import {
   randomId,
   SCHEDULE_FREQUENCIES,
   SCHEDULE_LABELS,
+  SCHEDULE_BAR_MINUTES,
+  defaultSchedule,
   isScheduled,
   sizesFromAtr,
   slotModeOf,
@@ -700,7 +702,9 @@ export function ScheduleField({
   onChange: (def: StrategyDefinition) => void;
 }) {
   const { editable } = useEditor();
-  const value = definition.schedule?.frequency ?? 'daily';
+  // Until a schedule is picked, it follows the bars the rules read (N184).
+  const picked = definition.schedule?.frequency;
+  const value = picked ?? defaultSchedule(definition);
   return (
     <div className="mb-3">
       <MiniSelect
@@ -711,21 +715,30 @@ export function ScheduleField({
         aria-describedby="schedule-help"
         onChange={(e) => {
           const frequency = e.target.value as Schedule['frequency'];
-          const { schedule: _s, ...rest } = definition;
-          void _s;
-          onChange(frequency === 'daily' ? rest : { ...rest, schedule: { frequency } });
+          onChange({ ...definition, schedule: { frequency } });
         }}
       >
-        {SCHEDULE_FREQUENCIES.map((f) => (
-          <option key={f} value={f}>
-            {SCHEDULE_LABELS[f]}
-          </option>
-        ))}
+        <optgroup label="Every bar">
+          {SCHEDULE_FREQUENCIES.filter((f) => SCHEDULE_BAR_MINUTES[f] !== undefined).map((f) => (
+            <option key={f} value={f}>
+              {SCHEDULE_LABELS[f]}
+            </option>
+          ))}
+        </optgroup>
+        <optgroup label="Once per period, after the NYSE close">
+          {SCHEDULE_FREQUENCIES.filter((f) => SCHEDULE_BAR_MINUTES[f] === undefined).map((f) => (
+            <option key={f} value={f}>
+              {SCHEDULE_LABELS[f]}
+            </option>
+          ))}
+        </optgroup>
       </MiniSelect>
       <p id="schedule-help" className="mt-1 text-xs text-ink-muted">
+        {picked === undefined && 'Matches the bars your conditions read until you pick one. '}
         The schedule gates entries and re-selection, never exits: Exit conditions, the
-        holding-period exit and risk limits still run at every bar. A scheduled date is evaluated
-        once, after that day&rsquo;s NYSE close.
+        holding-period exit and risk limits still run at every bar. An &ldquo;Every bar&rdquo;
+        choice checks Entry when each bar of that size closes; the others check once, after the NYSE
+        close of the scheduled day.
       </p>
     </div>
   );

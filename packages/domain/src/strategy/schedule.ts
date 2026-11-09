@@ -1,5 +1,7 @@
 import { addDays, isTradingDay, nextTradingDay, nyDate, regularSession } from '../market/calendar';
-import type { ExitRule, Schedule, ScheduleFrequency, StrategyDefinition } from './schema';
+import type { BarInterval } from './catalog';
+import type { ExitRule, ScheduleFrequency, StrategyDefinition } from './schema';
+import { definitionExpressions } from './selection';
 
 /**
  * Calendar scheduling and holding-period exits (Design v1.2 item 4). Both the
@@ -10,18 +12,68 @@ import type { ExitRule, Schedule, ScheduleFrequency, StrategyDefinition } from '
  * The schedule gates Entry and re-selection only. Exit conditions and exit
  * rules (the time stop, later the ATR stop) run on every bar, because a risk
  * exit must not wait for the next rebalance date.
+ *
+ * N184 (ADR 0067): the bar cadences name their bar size (every 1-minute,
+ * 5-minute or hourly bar), and "daily" means once a day after the close,
+ * whatever bars the run steps on.
  */
 
 export const SCHEDULE_LABELS: Record<ScheduleFrequency, string> = {
-  daily: 'Every bar (daily)',
+  bar1m: 'Every 1-minute bar',
+  bar5m: 'Every 5-minute bar',
+  bar1h: 'Every hourly bar',
+  daily: 'Once a day, after the close',
   weekly: 'Last trading day of each week',
   monthEnd: 'Last trading day of each month',
   quarterEnd: 'Last trading day of each quarter',
   yearEnd: 'Last trading day of each year',
 };
 
-export function scheduleOf(def: Pick<StrategyDefinition, 'schedule'>): ScheduleFrequency {
-  return def.schedule?.frequency ?? 'daily';
+/** Minutes per bar of the bar cadences. */
+export const SCHEDULE_BAR_MINUTES: Partial<Record<ScheduleFrequency, number>> = {
+  bar1m: 1,
+  bar5m: 5,
+  bar1h: 60,
+};
+
+const INTERVAL_MINUTES: Record<BarInterval, number> = {
+  '1m': 1,
+  '5m': 5,
+  '15m': 15,
+  '30m': 30,
+  '1h': 60,
+  '4h': 240,
+  '1d': 1440,
+  '1w': 10_080,
+};
+
+/** Whether the schedule is a calendar period (a rebalance date) rather than a bar cadence. */
+export function isCalendarSchedule(frequency: ScheduleFrequency): boolean {
+  return (
+    frequency === 'weekly' ||
+    frequency === 'monthEnd' ||
+    frequency === 'quarterEnd' ||
+    frequency === 'yearEnd'
+  );
+}
+
+/**
+ * The schedule of a strategy that never picked one (N184): the cadence of the
+ * finest bars its rules read, so a stored strategy keeps checking Entry as
+ * often as before. Minute bars under 5 minutes: every 1-minute bar; under an
+ * hour: every 5-minute bar; under a day: every hourly bar; else once a day.
+ */
+export function defaultSchedule(def: StrategyDefinition): ScheduleFrequency {
+  let finest = INTERVAL_MINUTES['1d'];
+  for (const e of definitionExpressions(def)) {
+    if (e.kind === 'market' || e.kind === 'indicator')
+      finest = Math.min(finest, INTERVAL_MINUTES[e.interval]);
+  }
+  return finest < 5 ? 'bar1m' : finest < 60 ? 'bar5m' : finest < 1440 ? 'bar1h' : 'daily';
+}
+
+export function scheduleOf(def: StrategyDefinition): ScheduleFrequency {
+  return def.schedule?.frequency ?? defaultSchedule(def);
 }
 
 /** Monday of the ISO week a date falls in. */
@@ -30,11 +82,9 @@ function weekStart(day: string): string {
   return addDays(day, -((dow + 6) % 7));
 }
 
-/** The period a trading day belongs to, e.g. "2026-03" for month end. */
+/** The calendar period a trading day belongs to, e.g. "2026-03" for month end. */
 export function periodKey(frequency: ScheduleFrequency, day: string): string {
   switch (frequency) {
-    case 'daily':
-      return day;
     case 'weekly':
       return `W${weekStart(day)}`;
     case 'monthEnd':
@@ -43,13 +93,15 @@ export function periodKey(frequency: ScheduleFrequency, day: string): string {
       return `${day.slice(0, 4)}-Q${Math.ceil(Number(day.slice(5, 7)) / 3)}`;
     case 'yearEnd':
       return day.slice(0, 4);
+    default:
+      return day;
   }
 }
 
 /** Whether a day is the last trading day of its period. */
 export function isPeriodEnd(frequency: ScheduleFrequency, day: string): boolean {
   if (!isTradingDay(day)) return false;
-  if (frequency === 'daily') return true;
+  if (!isCalendarSchedule(frequency)) return true;
   return periodKey(frequency, nextTradingDay(day)) !== periodKey(frequency, day);
 }
 
@@ -64,22 +116,32 @@ export function lastClosedDay(t: number): string {
 }
 
 /**
- * Whether Entry and re-selection are evaluated at bar time `t`: on a daily
- * schedule always; otherwise once, at the first evaluation after the close
- * of the period's last trading day. `lastPeriod` is the period last
- * evaluated, so a runtime that passes several times after the close still
- * evaluates once. Returns the period to remember, or undefined.
+ * Whether Entry and re-selection are evaluated at time `t`, and the period to
+ * remember when they are (undefined when not). `lastPeriod` is the period last
+ * evaluated, so each period is evaluated once however often the caller asks.
+ *
+ * - Bar cadences: once per bar slot of that size, keyed by `barTime` (the end
+ *   of the newest bar, `t` by default). On coarser bars that is every bar; on
+ *   finer bars, the first bar of each slot (the one ending on its boundary).
+ * - Once a day: at the first evaluation after a session's close.
+ * - Calendar periods: at the first evaluation after the close of the period's
+ *   last trading day.
  */
 export function scheduledPeriod(
-  schedule: Schedule | undefined,
+  frequency: ScheduleFrequency,
   t: number,
   lastPeriod: string | undefined,
+  barTime: number = t,
 ): string | undefined {
-  const frequency = schedule?.frequency ?? 'daily';
-  const day = lastClosedDay(t);
-  if (frequency === 'daily') return day;
-  if (!isPeriodEnd(frequency, day)) return undefined;
-  const key = periodKey(frequency, day);
+  const minutes = SCHEDULE_BAR_MINUTES[frequency];
+  let key: string;
+  if (minutes !== undefined) {
+    key = `B${minutes}:${Math.floor(barTime / (minutes * 60_000))}`;
+  } else {
+    const day = lastClosedDay(t);
+    if (!isPeriodEnd(frequency, day)) return undefined;
+    key = periodKey(frequency, day);
+  }
   return key === lastPeriod ? undefined : key;
 }
 

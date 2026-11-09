@@ -28,7 +28,7 @@ import type {
   Selection,
   StrategyDefinition,
 } from './schema';
-import { scheduleOf } from './schedule';
+import { isCalendarSchedule, scheduleOf } from './schedule';
 import { walkComparisons, walkExpr, walkExpressions } from './tree';
 import { markExpr } from './evaluate';
 
@@ -311,7 +311,7 @@ export function planSlots(input: {
 }
 
 export function isScheduled(def: StrategyDefinition): boolean {
-  return scheduleOf(def) !== 'daily';
+  return isCalendarSchedule(scheduleOf(def));
 }
 
 const bindOrder = (o: PlannedOrder, instrumentId: string): PlannedOrder =>
