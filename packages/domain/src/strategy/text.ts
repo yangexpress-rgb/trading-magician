@@ -304,7 +304,7 @@ export function describeIssueLocation(
     const name = typeof section === 'string' ? SECTION_NAMES[section] : undefined;
     return name ? `${phase} ${name}` : phase;
   }
-  if (head === 'execution') return 'Execution';
+  if (head === 'execution') return 'Order handling';
   if (head === 'schedule') return 'Schedule';
   if (head === 'risk') return 'Risk limits';
   return 'Strategy';

@@ -7,18 +7,18 @@ import {
   type StrategyStatus,
   type ValidationIssue,
 } from '@tm/domain';
-import { Alert, Button, Card, Dialog } from '@tm/ui';
-import { useCallback, useEffect, useId, useState } from 'react';
+import { Alert, Button, Card, cx, Dialog } from '@tm/ui';
+import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { apiClient } from '@/lib/api-client';
 import { describeHolding } from '@/lib/order-text';
-import { describeIssueLocation } from '@/lib/strategy-text';
+import { describeIssueLocation, LEG_FAILURE_LABELS, MULTI_LEG_LABELS } from '@/lib/strategy-text';
 import {
   ActiveRun,
   BacktestInputsForm,
   BacktestResults,
   RunHistory,
-  useBacktests,
+  type BacktestsState,
 } from './backtest';
 import { useEditor } from './editor-context';
 
@@ -372,12 +372,132 @@ function StopDialog({
 
 type Busy = null | 'status' | 'start' | 'stop';
 
+/** Why a run or a start can't happen yet, or null (§6.10, §7.4). */
+function blockedByChecks(dirty: boolean, validation: ValidationState, action: string) {
+  if (dirty) return `Save your changes before ${action}.`;
+  if (validation.kind === 'loading' || (validation.kind === 'ready' && validation.checking))
+    return 'Checking the strategy…';
+  if (validation.kind === 'error')
+    return 'The strategy could not be checked. Use Check again under Validation.';
+  const errors = validation.result.errors.length;
+  return errors > 0
+    ? `Fix the ${errors === 1 ? 'problem' : `${errors} problems`} listed under Validation first.`
+    : null;
+}
+
+export type DraftTested = 'not_tested' | 'unsaved' | 'checking' | 'matches' | 'changed';
+
+export const DRAFT_TESTED_TEXT: Record<DraftTested, string> = {
+  not_tested: 'Not tested',
+  unsaved: 'Unsaved changes are not tested',
+  checking: 'Checking…',
+  matches: 'Matches the latest back test',
+  changed: 'Changed since the latest back test',
+};
+
+/** The latest completed back test and whether the rules changed since (§7.4). */
+export function backtestStanding(
+  backtests: BacktestsState,
+  validation: ValidationState,
+  dirty: boolean,
+): { latestText: string; draftTested: DraftTested } {
+  const latest = backtests.runs?.find((r) => r.status === 'completed');
+  const draftHash = validation.kind === 'ready' ? validation.result.definitionHash : null;
+  const latestText = latest?.finishedAt
+    ? `${new Date(latest.finishedAt).toLocaleString('en-US')} (version ${latest.versionNo})`
+    : 'None yet';
+  const draftTested: DraftTested = !latest
+    ? 'not_tested'
+    : dirty
+      ? 'unsaved'
+      : draftHash === null
+        ? 'checking'
+        : latest.definitionHash === draftHash
+          ? 'matches'
+          : 'changed';
+  return { latestText, draftTested };
+}
+
 /**
- * Back Test panel (§7, §15.1) with the execution controls placed right after
- * Run back test (§5.2, §7.4). Back testing itself arrives in Phase 2, so the
- * inputs are shown but Run is disabled.
+ * Section 2 (N175): run a back test, its history and its results (§7, §15.1).
+ * Start and Stop live in the Execution section.
  */
-export function BackTestPanel({
+export function BackTestSection({
+  backtests,
+  dirty,
+  validation,
+  latestText,
+  draftTested,
+  definition,
+}: {
+  backtests: BacktestsState;
+  dirty: boolean;
+  validation: ValidationState;
+  latestText: string;
+  draftTested: DraftTested;
+  /** The rules: the Bars choice starts at the interval they read (N179). */
+  definition: StrategyDefinition;
+}) {
+  return (
+    <>
+      <Card aria-labelledby="backtest-heading">
+        <h2 id="backtest-heading" className="text-lg font-semibold">
+          Run a back test
+        </h2>
+        <p className="mb-3 text-sm text-ink-muted">
+          Runs the saved rules over historical data. Results are estimates, not guarantees.
+        </p>
+        <BacktestInputsForm
+          state={backtests}
+          blocked={blockedByChecks(dirty, validation, 'running a back test')}
+          definition={definition}
+        />
+        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+          <dt className="text-ink-muted">Latest back test</dt>
+          <dd className="text-content">{latestText}</dd>
+          <dt className="text-ink-muted">Current draft</dt>
+          <dd className="text-content">{DRAFT_TESTED_TEXT[draftTested]}</dd>
+        </dl>
+        <ActiveRun state={backtests} />
+        {backtests.loadError && (
+          <div className="mt-3">
+            <Alert>{backtests.loadError}</Alert>
+          </div>
+        )}
+        <RunHistory state={backtests} />
+      </Card>
+      <BacktestResults state={backtests} />
+    </>
+  );
+}
+
+function Check({ ok, children }: { ok: boolean | 'warn'; children: ReactNode }) {
+  return (
+    <li className="flex items-baseline gap-2">
+      <span
+        aria-hidden="true"
+        className={cx(
+          'w-4 shrink-0 font-bold',
+          ok === true ? 'text-ok' : ok === 'warn' ? 'text-warn' : 'text-danger',
+        )}
+      >
+        {ok === true ? '✓' : ok === 'warn' ? '!' : '✗'}
+      </span>
+      <span>
+        <span className="sr-only">
+          {ok === true ? 'Done: ' : ok === 'warn' ? 'Note: ' : 'Not yet: '}
+        </span>
+        {children}
+      </span>
+    </li>
+  );
+}
+
+/**
+ * Section 3 (N176): readiness, status, Start and Stop (§5.2, §7.4), where it
+ * runs on paper, and the versions and status history passed in by the page.
+ */
+export function ExecutionSection({
   strategyId,
   strategyName,
   status,
@@ -385,8 +505,10 @@ export function BackTestPanel({
   dirty,
   definition,
   validation,
+  latestText,
+  draftTested,
   onChanged,
-  onBacktestFinished,
+  history,
 }: {
   strategyId: string;
   strategyName: string;
@@ -395,10 +517,13 @@ export function BackTestPanel({
   dirty: boolean;
   definition: StrategyDefinition;
   validation: ValidationState;
+  latestText: string;
+  draftTested: DraftTested;
   onChanged: (detail: StrategyDetailDto) => void;
-  /** Called when a run ends, so validation can pick up the new back test. */
-  onBacktestFinished: () => void;
+  /** Versions and status history, rendered last. */
+  history?: ReactNode;
 }) {
+  const { accounts } = useEditor();
   const [busy, setBusy] = useState<Busy>(null);
   const [dialog, setDialog] = useState<null | 'start' | 'stop'>(null);
   const [error, setError] = useState<string | null>(null);
@@ -425,16 +550,6 @@ export function BackTestPanel({
     };
   }, [dialog, strategyId]);
   const hintId = useId();
-  const backtests = useBacktests(strategyId);
-  const activeId = backtests.active?.id;
-  const [watching, setWatching] = useState<string | undefined>(undefined);
-  useEffect(() => {
-    if (activeId) setWatching(activeId);
-    else if (watching) {
-      setWatching(undefined);
-      onBacktestFinished();
-    }
-  }, [activeId, watching, onBacktestFinished]);
 
   async function act(kind: Exclude<Busy, null>, run: () => Promise<StrategyDetailDto>) {
     setBusy(kind);
@@ -456,72 +571,83 @@ export function BackTestPanel({
   const setStatus = (to: 'created' | 'under_testing') =>
     act('status', () => apiClient.strategies.update(strategyId, { rowVersion, status: to }));
 
+  const running = status === 'actively_executing';
   const canStart = status === 'under_testing' || status === 'off';
-  const errors = validation.kind === 'ready' ? validation.result.errors.length : 0;
   const startBlocked =
     status === 'created'
       ? 'Move this strategy to Under testing before starting it.'
-      : dirty
-        ? 'Save your changes before starting.'
-        : validation.kind === 'loading' || (validation.kind === 'ready' && validation.checking)
-          ? 'Checking the strategy…'
-          : validation.kind === 'error'
-            ? 'The strategy could not be checked. Use Check again under Validation.'
-            : errors > 0
-              ? `Fix the ${errors === 1 ? 'problem' : `${errors} problems`} listed under Validation first.`
-              : null;
+      : blockedByChecks(dirty, validation, 'starting');
 
-  const runBlocked = dirty
-    ? 'Save your changes before running a back test.'
-    : validation.kind === 'loading' || (validation.kind === 'ready' && validation.checking)
-      ? 'Checking the strategy…'
-      : validation.kind === 'error'
-        ? 'The strategy could not be checked. Use Check again under Validation.'
-        : errors > 0
-          ? `Fix the ${errors === 1 ? 'problem' : `${errors} problems`} listed under Validation first.`
-          : null;
-  const latest = backtests.runs?.find((r) => r.status === 'completed');
-  const draftHash = validation.kind === 'ready' ? validation.result.definitionHash : null;
-  const latestText = latest?.finishedAt
-    ? `${new Date(latest.finishedAt).toLocaleString('en-US')} (version ${latest.versionNo})`
-    : 'None yet';
-  const draftTested = !latest
-    ? 'Not tested'
-    : dirty
-      ? 'Unsaved changes are not tested'
-      : draftHash === null
-        ? 'Checking…'
-        : latest.definitionHash === draftHash
-          ? 'Matches the latest back test'
-          : 'Changed since the latest back test';
+  const errors = validation.kind === 'ready' ? validation.result.errors.length : 0;
+  const warnings = validation.kind === 'ready' ? validation.result.warnings.length : 0;
+  const legs = [...definition.entry.orders, ...definition.exit.orders];
+  const accountNames = [...new Set(legs.map((l) => l.accountId))]
+    .map((id) => accounts.find((a) => a.id === id)?.nickname)
+    .filter((n): n is string => Boolean(n));
+  const ex = definition.execution;
 
   return (
     <>
-      <Card aria-labelledby="backtest-heading">
-        <h2 id="backtest-heading" className="text-lg font-semibold">
-          Back Test
-        </h2>
-        <p className="mb-3 text-sm text-ink-muted">
-          Runs the saved rules over historical data. Results are estimates, not guarantees.
-        </p>
-
-        <BacktestInputsForm state={backtests} blocked={runBlocked} definition={definition} />
-        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-          <dt className="text-ink-muted">Latest back test</dt>
-          <dd className="text-content">{latestText}</dd>
-          <dt className="text-ink-muted">Current draft</dt>
-          <dd className="text-content">{draftTested}</dd>
-        </dl>
-
-        <section aria-labelledby="execution-heading" className="mt-4 border-t border-line pt-4">
-          <h3 id="execution-heading" className="text-sm font-semibold">
-            Execution
-          </h3>
-          <p className="mt-1 text-sm">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card aria-labelledby="lifecycle-heading">
+          <h2 id="lifecycle-heading" className="text-lg font-semibold">
+            {running ? 'Running on paper' : 'Ready to start'}
+          </h2>
+          {!running && (
+            <ul className="mt-2 space-y-1 text-sm" aria-label="Before starting">
+              <Check ok={canStart}>
+                {canStart ? `Status is ${STATUS_LABELS[status]}` : 'Move it to Under testing first'}
+              </Check>
+              <Check ok={!dirty}>{dirty ? 'Save your changes first' : 'Saved'}</Check>
+              <Check
+                ok={
+                  validation.kind === 'ready' && !validation.checking && errors === 0
+                    ? true
+                    : validation.kind === 'error' || errors > 0
+                      ? false
+                      : 'warn'
+                }
+              >
+                {validation.kind === 'loading' ||
+                (validation.kind === 'ready' && validation.checking) ? (
+                  'Checking the strategy…'
+                ) : validation.kind === 'error' ? (
+                  <a href="#validation">Validation could not run</a>
+                ) : errors > 0 ? (
+                  <a href="#validation">
+                    {errors === 1 ? '1 problem' : `${errors} problems`} under Validation
+                  </a>
+                ) : (
+                  <>
+                    Validation: no problems
+                    {warnings > 0 && (
+                      <>
+                        {' · '}
+                        <a href="#validation">
+                          {warnings === 1 ? '1 warning' : `${warnings} warnings`}
+                        </a>{' '}
+                        to acknowledge
+                      </>
+                    )}
+                  </>
+                )}
+              </Check>
+              <Check ok={draftTested === 'matches' ? true : 'warn'}>
+                <a href="#back-test">
+                  {draftTested === 'matches'
+                    ? 'Latest back test matches these rules'
+                    : draftTested === 'not_tested'
+                      ? 'Not back tested yet'
+                      : DRAFT_TESTED_TEXT[draftTested]}
+                </a>
+              </Check>
+            </ul>
+          )}
+          <p className="mt-3 text-sm">
             Status: <span className="font-medium">{STATUS_LABELS[status]}</span>
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            {status === 'actively_executing' ? (
+            {running ? (
               <Button variant="danger" onClick={() => setDialog('stop')} disabled={busy !== null}>
                 Stop execution
               </Button>
@@ -549,7 +675,7 @@ export function BackTestPanel({
               </Button>
             )}
           </div>
-          {status === 'actively_executing' && justStarted && (
+          {running && justStarted && (
             <div className="mt-3">
               <Alert tone="ok">
                 Started on paper.{' '}
@@ -559,7 +685,7 @@ export function BackTestPanel({
               </Alert>
             </div>
           )}
-          {status !== 'actively_executing' && startBlocked && (
+          {!running && startBlocked && (
             <p id={hintId} className="mt-2 text-sm text-ink-muted">
               {startBlocked}
             </p>
@@ -580,61 +706,77 @@ export function BackTestPanel({
               </Alert>
             </div>
           )}
-        </section>
-
-        <ActiveRun state={backtests} />
-        {backtests.loadError && (
-          <div className="mt-3">
-            <Alert>{backtests.loadError}</Alert>
+        </Card>
+        <Card aria-labelledby="on-paper-heading">
+          <h2 id="on-paper-heading" className="text-lg font-semibold">
+            On paper
+          </h2>
+          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+            <dt className="text-ink-muted">Send legs</dt>
+            <dd className="text-content">{MULTI_LEG_LABELS[ex.multiLegPolicy]}</dd>
+            <dt className="text-ink-muted">If a leg fails</dt>
+            <dd className="text-content">{LEG_FAILURE_LABELS[ex.onLegFailure]}</dd>
+            <dt className="text-ink-muted">{accountNames.length === 1 ? 'Account' : 'Accounts'}</dt>
+            <dd className="text-content">
+              {accountNames.length > 0 ? accountNames.join(', ') : '—'}
+            </dd>
+            <dt className="text-ink-muted">Latest back test</dt>
+            <dd className="text-content">{latestText}</dd>
+          </dl>
+          <p className="mt-1 text-xs text-ink-muted">
+            Change how orders are sent under <a href="#order-handling-heading">Order handling</a>.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            <Link href={`/orders?strategy=${strategyId}`}>This strategy&rsquo;s orders ›</Link>
+            <Link href={`/performance?strategy=${strategyId}`}>Its performance ›</Link>
           </div>
-        )}
-        <RunHistory state={backtests} />
+        </Card>
+      </div>
+      {history}
 
-        {dialog === 'start' && validation.kind === 'ready' && (
-          <StartDialog
-            open
-            onClose={() => setDialog(null)}
-            strategyName={strategyName}
-            definition={definition}
-            warnings={validation.result.warnings}
-            backtest={[
-              ['Latest back test', latestText],
-              ['Rules since then', draftTested],
-            ]}
-            positions={positions}
-            busy={busy === 'start'}
-            error={error}
-            onConfirm={(acknowledgedWarnings) =>
-              act('start', () =>
-                apiClient.strategies.start(strategyId, {
-                  rowVersion,
-                  mode: 'paper',
-                  confirmed: true,
-                  acknowledgedWarnings,
-                }),
-              )
-            }
-          />
-        )}
-        {dialog === 'stop' && (
-          <StopDialog
-            open
-            onClose={() => setDialog(null)}
-            busy={busy === 'stop'}
-            error={error}
-            onConfirm={({ reason, ...choices }) =>
-              act('stop', () =>
-                apiClient.strategies.stop(strategyId, {
-                  rowVersion,
-                  ...choices,
-                  ...(reason ? { reason } : {}),
-                }),
-              )
-            }
-          />
-        )}
-      </Card>
-      <BacktestResults state={backtests} />
+      {dialog === 'start' && validation.kind === 'ready' && (
+        <StartDialog
+          open
+          onClose={() => setDialog(null)}
+          strategyName={strategyName}
+          definition={definition}
+          warnings={validation.result.warnings}
+          backtest={[
+            ['Latest back test', latestText],
+            ['Rules since then', DRAFT_TESTED_TEXT[draftTested]],
+          ]}
+          positions={positions}
+          busy={busy === 'start'}
+          error={error}
+          onConfirm={(acknowledgedWarnings) =>
+            act('start', () =>
+              apiClient.strategies.start(strategyId, {
+                rowVersion,
+                mode: 'paper',
+                confirmed: true,
+                acknowledgedWarnings,
+              }),
+            )
+          }
+        />
+      )}
+      {dialog === 'stop' && (
+        <StopDialog
+          open
+          onClose={() => setDialog(null)}
+          busy={busy === 'stop'}
+          error={error}
+          onConfirm={({ reason, ...choices }) =>
+            act('stop', () =>
+              apiClient.strategies.stop(strategyId, {
+                rowVersion,
+                ...choices,
+                ...(reason ? { reason } : {}),
+              }),
+            )
+          }
+        />
+      )}
     </>
   );
 }

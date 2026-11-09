@@ -43,6 +43,7 @@ test('connects an Alpaca feed and finds a US stock for a strategy', async ({ pag
     })
   ).json();
   await page.goto(`/strategy-lab/${created.id}`);
+  await page.getByText('Find a stock, ETF or index').click();
   await page.getByLabel('Symbol').fill('ztsta');
   await page.getByRole('button', { name: 'Find' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Added ZTSTA' })).toContainText(
@@ -58,6 +59,7 @@ test('connects an Alpaca feed and finds a US stock for a strategy', async ({ pag
 
   // It stays available to this person's strategies.
   await page.reload();
+  await page.getByText('Find a stock, ETF or index').click();
   await expect(yours).toContainText('ZTSTA');
 
   const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();

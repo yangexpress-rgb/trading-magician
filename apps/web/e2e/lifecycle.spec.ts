@@ -45,15 +45,34 @@ test('define, validate, test, start on paper, stop, revise and review versions',
   await expect(page.getByRole('heading', { level: 1, name: 'Pairs lifecycle' })).toBeVisible();
   const id = page.url().split('/').pop()!;
 
+  // Three sections in order, each holding its own cards (N171).
+  const sections = page.getByRole('navigation', { name: 'Sections' }).getByRole('link');
+  await expect(sections).toHaveText([/Strategy/, /Back test/, /Execution/]);
+  const strategySection = page.getByRole('region', { name: 'Strategy', exact: true });
+  for (const card of ['Library entry', 'Order handling', 'Risk limits', 'Validation']) {
+    await expect(strategySection.getByRole('region', { name: card })).toBeVisible();
+  }
+  await expect(
+    page
+      .getByRole('region', { name: 'Back test', exact: true })
+      .getByRole('region', { name: 'Run a back test' }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole('region', { name: 'Execution', exact: true })
+      .getByRole('region', { name: 'Versions and status history' }),
+  ).toBeVisible();
+
   // A new draft is checked straight away and can't start.
   const validation = page.getByRole('region', { name: 'Validation' });
   await expect(
     validation.getByRole('heading', { name: /problems? blocks? starting/ }),
   ).toBeVisible();
   await expect(validation.getByText('Entry conditions:').first()).toBeVisible();
-  const backTest = page.getByRole('region', { name: 'Back Test', exact: true });
+  const backTest = page.getByRole('region', { name: 'Run a back test', exact: true });
   await expect(backTest.getByRole('button', { name: 'Run back test' })).toBeDisabled();
-  const start = backTest.getByRole('button', { name: 'Start execution' });
+  const execution = page.getByRole('region', { name: 'Execution', exact: true });
+  const start = execution.getByRole('button', { name: 'Start execution' });
   await expect(start).toBeDisabled();
   await expect(start).toHaveAccessibleDescription(
     'Move this strategy to Under testing before starting it.',
@@ -92,17 +111,19 @@ test('define, validate, test, start on paper, stop, revise and review versions',
   await expect(validation.getByRole('heading', { name: /warnings? to acknowledge/ })).toBeVisible();
 
   // Created → Under testing → Created → Under testing.
-  await backTest.getByRole('button', { name: 'Move to Under testing' }).click();
-  await expect(backTest.getByText('Status: Under testing')).toBeVisible();
-  await backTest.getByRole('button', { name: 'Move back to Created' }).click();
-  await expect(backTest.getByText('Status: Created')).toBeVisible();
-  await backTest.getByRole('button', { name: 'Move to Under testing' }).click();
-  await expect(backTest.getByText('Status: Under testing')).toBeVisible();
+  await execution.getByRole('button', { name: 'Move to Under testing' }).click();
+  await expect(execution.getByText('Status: Under testing')).toBeVisible();
+  await execution.getByRole('button', { name: 'Move back to Created' }).click();
+  await expect(execution.getByText('Status: Created')).toBeVisible();
+  await execution.getByRole('button', { name: 'Move to Under testing' }).click();
+  await expect(execution.getByText('Status: Under testing')).toBeVisible();
 
-  // Start sits right after Run back test, and asks for each warning to be acknowledged.
-  const controls = backTest.getByRole('button');
-  const names = await controls.allTextContents();
-  expect(names.indexOf('Start execution')).toBe(names.indexOf('Run back test') + 1);
+  // Start lives in the Execution section, not with the back test (N176), and asks for
+  // each warning to be acknowledged.
+  await expect(backTest.getByRole('button', { name: 'Start execution' })).toHaveCount(0);
+  const ready = execution.getByRole('list', { name: 'Before starting' });
+  await expect(ready).toContainText('Status is Under testing');
+  await expect(ready).toContainText('Not back tested yet');
   await expect(start).toBeEnabled();
   await start.click();
   const dialog = page.getByRole('dialog', { name: 'Start on paper?' });
@@ -121,7 +142,7 @@ test('define, validate, test, start on paper, stop, revise and review versions',
   await expect(dialog).toBeHidden();
 
   // Running: rules are read-only, version 1 is pinned, Stop is easy to reach.
-  await expect(backTest.getByText('Status: Actively executing')).toBeVisible();
+  await expect(execution.getByText('Status: Actively executing')).toBeVisible();
   await expect(page.getByText('This strategy is running on paper.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save draft' })).toHaveCount(0);
   await expect(coverB.getByLabel('Leg name')).toBeDisabled();
@@ -135,12 +156,12 @@ test('define, validate, test, start on paper, stop, revise and review versions',
     acknowledgedWarnings: ['non_atomic_multi_leg', 'no_backtest'],
   });
 
-  await backTest.getByRole('button', { name: 'Stop execution' }).click();
+  await execution.getByRole('button', { name: 'Stop execution' }).click();
   const stop = page.getByRole('dialog', { name: 'Stop execution?' });
   await expect(stop.getByText('Working orders and positions are left as they are.')).toBeVisible();
   await stop.getByLabel('Reason (optional)').fill('End of test');
   await stop.getByRole('button', { name: 'Stop execution' }).click();
-  await expect(backTest.getByText('Status: Off')).toBeVisible();
+  await expect(execution.getByText('Status: Off')).toBeVisible();
   await expect(versions.getByText('End of test')).toBeVisible();
 
   // After a strategy has run, saved rule changes become a new version.
