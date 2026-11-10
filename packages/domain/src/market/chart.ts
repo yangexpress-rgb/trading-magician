@@ -34,9 +34,9 @@ export function chartIntervalAllowed(range: ChartRange, interval: ChartInterval)
   return ALLOWED[interval].includes(range);
 }
 
-/** The bars a range opens with: 5-minute for a day, daily otherwise. */
+/** The bars a range opens with: 5-minute for a day, hourly for a week (N203), daily otherwise. */
 export function defaultChartInterval(range: ChartRange): ChartInterval {
-  return range === '1d' ? '5m' : '1d';
+  return range === '1d' ? '5m' : range === '1w' ? '1h' : '1d';
 }
 
 /**

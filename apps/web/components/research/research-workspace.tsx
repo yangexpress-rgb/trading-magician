@@ -38,8 +38,8 @@ import { PriceChart, type ChartStyle, type ComparedSeries } from './price-chart'
 import { StockPicker } from './stock-picker';
 import { useChartHistory } from './use-chart-history';
 
-/** Every stock or ETF opens on its latest session: 5-minute bars, as a line. */
-const OPENING_VIEW = { range: '1d', interval: '5m', style: 'line' } as const;
+/** Every stock or ETF opens on its latest session: 5-minute bars, as candles (N203). */
+const OPENING_VIEW = { range: '1d', interval: '5m', style: 'candles' } as const;
 /** An index has daily bars only (CBOE end-of-day, v1.2 item 5): it opens on 5 years of them. */
 const INDEX_VIEW = { range: '5y', interval: '1d', style: 'line' } as const;
 const viewFor = (i: InstrumentOptionDto | undefined) =>
@@ -97,11 +97,13 @@ export function ResearchWorkspace({
     setSel((cur) => {
       const next = { ...cur, ...patch };
       // Hourly bars only go back 3 months; a longer range falls back to daily.
-      // Each range opens on bars it offers: a day on 5-minute bars, longer ranges on daily.
+      // Each range opens on bars it offers: a day on 5-minute bars, a week on hourly (N203),
+      // longer ranges on daily.
+      const ownBars = (r: ChartRange) => r === '1d' || r === '1w';
       if (patch.range && patch.range !== cur.range && !patch.interval) {
         next.interval =
-          patch.range === '1d' ||
-          cur.range === '1d' ||
+          ownBars(patch.range) ||
+          ownBars(cur.range) ||
           !chartIntervalAllowed(next.range, next.interval)
             ? defaultChartInterval(next.range)
             : next.interval;
@@ -120,7 +122,7 @@ export function ResearchWorkspace({
     if (sel.instrumentId) q.set('instrument', sel.instrumentId);
     q.set('range', sel.range);
     q.set('interval', sel.interval);
-    if (sel.style !== 'line') q.set('style', sel.style);
+    if (sel.style !== 'candles') q.set('style', sel.style);
     if (sel.end) q.set('date', sel.end);
     if (sel.compare.length) q.set('compare', sel.compare.join(','));
     router.replace(`/research?${q.toString()}`, { scroll: false });

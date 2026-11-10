@@ -96,7 +96,8 @@ export default async function ResearchPage({
           instrumentId,
           range,
           interval,
-          style: one(params.style) === 'candles' ? 'candles' : 'line',
+          // Candles unless the address asks for a line (N203).
+          style: one(params.style) === 'line' ? 'line' : 'candles',
           end,
           compare,
         }}
