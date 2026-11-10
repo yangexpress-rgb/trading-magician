@@ -13,9 +13,9 @@ const HINT = 'Double-click to change the theory';
 
 /**
  * The theory a strategy refers to, under its name on the strategy page (N191).
- * Double-click (or F2) opens the Library search; a pick is saved at once. A
- * strategy whose record was auto-created from it refers to no theory (N187).
- * A running strategy keeps its theory, as in the builder's picker.
+ * Double-click (or F2) opens the theory search; a pick is saved at once. A
+ * strategy refers to any theory, or to none (ADR 0072). A running strategy
+ * keeps its theory.
  */
 export function StrategyTheoryLine({
   strategyId,
@@ -34,7 +34,7 @@ export function StrategyTheoryLine({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   const lineRef = useRef<HTMLSpanElement>(null);
-  const referred = library && !library.autoCreated ? library : null;
+  const referred = library;
   const start = () => {
     if (!editable) return;
     setError(undefined);
@@ -106,8 +106,7 @@ export function StrategyTheoryLine({
         <div className="max-w-xl">
           <EntrySearch
             currentId={library?.entryId}
-            // Referring to none already means its own record; "new" is how to stop referring.
-            offerNew={referred !== null}
+            offerNone={referred !== null}
             onPick={(choice) => void pick(choice)}
             onClose={() => {
               setOpen(false);

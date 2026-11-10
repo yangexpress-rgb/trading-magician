@@ -6,26 +6,26 @@ import { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 
 /**
- * The Library search used by the theory line under a strategy's name (N191).
- * The builder's "Library entry" card that also held it was removed (N192).
+ * The theory search used by the theory line under a strategy's name (N191).
+ * A strategy refers to any theory, or to none (ADR 0072).
  */
 export type LibraryPick =
-  { kind: 'entry'; registrationNumber: string; name: string } | { kind: 'new' };
+  { kind: 'entry'; registrationNumber: string; name: string } | { kind: 'none' };
 
 export const toChoiceRequest = (pick: LibraryPick): LibraryChoiceRequest =>
   pick.kind === 'entry'
     ? { kind: 'entry', registrationNumber: pick.registrationNumber }
-    : { kind: 'new' };
+    : { kind: 'none' };
 
 export function EntrySearch({
   currentId,
   onPick,
   onClose,
-  offerNew = true,
+  offerNone = false,
 }: {
   currentId: string | undefined;
-  /** False hides "New Library record" (a strategy that already has its own record). */
-  offerNew?: boolean;
+  /** True offers "No theory", to stop referring to the current one. */
+  offerNone?: boolean;
   onPick: (pick: LibraryPick) => void;
   onClose: () => void;
 }) {
@@ -78,15 +78,15 @@ export function EntrySearch({
       />
       {error && <p className="mt-2 text-sm text-danger">{error}</p>}
       <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-sm" aria-label="Library entries">
-        {offerNew && (
+        {offerNone && (
           <li>
             <button
               type="button"
               className="w-full rounded px-2 py-1 text-left hover:bg-surface-2"
-              onClick={() => onPick({ kind: 'new' })}
+              onClick={() => onPick({ kind: 'none' })}
             >
-              <span className="font-semibold">New Library record</span>{' '}
-              <span className="text-ink-muted">— created on save with the next number</span>
+              <span className="font-semibold">No theory</span>{' '}
+              <span className="text-ink-muted">— this strategy stops referring to one</span>
             </button>
           </li>
         )}
@@ -107,7 +107,7 @@ export function EntrySearch({
                 <span className="font-mono font-semibold">{e.registrationNumber}</span> {e.name}{' '}
                 <span className="text-xs text-ink-muted">
                   {isCurrent
-                    ? '(this strategy)'
+                    ? '(current theory)'
                     : e.builtStatus === 'built'
                       ? '· Built'
                       : '· Not built'}

@@ -86,8 +86,9 @@ test('shares a Library record and a Lab strategy, and the recipient accepts copi
 
   // A Lab strategy: shared from the Strategy Lab list.
   const saved = await createStrategyWithRules(page, baseURL!, 'Ann’s shared strategy', oneLeg);
-  const source = (await (await page.request.get(`/api/v1/strategies/${saved.id}`)).json()).library
-    .registrationNumber as string;
+  // Shared under its own S number; it refers to no theory (ADR 0072).
+  const source = (await (await page.request.get(`/api/v1/strategies/${saved.id}`)).json())
+    .labNumber as string;
   await page.goto('/strategy-lab');
   await page.getByRole('button', { name: new RegExp(`^Share ${source}`) }).click();
   await shareWith(page, benCode);
@@ -103,9 +104,11 @@ test('shares a Library record and a Lab strategy, and the recipient accepts copi
   await expect(ben).toHaveURL(/\/strategy-lab\/[0-9a-f-]{36}$/);
   await expect(ben.getByRole('heading', { name: 'Ann’s shared strategy' })).toBeVisible();
   await expect(ben.getByText(`Ann Sender (${annCode})`)).toBeVisible();
-  const own = ben.getByRole('link', { name: /^Theory Library entry T\d{5}-SD$/ });
-  await expect(own).toBeVisible();
-  await expect(own).not.toHaveText(source);
+  // The copy has its own S number and, like the shared one, no theory.
+  await expect(ben.getByText(/^S\d{5}-SD$/).first()).toBeVisible();
+  await expect(ben.getByTitle('Double-click to change the theory').first()).toContainText(
+    'Theory none referred',
+  );
   await ben.screenshot({ path: 'test-results/sharing-lab-copy.png', fullPage: true });
 
   await ben.goto('/strategy-lab?shared=1');

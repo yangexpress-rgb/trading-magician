@@ -112,12 +112,12 @@ export default async function StrategyLabPage({
     q.q || q.status || q.instrumentId || days || q.archived !== 'exclude' || q.shared,
   );
   const admin = await isAdmin();
-  // Only numbered strategies can be shared (ADR 0056).
+  // Any numbered strategy can be shared, with or without a theory (ADR 0072).
   const shareItem = (s: StrategySummary) =>
-    s.libraryNumber
+    s.labNumber
       ? {
           source: { kind: 'lab' as const, strategyId: s.id },
-          label: `${s.libraryNumber} ${s.name}`,
+          label: `${s.labNumber} ${s.name}`,
         }
       : null;
   const shareable = items.map(shareItem).filter((i) => i !== null);
@@ -291,7 +291,7 @@ export default async function StrategyLabPage({
                         <span className="text-ink-muted">—</span>
                       )}
                     </Td>
-                    {/* The theory it refers to (N187); blank when its theory was auto-created from it. */}
+                    {/* The theory it refers to; blank when it refers to none (ADR 0072). */}
                     <Td className="whitespace-nowrap font-mono text-xs">
                       {s.theoryNumber && (
                         <Link
@@ -347,7 +347,7 @@ export default async function StrategyLabPage({
                           status: s.status,
                           archived: s.archivedAt !== null,
                           rowVersion: s.rowVersion,
-                          libraryNumber: s.libraryNumber,
+                          labNumber: s.labNumber,
                         }}
                         isAdmin={admin}
                       />

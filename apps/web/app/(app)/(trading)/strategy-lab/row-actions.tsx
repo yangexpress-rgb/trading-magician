@@ -15,7 +15,7 @@ interface RowStrategy {
   archived: boolean;
   rowVersion: number;
   /** Its Library number; only numbered strategies can be shared (ADR 0056). */
-  libraryNumber: string | null;
+  labNumber: string | null;
 }
 
 type Mode = 'rename' | 'delete' | null;
@@ -65,10 +65,10 @@ export function RowActions({
       >
         Rename
       </Button>
-      {strategy.libraryNumber && (
+      {strategy.labNumber && (
         <ShareButton
           source={{ kind: 'lab', strategyId: strategy.id }}
-          label={`${strategy.libraryNumber} ${strategy.name}`}
+          label={`${strategy.labNumber} ${strategy.name}`}
           isAdmin={isAdmin}
           variant="ghost"
           size="sm"

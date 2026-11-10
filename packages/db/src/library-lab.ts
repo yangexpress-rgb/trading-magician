@@ -1,7 +1,4 @@
 import {
-  AUTO_CREATED_NOTE,
-  AUTO_CREATED_TAG,
-  autoCreatedRecord,
   collectInstrumentUses,
   deriveLabCodes,
   PROVISIONAL_LAB_CODES,
@@ -15,40 +12,33 @@ import {
   claimEntry,
   LibraryError,
   releaseEntry,
-  registerLibraryEntry,
   resolveLibraryEntryRow,
   setEntryBuilt,
   setStrategyEntry,
   strategyLinkRow,
 } from './library';
 import { matchSeedLinks } from './library-seed';
-import {
-  instruments,
-  strategies,
-  strategyLibraryEntries as entries,
-  strategyLibraryRevisions as revisions,
-} from './schema';
+import { instruments, strategies, strategyLibraryEntries as entries } from './schema';
 
 /**
- * Strategy Lab numbering (ADR 0054). Every Lab strategy refers to one Strategy
- * Library record (a theory); a strategy saved with no link gets a record
- * created for it, and the next number from the shared counter, in the same
- * transaction as the save. Many strategies may refer to the same theory
- * (ADR 0071). Built status follows the association both ways.
+ * Strategies and theories (ADR 0072). A Lab strategy and a theory (Strategy
+ * Library record) are separate objects: a strategy has its own S number
+ * (ADR 0065) and an optional reference to any theory, and many strategies may
+ * refer to the same theory (ADR 0071). Saving a strategy never creates a
+ * theory. Built status follows the references.
  */
 
-/** What the builder's "Library entry" picker sends with a save (brief D2, D5). */
-export type LibraryChoice = { kind: 'entry'; registrationNumber: string } | { kind: 'new' };
+/** What the theory picker sends with a save: a theory by number, or none. */
+export type LibraryChoice = { kind: 'entry'; registrationNumber: string } | { kind: 'none' };
 
 export interface StrategyLibraryRecord {
   entryId: string;
   registrationNumber: string;
   name: string;
   status: 'registered' | 'retired';
-  autoCreated: boolean;
 }
 
-/** The record a strategy shows, or null while it has none (a draft without instruments). */
+/** The theory a strategy refers to, or null when it refers to none. */
 export async function strategyLibraryRecord(
   tx: Transaction,
   entryId: string | null,
@@ -60,49 +50,25 @@ export async function strategyLibraryRecord(
       registrationNumber: entries.registrationNumber,
       name: entries.name,
       status: entries.status,
-      tags: entries.tags,
-      share: entries.receivedShareId,
     })
     .from(entries)
     .where(eq(entries.id, entryId));
   if (!row) return null;
-  return {
-    entryId: row.entryId,
-    registrationNumber: row.registrationNumber,
-    name: row.name,
-    status: row.status as 'registered' | 'retired',
-    autoCreated: autoCreatedHere(row.tags, row.share),
-  };
-}
-
-/**
- * A theory auto-created from the strategy itself (ADR 0054 D3), as opposed to
- * one the strategy refers to (N187). A shared copy keeps the sender's tags but
- * was received, so it counts as referred.
- */
-function autoCreatedHere(tags: readonly string[], receivedShareId: string | null): boolean {
-  return tags.includes(AUTO_CREATED_TAG) && receivedShareId === null;
+  return { ...row, status: row.status as 'registered' | 'retired' };
 }
 
 /** Theory numbers for many strategies at once (the Strategy Lab list). */
 export async function libraryNumbers(
   tx: Transaction,
   entryIds: readonly string[],
-): Promise<Map<string, { number: string; autoCreated: boolean }>> {
+): Promise<Map<string, string>> {
   const ids = [...new Set(entryIds)];
   if (!ids.length) return new Map();
   const rows = await tx
-    .select({
-      id: entries.id,
-      n: entries.registrationNumber,
-      tags: entries.tags,
-      share: entries.receivedShareId,
-    })
+    .select({ id: entries.id, n: entries.registrationNumber })
     .from(entries)
     .where(inArray(entries.id, ids));
-  return new Map(
-    rows.map((r) => [r.id, { number: r.n, autoCreated: autoCreatedHere(r.tags, r.share) }]),
-  );
+  return new Map(rows.map((r) => [r.id, r.n]));
 }
 
 type StrategyRow = NonNullable<Awaited<ReturnType<typeof strategyLinkRow>>>;
@@ -148,51 +114,6 @@ async function requireStrategy(tx: Transaction, strategyId: string): Promise<Str
   const s = await strategyLinkRow(tx, strategyId);
   if (!s) throw new LibraryError('not_found', 'Strategy not found');
   return s;
-}
-
-/**
- * Creates the strategy's own record (D3, D4) and links it, in this
- * transaction. Null, and nothing issued, while the draft has no Entry leg
- * with an instrument.
- */
-export async function autoCreateLibraryRecord(
-  tx: Transaction,
-  actorId: string,
-  strategyId: string,
-): Promise<{ registrationNumber: string } | null> {
-  const [row] = await tx
-    .select({
-      id: strategies.id,
-      name: strategies.name,
-      description: strategies.description,
-      draft: strategies.draftDefinition,
-    })
-    .from(strategies)
-    .where(and(eq(strategies.id, strategyId), isNull(strategies.deletedAt)));
-  if (!row) return null;
-  const { definition, byId } = await numberingSource(tx, row.draft);
-  const record = autoCreatedRecord({
-    strategyId: row.id,
-    name: row.name,
-    description: row.description,
-    definition,
-    symbol: (id) => byId.get(id)?.symbol,
-    classOf: (id) => byId.get(id)?.assetClass as LabAssetClass | undefined,
-  });
-  if (!record) return null;
-  // Registering with the strategy as its built link also points the strategy at it.
-  const issued = await registerLibraryEntry(tx, actorId, record);
-  await tx.insert(revisions).values({
-    entryId: issued.id,
-    action: 'create',
-    note: `${AUTO_CREATED_NOTE} for “${row.name}” — complete the record in the Library`.slice(
-      0,
-      500,
-    ),
-    changedFields: [],
-    editedBy: actorId,
-  });
-  return { registrationNumber: issued.registrationNumber };
 }
 
 /** The parsed draft and the instruments it names (symbol and asset class). */
@@ -278,9 +199,9 @@ export async function numberExistingLabStrategies(
 }
 
 /**
- * Runs after every save of a strategy (create, edit, copy). With a choice
- * from the picker it links or starts a new record; with none, a strategy
- * that has no record yet gets one (D3), unless it is a test fixture (O74).
+ * Runs after every save of a strategy (create, edit, copy). With a choice from
+ * the theory picker it refers to that theory, or to none; with no choice the
+ * reference stays as it is. A save never creates a theory (ADR 0072).
  */
 export async function applyLibraryChoice(
   tx: Transaction,
@@ -288,23 +209,10 @@ export async function applyLibraryChoice(
   strategyId: string,
   choice: LibraryChoice | undefined,
 ): Promise<void> {
-  await applyTheoryChoice(tx, actorId, strategyId, choice);
-  // Its own Lab number, in the same transaction (ADR 0065).
-  await issueLabNumber(tx, strategyId);
-}
-
-async function applyTheoryChoice(
-  tx: Transaction,
-  actorId: string,
-  strategyId: string,
-  choice: LibraryChoice | undefined,
-): Promise<void> {
   if (choice?.kind === 'entry') {
     await linkStrategyToEntry(tx, actorId, strategyId, choice.registrationNumber);
-    return;
-  }
-  const strategy = await requireStrategy(tx, strategyId);
-  if (choice?.kind === 'new') {
+  } else if (choice?.kind === 'none') {
+    const strategy = await requireStrategy(tx, strategyId);
     if (strategy.libraryEntryId) {
       await setStrategyEntry(tx, strategy.id, null);
       await releaseEntry(
@@ -312,14 +220,12 @@ async function applyTheoryChoice(
         actorId,
         strategy.libraryEntryId,
         strategy,
-        `The Strategy Lab strategy “${strategy.name}” moved to a new Library record`,
+        `The Strategy Lab strategy “${strategy.name}” no longer refers to it`,
       );
     }
-    await autoCreateLibraryRecord(tx, actorId, strategy.id);
-    return;
   }
-  if (strategy.libraryEntryId || isFixtureName(strategy.name)) return;
-  await autoCreateLibraryRecord(tx, actorId, strategy.id);
+  // Its own Lab number, in the same transaction (ADR 0065).
+  await issueLabNumber(tx, strategyId);
 }
 
 /**

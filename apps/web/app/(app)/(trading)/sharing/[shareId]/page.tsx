@@ -60,6 +60,8 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
   if (!share) notFound();
   const r = share.snapshot.record;
   const s = share.snapshot.strategy;
+  // A Lab share since ADR 0072 names the theory its strategy refers to, not a record copy.
+  const theory = share.snapshot.theory;
   const status = SHARE_STATUS_LABELS[share.status];
   const recipient = share.role === 'recipient';
 
@@ -105,7 +107,7 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
             <p className="text-sm">
               {recipient
                 ? share.kind === 'lab'
-                  ? 'Accepting adds a copy of this strategy to your Strategy Lab, with its own new Library number. Its order legs move to your paper account. Back tests, orders and run history are not part of it.'
+                  ? 'Accepting adds a copy of this strategy to your Strategy Lab, with its own new strategy number, referring to the same theory. Its order legs move to your paper account. Back tests, orders and run history are not part of it.'
                   : 'Accepting adds a copy of this theory to the Library, registered by you with its own new number.'
                 : `Waiting for an answer. It expires on ${formatDateTime(share.expiresAt, prefs, { dateStyle: 'medium' })} if nobody answers.`}
             </p>
@@ -115,9 +117,13 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
         {share.status === 'accepted' && share.result?.number && (
           <p className="text-sm">
             {recipient ? 'Your copy is ' : 'Their copy is '}
-            <Link href={`/library/${share.result.number}`} className="font-mono">
-              {share.result.number}
-            </Link>
+            {share.kind === 'lab' ? (
+              <span className="font-mono">{share.result.number}</span>
+            ) : (
+              <Link href={`/library/${share.result.number}`} className="font-mono">
+                {share.result.number}
+              </Link>
+            )}
             {recipient && share.result.strategyId && (
               <>
                 {' '}
@@ -151,29 +157,48 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
             {s.tags.length > 0 && <Field label="Tags">{s.tags.join(', ')}</Field>}
           </Card>
         )}
-        <Card className="space-y-2">
-          <h3 className="font-semibold">Library theory</h3>
-          <Field label="Name">{r.name}</Field>
-          <Field label="Category">
-            {CATEGORY_LABELS[r.category as LibraryCategory] ?? r.category}
-          </Field>
-          <Field label="Direction">
-            {r.direction ? DIRECTION_LABELS[r.direction as LibraryDirection] : 'Not specified'}
-          </Field>
-          <Field label="Maturity">
-            {MATURITY_LABELS[(r.maturity ?? 'researched') as LibraryMaturity]}
-          </Field>
-          <Field label="Assets">{r.assets}</Field>
-          <Field label="Summary">{r.shortDescription}</Field>
-        </Card>
-        <Card className="space-y-3">
-          <Prose label="Entry" source={r.entry} />
-          <Prose label="Exit" source={r.exit} />
-        </Card>
-        <Card className="space-y-3 lg:col-span-2">
-          <Prose label="Description" source={r.longDescription} />
-          {r.keyRisks && <Prose label="Key risks" source={r.keyRisks} />}
-        </Card>
+        {theory !== undefined && (
+          <Card className="space-y-2 lg:col-span-2">
+            <h3 className="font-semibold">Theory</h3>
+            {theory ? (
+              <p className="text-sm">
+                <Link href={`/library/${theory.registrationNumber}`} className="font-mono">
+                  {theory.registrationNumber}
+                </Link>{' '}
+                {theory.name}
+              </p>
+            ) : (
+              <p className="text-sm text-ink-muted">This strategy refers to no theory.</p>
+            )}
+          </Card>
+        )}
+        {r && (
+          <>
+            <Card className="space-y-2">
+              <h3 className="font-semibold">Library theory</h3>
+              <Field label="Name">{r.name}</Field>
+              <Field label="Category">
+                {CATEGORY_LABELS[r.category as LibraryCategory] ?? r.category}
+              </Field>
+              <Field label="Direction">
+                {r.direction ? DIRECTION_LABELS[r.direction as LibraryDirection] : 'Not specified'}
+              </Field>
+              <Field label="Maturity">
+                {MATURITY_LABELS[(r.maturity ?? 'researched') as LibraryMaturity]}
+              </Field>
+              <Field label="Assets">{r.assets}</Field>
+              <Field label="Summary">{r.shortDescription}</Field>
+            </Card>
+            <Card className="space-y-3">
+              <Prose label="Entry" source={r.entry} />
+              <Prose label="Exit" source={r.exit} />
+            </Card>
+            <Card className="space-y-3 lg:col-span-2">
+              <Prose label="Description" source={r.longDescription} />
+              {r.keyRisks && <Prose label="Key risks" source={r.keyRisks} />}
+            </Card>
+          </>
+        )}
       </div>
     </>
   );

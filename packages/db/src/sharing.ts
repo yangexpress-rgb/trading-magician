@@ -142,7 +142,10 @@ export async function listShareMembers(tx: Transaction): Promise<ShareMember[]> 
 type RecordSnapshot = Omit<RegisterLibraryEntryInput, 'builtStrategyId'>;
 
 export interface ShareSnapshot {
-  record: RecordSnapshot;
+  /** A Library share, and Lab shares made before ADR 0072: the record as it was. */
+  record?: RecordSnapshot;
+  /** A Lab share since ADR 0072: the theory the strategy referred to, if any. */
+  theory?: { registrationNumber: string; name: string } | null;
   /** A Lab share only: the strategy as it was when shared. */
   strategy?: {
     name: string;
@@ -236,7 +239,10 @@ async function buildSnapshot(
   source: ShareSource,
 ): Promise<{
   kind: ShareKind;
-  entry: EntryRow;
+  /** The Library record shared, or the theory the shared strategy refers to (if any). */
+  entry: EntryRow | null;
+  /** The number the share shows: the record's, or the strategy's own S number. */
+  label: string;
   strategyId: string | null;
   snapshot: ShareSnapshot;
 }> {
@@ -251,6 +257,7 @@ async function buildSnapshot(
     return {
       kind: 'library',
       entry,
+      label: entry.registrationNumber,
       strategyId: null,
       snapshot: { record: recordSnapshot(entry) },
     };
@@ -264,20 +271,18 @@ async function buildSnapshot(
   if (isFixtureName(s.name)) {
     throw new ShareError('bad_request', 'Test fixtures have no number and can’t be shared');
   }
-  if (!s.libraryEntryId) {
-    throw new ShareError(
-      'bad_request',
-      'Save it with instruments first so it has a number, then share it',
-    );
-  }
-  const [entry] = await tx.select().from(entries).where(eq(entries.id, s.libraryEntryId));
-  if (!entry) throw new ShareError('not_found', 'Its Library record is missing');
+  // A strategy is shared with its own number; the copy refers to the same theory (ADR 0072).
+  if (!s.labNumber) throw new ShareError('bad_request', 'This strategy has no number yet');
+  const [entry] = s.libraryEntryId
+    ? await tx.select().from(entries).where(eq(entries.id, s.libraryEntryId))
+    : [];
   return {
     kind: 'lab',
-    entry,
+    entry: entry ?? null,
+    label: s.labNumber,
     strategyId: s.id,
     snapshot: {
-      record: recordSnapshot(entry),
+      theory: entry ? { registrationNumber: entry.registrationNumber, name: entry.name } : null,
       strategy: {
         name: s.name,
         description: s.description,
@@ -330,19 +335,19 @@ export async function createShares(
   const built = [];
   for (const src of unique.values()) built.push(await buildSnapshot(tx, src));
   const ids: string[] = [];
-  for (const { kind, entry, strategyId, snapshot } of built) {
+  for (const { kind, entry, label, strategyId, snapshot } of built) {
     for (const member of people.values()) {
       let rows;
       try {
         rows = await call(() =>
           tx.execute<{ id: string }>(
-            sql`select share_create(${member.userId}::uuid, ${kind}, ${entry.id}::uuid, ${strategyId}::uuid, ${JSON.stringify(snapshot)}::jsonb, ${data.note ?? null}) as id`,
+            sql`select share_create(${member.userId}::uuid, ${kind}, ${entry?.id ?? null}::uuid, ${strategyId}::uuid, ${JSON.stringify(snapshot)}::jsonb, ${data.note ?? null}) as id`,
           ),
         );
       } catch (e) {
         // Say which one, when a send has several.
         if (many && e instanceof ShareError) {
-          throw new ShareError(e.code, `${entry.registrationNumber}: ${e.message}`);
+          throw new ShareError(e.code, `${label}: ${e.message}`);
         }
         throw e;
       }
@@ -500,8 +505,9 @@ export interface AcceptedShare {
 }
 
 /**
- * Accepts a share as its recipient: copies the record (and, for a Lab share,
- * the strategy linked to it), each with a new number, then closes the share.
+ * Accepts a share as its recipient, then closes it. A Library share copies the
+ * record with a new number. A Lab share copies the strategy, which gets its own
+ * S number and refers to the same theory as the shared one, if any (ADR 0072).
  * A repeated accept returns the first copy.
  */
 export async function acceptShare(
@@ -529,21 +535,29 @@ export async function acceptShare(
   const sourceNumber = begun.source_number as string;
   const senderCode = begun.sender_code as string;
 
-  const tags = [...new Set([...(snapshot.record.tags ?? []), SHARED_TAG])].slice(0, 20);
+  if (kind === 'lab') {
+    const copy = await acceptLabShare(tx, userId, shareId, snapshot, sourceNumber);
+    await call(() =>
+      tx.execute(
+        sql`select share_accept_finish(${shareId}::uuid, ${copy.entryId}::uuid, ${copy.strategyId}::uuid)`,
+      ),
+    );
+    return { kind, number: copy.number, strategyId: copy.strategyId };
+  }
+
+  if (!snapshot.record) throw new ShareError('bad_request', 'The shared record is missing');
+  const shared = snapshot.record;
+  const tags = [...new Set([...(shared.tags ?? []), SHARED_TAG])].slice(0, 20);
   // Related numbers that no longer resolve are dropped rather than refusing the copy.
-  const related = (snapshot.record.relatedEntries ?? []).length
+  const related = (shared.relatedEntries ?? []).length
     ? (
         await tx
           .select({ n: entries.registrationNumber })
           .from(entries)
-          .where(inArray(entries.registrationNumber, snapshot.record.relatedEntries ?? []))
+          .where(inArray(entries.registrationNumber, shared.relatedEntries ?? []))
       ).map((r) => r.n)
     : [];
-  const record = registerLibraryEntrySchema.safeParse({
-    ...snapshot.record,
-    tags,
-    relatedEntries: related,
-  });
+  const record = registerLibraryEntrySchema.safeParse({ ...shared, tags, relatedEntries: related });
   if (!record.success) {
     throw new ShareError(
       'bad_request',
@@ -561,34 +575,64 @@ export async function acceptShare(
     changedFields: [],
     editedBy: userId,
   });
-
-  let strategyId: string | null = null;
-  if (kind === 'lab') {
-    if (!snapshot.strategy) throw new ShareError('bad_request', 'The shared strategy is missing');
-    const account = (await preferredLegAccountId(tx)) ?? NO_ACCOUNT;
-    // Re-read through the domain so an older stored schema migrates on the way in.
-    const definition = reassignAccounts(parseDefinition(snapshot.strategy.definition), account);
-    try {
-      const copy = await createStrategy(tx, userId, {
-        name: snapshot.strategy.name,
-        description: snapshot.strategy.description,
-        tags: snapshot.strategy.tags,
-        definition,
-        library: { kind: 'entry', registrationNumber: issued.registrationNumber },
-        receivedShareId: shareId,
-      });
-      strategyId = copy.id;
-    } catch (error) {
-      if (error instanceof StrategyError) throw new ShareError('bad_request', error.message);
-      throw error;
-    }
-  }
   await call(() =>
-    tx.execute(
-      sql`select share_accept_finish(${shareId}::uuid, ${issued.id}::uuid, ${strategyId}::uuid)`,
-    ),
+    tx.execute(sql`select share_accept_finish(${shareId}::uuid, ${issued.id}::uuid, null::uuid)`),
   );
-  return { kind, number: issued.registrationNumber, strategyId };
+  return { kind, number: issued.registrationNumber, strategyId: null };
+}
+
+/**
+ * The recipient's copy of a shared strategy: its own S number, its legs on the
+ * recipient's paper account, and a reference to the same theory as the shared
+ * strategy while that theory can still be referred to (not retired).
+ */
+async function acceptLabShare(
+  tx: Transaction,
+  userId: string,
+  shareId: string,
+  snapshot: ShareSnapshot,
+  sourceNumber: string,
+): Promise<{ strategyId: string; number: string; entryId: string | null }> {
+  if (!snapshot.strategy) throw new ShareError('bad_request', 'The shared strategy is missing');
+  // A Lab share made before ADR 0072 named the strategy's record by its number.
+  const theoryNumber =
+    snapshot.theory === undefined
+      ? snapshot.record
+        ? sourceNumber
+        : null
+      : (snapshot.theory?.registrationNumber ?? null);
+  const [theory] = theoryNumber
+    ? await tx
+        .select({ id: entries.id, number: entries.registrationNumber })
+        .from(entries)
+        .where(
+          and(
+            or(
+              eq(entries.registrationNumber, theoryNumber),
+              sql`${theoryNumber} = any(${entries.formerNumbers})`,
+            ),
+            eq(entries.status, 'registered'),
+          ),
+        )
+        .limit(1)
+    : [];
+  const account = (await preferredLegAccountId(tx)) ?? NO_ACCOUNT;
+  // Re-read through the domain so an older stored schema migrates on the way in.
+  const definition = reassignAccounts(parseDefinition(snapshot.strategy.definition), account);
+  try {
+    const copy = await createStrategy(tx, userId, {
+      name: snapshot.strategy.name,
+      description: snapshot.strategy.description,
+      tags: snapshot.strategy.tags,
+      definition,
+      ...(theory ? { library: { kind: 'entry' as const, registrationNumber: theory.number } } : {}),
+      receivedShareId: shareId,
+    });
+    return { strategyId: copy.id, number: copy.labNumber ?? '', entryId: theory?.id ?? null };
+  } catch (error) {
+    if (error instanceof StrategyError) throw new ShareError('bad_request', error.message);
+    throw error;
+  }
 }
 
 export async function declineShare(tx: Transaction, shareId: string): Promise<void> {

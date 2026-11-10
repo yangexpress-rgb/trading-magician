@@ -72,7 +72,7 @@ test('a strategy is renamed by double-clicking its name, on its page and in the 
   await expect(theory).toBeFocused();
   await theory.dblclick();
   await expect(search).toBeFocused();
-  await expect(page.getByRole('button', { name: 'New Library record' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^No theory/ })).toHaveCount(0);
   const choice = page.getByRole('button', { name: /^T\d{5}-[A-Z]{2} .*Not built/ }).first();
   const theoryNumber = ((await choice.textContent()) ?? '').match(/T\d{5}-[A-Z]{2}/)![0];
   await choice.click();
