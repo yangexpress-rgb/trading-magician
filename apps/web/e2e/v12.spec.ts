@@ -11,7 +11,7 @@ import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 const SHOTS = process.env.E2E_SCREENSHOT_DIR;
 
-test('build a group with a time stop, back test it, and read the ranking', async ({
+test('build a group with a holding period, back test it, and read the ranking', async ({
   page,
   baseURL,
 }) => {
@@ -79,7 +79,9 @@ test('build a group with a time stop, back test it, and read the ranking', async
   await expect(table.locator('tbody tr').first()).toBeVisible();
   await expect(results.getByRole('button', { name: 'Download all rounds (CSV)' })).toBeVisible();
   // Each trade says why it exited.
-  await expect(results.getByText(/Rebalance: no longer selected|Time stop/).first()).toBeVisible();
+  await expect(
+    results.getByText(/Rebalance: no longer selected|Exit condition/).first(),
+  ).toBeVisible();
   if (SHOTS) await results.screenshot({ path: `${SHOTS}/selection-results.png` });
 
   // The cycle card follows the strategy's three parts (N219, N220).
