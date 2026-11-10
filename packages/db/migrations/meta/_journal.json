@@ -575,6 +575,13 @@
       "when": 1794254069676,
       "tag": "0081_lab_numbers_at_creation",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1794271328817,
+      "tag": "0082_many_strategies_per_theory",
+      "breakpoints": true
     }
   ]
 }

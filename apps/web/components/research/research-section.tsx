@@ -7,7 +7,7 @@ const KEY = (id: string) => `tm.research.open.${id}`;
 
 /**
  * A section under the price chart (Options, Earnings, Company) that starts
- * closed (N200): its title opens it to show everything, and closes it again.
+ * closed (N202): its title opens it to show everything, and closes it again.
  * The header's short facts (next release, the data source) stay in sight.
  * Each browser remembers which sections the person left open.
  */

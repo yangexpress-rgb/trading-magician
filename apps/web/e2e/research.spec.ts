@@ -28,7 +28,7 @@ test('picks a stock and reads its price chart', async ({ page }) => {
   ).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText(/Prices from /)).toBeVisible();
 
-  // The picker opens from the charted symbol (N199); without a real data feed it says how
+  // The picker opens from the charted symbol (N201); without a real data feed it says how
   // to search every US stock.
   await openStockPicker(page);
   await expect(page.getByTestId('needs-feed')).toContainText('add an Alpaca data feed');

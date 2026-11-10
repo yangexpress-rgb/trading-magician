@@ -941,8 +941,9 @@ export const strategies = pgTable(
     dataRouteId: uuid('data_route_id'),
     defaultAccountId: uuid('default_account_id'),
     /**
-     * The Strategy Library record this strategy is (ADR 0054): its number is the
-     * strategy's number. Null only until the first save with instruments.
+     * The theory (Library record) this strategy refers to (ADR 0054). Many
+     * strategies may refer to the same theory (ADR 0071). Null only until the
+     * first save with instruments.
      */
     libraryEntryId: uuid('library_entry_id').references(
       (): AnyPgColumn => strategyLibraryEntries.id,
@@ -987,8 +988,8 @@ export const strategies = pgTable(
       foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
     }),
     index('strategy_user_updated_idx').on(t.userId, t.updatedAt),
-    // One live strategy per Library record (brief D6).
-    uniqueIndex('strategy_library_entry_uq')
+    // Many strategies may refer to one theory (ADR 0071, N199); the D6 one-to-one rule is gone.
+    index('strategy_library_entry_idx')
       .on(t.libraryEntryId)
       .where(sql`${t.libraryEntryId} is not null and ${t.deletedAt} is null`),
     // Lab numbers are global and never reused, deleted strategies included.

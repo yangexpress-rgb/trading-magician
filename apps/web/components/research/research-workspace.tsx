@@ -215,7 +215,7 @@ export function ResearchWorkspace({
     return () => document.removeEventListener('mousedown', onDown);
   }, [picking]);
 
-  // The stock picker opens over the chart from its title (N199): no card beside the chart.
+  // The stock picker opens over the chart from its title (N201): no card beside the chart.
   const picker = (
     <StockPicker
       instruments={instruments}

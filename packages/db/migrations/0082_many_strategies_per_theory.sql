@@ -1,0 +1,2 @@
+DROP INDEX "strategy_library_entry_uq";--> statement-breakpoint
+CREATE INDEX "strategy_library_entry_idx" ON "strategy" USING btree ("library_entry_id") WHERE "strategy"."library_entry_id" is not null and "strategy"."deleted_at" is null;
