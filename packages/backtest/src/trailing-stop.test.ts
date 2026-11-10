@@ -1,5 +1,8 @@
 import {
   parseDefinition,
+  regularSession,
+  tradingDays,
+  type Bar,
   trailingPeak,
   trailingStopHit,
   trailingStopLevel,
@@ -9,7 +12,18 @@ import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 import { simulate } from './engine';
 import { riskAtrTrend, SPY, spyBars } from './fixtures/spy-strategies';
-import { inputs, loaded } from './test-utils';
+import { seriesKey } from './data';
+import {
+  A,
+  close,
+  compare,
+  constant,
+  INSTRUMENTS as TEST_INSTRUMENTS,
+  inputs,
+  leg,
+  loaded,
+  strategy,
+} from './test-utils';
 import type { InstrumentRef } from './index';
 
 /**
@@ -124,5 +138,75 @@ describe('the trailing stop as an Exit when condition (N217, ADR 0074)', () => {
       confirmationBars: 0,
     };
     expect(parseDefinition(doc).exit.rules?.[0]?.kind).toBe('trailingStop');
+  });
+});
+
+describe('stops read no close from before Entry filled (N225)', () => {
+  it('an hourly Entry is not stopped out by the previous day’s daily close', () => {
+    const days = tradingDays('2024-03-04', '2024-03-08');
+    const bar = (start: number, end: number, px: number): Bar => ({
+      start: new Date(start).toISOString(),
+      end: new Date(end).toISOString(),
+      open: new Decimal(px),
+      high: new Decimal(px),
+      low: new Decimal(px),
+      close: new Decimal(px),
+      volume: new Decimal(1_000_000),
+    });
+    // Day 1 closes at 100; from day 2 the stock trades at 110 all day.
+    const price = (i: number) => (i === 0 ? 100 : 110);
+    const hourly: Bar[] = [];
+    const daily: Bar[] = [];
+    days.forEach((d, i) => {
+      const s = regularSession(d)!;
+      const open = Date.parse(s.open);
+      const close = Date.parse(s.close);
+      for (let t = open; t < close; t += 3_600_000)
+        hourly.push(bar(t, Math.min(t + 3_600_000, close), price(i)));
+      daily.push(bar(open, close, price(i)));
+    });
+    const key = (interval: '1h' | '1d') =>
+      seriesKey({
+        instrumentId: A,
+        interval,
+        adjustment: 'split_and_dividend',
+        session: 'regular',
+      });
+    const hourClose = { ...close(), interval: '1h' as const };
+    const def = strategy(
+      compare(hourClose, 'gt', constant('105')),
+      [leg('buy')],
+      compare(
+        {
+          kind: 'position',
+          id: 'off',
+          field: 'off_peak_pct',
+          instrumentId: A,
+          interval: '1d',
+          adjustment: 'split_and_dividend',
+          session: 'regular',
+        },
+        'gt',
+        constant('1'),
+      ),
+      [leg('sell', { side: 'close' })],
+    );
+    delete def.exit.trigger;
+    const r = simulate({
+      definition: def,
+      instruments: TEST_INSTRUMENTS,
+      inputs: inputs('2024-03-04', '2024-03-08', { interval: '1h' }),
+      data: {
+        series: new Map([
+          [key('1h'), hourly],
+          [key('1d'), daily],
+        ]),
+        dataVersions: ['test@1'],
+        warnings: [],
+      },
+    });
+    expect(r.fills.filter((f) => f.side === 'buy')).toHaveLength(1);
+    // Before N225 the day-1 close of 100 read as 9% off the 110 entry and sold within the hour.
+    expect(r.fills.filter((f) => f.side !== 'buy')).toHaveLength(0);
   });
 });

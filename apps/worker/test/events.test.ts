@@ -525,7 +525,7 @@ describe('back tests of the Lab fixtures', () => {
     expect(done.metrics?.cycles).toBeGreaterThan(0);
     const fired = done.result?.conditions?.entry.bars.filter((b) => b.outcome === 'fired') ?? [];
     const read = fired.flatMap((b) => b.checks.find((c) => c.id === 'sue')?.eventsAsOf ?? []);
-    expect(read.some((x) => x.endsWith('(rebuilt)'))).toBe(true);
+    expect(read.some((x) => x.endsWith('(rebuilt history)'))).toBe(true);
   });
 
   it('a PEAD run entirely before February 2024 fails with the named message', async () => {

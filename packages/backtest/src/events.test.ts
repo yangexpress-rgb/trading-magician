@@ -169,6 +169,45 @@ describe('PEAD fixture (§7.1, §10 item 1)', () => {
     expect(r.warnings.some((w) => w.code === `earnings_coverage:${XYZ}`)).toBe(true);
   });
 
+  it('names the release and the next date behind an earnings window check (N224)', () => {
+    const def = peadFixture();
+    def.entry.condition.children = [
+      cmp(metric('earnings.window', XYZ, { fromDay: -1, toDay: 1 }), 'is_true'),
+    ];
+    const r = simulate({
+      definition: def,
+      instruments: INSTRUMENTS,
+      inputs: inputs(FROM, TO),
+      data: data({ [XYZ]: bars((_, i) => 100 + i * 0.05) }, events),
+    });
+    const fired = r.conditions!.entry.bars.filter((b) => b.outcome === 'fired');
+    expect(fired.length).toBeGreaterThan(0);
+    for (const bar of fired) {
+      const read = bar.checks.flatMap((c) => c.eventsAsOf ?? []);
+      const day = bar.time.slice(0, 10);
+      // A release after the close counts from the next bar.
+      const last = releases.filter((x) => Date.parse(x.announcedAt) <= Date.parse(bar.time)).at(-1);
+      const next = releases.find((x) => Date.parse(x.announcedAt) > Date.parse(bar.time));
+      if (last)
+        expect(
+          read.some((x) =>
+            x.startsWith(
+              `Last earnings release ${last.announcedDate} (rebuilt history): this bar is day `,
+            ),
+          ),
+        ).toBe(true);
+      if (next)
+        expect(
+          read.some((x) => x.startsWith(`Next earnings ${next.announcedDate} (the actual EDGAR`)),
+        ).toBe(true);
+      // The window holds, so one of them is day −1, 0 or +1.
+      expect(
+        read.some((x) => /this bar is day (−1|0|\+1)$/.test(x)),
+        `${day}: ${read.join(' | ')}`,
+      ).toBe(true);
+    }
+  });
+
   it('fails a run entirely before February 2024 with the named message', () => {
     expect(earningsBeforeFirstDate('XYZ', events, XYZ, '2023-12-29')).toBe(
       `No earnings data for XYZ before ${releases[0]!.announcedDate}`,
@@ -239,7 +278,7 @@ describe('merger-arbitrage fixture (§7.2, §10 item 2)', () => {
     expect(t.exitTime!.slice(0, 10) >= '2025-06-03').toBe(true);
     expect(t.exitTime!.slice(0, 10) <= '2025-06-05').toBe(true);
     const entry = r.conditions?.entry.bars.find((b) => b.outcome === 'fired');
-    expect(JSON.stringify(entry)).toContain('deal D00001 of 2025-03-03');
+    expect(JSON.stringify(entry)).toContain('Deal D00001 of 2025-03-03');
   });
 
   it('never enters on a low-confidence parse: the spread stays null, not zero', () => {
@@ -295,7 +334,7 @@ describe('dual-momentum fixture with the T-bill hurdle (§7.3, §10 item 3)', ()
     expect(tbill.trades).toHaveLength(0);
     const read = tbill.conditions?.entry.bars[0];
     expect(JSON.stringify(read)).toContain('0.0412');
-    expect(JSON.stringify(read)).toContain('T-bill 2024-11-06');
+    expect(JSON.stringify(read)).toContain('T-bill rate of 2024-11-06');
   });
 
   it('fails before the first stored rate', () => {

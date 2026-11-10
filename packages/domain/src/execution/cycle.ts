@@ -71,7 +71,7 @@ export interface CycleState {
   /** Trailing stop (ADR 0059): the best daily close since Entry filled, from the entry price. */
   trailPeak?: string | undefined;
   /** Off best close since entry (N217): each holding's best close and the close last checked. */
-  peaks?: Record<string, { peak: string; close: string }> | undefined;
+  peaks?: Record<string, { peak: string; close: string; at?: number }> | undefined;
   /** Trading days since Entry first filled, as of the last Check Exit (N221). */
   daysHeld?: number | undefined;
   /** ATR(period) and expected moves when Entry was decided, by instrument (N221). */

@@ -248,7 +248,7 @@ interface Cycle {
   /** Trailing stop (ADR 0059): the best close since Entry filled, from the entry price. */
   trailPeak?: Decimal;
   /** Off best close since entry (N217): each holding's best close and the close last checked. */
-  peaks?: Map<string, { peak: Decimal; close: Decimal }>;
+  peaks?: Map<string, { peak: Decimal; close: Decimal; at: number }>;
   /** Trading days since Entry first filled, as of the last Check Exit (N221). */
   daysHeld?: number;
   /** ATRs and expected moves when Entry was decided, by instrument (N221). */
@@ -504,7 +504,8 @@ export function simulate({
       return {
         quantity: p.quantity,
         averagePrice: p.entryCost.div(p.entryQuantity),
-        ...(k ? { peak: k.peak, checkClose: k.close } : {}),
+        ...(k ? { peak: k.peak, checkClose: k.close, checkCloseAt: k.at } : {}),
+        ...(c.firstFill === undefined ? {} : { openedAt: c.firstFill }),
         ...(c.daysHeld === undefined ? {} : { daysHeld: c.daysHeld }),
         ...(atr ? { atrAtEntry: atr } : {}),
         ...(move ? { moveAtEntry: move } : {}),
@@ -1020,10 +1021,7 @@ export function simulate({
         long,
       };
     }
-    const close = evaluateExpr(
-      stopCloseExpr(instrument, inputs.adjustment, stopInterval(def)),
-      view,
-    );
+    const close = closeSinceEntry(c, instrument);
     return close !== undefined && atrStopHit(close, c.atrStop.level, long);
   }
 
@@ -1047,11 +1045,20 @@ export function simulate({
         long,
       };
     }
-    const close = evaluateExpr(
-      stopCloseExpr(instrument, inputs.adjustment, stopInterval(def)),
-      view,
-    );
+    const close = closeSinceEntry(c, instrument);
     return close !== undefined && expectedMoveHit(close, c.expectedMove, rule.side, long);
+  }
+
+  /**
+   * The latest close at the Check Exit bar size, or undefined when its bar
+   * ended before Entry filled (N225): a stop never reads a close from before
+   * the position existed.
+   */
+  function closeSinceEntry(c: Cycle, instrument: string): Decimal | undefined {
+    const expr = stopCloseExpr(instrument, inputs.adjustment, stopInterval(def));
+    const at = view.barEnd(expr, 0);
+    if (at === undefined || (c.firstFill !== undefined && at < c.firstFill)) return undefined;
+    return evaluateExpr(expr, view);
   }
 
   /** Whether a close is more than the trailing percent off the best close since entry (ADR 0059, O144). */
@@ -1062,10 +1069,7 @@ export function simulate({
     const p = c.positions.get(instrument);
     if (!p || p.entryQuantity.isZero() || p.quantity.isZero()) return false;
     const long = p.quantity.gt(0);
-    const close = evaluateExpr(
-      stopCloseExpr(instrument, inputs.adjustment, stopInterval(def)),
-      view,
-    );
+    const close = closeSinceEntry(c, instrument);
     if (close === undefined) return false;
     const entryPrice = p.entryCost.div(p.entryQuantity);
     const start = c.trailPeak ?? entryPrice;
@@ -1099,10 +1103,15 @@ export function simulate({
     const peaks = (c.peaks ??= new Map());
     for (const [id, p] of c.positions) {
       if (p.entryQuantity.isZero() || p.quantity.isZero()) continue;
-      const close = evaluateExpr(stopCloseExpr(id, inputs.adjustment, stopInterval(def)), view);
-      if (close === undefined) continue;
+      const expr = stopCloseExpr(id, inputs.adjustment, stopInterval(def));
+      const close = evaluateExpr(expr, view);
+      const at = view.barEnd(expr, 0);
+      if (close === undefined || at === undefined) continue;
+      // A close from before Entry filled says nothing about this holding (N225): with
+      // hourly Entry and daily closes, the previous day's close would otherwise count.
+      if (c.firstFill !== undefined && at < c.firstFill) continue;
       const start = peaks.get(id)?.peak ?? p.entryCost.div(p.entryQuantity);
-      peaks.set(id, { peak: trailingPeak(start, close, p.quantity.gt(0)), close });
+      peaks.set(id, { peak: trailingPeak(start, close, p.quantity.gt(0)), close, at });
     }
   }
 
@@ -1284,8 +1293,12 @@ export function simulate({
           count: ranking.count,
           rank: row?.rank ?? null,
           value: row?.value ?? null,
-          ...(filter && hasComparisons(filter) ? { filter: conditionChecks(filter, r) } : {}),
-          ...(perCandidateEntry ? { enterWhen: conditionChecks(def.entry.condition, r) } : {}),
+          ...(filter && hasComparisons(filter)
+            ? { filter: conditionChecks(filter, r, iso(now)) }
+            : {}),
+          ...(perCandidateEntry
+            ? { enterWhen: conditionChecks(def.entry.condition, r, iso(now)) }
+            : {}),
         };
       };
       count = ranking.count;

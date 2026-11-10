@@ -659,12 +659,13 @@ function EvidenceNode({
           {check && <Truth value={check.truth} />}
         </div>
         {ev.elements.length > 0 && (
-          <dl className="grid grid-cols-[minmax(0,auto)_1fr] gap-x-3 gap-y-0.5 text-xs">
+          <dl className="grid grid-cols-[minmax(0,max-content)_max-content] gap-x-3 gap-y-0.5 text-xs">
             {ev.elements.map((e, i) => (
               <Fragment key={`${e.label}-${i}`}>
                 <dt className={cx('text-ink-muted', e.inside && 'pl-3')}>
                   {e.inside ? '↳ ' : ''}
                   {e.label}
+                  {e.at && <span> ({e.at})</span>}
                 </dt>
                 <dd className="text-content">{e.value}</dd>
               </Fragment>
@@ -679,8 +680,14 @@ function EvidenceNode({
         )}
         {ev.sources.length > 0 && (
           <div className="text-xs">
-            <span className="text-ink-muted">Data used:</span>{' '}
-            <span className="text-content">{ev.sources.join('; ')}</span>
+            <span className="text-ink-muted">Data used:</span>
+            <ul className="ml-3 list-disc">
+              {ev.sources.map((x) => (
+                <li key={x} className="text-content">
+                  {x}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </li>

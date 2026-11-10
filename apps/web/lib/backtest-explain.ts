@@ -6,9 +6,9 @@ import type {
   PhaseConditionReport,
   StoredTruth,
 } from '@tm/backtest';
-import type { Comparison, ConditionNode, Expr } from '@tm/domain';
+import type { BarInterval, Comparison, ConditionNode, Expr } from '@tm/domain';
 import type { Tone } from '@tm/ui';
-import { formatMoney } from './backtest-text';
+import { formatDay, formatMarketTime, formatMoney } from './backtest-text';
 import {
   describeExpr,
   OPERATOR_SYMBOLS,
@@ -130,6 +130,8 @@ export interface DataElement {
   value: string;
   /** A value inside a calculation, shown under the side it was used in. */
   inside?: boolean;
+  /** Which bar it came from, when not the bar checked, e.g. "Oct 13, 2026 close" (N224). */
+  at?: string;
 }
 
 /** What a comparison read and why it came out as it did (N218). */
@@ -160,21 +162,39 @@ export function comparisonEvidence(
   const v = formatValue;
   if (!check) return { elements: [], reason: null, sources: [] };
   const elements: DataElement[] = [];
+  // Which bar a price, indicator or close came from (N224).
+  const barText = (iso: string | null | undefined, interval: BarInterval) =>
+    iso
+      ? interval === '1d' || interval === '1w'
+        ? `${formatMarketTime(iso, '1d')} close`
+        : `bar ending ${formatMarketTime(iso, '1h')}`
+      : undefined;
+  const atOf = (x: Expr) =>
+    x.kind === 'market' || x.kind === 'indicator'
+      ? barText(check.inputs?.[`${x.id}:at`], x.interval)
+      : undefined;
+  const element = (label: string, value: string, extra: Partial<DataElement> = {}) => {
+    const at = extra.at;
+    elements.push({ label, value, ...extra, ...(at ? { at } : {}) });
+  };
   const side = (e: Expr | undefined, value: string | null | undefined, prev?: string | null) => {
     if (!e || e.kind === 'constant') return;
-    elements.push({
-      label: describeExpr(e, symbol),
-      value: prev !== undefined ? `${v(value)} (was ${v(prev)})` : v(value),
-    });
+    const at = atOf(e);
+    element(
+      describeExpr(e, symbol),
+      prev !== undefined ? `${v(value)} (was ${v(prev)})` : v(value),
+      at ? { at } : {},
+    );
     // The values a calculation was worked out from (N218).
     const inner = (x: Expr) => {
       if (x.kind === 'calc') x.args.forEach(inner);
-      else if (x.kind !== 'constant' && check.inputs && x.id in check.inputs)
-        elements.push({
-          label: describeExpr(x, symbol),
-          value: v(check.inputs[x.id]),
+      else if (x.kind !== 'constant' && check.inputs && x.id in check.inputs) {
+        const at = atOf(x);
+        element(describeExpr(x, symbol), v(check.inputs[x.id]), {
           inside: true,
+          ...(at ? { at } : {}),
         });
+      }
     };
     if (e.kind === 'calc') e.args.forEach(inner);
     positionInputs(e);
@@ -183,15 +203,30 @@ export function comparisonEvidence(
   const positionInputs = (e: Expr) => {
     if (e.kind === 'calc') e.args.forEach(positionInputs);
     if (e.kind !== 'position' || !check.inputs) return;
-    const add = (key: string, label: string) => {
-      const value = check.inputs?.[`${e.id}:${key}`];
-      if (value !== undefined) elements.push({ label, value: v(value), inside: true });
+    const input = (key: string) => check.inputs?.[`${e.id}:${key}`];
+    const add = (key: string, label: string, at?: string) => {
+      const value = input(key);
+      if (value !== undefined) element(label, v(value), { inside: true, ...(at ? { at } : {}) });
     };
+    const opened = input('opened');
+    if (opened) element('Entry filled', formatMarketTime(opened, '1h'), { inside: true });
+    if (e.field === 'days_held') {
+      add('days', 'Trading days held, counting the entry day');
+      return;
+    }
     add('entry', 'Entry price');
     add('peak', e.field === 'off_peak_pct' ? 'Best close since entry' : 'Best close');
     add('atr', 'ATR at entry');
-    add('move', 'Expected move at entry');
-    add('close', 'Close checked');
+    // The expected move is stored as a fraction.
+    const move = input('move');
+    if (move !== undefined)
+      element(
+        'Expected move at entry',
+        move === null ? v(move) : `${formatValue(String(Number(move) * 100))}%`,
+        { inside: true },
+      );
+    add('mark', 'Latest close', barText(input('markAt'), e.interval));
+    add('close', 'Close checked', barText(input('closeAt'), '1h'));
   };
   const crosses = c.operator === 'crosses_above' || c.operator === 'crosses_below';
   if (c.operator !== 'is_stale') side(c.left, check.left, crosses ? check.prevLeft : undefined);
@@ -199,7 +234,8 @@ export function comparisonEvidence(
   side(c.upper, check.upper);
   const sources = [
     ...(check.optionsAsOf?.length ? [`Options signal as of ${check.optionsAsOf.join(', ')}`] : []),
-    ...(check.eventsAsOf ?? []).map((x) => `Record: ${x}`),
+    // Earnings, deal and rate records, with their dates written out (N224).
+    ...(check.eventsAsOf ?? []).map((x) => x.replace(/\d{4}-\d{2}-\d{2}/g, (d) => formatDay(d))),
   ];
   return { elements, reason: reasonOf(c, check), sources };
 }

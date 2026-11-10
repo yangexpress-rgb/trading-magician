@@ -4,6 +4,7 @@ import {
   evaluateCondition,
   evaluateExpr,
   isEventMetricId,
+  markExpr,
   optionMetricField,
   type ConditionNode,
   type Expr,
@@ -36,9 +37,15 @@ const num = (d: Decimal | undefined): string | null =>
   d === undefined ? null : d.toDecimalPlaces(4).toString();
 const stored = (t: Truth): StoredTruth => (t === undefined ? null : t);
 
-function checksFor(node: ConditionNode, r: SeriesResolver, out: ConditionCheck[]): Truth {
+function checksFor(
+  node: ConditionNode,
+  r: SeriesResolver,
+  out: ConditionCheck[],
+  /** The evaluation's time: a bar that ended then needs no time of its own. */
+  now?: string,
+): Truth {
   if (node.kind === 'group') {
-    for (const child of node.children) checksFor(child, r, out);
+    for (const child of node.children) checksFor(child, r, out, now);
     const truth = evaluateCondition(node, r);
     out.push({ id: node.id, truth: stored(truth) });
     return truth;
@@ -56,7 +63,7 @@ function checksFor(node: ConditionNode, r: SeriesResolver, out: ConditionCheck[]
   if (asOf.length > 0) check.optionsAsOf = asOf;
   const events = eventDates([node.left, node.right, node.upper], r);
   if (events.length > 0) check.eventsAsOf = events;
-  const inputs = calcInputs([node.left, node.right, node.upper], r);
+  const inputs = calcInputs([node.left, node.right, node.upper], r, now);
   if (Object.keys(inputs).length > 0) check.inputs = inputs;
   out.push(check);
   return truth;
@@ -68,17 +75,38 @@ function checksFor(node: ConditionNode, r: SeriesResolver, out: ConditionCheck[]
  * "close 1 bar ago × 1.03" then shows the close it multiplied. Position
  * values add `<id>:entry`, `<id>:peak` and `<id>:close`.
  */
-function calcInputs(exprs: (Expr | undefined)[], r: SeriesResolver): Record<string, string | null> {
+function calcInputs(
+  exprs: (Expr | undefined)[],
+  r: SeriesResolver,
+  now?: string,
+): Record<string, string | null> {
   const out: Record<string, string | null> = {};
+  const iso = (t: number | undefined) => (t === undefined ? null : new Date(t).toISOString());
   const visit = (e: Expr, inCalc: boolean) => {
     if (e.kind === 'calc') e.args.forEach((a) => visit(a, true));
     else if (inCalc && e.kind !== 'constant') out[e.id] = num(evaluateExpr(e, r));
+    // Which bar a price or indicator came from (N224).
+    // Which bar a price or indicator came from, when not the bar just checked (N224).
+    if ((e.kind === 'market' || e.kind === 'indicator') && r.barEnd) {
+      const at = iso(r.barEnd(e, 0));
+      if (at !== now) out[`${e.id}:at`] = at;
+    }
     // A position value says what it was worked out from: the entry price, and for
     // the trailing stop the best close since entry and the close checked (ADR 0074).
     if (e.kind === 'position') {
       const p = r.position?.(e.instrumentId);
       if (!p || p.quantity.isZero()) return;
       out[`${e.id}:entry`] = num(p.averagePrice);
+      if (p.openedAt !== undefined) out[`${e.id}:opened`] = iso(p.openedAt);
+      if (p.checkCloseAt !== undefined) out[`${e.id}:closeAt`] = iso(p.checkCloseAt);
+      if (e.field === 'days_held' && p.daysHeld !== undefined)
+        out[`${e.id}:days`] = String(p.daysHeld);
+      // Gain and P/L read the latest close of the position's own bars.
+      if (e.field === 'gain_pct' || e.field === 'pnl') {
+        const mark = markExpr(e);
+        out[`${e.id}:mark`] = num(r.value(mark, 0));
+        if (r.barEnd) out[`${e.id}:markAt`] = iso(r.barEnd(mark, 0));
+      }
       if (e.field === 'off_peak_pct') {
         out[`${e.id}:peak`] = num(p.peak);
         out[`${e.id}:close`] = num(p.checkClose);
@@ -102,9 +130,10 @@ function calcInputs(exprs: (Expr | undefined)[], r: SeriesResolver): Record<stri
 export function conditionChecks(
   node: ConditionNode,
   r: SeriesResolver,
+  now?: string,
 ): { truth: StoredTruth; checks: ConditionCheck[] } {
   const checks: ConditionCheck[] = [];
-  const truth = stored(checksFor(node, r, checks));
+  const truth = stored(checksFor(node, r, checks, now));
   return { truth, checks };
 }
 
@@ -124,25 +153,47 @@ function optionDates(exprs: (Expr | undefined)[], r: SeriesResolver): string[] {
   return [...dates];
 }
 
-const EVENT_LABEL: Record<string, string> = {
-  earnings: 'earnings',
-  deals: 'deal',
-  rates: 'T-bill',
-};
-
-/** The records the earnings, deal and rate metrics of a comparison read on this bar (ADR 0058). */
+/**
+ * The records the earnings, deal and rate metrics of a comparison read on this
+ * bar (ADR 0058), in words with their dates (N224): the earnings release, the
+ * next earnings date and where it came from, the deal, the T-bill rate's day.
+ * The earnings window names both dates and which day of the window the bar was.
+ */
 function eventDates(exprs: (Expr | undefined)[], r: SeriesResolver): string[] {
   const dates = new Set<string>();
+  const rebuilt = (note: string | undefined) => (note === 'rebuilt' ? ' (rebuilt history)' : '');
+  const coming = (note: string | undefined) =>
+    note === 'edgar'
+      ? ' (the actual EDGAR release, as the earnings calendar did not list it yet)'
+      : ' (earnings calendar)';
+  const signed = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '0');
   const visit = (e: Expr | undefined) => {
     if (!e) return;
     if (e.kind === 'metric') {
+      if (e.metric === 'earnings.window') {
+        const since = r.event?.(e.instrumentId, 'earnings.days_since_earnings', 0);
+        const next = r.event?.(e.instrumentId, 'earnings.next_date_days', 0);
+        if (since)
+          dates.add(
+            `Last earnings release ${since.asOfDate}${rebuilt(since.note)}: this bar is day ${signed(since.value.toNumber())}`,
+          );
+        if (next)
+          dates.add(
+            `Next earnings ${next.asOfDate}${coming(next.note)}: this bar is day ${signed(-next.value.toNumber())}`,
+          );
+        if (!since && !next) dates.add('No earnings dates on record');
+        return;
+      }
       if (!isEventMetricId(e.metric)) return;
       const p = r.event?.(e.instrumentId, e.metric, 0);
       if (!p) return;
-      const kind = EVENT_LABEL[e.metric.split('.')[0] ?? ''] ?? '';
-      if (p.note === 'rebuilt') dates.add(`${kind} ${p.asOfDate} (rebuilt)`);
-      else if (p.note) dates.add(`${kind} ${p.note} of ${p.asOfDate}`);
-      else dates.add(`${kind} ${p.asOfDate}`);
+      if (e.metric === 'earnings.next_earnings_days' || e.metric === 'earnings.next_date_days')
+        dates.add(`Next earnings ${p.asOfDate}${coming(p.note)}`);
+      else if (e.metric.startsWith('earnings.'))
+        dates.add(`Earnings release ${p.asOfDate}${rebuilt(p.note)}`);
+      else if (e.metric.startsWith('deals.'))
+        dates.add(p.note ? `Deal ${p.note} of ${p.asOfDate}` : `Deal of ${p.asOfDate}`);
+      else dates.add(`T-bill rate of ${p.asOfDate}`);
     } else if (e.kind === 'calc') e.args.forEach(visit);
     else if (e.kind === 'stat') visit(e.input);
   };
@@ -196,7 +247,7 @@ export class ConditionRecorder {
   /** Records one evaluation and returns its row, so the caller can set the outcome. */
   record(time: string, r: SeriesResolver, cycle?: number): ConditionBar {
     const checks: ConditionCheck[] = [];
-    const truth = stored(checksFor(this.condition, r, checks));
+    const truth = stored(checksFor(this.condition, r, checks, time));
     this.evaluated += 1;
     if (truth === true) this.trueBars += 1;
     else if (truth === false) this.falseBars += 1;

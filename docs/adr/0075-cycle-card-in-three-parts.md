@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-10
-- **Design refs:** design v1.2 rows N218 to N220. Amends ADR 0061 (back test results by cycle);
+- **Design refs:** design v1.2 rows N218 to N220, N224 and N225. Amends ADR 0061 (back test results by cycle);
   follows ADR 0073 (What to trade, Entry, Exit) and ADR 0074 (trailing stop in Exit when)
 
 ## Context
@@ -36,6 +36,16 @@ each side was or what a calculated side was worked out from.
 - **Behaviour is unchanged.** `pick`, `plan` and `inputs` explain decisions and change none; the
   regression fingerprints leave them out and every recorded fingerprint still matches. They live
   in the stored result JSON: no migration.
+
+- **Follow-up the same day (N224, N225).** After a run of Earnings breakout, Yong asked for the
+  data that made each pick: BLK passed the earnings window filter, but the card didn't say which
+  release. Each check now keeps when the bars it read ended (when not the bar checked), the
+  earnings window names the last release, the next earnings date and the day of the window, and
+  position values keep when Entry filled and which close the stop read. The same screenshot showed
+  BLK sold an hour after an hourly Entry: the stops read daily closes, and the first one was the
+  previous day's, below the entry price. Stops and the position values that read the Check Exit
+  close now skip a close whose bar ended before Entry first filled, in back tests and paper runs.
+  The regression corpus is unchanged by it (its fixtures enter on daily bars).
 
 ## Consequences
 

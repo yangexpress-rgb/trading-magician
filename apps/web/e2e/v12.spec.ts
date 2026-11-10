@@ -228,7 +228,9 @@ test('a filtered group explains each pick: filter values, ranking, Enter when fo
   const trade = cycle.getByRole('group', { name: 'What to trade' });
   await expect(trade.getByText(/^Filter: passed by \d+ of 5$/)).toBeVisible();
   // The calculated side shows the close it multiplied, and why the filter held (N218).
-  await expect(trade.getByText(/this instrument close 1 bars? ago$/).first()).toBeVisible();
+  await expect(
+    trade.getByText(/this instrument close 1 bar ago \([A-Z][a-z]{2} \d+, \d{4} close\)$/).first(),
+  ).toBeVisible();
   await expect(trade.getByText(/^[\d,.]+ ≥ [\d,.]+$/)).toBeVisible();
   await expect(trade.getByText(/ ranked · top 2 kept$/)).toBeVisible();
   const entry = cycle.getByRole('group', { name: 'Entry' });
@@ -237,6 +239,9 @@ test('a filtered group explains each pick: filter values, ranking, Enter when fo
   const exit = cycle.getByRole('group', { name: 'Exit' });
   await expect(exit.getByText('Check Exit:')).toBeVisible();
   await expect(exit.getByText(/^[\d,.]+ > 1$/)).toBeVisible();
+  // When the position opened and which close the stop read (N224).
+  await expect(exit.getByText('Entry filled')).toBeVisible();
+  await expect(exit.getByText(/^↳ Close checked \(bar ending /)).toBeVisible();
   const a11y = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(a11y.violations).toEqual([]);
   if (SHOTS) await cycle.screenshot({ path: `${SHOTS}/pick-cycle-card.png` });
