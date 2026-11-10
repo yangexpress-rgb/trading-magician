@@ -24,6 +24,8 @@ import {
   type RuntimeTriggerState,
   riskSizingCap,
   stopCloseExpr,
+  stopInterval,
+  stopCloseWord,
   type RiskSizing,
   entryGroups,
   isTwoSided,
@@ -238,7 +240,7 @@ interface Cycle {
   atrAtEntry?: Decimal;
   /** Expected-move exit (ADR 0053): the move captured at entry, and the band once filled. */
   moveAtEntry?: Decimal;
-  /** Trailing stop (ADR 0059): the best daily close since Entry filled, from the entry price. */
+  /** Trailing stop (ADR 0059): the best close since Entry filled, from the entry price. */
   trailPeak?: Decimal;
   /** The trailing stop's last check, for the cycle card (N166). */
   trail?: {
@@ -970,7 +972,7 @@ export function simulate({
     c.entryLegs.push(...legOrderFor(c.def, 'entry').map((l) => legState(c, l, 'entry')));
   }
 
-  /** Whether a cycle's ATR stop fires on the current daily close (v1.2 item 9). */
+  /** Whether a cycle's ATR stop fires on the current close at the stops' bar size (v1.2 item 9, O144). */
   function checkAtrStop(c: Cycle): boolean {
     const rule = atrStopDistance(c.def);
     const instrument = atrStopInstrument(c.def);
@@ -988,11 +990,14 @@ export function simulate({
         long,
       };
     }
-    const close = evaluateExpr(stopCloseExpr(instrument, inputs.adjustment), view);
+    const close = evaluateExpr(
+      stopCloseExpr(instrument, inputs.adjustment, stopInterval(def)),
+      view,
+    );
     return close !== undefined && atrStopHit(close, c.atrStop.level, long);
   }
 
-  /** Whether a daily close has moved beyond the expected move captured at entry (ADR 0053). */
+  /** Whether a close has moved beyond the expected move captured at entry (ADR 0053, O144). */
   function checkExpectedMove(c: Cycle): boolean {
     const rule = expectedMoveRuleOf(c.def);
     const instrument = atrStopInstrument(c.def);
@@ -1012,11 +1017,14 @@ export function simulate({
         long,
       };
     }
-    const close = evaluateExpr(stopCloseExpr(instrument, inputs.adjustment), view);
+    const close = evaluateExpr(
+      stopCloseExpr(instrument, inputs.adjustment, stopInterval(def)),
+      view,
+    );
     return close !== undefined && expectedMoveHit(close, c.expectedMove, rule.side, long);
   }
 
-  /** Whether a daily close is more than the trailing percent off the best close since entry (ADR 0059). */
+  /** Whether a close is more than the trailing percent off the best close since entry (ADR 0059, O144). */
   function checkTrailingStop(c: Cycle, now: number): boolean {
     const rule = trailingStopRuleOf(c.def);
     const instrument = atrStopInstrument(c.def);
@@ -1024,7 +1032,10 @@ export function simulate({
     const p = c.positions.get(instrument);
     if (!p || p.entryQuantity.isZero() || p.quantity.isZero()) return false;
     const long = p.quantity.gt(0);
-    const close = evaluateExpr(stopCloseExpr(instrument, inputs.adjustment), view);
+    const close = evaluateExpr(
+      stopCloseExpr(instrument, inputs.adjustment, stopInterval(def)),
+      view,
+    );
     if (close === undefined) return false;
     const entryPrice = p.entryCost.div(p.entryQuantity);
     const start = c.trailPeak ?? entryPrice;
@@ -1457,7 +1468,7 @@ export function simulate({
         // The time stop, combined with the Exit condition by OR (v1.2 item 4).
         if (c.state === 'open' && timeStopReached(c.def, c.events.get('entry_partial_fill'), now))
           forceExit(c, now, 'time_stop');
-        // The ATR stop, also by OR (v1.2 item 9): a daily close beyond the level fixed at entry.
+        // The ATR stop, also by OR (v1.2 item 9): a close beyond the level fixed at entry.
         if (c.state === 'open' && checkAtrStop(c)) forceExit(c, now, 'atr_stop');
         // The expected-move exit, also by OR (ADR 0053).
         if (c.state === 'open' && checkExpectedMove(c)) forceExit(c, now, 'expected_move');
@@ -1822,17 +1833,19 @@ export function simulate({
       out.push(
         'Risk-sized quantities are floor(equity × risk % ÷ (ATR × multiple)) in whole lots, lowered to fit buying power, the maximum order size and the maximum exposure; no order is placed when that is 0 or the ATR has too little history',
       );
+    // Stops read closes at the Check Exit bar size (O144, ADR 0073).
+    const closes = stopCloseWord(def);
     if (stopped)
       out.push(
-        'The ATR stop is fixed at entry (entry price ∓ multiple × ATR) and does not trail; a daily close beyond it exits at the next bar, like the other exits',
+        `The ATR stop is fixed at entry (entry price ∓ multiple × ATR) and does not trail; a ${closes} close beyond it exits at the next bar, like the other exits`,
       );
     if (defs.some((d) => trailingStopRuleOf(d)))
       out.push(
-        'The trailing stop starts at the entry price and follows the best daily close since entry; a daily close more than the percent below it (above it, for a short) exits at the next bar, like the other exits',
+        `The trailing stop starts at the entry price and follows the best ${closes} close since entry; a ${closes} close more than the percent below it (above it, for a short) exits at the next bar, like the other exits`,
       );
     if (defs.some((d) => expectedMoveRuleOf(d)))
       out.push(
-        'The expected-move exit captures the latest recorded options expected move (as of the bar Entry was decided on) and fixes the band entry × (1 ± multiple × move); a daily close beyond it exits at the next bar, like the other exits',
+        `The expected-move exit captures the latest recorded options expected move (as of the bar Entry was decided on) and fixes the band entry × (1 ± multiple × move); a ${closes} close beyond it exits at the next bar, like the other exits`,
       );
     return out;
   }

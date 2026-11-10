@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { loadData, planSeries } from './data';
 import { simulate } from './engine';
 import { backtestInputsSchema } from './inputs';
-import { A, B, INSTRUMENTS, close, compare, inputs, leg, strategy } from './test-utils';
+import { A, B, INSTRUMENTS, close, compare, constant, inputs, leg, strategy } from './test-utils';
 
 const provider = createDemoHistoryProvider({ now: () => new Date('2026-10-02T21:00:00Z') });
 
@@ -120,5 +120,40 @@ describe('simulate over demo history', () => {
     // About 78 bars a session over 20 sessions.
     expect(r.equity.length).toBeGreaterThan(1400);
     for (const f of r.fills) expect(new Date(f.time).getUTCMinutes() % 5).toBe(0);
+  });
+
+  it('reads stops at the Check Exit bar size (O144, ADR 0073)', async () => {
+    const run = backtestInputsSchema.parse(inputs('2024-03-01', '2024-03-29', { interval: '5m' }));
+    const withTrail = (exit: ScheduleFrequency) => {
+      // Enter at every daily check while flat; exit only by a 0.5% trailing stop.
+      const def = onSchedule(pair(), 'daily');
+      def.entry.condition.children = [compare(close(A), 'gt', constant('0'))];
+      def.entry.trigger = { ...def.entry.trigger, mode: 'while_true' };
+      def.exit = {
+        ...def.exit,
+        condition: { ...def.exit.condition, children: [] },
+        schedule: { frequency: exit },
+        rules: [{ kind: 'trailingStop', id: 'ts', percent: '0.5' }],
+      };
+      return def;
+    };
+    const intraday = withTrail('bar5m');
+    const daily = withTrail('daily');
+    // The stop's closes are 5-minute closes, which the run loads.
+    const plans = planSeries(intraday, run);
+    expect(plans.some((p) => p.spec.instrumentId === A && p.spec.interval === '5m')).toBe(true);
+    const data = await loadData(provider, plans, INSTRUMENTS);
+    const fillTimes = (def: StrategyDefinition) =>
+      simulate({ definition: def, instruments: INSTRUMENTS, inputs: run, data })
+        .trades.filter((t) => t.exitReason === 'trailing_stop')
+        .map((t) => new Date(t.exitTime!).toISOString().slice(11, 16));
+    // Checked once a day, a stop is decided at the close and fills at the next open.
+    const onClose = fillTimes(daily);
+    expect(onClose.length).toBeGreaterThan(0);
+    for (const t of onClose) expect(t).toMatch(/^(13|14):30$/);
+    // Checked every 5 minutes, it is decided on a 5-minute close inside the session.
+    const inSession = fillTimes(intraday);
+    expect(inSession.length).toBeGreaterThan(0);
+    expect(inSession.some((t) => !/^(13|14):30$/.test(t))).toBe(true);
   });
 });

@@ -1,8 +1,16 @@
 import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 import { sizeOrder } from '../execution/sizing';
-import { atrStopDistance, atrStopHit, atrStopLevel, riskSeries, riskSizingCap } from './risk-exits';
-import type { PlannedOrder, StrategyDefinition } from './schema';
+import {
+  atrStopDistance,
+  atrStopHit,
+  atrStopLevel,
+  riskSeries,
+  riskSizingCap,
+  stopCloseExpr,
+  stopInterval,
+} from './risk-exits';
+import type { PlannedOrder, ScheduleFrequency, StrategyDefinition } from './schema';
 import { parseDefinition } from './serialize';
 import { context, order, STOCK_A, STOCK_B, validDefinition } from './test-fixtures';
 import { validateStrategy } from './validate';
@@ -186,5 +194,27 @@ describe('validation', () => {
     const two = sized();
     two.entry.orders.push(order('buy-b', { instrumentId: STOCK_B }));
     expect(codes(two)).toContain('atr_stop_first_leg');
+  });
+});
+
+describe('stopInterval (O144, ADR 0073)', () => {
+  const on = (frequency?: ScheduleFrequency) => ({
+    exit: frequency ? { schedule: { frequency } } : {},
+  });
+  it('reads closes at the Check Exit bar size, daily otherwise', () => {
+    expect(stopInterval(on())).toBe('1d');
+    expect(stopInterval(on('daily'))).toBe('1d');
+    expect(stopInterval(on('monthEnd'))).toBe('1d');
+    expect(stopInterval(on('bar1h'))).toBe('1h');
+    expect(stopInterval(on('bar5m'))).toBe('5m');
+    // No 1-minute feed yet (O135).
+    expect(stopInterval(on('bar1m'))).toBe('5m');
+  });
+  it('keeps the daily close id so earlier runs read the same series', () => {
+    expect(stopCloseExpr('x').id).toBe('close-x');
+    expect(stopCloseExpr('x', 'split_and_dividend', '5m')).toMatchObject({
+      id: 'close-5m-x',
+      interval: '5m',
+    });
   });
 });

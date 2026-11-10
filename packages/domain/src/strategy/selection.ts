@@ -543,9 +543,9 @@ export function definitionSeries(
   }
   // ATR sizing and ATR stops (v1.2 item 9).
   for (const e of riskSeries(def)) visit(e, 0);
-  // The expected-move exit (ADR 0053): its metric at entry, then daily closes.
+  // The expected-move exit (ADR 0053): its metric at entry, then closes at the stops' bar size.
   for (const e of [...expectedMoveExprs(def), ...expectedMoveCloses(def)]) visit(e, 0);
-  // The trailing stop (ADR 0059): daily closes.
+  // The trailing stop (ADR 0059): closes at the stops' bar size (O144).
   for (const e of trailingStopCloses(def)) visit(e, 0);
   return out;
 }
