@@ -10,6 +10,7 @@ import {
   type StrategyDefinition,
   type TRIGGER_MODES,
   type Trigger,
+  UNARY_OPERATORS,
 } from './index';
 
 /** Human labels for the strategy vocabulary, shared by the editor and summaries. */
@@ -27,6 +28,7 @@ export const OPERATOR_LABELS: Record<ComparisonOperator, string> = {
   outside: 'is outside',
   is_available: 'is available',
   is_stale: 'is stale',
+  is_true: 'Not needed',
 };
 
 const OPERATOR_SYMBOLS: Record<ComparisonOperator, string> = {
@@ -42,6 +44,7 @@ const OPERATOR_SYMBOLS: Record<ComparisonOperator, string> = {
   outside: 'outside',
   is_available: 'is available',
   is_stale: 'is stale',
+  is_true: 'holds',
 };
 
 export const FIELD_LABELS = {
@@ -159,7 +162,7 @@ export function describeCondition(node: ConditionNode, symbol: SymbolLookup): st
   if (node.kind === 'comparison') {
     const left = describeExpr(node.left, symbol);
     const op = OPERATOR_SYMBOLS[node.operator];
-    if (node.operator === 'is_available' || node.operator === 'is_stale') return `${left} ${op}`;
+    if (UNARY_OPERATORS.includes(node.operator)) return `${left} ${op}`;
     const right = node.right ? describeExpr(node.right, symbol) : '?';
     if (node.operator === 'between' || node.operator === 'outside') {
       const upper = node.upper ? describeExpr(node.upper, symbol) : '?';

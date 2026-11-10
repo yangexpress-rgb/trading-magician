@@ -309,6 +309,9 @@ export function evaluateComparison(c: Comparison, r: SeriesResolver): Truth {
   switch (c.operator) {
     case 'is_available':
       return left !== undefined;
+    // A yes/no metric holds when it says yes (N216).
+    case 'is_true':
+      return left === undefined ? undefined : !left.isZero();
     case 'is_stale': {
       const series = seriesOf(c.left);
       return series ? r.isStale(series) : false;

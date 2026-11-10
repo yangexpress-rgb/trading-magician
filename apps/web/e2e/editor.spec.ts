@@ -241,3 +241,28 @@ test('detects edits made in another tab and warns before leaving unsaved work', 
   await other.close({ runBeforeUnload: true });
   expect(await dialog).toBe('beforeunload');
 });
+
+test('Earnings window needs no comparison: "Not needed" is its default (N216)', async ({
+  page,
+  baseURL,
+}) => {
+  await signUpAndVerify(page, uniqueEmail('not-needed'));
+  await newStrategy(page, baseURL!, 'Earnings window only');
+  const entry = page.getByRole('region', { name: 'Enter when' });
+  await entry.getByRole('button', { name: 'Add condition to Enter when' }).click();
+  const c1 = entry.getByRole('group', { name: 'Condition 1', exact: true });
+  const left = side(c1, 'Left side');
+  // "Not needed" is not offered for an ordinary value.
+  await expect(
+    c1.getByLabel('Comparison').locator('option', { hasText: 'Not needed' }),
+  ).toHaveCount(0);
+  await left
+    .getByLabel('Type', { exact: true })
+    .selectOption({ label: 'Earnings, deals and rates (EDGAR, FRED)' });
+  await left.getByLabel('Event metric').selectOption({ label: 'Earnings window' });
+  await expect(c1.getByLabel('Comparison')).toHaveValue('is_true');
+  await expect(c1.getByRole('group', { name: 'Right side', exact: true })).toHaveCount(0);
+  await expect(entry.locator('p').filter({ hasText: /^Reads as:/ })).toContainText('holds');
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await expect(page.locator('#save-state')).toHaveText('All changes saved');
+});
