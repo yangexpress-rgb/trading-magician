@@ -79,7 +79,7 @@ import {
   type LoadedData,
 } from './data';
 import { quoteFill, stopReached, volumeCap, type Direction } from './fills';
-import { ConditionRecorder, whyNotFired } from './explain';
+import { ConditionRecorder, conditionChecks, whyNotFired } from './explain';
 import { describeAssumptions, type BacktestInputs, type BacktestInterval } from './inputs';
 import { MarketView } from './market';
 import { describeCoverage, optionsCoverage } from './options-coverage';
@@ -93,8 +93,10 @@ import {
   type BacktestResult,
   type BacktestTrade,
   type CycleDetail,
+  type CyclePick,
   type EquityPoint,
   type InstrumentContribution,
+  type RunPlan,
   type SelectionLog,
   type SelectionRound,
 } from './results';
@@ -242,6 +244,8 @@ interface Cycle {
   moveAtEntry?: Decimal;
   /** Trailing stop (ADR 0059): the best close since Entry filled, from the entry price. */
   trailPeak?: Decimal;
+  /** Why a group picked this cycle's stock, for the cycle card (N218). */
+  pick?: CyclePick;
   /** The trailing stop's last check, for the cycle card (N166). */
   trail?: {
     percent: string;
@@ -1196,8 +1200,28 @@ export function simulate({
     let count = 1;
     const round: SelectionRound = { time: iso(now), period, rows: [], entered: [], exited: [] };
     let inGroup: Slot[] | undefined;
+    let pickOf: ((instrumentId: string) => CyclePick) | undefined;
     if (mode === 'selection' && selection && template) {
       const ranking = rankUniverse(selection, members, view, symbol);
+      // Why each new pick was picked: its filter, ranking and Enter when (N218).
+      pickOf = (instrumentId) => {
+        const r = withContext(view, instrumentId);
+        const row = ranking.rows.find((x) => x.instrumentId === instrumentId);
+        const filter = selection.preFilter;
+        return {
+          time: iso(now),
+          instrumentId,
+          symbol: symbol(instrumentId),
+          members: ranking.rows.length,
+          passed: ranking.rows.filter((x) => x.filter === true).length,
+          ranked: ranking.rows.filter((x) => x.rank !== null).length,
+          count: ranking.count,
+          rank: row?.rank ?? null,
+          value: row?.value ?? null,
+          ...(filter && hasComparisons(filter) ? { filter: conditionChecks(filter, r) } : {}),
+          ...(perCandidateEntry ? { enterWhen: conditionChecks(def.entry.condition, r) } : {}),
+        };
+      };
       count = ranking.count;
       if (perCandidateEntry) {
         // Enter when reads "this stock": checked for each selected member (ADR 0073).
@@ -1269,7 +1293,8 @@ export function simulate({
       round.exited.push(symbol(c.slot?.instrumentId ?? ''));
     }
     for (const slot of plan.enter) {
-      newCycle(now, true, slot, count);
+      const opened = newCycle(now, true, slot, count);
+      if (pickOf) opened.pick = pickOf(slot.instrumentId);
       round.entered.push(symbol(slot.instrumentId));
     }
     if (halted && candidates.length > 0) round.halted = true;
@@ -1543,7 +1568,7 @@ export function simulate({
 
   // Per-instrument P/L and the trailing stop's last check, for the cycle card (N166).
   const cycleDetails: CycleDetail[] = cycles
-    .filter((c) => c.firstFill !== undefined)
+    .filter((c) => c.firstFill !== undefined || c.pick)
     .map((c) => {
       const instrumentsPnl = [...c.positions].map(([id, p]) => {
         const value = p.quantity.times(mark(id) ?? ZERO);
@@ -1559,6 +1584,7 @@ export function simulate({
       return {
         cycle: c.no,
         instruments: instrumentsPnl,
+        ...(c.pick ? { pick: c.pick } : {}),
         ...(t
           ? {
               trailingStop: {
@@ -1808,7 +1834,43 @@ export function simulate({
     warnings: warnings.list(),
     ...(mode !== 'none' ? { selections: selectionLog() } : {}),
     cycles: cycleDetails,
+    plan: runPlan(),
   };
+
+  /** The strategy's three parts as the run read them (N219, ADR 0073). */
+  function runPlan(): RunPlan {
+    const t = def.trade;
+    const trade: RunPlan['trade'] =
+      t.kind === 'group'
+        ? {
+            kind: 'group',
+            universe:
+              t.universe.type === 'builtin'
+                ? { type: 'builtin', id: t.universe.id }
+                : { type: 'list', size: t.universe.instrumentIds.length },
+            ...(t.filter && hasComparisons(t.filter) ? { filter: t.filter } : {}),
+            ...(t.ranking
+              ? {
+                  ranking: {
+                    metric: t.ranking.metric,
+                    params: t.ranking.params,
+                    direction: t.ranking.direction,
+                    count: t.ranking.count,
+                  },
+                }
+              : {}),
+          }
+        : {
+            kind: 'assets',
+            symbols: [...new Set(def.entry.orders.map((o) => symbol(o.instrumentId)))],
+          };
+    return {
+      trade,
+      entrySchedule: frequency,
+      exitSchedule: exitFrequency ?? null,
+      perCandidate: perCandidateEntry,
+    };
+  }
 
   function withSizing(sizing: RiskSizing | undefined): { sizing?: RiskSizing } {
     return sizing ? { sizing } : {};

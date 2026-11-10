@@ -188,6 +188,8 @@ export interface ConditionCheck {
   optionsAsOf?: string[];
   /** The earnings, deal and rate records read, e.g. "earnings 2026-10-30" (ADR 0058). */
   eventsAsOf?: string[];
+  /** The values inside a calculated side, by expression id (N217). */
+  inputs?: Record<string, string | null>;
 }
 
 /**
@@ -313,11 +315,61 @@ export interface TrailingStopRecord {
   hit: boolean;
 }
 
+/**
+ * Why a group picked this cycle's stock (N218): the Check Entry it was picked
+ * at, the filter and Enter when as they read for this stock, and its ranking.
+ */
+export interface CyclePick {
+  time: string;
+  instrumentId: string;
+  symbol: string;
+  /** Members of the group checked at this Check Entry. */
+  members: number;
+  /** Members that passed the filter (all of them without one). */
+  passed: number;
+  /** Members ranked: passed the filter and had a ranking value. */
+  ranked: number;
+  /** How many picks the group keeps. */
+  count: number;
+  rank: number | null;
+  /** The ranking metric's value for this stock; null without a ranking. */
+  value: string | null;
+  filter?: { truth: StoredTruth; checks: ConditionCheck[] };
+  /** Enter when for this stock, when it reads "this stock" (ADR 0073). */
+  enterWhen?: { truth: StoredTruth; checks: ConditionCheck[] };
+}
+
 /** What the cycle card needs beyond the trade row (N166), stored with the run's result. */
 export interface CycleDetail {
   cycle: number;
   instruments: CycleInstrumentPnl[];
   trailingStop?: TrailingStopRecord;
+  pick?: CyclePick;
+}
+
+/**
+ * The run's strategy in its three parts (N219, ADR 0073), so the cycle card
+ * reads without the version: what it traded, and when Entry and Exit were checked.
+ */
+export interface RunPlan {
+  trade:
+    | { kind: 'assets'; symbols: string[] }
+    | {
+        kind: 'group';
+        universe: { type: 'builtin'; id: string } | { type: 'list'; size: number };
+        filter?: ConditionNode;
+        ranking?: {
+          metric: string;
+          params: Record<string, number | string>;
+          direction: 'asc' | 'desc';
+          count: { type: 'fixed' | 'percent'; value: number };
+        };
+      };
+  entrySchedule: string;
+  /** Null: Exit was checked on every bar the run stepped on. */
+  exitSchedule: string | null;
+  /** Enter when reads "this stock", so it was checked for each candidate. */
+  perCandidate: boolean;
 }
 
 export interface BacktestResult {
@@ -351,4 +403,6 @@ export interface BacktestResult {
   selections?: SelectionLog;
   /** Per-cycle detail for the cycle card (N166). Absent on older runs. */
   cycles?: CycleDetail[];
+  /** The strategy's three parts as the run read them (N219). Absent on older runs. */
+  plan?: RunPlan;
 }

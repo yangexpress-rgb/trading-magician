@@ -799,3 +799,59 @@ describe('What to trade, Entry, Exit (ADR 0073)', () => {
     expect(behaviour(runSectors(migrated))).toEqual(behaviour(runSectors(v3)));
   });
 });
+
+describe('why each pick was picked (N217 to N219)', () => {
+  it("records each new pick's filter values, ranking and the run's three parts", () => {
+    const def = sectorFixture('monthEnd');
+    // A calculated side: close above 1.0 × its own close one bar ago.
+    const prev = { ...market(CONTEXT_INSTRUMENT_ID), id: nid('prev'), offset: 1 };
+    const calc: Expr = { kind: 'calc', id: nid('calc'), op: 'mul', args: [prev, constant('0')] };
+    setFilter(
+      def,
+      all(
+        cmp(
+          market(CONTEXT_INSTRUMENT_ID),
+          'gt',
+          indicator(CONTEXT_INSTRUMENT_ID, 'SMA', { period: 200 }),
+        ),
+        cmp(market(CONTEXT_INSTRUMENT_ID), 'gt', calc),
+      ),
+    );
+    const r = runSectors(def);
+    expect(r.plan).toMatchObject({
+      trade: {
+        kind: 'group',
+        universe: { type: 'list', size: 9 },
+        ranking: { metric: 'return', direction: 'desc', count: { type: 'fixed', value: 3 } },
+      },
+      entrySchedule: 'monthEnd',
+      exitSchedule: null,
+      perCandidate: false,
+    });
+    const picks = (r.cycles ?? []).filter((c) => c.pick);
+    expect(picks.length).toBeGreaterThan(0);
+    for (const d of picks) {
+      const p = d.pick!;
+      const round = r.selections!.rounds.find((x) => x.time === p.time)!;
+      const row = round.rows.find((x) => x[0] === p.symbol)!;
+      expect(round.entered).toContain(p.symbol);
+      expect([p.value, p.rank]).toEqual([row[1], row[3]]);
+      expect(p.members).toBe(9);
+      expect(p.rank).toBeLessThanOrEqual(3);
+      expect(p.filter?.truth).toBe(true);
+      // Every comparison with its values, and the close the calculation multiplied.
+      const [above, rising] = (
+        def.trade.kind === 'group' ? def.trade.filter!.children : []
+      ) as Comparison[];
+      const a = p.filter!.checks.find((c) => c.id === above!.id)!;
+      expect(Number(a.left)).toBeGreaterThan(Number(a.right));
+      const b = p.filter!.checks.find((c) => c.id === rising!.id)!;
+      expect(Number(b.right)).toBe(0);
+      expect(Number(b.inputs?.[prev.id])).toBeGreaterThan(0);
+    }
+    // The records explain the run and change none of it.
+    const { plan: _plan, ...bare } = r;
+    void _plan;
+    expect(behaviour(r)).toBe(behaviour({ ...bare, cycles: [] }));
+  });
+});

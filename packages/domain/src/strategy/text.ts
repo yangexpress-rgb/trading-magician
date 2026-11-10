@@ -31,7 +31,7 @@ export const OPERATOR_LABELS: Record<ComparisonOperator, string> = {
   is_true: 'Not needed',
 };
 
-const OPERATOR_SYMBOLS: Record<ComparisonOperator, string> = {
+export const OPERATOR_SYMBOLS: Record<ComparisonOperator, string> = {
   lt: '<',
   lte: '≤',
   gt: '>',
@@ -109,7 +109,7 @@ export function describeExpr(expr: Expr, symbol: SymbolLookup): string {
     case 'constant':
       return expr.value;
     case 'market': {
-      const ago = expr.offset ? ` ${expr.offset} bars ago` : '';
+      const ago = expr.offset ? ` ${expr.offset} ${expr.offset === 1 ? 'bar' : 'bars'} ago` : '';
       return `${instrumentText(expr.instrumentId, symbol)} ${FIELD_LABELS[expr.field].toLowerCase()}${ago}`;
     }
     case 'indicator': {
@@ -121,7 +121,7 @@ export function describeExpr(expr: Expr, symbol: SymbolLookup): string {
       // Highest/Lowest show their window's offset as a parameter (v1.2 item 7).
       if (spec?.builderOffset !== undefined)
         return `${expr.name}(${params}, offset ${expr.offset}) of ${instrumentText(expr.instrumentId, symbol)}${field}`;
-      const ago = expr.offset ? ` ${expr.offset} bars ago` : '';
+      const ago = expr.offset ? ` ${expr.offset} ${expr.offset === 1 ? 'bar' : 'bars'} ago` : '';
       return `${expr.name}(${params}) of ${instrumentText(expr.instrumentId, symbol)}${field}${ago}`;
     }
     case 'metric': {
@@ -142,7 +142,7 @@ export function describeExpr(expr: Expr, symbol: SymbolLookup): string {
         expr.multiplier && (expr.fn.startsWith('BB_') || expr.fn === 'BANDWIDTH')
           ? `, ${expr.multiplier}`
           : '';
-      const ago = expr.offset ? ` ${expr.offset} bars ago` : '';
+      const ago = expr.offset ? ` ${expr.offset} ${expr.offset === 1 ? 'bar' : 'bars'} ago` : '';
       return `${expr.fn}(${describeExpr(expr.input, symbol)}, ${expr.period}${mult})${ago}`;
     }
     case 'position':

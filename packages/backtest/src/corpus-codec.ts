@@ -49,25 +49,36 @@ export function behaviour(r: BacktestResult): string {
     return rest;
   };
   type Report = NonNullable<BacktestResult['conditions']>['entry'];
+  // A calculation's inputs (N217) explain a check and change none.
+  type Bar = Report['bars'][number];
+  const stripInputs = (bar: Bar) => ({
+    ...bar,
+    checks: bar.checks.map(({ inputs: _inputs, ...check }) => {
+      void _inputs;
+      return check;
+    }),
+  });
   const stripEntry = (p: Report) => ({
     ...strip(p),
     bars: p.bars.map(({ cycle: _cycle, ...bar }) => {
       void _cycle;
-      return bar;
+      return stripInputs(bar);
     }),
   });
-  const { cycles: _cycles, ...rest } = r;
+  const stripExit = (p: Report) => ({ ...strip(p), bars: p.bars.map(stripInputs) });
+  const { cycles: _cycles, plan: _plan, ...rest } = r;
   void _cycles;
+  void _plan;
   const picked = {
     ...rest,
     conditions: r.conditions && {
       entry: stripEntry(r.conditions.entry),
-      exit: strip(r.conditions.exit),
+      exit: stripExit(r.conditions.exit),
     },
     groupConditions: r.groupConditions?.map((g) => ({
       ...g,
       entry: stripEntry(g.entry),
-      exit: strip(g.exit),
+      exit: stripExit(g.exit),
     })),
   };
   return createHash('sha256').update(JSON.stringify(picked)).digest('hex').slice(0, 16);

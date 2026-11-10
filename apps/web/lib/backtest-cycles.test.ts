@@ -70,7 +70,21 @@ const bar = (time: string, p: Partial<ConditionBar> = {}): ConditionBar => ({
 });
 
 const report = (bars: ConditionBar[]): PhaseConditionReport => ({
-  condition: { kind: 'group', id: 'g', op: 'and', negate: false, children: [] },
+  condition: {
+    kind: 'group',
+    id: 'g',
+    op: 'and',
+    negate: false,
+    children: [
+      {
+        kind: 'comparison',
+        id: 'c',
+        left: { kind: 'constant', id: 'l', value: '1' },
+        operator: 'gt',
+        right: { kind: 'constant', id: 'r', value: '0' },
+      },
+    ],
+  },
   evaluated: bars.length,
   trueBars: 0,
   falseBars: 0,
