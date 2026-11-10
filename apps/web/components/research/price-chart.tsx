@@ -35,7 +35,7 @@ import { bare } from '@/lib/units';
 
 export type ChartStyle = 'line' | 'candles';
 
-/** Another symbol drawn on the same chart (N196), in its fixed colour slot (2–5). */
+/** Another symbol drawn on the same chart (N198), in its fixed colour slot (2–5). */
 export interface ComparedSeries {
   id: string;
   symbol: string;
@@ -87,10 +87,10 @@ const DRAG_PX = 4;
  * follows the pointer or the arrow keys, and every value also in a table.
  * Bars are spaced evenly, so nights, weekends and holidays leave no gaps.
  *
- * The chart scrolls through time (N195): drag it, swipe sideways, or use the
+ * The chart scrolls through time (N197): drag it, swipe sideways, or use the
  * buttons; older or newer bars are fetched when the view nears the end of
  * what is loaded. Ctrl or ⌘ with the wheel, a pinch, or the buttons zoom.
- * With other symbols to compare (N196), every line shows its percent change
+ * With other symbols to compare (N198), every line shows its percent change
  * from the left edge of the view.
  */
 export function PriceChart({
@@ -180,7 +180,7 @@ export function PriceChart({
   const atNewest = last === bars.length - 1;
   const comparing = compared.length > 0;
 
-  // Fetch older or newer bars once the person moves within a screen of either end (N195).
+  // Fetch older or newer bars once the person moves within a screen of either end (N197).
   useEffect(() => {
     if (!moved || extending) return;
     if (first < vis.length && !atStart) onNeedEarlier?.();
@@ -400,7 +400,7 @@ export function PriceChart({
       ? `${formatBarTime(firstBar.t, interval)} to ${formatBarTime(lastBar.t, interval)}`
       : '';
 
-  // Labels on the right axis at each line's last value (N196), nudged apart so none overlap.
+  // Labels on the right axis at each line's last value (N198), nudged apart so none overlap.
   const endLabels = useMemo(() => {
     if (!comparing) return [];
     const items = [

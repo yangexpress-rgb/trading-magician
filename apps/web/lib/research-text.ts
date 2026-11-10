@@ -189,7 +189,7 @@ export function describeChart(
   bars: readonly Bar[],
   range: ChartRange,
   interval: ChartInterval,
-  /** The person scrolled or zoomed (N195): name the bars' own dates instead of the range. */
+  /** The person scrolled or zoomed (N197): name the bars' own dates instead of the range. */
   moved = false,
 ): string {
   const s = summarize(bars);

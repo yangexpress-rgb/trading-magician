@@ -10,7 +10,7 @@ import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 test('lists the seed, registers with a previewed number, edits and retires', async ({ page }) => {
   await signUpAndVerify(page, uniqueEmail('library'));
   await page.goto('/library');
-  await expect(page.getByRole('heading', { level: 1, name: 'Theory Library' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Trading Strategy' })).toBeVisible();
   const rows = page.getByRole('table', { name: 'Theory Library entries' }).locator('tbody tr');
   await expect(rows.first()).toContainText('T00001-SD');
   await expect(rows.nth(17)).toContainText('T00018-AM');
@@ -41,18 +41,24 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   await page.goto('/library');
 
   // Library v2 filters (ADR 0055): one entry needs earnings consensus.
-  await page.getByLabel('Data needs').selectOption('earnings_consensus');
-  await page.getByRole('button', { name: 'Apply filters' }).click();
+  // Filters are pills that apply at once (N195); Data needs waits in the Filter menu.
+  const filters = page.getByRole('toolbar', { name: 'Filter the library' });
+  await expect(page.getByRole('button', { name: 'Apply filters' })).toHaveCount(0);
+  await filters.getByRole('button', { name: 'Add a filter' }).click();
+  await page.getByRole('menuitem', { name: 'Data needs' }).click();
+  await page.getByRole('radio', { name: /earnings consensus/i }).click();
+  await expect(page).toHaveURL(/data=earnings_consensus/);
   await expect(page.getByText('1 entry', { exact: true })).toBeVisible();
   await expect(rows.first()).toContainText('T00026-SD');
-  await page.getByRole('link', { name: 'Clear' }).click();
+  await filters.getByRole('button', { name: /^Clear filters/ }).click();
   await expect(page).toHaveURL(/\/library$/);
 
   // Filters: options trades only.
-  await page.getByLabel('Asset class').selectOption('O');
-  await page.getByRole('button', { name: 'Apply filters' }).click();
+  await filters.getByRole('button', { name: /^Asset class/ }).click();
+  await page.getByRole('radio', { name: /\(O\)$/ }).click();
   await expect(page.getByText('3 entries')).toBeVisible();
-  await page.getByRole('link', { name: 'Clear' }).click();
+  await filters.getByRole('button', { name: 'Remove the Asset class filter' }).click();
+  await expect(page).toHaveURL(/\/library$/);
 
   // The seed detail: number, prose, provenance with its evidence level.
   // A former number redirects to the current one.

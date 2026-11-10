@@ -19,7 +19,7 @@ export const createPriceChartRequest = z.object({
   instrumentId: z.uuid(),
   interval: z.enum(CHART_INTERVALS),
   range: z.enum(CHART_RANGES),
-  /** New York date the chart ends on (N194); left out, it ends today. */
+  /** New York date the chart ends on (N196); left out, it ends today. */
   end: z.iso.date().optional(),
 });
 export type CreatePriceChartRequest = z.infer<typeof createPriceChartRequest>;

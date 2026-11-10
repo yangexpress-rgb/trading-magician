@@ -41,14 +41,14 @@ describe('price chart windows', () => {
     expect(defaultChartInterval('1y')).toBe('1d');
   });
 
-  it('ends on an earlier date the person went to, never after today (N194)', () => {
+  it('ends on an earlier date the person went to, never after today (N196)', () => {
     const now = new Date('2026-11-03T15:00:00Z');
     expect(chartWindow('1w', now, '2025-03-14')).toEqual({ from: '2025-03-07', to: '2025-03-14' });
     expect(chartWindow('1w', now, '2027-01-01').to).toBe('2026-11-03');
     expect(chartWindow('1w', now, null).to).toBe('2026-11-03');
   });
 
-  it('steps a day by trading days and longer ranges by their length (N194)', () => {
+  it('steps a day by trading days and longer ranges by their length (N196)', () => {
     const now = new Date('2026-11-03T15:00:00Z');
     // Tuesday 3 November back one session is Monday; Monday back one is Friday.
     expect(stepChartEnd('1d', null, -1, now)).toBe('2026-11-02');
@@ -63,7 +63,7 @@ describe('price chart windows', () => {
     expect(stepChartEnd('1m', '2026-06-30', 1, now)).toBe('2026-07-31');
   });
 
-  it('fetches more history in chunks its bars are offered for (N195)', () => {
+  it('fetches more history in chunks its bars are offered for (N197)', () => {
     for (const [interval, range] of Object.entries(CHART_HISTORY_CHUNK)) {
       expect(chartIntervalAllowed(range, interval as keyof typeof CHART_HISTORY_CHUNK)).toBe(true);
     }

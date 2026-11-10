@@ -24,7 +24,7 @@ const bar = (t: number, close = 100): Bar => ({
 const series = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, i) => bar(from + i, 100 + from + i));
 
-describe('moving through time (N195)', () => {
+describe('moving through time (N197)', () => {
   it('merges older and newer stretches into one series, oldest first, without repeats', () => {
     const merged = mergeBars(series(10, 20), series(0, 12));
     expect(merged.map((b) => b.t)).toEqual(Array.from({ length: 21 }, (_, i) => i));
@@ -67,7 +67,7 @@ describe('moving through time (N195)', () => {
   });
 });
 
-describe('comparing symbols (N196)', () => {
+describe('comparing symbols (N198)', () => {
   it('lines up another symbol by bar time, with gaps where it has none', () => {
     const main = [bar(1), bar(2), bar(3)];
     const other = [bar(1, 50), bar(3, 55)];

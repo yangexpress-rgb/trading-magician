@@ -10,7 +10,7 @@ import { useInstrumentLookup } from '@/components/strategy/use-instrument-lookup
 import { SERIES_BG, type ComparedSeries } from './price-chart';
 
 /**
- * Picks other symbols to draw on the same price chart (N196), like
+ * Picks other symbols to draw on the same price chart (N198), like
  * TradingView's Compare: a ticker the person already has is added at once,
  * any other is found through their data feed. Each shows as a chip in its
  * line colour, with a button to take it off.

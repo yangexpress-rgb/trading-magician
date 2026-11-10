@@ -56,7 +56,7 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
   const numbers = await page.getByRole('row').locator('td:nth-child(2)').allInnerTexts();
   expect(numbers.map((n) => n.trim())).toEqual([...numbers.map((n) => n.trim())].sort());
   await page.getByLabel('Search').fill(labNumber);
-  await page.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page).toHaveURL(new RegExp(`q=${labNumber}`));
   await expect(page.getByRole('row', { name: /Numbered one/ })).toBeVisible();
 
   // In the Lab the number opens the strategy (on Library pages an S number may be a former theory number, ADR 0066).

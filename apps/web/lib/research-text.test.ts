@@ -46,7 +46,7 @@ describe('research chart text', () => {
     expect(describeChart('DEMO-A', bars, '1m', '1d')).toBe(
       'DEMO-A, daily prices over 1 month: up $10.00 (+10%), last $110.00, high $111.00, low $99.00, 3 bars.',
     );
-    // Scrolled or zoomed: the bars' own dates (N195).
+    // Scrolled or zoomed: the bars' own dates (N197).
     expect(describeChart('DEMO-A', bars, '1m', '1d', true)).toMatch(
       /^DEMO-A, daily prices from \w{3} \d+, \d{4} to \w{3} \d+, \d{4}: up/,
     );

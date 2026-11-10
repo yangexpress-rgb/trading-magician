@@ -31,7 +31,7 @@ export interface PriceChartSummary {
   createdAt: string;
 }
 
-/** Room for a chart plus four compared symbols, each fetching more history (N195, N196). */
+/** Room for a chart plus four compared symbols, each fetching more history (N197, N198). */
 const MAX_PENDING = 12;
 /** A ready chart this recent is shown again instead of asking the feed. */
 export const CHART_REUSE_SECONDS = 300;
@@ -43,7 +43,7 @@ export async function requestPriceChart(
     instrumentId: string;
     interval: ChartInterval;
     range: ChartRange;
-    /** New York date the chart ends on (N194); left out, today. */
+    /** New York date the chart ends on (N196); left out, today. */
     end?: string | undefined;
     now?: Date;
   },

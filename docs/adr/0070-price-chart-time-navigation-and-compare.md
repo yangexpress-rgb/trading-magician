@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-10
-- **Design refs:** design v1.2 rows N194–N196, open point O139. Extends ADR 0029 (price charts)
+- **Design refs:** design v1.2 rows N196–N198, open point O139. Extends ADR 0029 (price charts)
 
 ## Context
 
@@ -17,14 +17,14 @@ symbols drawn as percent change from the left edge of the view).
 
 ## Decision
 
-- **A chart can end on any past date (N194).** `POST /research/price-charts` takes an optional
+- **A chart can end on any past date (N196).** `POST /research/price-charts` takes an optional
   `end` New York date; the window is the range ending on that date (never after today), so the
   existing `from_date`/`to_date` columns carry it and no migration is needed. A recent chart is
   reused only for the same end date. 1D still keeps the last session in the window, so a
   weekend date shows the Friday before. The page's Date row steps the end back or forward by the
   range (1D by NYSE trading day, via `stepChartEnd`), takes a date, and returns to Latest. The
   date is in the address as `date=`.
-- **Scrolling and zooming are on the client (N195).** The chart keeps a view (the time of its
+- **Scrolling and zooming are on the client (N197).** The chart keeps a view (the time of its
   rightmost bar and how many bars it shows) over all bars loaded so far, so adding older bars in
   front never moves it. Drag, sideways swipe, Shift+wheel, the Earlier/Later buttons and the
   arrow keys past an edge scroll; Ctrl/⌘+wheel (a trackpad pinch), the −/+ buttons and keys zoom.
@@ -35,7 +35,7 @@ symbols drawn as percent change from the left edge of the view).
   extra is fetched until the person moves the chart, so opening a chart costs the same feed
   requests as before. An empty older stretch marks the start of the feed's history. The price
   scale fits the bars in view; Reset view returns to the range chosen.
-- **Compare (N196).** Up to four more symbols, picked by ticker (known ones at once, others
+- **Compare (N198).** Up to four more symbols, picked by ticker (known ones at once, others
   through the same lookup as the stock picker). Each is fetched over the same stretches as the
   main symbol and lined up with it by bar start time. While comparing, all lines show percent
   change from their first close in view, on one axis (O139: no second price axis). Each symbol

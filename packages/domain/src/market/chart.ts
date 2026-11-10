@@ -41,7 +41,7 @@ export function defaultChartInterval(range: ChartRange): ChartInterval {
 
 /**
  * Inclusive New York dates a chart asks the feed for, ending on the day of
- * `now`, or on an earlier `end` date the person went to (N194). A 1D chart
+ * `now`, or on an earlier `end` date the person went to (N196). A 1D chart
  * ending on a weekend or holiday shows the session before it.
  */
 export function chartWindow(
@@ -55,7 +55,7 @@ export function chartWindow(
 }
 
 /**
- * The end date one step earlier (-1) or later (+1) than `end` (N194): the
+ * The end date one step earlier (-1) or later (+1) than `end` (N196): the
  * trading day before or after for 1D, otherwise the range's own length, so
  * stepping a 1W chart moves it a week. Null means today, and so does any
  * date that would reach today or later.
@@ -80,7 +80,7 @@ export function stepChartEnd(
 
 /**
  * How much history is fetched at a time when the person scrolls a chart past
- * what it has (N195): a week of 5-minute bars, three months of hourly bars,
+ * what it has (N197): a week of 5-minute bars, three months of hourly bars,
  * a year of daily bars. Each is the longest range its bars are offered for.
  */
 export const CHART_HISTORY_CHUNK: Record<ChartInterval, ChartRange> = {

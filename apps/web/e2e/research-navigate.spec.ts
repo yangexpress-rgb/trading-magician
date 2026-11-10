@@ -2,7 +2,7 @@ import { expect } from '@playwright/test';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 /**
- * Moving a price chart through time and comparing symbols on it (N194–N196):
+ * Moving a price chart through time and comparing symbols on it (N196–N198):
  * go to a date or step a range back, scroll and zoom through the bars (older
  * ones are fetched as needed), and draw other symbols as percent changes.
  */

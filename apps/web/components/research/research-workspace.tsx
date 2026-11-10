@@ -50,9 +50,9 @@ export interface ResearchSelection {
   range: ChartRange;
   interval: ChartInterval;
   style: ChartStyle;
-  /** New York date the chart ends on (N194); null for today. */
+  /** New York date the chart ends on (N196); null for today. */
   end: string | null;
-  /** Other instruments drawn on the same chart (N196), in the order added. */
+  /** Other instruments drawn on the same chart (N198), in the order added. */
   compare: string[];
 }
 
@@ -150,7 +150,7 @@ export function ResearchWorkspace({
     [showing, selected, history.series],
   );
 
-  // Each compared symbol keeps its colour while others come and go (N196).
+  // Each compared symbol keeps its colour while others come and go (N198).
   const slots = useRef(new Map<string, number>());
   const compared: ComparedSeries[] = useMemo(() => {
     for (const id of [...slots.current.keys()]) {
@@ -177,7 +177,7 @@ export function ResearchWorkspace({
     });
   }, [sel.compare, sel.instrumentId, instruments, history.series]);
 
-  // The header follows the bars in view, which the person can scroll and zoom (N195).
+  // The header follows the bars in view, which the person can scroll and zoom (N197).
   const [inView, setInView] = useState<{ from: number; to: number; moved: boolean } | null>(null);
   const onViewChange = useCallback(
     (a: Bar, b: Bar, moved: boolean) => setInView({ from: a.t, to: b.t, moved }),

@@ -76,7 +76,7 @@ export interface ChartHistory {
   error: string | null;
   /** Bars the first answer had, which the chart opens showing. */
   openingCount: number;
-  /** Fetching an older or newer stretch after a scroll (N195). */
+  /** Fetching an older or newer stretch after a scroll (N197). */
   extending: 'earlier' | 'later' | null;
   /** No older bars came back: the start of the feed's history. */
   atStart: boolean;
@@ -87,7 +87,7 @@ export interface ChartHistory {
 }
 
 /**
- * Bars for the Price charts page (N194–N196): the main symbol for the chosen
+ * Bars for the Price charts page (N196–N198): the main symbol for the chosen
  * range, ending on the chosen date, plus each compared symbol over the same
  * stretch; older or newer stretches are fetched as the person scrolls.
  */

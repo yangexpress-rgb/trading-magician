@@ -64,7 +64,7 @@ export default async function ResearchPage({
     CHART_INTERVALS.includes(rawInterval) && chartIntervalAllowed(range, rawInterval)
       ? rawInterval
       : defaultChartInterval(range);
-  // A chart can end on an earlier date (N194) and compare other symbols (N196).
+  // A chart can end on an earlier date (N196) and compare other symbols (N198).
   const rawDate = one(params.date);
   const end =
     rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) && rawDate < nyDate(new Date()) ? rawDate : null;

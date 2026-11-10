@@ -42,7 +42,7 @@
   /* Chart series in fixed order (validated for colour-vision deficiency): calls, then puts. */
   --color-series-1: var(--tm-series-1);
   --color-series-2: var(--tm-series-2);
-  /* Symbols compared on one price chart (N196): slots 3 to 5 of the same validated order. */
+  /* Symbols compared on one price chart (N198): slots 3 to 5 of the same validated order. */
   --color-series-3: var(--tm-series-3);
   --color-series-4: var(--tm-series-4);
   --color-series-5: var(--tm-series-5);

@@ -151,7 +151,7 @@ describe('price charts', () => {
     ).rejects.toThrow(/5-minute bars go back up to a week/);
   });
 
-  it('ends on an earlier date the person went to (N194)', async () => {
+  it('ends on an earlier date the person went to (N196)', async () => {
     const week = await chart(userA, demoIdx, '1w', '5m', '2026-09-18');
     expect(week).toMatchObject({ status: 'ready', from: '2026-09-11', to: '2026-09-18' });
     const times = week.bars!.map((b) => b[0]);

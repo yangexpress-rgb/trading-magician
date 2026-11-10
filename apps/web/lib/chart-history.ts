@@ -3,10 +3,10 @@ import type { Bar } from './research-text';
 
 /**
  * Chart arithmetic for moving through time and comparing symbols on the
- * Price charts page (N194–N196). Pure, so it is tested without a browser.
+ * Price charts page (N196–N198). Pure, so it is tested without a browser.
  */
 
-/** At most four symbols beside the main one, one per remaining colour slot (N196). */
+/** At most four symbols beside the main one, one per remaining colour slot (N198). */
 export const MAX_COMPARE = 4;
 
 /** Bars of both lists, oldest first, one per start time; `b` wins a tie. */
@@ -70,7 +70,7 @@ export function panView(bars: readonly Bar[], view: ChartView, delta: number): C
 
 /**
  * How many bars of a pan back in time did not fit because older bars are
- * not loaded yet (N195): negative, or 0 when the whole pan fitted.
+ * not loaded yet (N197): negative, or 0 when the whole pan fitted.
  */
 export function panShortfall(bars: readonly Bar[], view: ChartView, delta: number): number {
   if (delta >= 0) return 0;
@@ -91,7 +91,7 @@ export function zoomView(bars: readonly Bar[], view: ChartView, factor: number):
 
 /**
  * Another symbol's bars lined up with the main symbol's, by start time; a
- * slot is null where that symbol has no bar (N196).
+ * slot is null where that symbol has no bar (N198).
  */
 export function alignBars(main: readonly Bar[], other: readonly Bar[]): (Bar | null)[] {
   const byTime = new Map(other.map((b) => [b.t, b]));
@@ -100,7 +100,7 @@ export function alignBars(main: readonly Bar[], other: readonly Bar[]): (Bar | n
 
 /**
  * Percent change of each bar's close from the first close in view, as
- * TradingView's compare does (N196): every line starts at 0% on the left edge.
+ * TradingView's compare does (N198): every line starts at 0% on the left edge.
  */
 export function percentFromFirst(bars: readonly (Bar | null)[]): {
   base: number | null;
