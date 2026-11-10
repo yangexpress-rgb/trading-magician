@@ -59,7 +59,7 @@ test('back test a pair strategy, read the results beside their assumptions, and 
   const cycleEntry = cycle.getByRole('list', { name: 'Entry orders' });
   await expect(cycleEntry.getByText('Buy 20 DEMO-A · Market · Day')).toBeVisible();
   await expect(cycleEntry.getByText('Sell short 20 DEMO-B · Market · Day')).toBeVisible();
-  await expect(cycle.getByText(/^Signal: .* close$/).first()).toBeVisible();
+  await expect(cycle.getByText(/^Enter when: .* close$/).first()).toBeVisible();
   await expect(cycle.getByText('crosses above').first()).toBeVisible();
   // Key data on each side: conditions, timing and execution (N169).
   const entryKey = cycle.getByRole('region', { name: 'Entry key data' });

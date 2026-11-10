@@ -55,8 +55,47 @@ function checksFor(node: ConditionNode, r: SeriesResolver, out: ConditionCheck[]
   if (asOf.length > 0) check.optionsAsOf = asOf;
   const events = eventDates([node.left, node.right, node.upper], r);
   if (events.length > 0) check.eventsAsOf = events;
+  const inputs = calcInputs([node.left, node.right, node.upper], r);
+  if (Object.keys(inputs).length > 0) check.inputs = inputs;
   out.push(check);
   return truth;
+}
+
+/**
+ * The data a calculated side was worked out from (N218): each market value,
+ * indicator, metric, statistic or position inside a calculation, by its id.
+ * "close 1 bar ago × 1.03" then shows the close it multiplied. Position
+ * values add `<id>:entry`, `<id>:peak` and `<id>:close`.
+ */
+function calcInputs(exprs: (Expr | undefined)[], r: SeriesResolver): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  const visit = (e: Expr, inCalc: boolean) => {
+    if (e.kind === 'calc') e.args.forEach((a) => visit(a, true));
+    else if (inCalc && e.kind !== 'constant') out[e.id] = num(evaluateExpr(e, r));
+    // A position value says what it was worked out from: the entry price, and for
+    // the trailing stop the best close since entry and the close checked (ADR 0074).
+    if (e.kind === 'position') {
+      const p = r.position?.(e.instrumentId);
+      if (!p || p.quantity.isZero()) return;
+      out[`${e.id}:entry`] = num(p.averagePrice);
+      if (e.field === 'off_peak_pct') {
+        out[`${e.id}:peak`] = num(p.peak);
+        out[`${e.id}:close`] = num(p.peakClose);
+      }
+    }
+  };
+  for (const e of exprs) if (e) visit(e, false);
+  return out;
+}
+
+/** Every node's check on one evaluation, for a record outside the bar logs (N218). */
+export function conditionChecks(
+  node: ConditionNode,
+  r: SeriesResolver,
+): { truth: StoredTruth; checks: ConditionCheck[] } {
+  const checks: ConditionCheck[] = [];
+  const truth = stored(checksFor(node, r, checks));
+  return { truth, checks };
 }
 
 /** The as-of dates of the options signals a comparison read on this bar. */

@@ -1,6 +1,12 @@
 'use client';
 
-import type { BacktestOrder, ConditionBar, PhaseConditionReport } from '@tm/backtest';
+import type {
+  BacktestOrder,
+  ConditionBar,
+  ConditionCheck,
+  PhaseConditionReport,
+  RunPlan,
+} from '@tm/backtest';
 import type { BacktestRunDto, BacktestTradeDto } from '@tm/contracts';
 import { Badge, Button, cx, SelectField, Table, Td, TextField, Th } from '@tm/ui';
 import { Fragment, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
@@ -12,6 +18,7 @@ import {
   Truth,
 } from '@/components/strategy/backtest-detail';
 import {
+  comparisonEvidence,
   comparisonsOf,
   CONDITION_OUTCOMES,
   describeOrder,
@@ -48,6 +55,7 @@ import {
   sizingText,
 } from '@/lib/backtest-text';
 import { bare } from '@/lib/units';
+import { SCHEDULE_LABELS, type ConditionNode, type ScheduleFrequency } from '@tm/domain';
 
 /**
  * Back test results by cycle (N157–N165, ADR 0061): one row per cycle, and
@@ -464,11 +472,18 @@ function CycleCard({
       </div>
 
       <div className="grid gap-3 lg:grid-cols-2">
+        <Side phase="trade" title="What to trade" className="lg:col-span-2">
+          <TradeSide c={c} result={result} interval={interval} symbol={symbol} />
+        </Side>
         <Side phase="entry" title={sideTitle('Entry', c.entry.decidedAt, interval)}>
+          <ScheduleLine
+            label="Check Entry"
+            value={result.plan ? scheduleText(result.plan.entrySchedule) : null}
+          />
           <EntrySignal c={c} result={result} interval={interval} symbol={symbol} />
           <KeyData
             phase="entry"
-            data={entryKeyData(c, result.fills)}
+            data={entryKeyData(c, result.fills, result.plan?.perCandidate === true)}
             report={c.entry.report}
             interval={interval}
             symbol={symbol}
@@ -491,6 +506,16 @@ function CycleCard({
           />
         </Side>
         <Side phase="exit" title={sideTitle('Exit', c.exit.decidedAt, interval)}>
+          <ScheduleLine
+            label="Check Exit"
+            value={
+              result.plan
+                ? result.plan.exitSchedule
+                  ? scheduleText(result.plan.exitSchedule)
+                  : 'Every bar the run stepped on'
+                : null
+            }
+          />
           <ExitSignal c={c} interval={interval} symbol={symbol} />
           <KeyData
             phase="exit"
@@ -545,24 +570,135 @@ function sideTitle(name: string, at: string | null, interval: Interval) {
 function Side({
   phase,
   title,
+  className,
   children,
 }: {
-  phase: 'entry' | 'exit';
+  phase: 'trade' | 'entry' | 'exit';
   title: string;
+  className?: string;
   children: ReactNode;
 }) {
   return (
     <div
+      role="group"
+      aria-label={phase === 'trade' ? 'What to trade' : phase === 'entry' ? 'Entry' : 'Exit'}
       className={cx(
         'min-w-0 space-y-3 rounded-md border border-l-4 border-line p-3',
-        phase === 'entry' ? 'border-l-entry bg-entry-soft' : 'border-l-exit bg-exit-soft',
+        className,
+        phase === 'trade'
+          ? 'border-l-ink-muted bg-surface-2'
+          : phase === 'entry'
+            ? 'border-l-entry bg-entry-soft'
+            : 'border-l-exit bg-exit-soft',
       )}
     >
-      <h5 className={cx('font-semibold', phase === 'entry' ? 'text-entry' : 'text-exit')}>
+      <h5
+        className={cx(
+          'font-semibold',
+          phase === 'trade' ? 'text-ink' : phase === 'entry' ? 'text-entry' : 'text-exit',
+        )}
+      >
         {title}
       </h5>
       {children}
     </div>
+  );
+}
+
+const scheduleText = (f: string) => SCHEDULE_LABELS[f as ScheduleFrequency] ?? f;
+
+/** When a part was checked (Check Entry, Check Exit; ADR 0073). */
+function ScheduleLine({ label, value }: { label: string; value: string | null }) {
+  if (!value) return null;
+  return (
+    <div className="text-sm">
+      <span className="text-ink-muted">{label}:</span> <span className="text-content">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * A condition as it read on one evaluation (N218): each comparison with the
+ * data elements it read and their values, why it held or didn't, and the
+ * records behind them; groups say whether all or any of their parts had to hold.
+ */
+function ConditionEvidence({
+  node,
+  checks,
+  symbol,
+}: {
+  node: ConditionNode;
+  checks: readonly ConditionCheck[];
+  symbol: (id: string) => string | undefined;
+}) {
+  const byId = new Map(checks.map((x) => [x.id, x]));
+  return (
+    <ul className="space-y-2">
+      <EvidenceNode node={node} byId={byId} symbol={symbol} />
+    </ul>
+  );
+}
+
+function EvidenceNode({
+  node,
+  byId,
+  symbol,
+}: {
+  node: ConditionNode;
+  byId: Map<string, ConditionCheck>;
+  symbol: (id: string) => string | undefined;
+}) {
+  const check = byId.get(node.id);
+  if (node.kind === 'comparison') {
+    const ev = comparisonEvidence(node, check, symbol);
+    return (
+      <li className="space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <ComparisonText c={node} symbol={symbol} />
+          {check && <Truth value={check.truth} />}
+        </div>
+        {ev.elements.length > 0 && (
+          <dl className="grid grid-cols-[minmax(0,auto)_1fr] gap-x-3 gap-y-0.5 text-xs">
+            {ev.elements.map((e, i) => (
+              <Fragment key={`${e.label}-${i}`}>
+                <dt className={cx('text-ink-muted', e.inside && 'pl-3')}>
+                  {e.inside ? '↳ ' : ''}
+                  {e.label}
+                </dt>
+                <dd className="text-content">{e.value}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        )}
+        {ev.reason && (
+          <div className="text-xs">
+            <span className="text-ink-muted">Why:</span>{' '}
+            <span className="text-content">{ev.reason}</span>
+          </div>
+        )}
+        {ev.sources.length > 0 && (
+          <div className="text-xs">
+            <span className="text-ink-muted">Data used:</span>{' '}
+            <span className="text-content">{ev.sources.join('; ')}</span>
+          </div>
+        )}
+      </li>
+    );
+  }
+  const children = node.children.map((child) => (
+    <EvidenceNode key={child.id} node={child} byId={byId} symbol={symbol} />
+  ));
+  // A plain group of one needs no heading of its own.
+  if (node.children.length === 1 && !node.negate) return <>{children}</>;
+  return (
+    <li className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+        {node.negate ? 'Must not hold: ' : ''}
+        {node.op === 'and' ? 'All of these' : 'Any of these'}
+        {check && <Truth value={check.truth} />}
+      </div>
+      <ul className="space-y-2 border-l-2 border-line pl-3">{children}</ul>
+    </li>
   );
 }
 
@@ -579,7 +715,7 @@ function SubHeading({ kind, children }: { kind: 'cond' | 'order'; children: Reac
   );
 }
 
-/** One bar's checks: each condition with its values and True or False. */
+/** One bar's checks: each condition with its data, values and why (N218). */
 function BarChecks({
   report,
   bar,
@@ -589,25 +725,7 @@ function BarChecks({
   bar: ConditionBar;
   symbol: (id: string) => string | undefined;
 }) {
-  const comparisons = comparisonsOf(report.condition);
-  return (
-    <ul className="space-y-1">
-      {comparisons.map((cmp) => {
-        const check = bar.checks.find((x) => x.id === cmp.id);
-        return (
-          <li key={cmp.id}>
-            <div>
-              <ComparisonText c={cmp} symbol={symbol} />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-content">{describeValues(cmp, check)}</span>
-              {check && <Truth value={check.truth} />}
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
+  return <ConditionEvidence node={report.condition} checks={bar.checks} symbol={symbol} />;
 }
 
 function SignalBox({ children }: { children: ReactNode }) {
@@ -617,6 +735,144 @@ function SignalBox({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
+/**
+ * What to trade for this cycle (N219): the specific assets, or the group with
+ * this stock's filter values and its place in the ranking at the Check Entry
+ * that picked it.
+ */
+function TradeSide({
+  c,
+  result,
+  interval,
+  symbol,
+}: {
+  c: CycleView;
+  result: Result;
+  interval: Interval;
+  symbol: (id: string) => string | undefined;
+}) {
+  const plan = result.plan;
+  const pick = c.detail?.pick;
+  if (plan?.trade.kind === 'assets') {
+    const n = plan.trade.symbols.length;
+    return (
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
+        <KeyRow label={n === 1 ? 'Asset' : 'Assets'}>{plan.trade.symbols.join(', ')}</KeyRow>
+        <KeyRow label="Filter">None: specific assets are always the ones traded</KeyRow>
+        {n > 1 && <KeyRow label="Together">Entered and exited together, as one position</KeyRow>}
+      </dl>
+    );
+  }
+  if (plan?.trade.kind === 'group' && pick) {
+    const t = plan.trade;
+    const universe =
+      t.universe.type === 'builtin'
+        ? (UNIVERSE_WORDS[t.universe.id] ?? t.universe.id)
+        : `Your list of ${t.universe.size}`;
+    return (
+      <div className="space-y-3">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
+          <KeyRow label="Group">{universe}</KeyRow>
+          <KeyRow label="Picked">
+            {pick.symbol} at the {formatMarketTime(pick.time, interval)} Check Entry
+          </KeyRow>
+          <KeyRow label="Members checked">{pick.members}</KeyRow>
+        </dl>
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="min-w-0 space-y-2">
+            <SubHeading kind="cond">
+              Filter{t.filter ? `: passed by ${pick.passed} of ${pick.members}` : ''}
+            </SubHeading>
+            {t.filter && pick.filter ? (
+              <SignalBox>
+                <p className="text-xs text-ink-muted">As it read for {pick.symbol}:</p>
+                <ConditionEvidence node={t.filter} checks={pick.filter.checks} symbol={symbol} />
+              </SignalBox>
+            ) : (
+              <p className="text-sm text-ink-muted">No filter: every member was a candidate.</p>
+            )}
+          </div>
+          <div className="min-w-0 space-y-2">
+            <SubHeading kind="cond">Ranking</SubHeading>
+            {t.ranking ? (
+              <SignalBox>
+                <div className="text-xs text-ink-muted">{describeMetric(t.ranking)}</div>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+                  <KeyRow label={`${pick.symbol}'s value`}>
+                    {metricText(t.ranking, pick.value)}
+                  </KeyRow>
+                  <KeyRow label="Order">
+                    {t.ranking.direction === 'desc' ? 'Highest first' : 'Lowest first'}
+                  </KeyRow>
+                  <KeyRow label="Rank">
+                    {pick.rank ?? '—'} of {pick.ranked} ranked · top {pick.count} kept
+                  </KeyRow>
+                </dl>
+              </SignalBox>
+            ) : (
+              <p className="text-sm text-ink-muted">
+                No ranking: candidates in symbol order, up to {pick.count}.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  // Runs from before the three parts were recorded: the selection round, if any.
+  const log = result.selections;
+  if (c.round && log) {
+    const ranked = c.round.round.rows.filter((r) => r[3] !== null).length;
+    return (
+      <div className="space-y-2">
+        <SubHeading kind="cond">
+          {log.kind === 'ranking' ? 'Selection' : 'Leg'} round of{' '}
+          {formatMarketTime(c.round.round.time, interval)}
+        </SubHeading>
+        <SignalBox>
+          {c.round.round.gate !== undefined && (
+            <div className="flex flex-wrap items-center gap-2">
+              Enter when (gates the whole group): <Truth value={c.round.round.gate} />
+            </div>
+          )}
+          {c.round.rows.map(([sym, value, pass, rank, selected]) => (
+            <div key={sym} className="space-y-0.5">
+              <div className="font-medium">{sym}</div>
+              {log.metric && (
+                <div>
+                  {describeMetric(log.metric)}:{' '}
+                  <span className="text-content">{metricText(log.metric, value)}</span>
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {log.kind === 'ranking' ? 'Passes the filter' : 'Leg condition holds'}:{' '}
+                <Truth value={pass} />
+              </div>
+              {log.kind === 'ranking' && (
+                <div>
+                  Rank <span className="text-content">{rank ?? '—'}</span> of {ranked} ranked ·{' '}
+                  {selected ? 'Selected' : 'Not selected'}
+                </div>
+              )}
+            </div>
+          ))}
+          <p className="text-xs text-ink-muted">
+            This run is from before each pick's filter values were recorded; run the back test again
+            to see them. The whole round is under Rules and full logs, Selection rounds.
+          </p>
+        </SignalBox>
+      </div>
+    );
+  }
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
+      <KeyRow label={c.symbols.length === 1 ? 'Asset' : 'Assets'}>{c.symbols.join(', ')}</KeyRow>
+    </dl>
+  );
+}
+
+const UNIVERSE_WORDS: Record<string, string> = { sp500: 'S&P 500 (current members)' };
 
 function EntrySignal({
   c,
@@ -630,69 +886,60 @@ function EntrySignal({
   symbol: (id: string) => string | undefined;
 }) {
   const { bar, report } = c.entry;
-  const log = result.selections;
-  const ranked = c.round?.round.rows.filter((r) => r[3] !== null).length ?? 0;
+  const pick = c.detail?.pick;
+  const plan: RunPlan | undefined = result.plan;
+  // A group's Enter when that reads "this stock" was checked for this pick (ADR 0073).
+  if (plan?.perCandidate && pick?.enterWhen && report) {
+    return (
+      <div className="space-y-2">
+        <SubHeading kind="cond">
+          Enter when, for {pick.symbol}: {formatMarketTime(pick.time, interval)} close
+        </SubHeading>
+        <SignalBox>
+          <ConditionEvidence
+            node={report.condition}
+            checks={pick.enterWhen.checks}
+            symbol={symbol}
+          />
+        </SignalBox>
+      </div>
+    );
+  }
+  if (bar && report) {
+    return (
+      <div className="space-y-2">
+        <SubHeading kind="cond">
+          Enter when{c.round ? ' (gates the whole group)' : ''}:{' '}
+          {formatMarketTime(bar.time, interval)} close
+        </SubHeading>
+        <SignalBox>
+          <BarChecks report={report} bar={bar} symbol={symbol} />
+          <p className="text-xs text-ink-muted">
+            {describeTrigger(report.trigger)}
+            {bar.outcome ? ` · ${CONDITION_OUTCOMES[bar.outcome]}` : ''}
+          </p>
+        </SignalBox>
+      </div>
+    );
+  }
+  if (c.round || pick) {
+    return (
+      <div className="space-y-2">
+        <SubHeading kind="cond">Enter when</SubHeading>
+        <p className="text-sm text-ink-muted">
+          No Enter when conditions: each pick of the group entered at its Check Entry.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="space-y-2">
-      {c.round && log ? (
-        <>
-          <SubHeading kind="cond">
-            Signal: {log.kind === 'ranking' ? 'selection' : 'leg'} round of{' '}
-            {formatMarketTime(c.round.round.time, interval)}
-          </SubHeading>
-          <SignalBox>
-            {c.round.round.gate !== undefined && (
-              <div className="flex flex-wrap items-center gap-2">
-                Entry condition (gates the whole selection): <Truth value={c.round.round.gate} />
-              </div>
-            )}
-            {c.round.rows.map(([sym, value, pass, rank, selected]) => (
-              <div key={sym} className="space-y-0.5">
-                <div className="font-medium">{sym}</div>
-                {log.metric && (
-                  <div>
-                    {describeMetric(log.metric)}:{' '}
-                    <span className="text-content">{metricText(log.metric, value)}</span>
-                  </div>
-                )}
-                <div className="flex flex-wrap items-center gap-2">
-                  {log.kind === 'ranking' ? 'Passes the pre-filter' : 'Leg condition holds'}:{' '}
-                  <Truth value={pass} />
-                </div>
-                {log.kind === 'ranking' && (
-                  <div>
-                    Rank <span className="text-content">{rank ?? '—'}</span> of {ranked} ranked ·{' '}
-                    {selected ? 'Selected' : 'Not selected'}
-                  </div>
-                )}
-              </div>
-            ))}
-            <p className="text-xs text-ink-muted">
-              The whole round is under Rules and full logs, Selection rounds.
-            </p>
-          </SignalBox>
-        </>
-      ) : bar && report ? (
-        <>
-          <SubHeading kind="cond">Signal: {formatMarketTime(bar.time, interval)} close</SubHeading>
-          <SignalBox>
-            <BarChecks report={report} bar={bar} symbol={symbol} />
-            <p className="text-xs text-ink-muted">
-              {describeTrigger(report.trigger)}
-              {bar.outcome ? ` · ${CONDITION_OUTCOMES[bar.outcome]}` : ''}
-            </p>
-          </SignalBox>
-        </>
-      ) : (
-        <>
-          <SubHeading kind="cond">Signal</SubHeading>
-          <p className="text-sm text-ink-muted">
-            {result.conditions
-              ? 'No Entry bar was recorded for this cycle: the Entry legs ran on their own timing, or the bar log was too long to keep this bar.'
-              : 'This run is from before condition details were recorded.'}
-          </p>
-        </>
-      )}
+      <SubHeading kind="cond">Enter when</SubHeading>
+      <p className="text-sm text-ink-muted">
+        {result.conditions
+          ? 'No Entry bar was recorded for this cycle: the Entry legs ran on their own timing, or the bar log was too long to keep this bar.'
+          : 'This run is from before condition details were recorded.'}
+      </p>
     </div>
   );
 }
@@ -715,7 +962,7 @@ function ExitSignal({
   }
   const heading = (
     <SubHeading kind="cond">
-      Signal: {EXIT_REASON_LABELS[reason]}
+      Why it exited: {EXIT_REASON_LABELS[reason]}
       {c.exit.decidedAt ? ` · ${formatMarketTime(c.exit.decidedAt, interval)} close` : ''}
     </SubHeading>
   );
@@ -734,21 +981,31 @@ function ExitSignal({
       </>
     );
   } else if (reason === 'trailing_stop' && ts) {
+    const short = ts.direction === 'short';
     body = (
       <>
-        <div>
-          Best close since entry: <span className="text-content">{formatMoney(ts.peak)}</span>
-        </div>
-        <div>
-          Stop level {ts.percent}% {ts.direction === 'short' ? 'above' : 'below'}:{' '}
-          <span className="text-content">{formatMoney(ts.level)}</span>
-        </div>
         <div className="flex flex-wrap items-center gap-2">
-          {formatMarketTime(ts.time, interval)} close:{' '}
-          <span className="text-content">{formatMoney(ts.close)}</span>
-          <Badge tone="danger">
-            {ts.direction === 'short' ? 'Above the stop' : 'Below the stop'}
-          </Badge>
+          Close {short ? 'above' : 'below'} the trailing stop
+          <Badge tone="danger">{short ? 'Above the stop' : 'Below the stop'}</Badge>
+        </div>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+          <KeyRow label="Entry price">{formatMoney(ts.entryPrice)}</KeyRow>
+          <KeyRow label={short ? 'Lowest close since entry' : 'Best close since entry'}>
+            {formatMoney(ts.peak)}
+          </KeyRow>
+          <KeyRow label={`Stop level (${ts.percent}% ${short ? 'above' : 'below'})`}>
+            {formatMoney(ts.level)}
+          </KeyRow>
+          <KeyRow label={`${formatMarketTime(ts.time, interval)} close`}>
+            {formatMoney(ts.close)}
+          </KeyRow>
+          <KeyRow label="Closes checked">{ts.checks}</KeyRow>
+        </dl>
+        <div className="text-xs">
+          <span className="text-ink-muted">Why:</span>{' '}
+          <span className="text-content">
+            {formatMoney(ts.close)} {short ? '>' : '<'} {formatMoney(ts.level)}
+          </span>
         </div>
       </>
     );
@@ -839,7 +1096,9 @@ function WhileOpen({
   interval: Interval;
   symbol: (id: string) => string | undefined;
 }) {
-  const bars = c.exit.bars;
+  // An empty Exit when has no checks to show: only the stops decide (N218).
+  const bars =
+    c.exit.report && comparisonsOf(c.exit.report.condition).length > 0 ? c.exit.bars : [];
   const t = c.trade;
   const ts = c.detail?.trailingStop;
   const stops = [

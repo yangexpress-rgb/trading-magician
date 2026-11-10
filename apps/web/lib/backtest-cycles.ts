@@ -8,6 +8,7 @@ import type {
   SelectionRow,
 } from '@tm/backtest';
 import type { BacktestRunDto, BacktestTradeDto } from '@tm/contracts';
+import { comparisonsOf } from '@/lib/backtest-explain';
 import { tradeDirection, type TradeDirection } from '@/lib/backtest-text';
 
 /**
@@ -499,11 +500,19 @@ function summarize(bars: ConditionBar[], since: string | null, firedAt: string |
  * start of the test) up to this cycle's signal bar, the timing from signal
  * to fill, and each Entry order's fill against the last close.
  */
-export function entryKeyData(c: CycleView, fills: readonly BacktestFill[]): PhaseKeyData {
+export function entryKeyData(
+  c: CycleView,
+  fills: readonly BacktestFill[],
+  /**
+   * Enter when read "this stock" (ADR 0073): the bar log can't say how it read
+   * for this pick, so the conditions window is left out; the card shows the pick's own.
+   */
+  perCandidate = false,
+): PhaseKeyData {
   const report = c.entry.report;
   const signal = c.entry.bar;
   let conditions: ConditionKeyData | null = null;
-  if (report && signal) {
+  if (report && signal && !perCandidate && comparisonsOf(report.condition).length > 0) {
     const all = report.bars;
     const end = all.indexOf(signal);
     let start = 0;
@@ -531,7 +540,8 @@ export function exitKeyData(c: CycleView, fills: readonly BacktestFill[]): Phase
   const upTo = firedAt ? bars.filter((b) => b.time <= firedAt) : bars;
   return {
     conditions:
-      c.exit.report && bars.length > 0
+      // An empty Exit when has nothing to report: the exit rules decide (N218).
+      c.exit.report && bars.length > 0 && comparisonsOf(c.exit.report.condition).length > 0
         ? summarize(upTo, c.trade?.entryTime ?? null, firedAt)
         : null,
     timing: timingOf(c.exit.decidedAt, c.exitOrders),

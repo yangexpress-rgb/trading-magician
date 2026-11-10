@@ -6,10 +6,18 @@ import type {
   PhaseConditionReport,
   StoredTruth,
 } from '@tm/backtest';
-import type { Comparison, ConditionNode } from '@tm/domain';
+import type { Comparison, ConditionNode, Expr } from '@tm/domain';
 import type { Tone } from '@tm/ui';
 import { formatMoney } from './backtest-text';
-import { ORDER_TYPE_LABELS, SIDE_LABELS, TIF_LABELS, TRIGGER_LABELS } from './strategy-text';
+import {
+  describeExpr,
+  OPERATOR_SYMBOLS,
+  ORDER_TYPE_LABELS,
+  SIDE_LABELS,
+  TIF_LABELS,
+  TRIGGER_LABELS,
+  type SymbolLookup,
+} from './strategy-text';
 
 /**
  * Words for the back-test condition and order reports: which data each
@@ -86,6 +94,115 @@ function comparedValues(c: Comparison, check: ConditionCheck): string {
       return `${v(check.left)} (was ${v(check.prevLeft)}) vs ${v(check.right)} (was ${v(check.prevRight)})`;
     default:
       return `${v(check.left)} vs ${v(check.right)}`;
+  }
+}
+
+/** One data element a comparison read, e.g. "this instrument close" = "105.2". */
+export interface DataElement {
+  label: string;
+  value: string;
+  /** A value inside a calculation, shown under the side it was used in. */
+  inside?: boolean;
+}
+
+/** What a comparison read and why it came out as it did (N218). */
+export interface ComparisonEvidence {
+  /** Each side that isn't a plain number, and each value inside a calculation. */
+  elements: DataElement[];
+  /** The comparison with its values, e.g. "105.2 ≥ 103", or "12 > 1" when it asked for ≤ 1. */
+  reason: string | null;
+  /** The records read: options signal dates, earnings and deal records. */
+  sources: string[];
+}
+
+const NEGATED: Partial<Record<Comparison['operator'], string>> = {
+  lt: '≥',
+  lte: '>',
+  gt: '≤',
+  gte: '<',
+  eq: '≠',
+  neq: '=',
+};
+
+/** The data elements and values behind one comparison on one evaluation (N218). */
+export function comparisonEvidence(
+  c: Comparison,
+  check: ConditionCheck | undefined,
+  symbol: SymbolLookup,
+): ComparisonEvidence {
+  const v = formatValue;
+  if (!check) return { elements: [], reason: null, sources: [] };
+  const elements: DataElement[] = [];
+  const side = (e: Expr | undefined, value: string | null | undefined, prev?: string | null) => {
+    if (!e || e.kind === 'constant') return;
+    elements.push({
+      label: describeExpr(e, symbol),
+      value: prev !== undefined ? `${v(value)} (was ${v(prev)})` : v(value),
+    });
+    // The values a calculation was worked out from (N218).
+    const inner = (x: Expr) => {
+      if (x.kind === 'calc') x.args.forEach(inner);
+      else if (x.kind !== 'constant' && check.inputs && x.id in check.inputs)
+        elements.push({
+          label: describeExpr(x, symbol),
+          value: v(check.inputs[x.id]),
+          inside: true,
+        });
+    };
+    if (e.kind === 'calc') e.args.forEach(inner);
+    positionInputs(e);
+  };
+  // What a position value was worked out from (ADR 0074).
+  const positionInputs = (e: Expr) => {
+    if (e.kind === 'calc') e.args.forEach(positionInputs);
+    if (e.kind !== 'position' || !check.inputs) return;
+    const add = (key: string, label: string) => {
+      const value = check.inputs?.[`${e.id}:${key}`];
+      if (value !== undefined) elements.push({ label, value: v(value), inside: true });
+    };
+    add('entry', 'Entry price');
+    add('peak', e.field === 'off_peak_pct' ? 'Best close since entry' : 'Best close');
+    add('close', 'Close checked');
+  };
+  const crosses = c.operator === 'crosses_above' || c.operator === 'crosses_below';
+  if (c.operator !== 'is_stale') side(c.left, check.left, crosses ? check.prevLeft : undefined);
+  side(c.right, check.right, crosses ? check.prevRight : undefined);
+  side(c.upper, check.upper);
+  const sources = [
+    ...(check.optionsAsOf?.length ? [`Options signal as of ${check.optionsAsOf.join(', ')}`] : []),
+    ...(check.eventsAsOf ?? []).map((x) => `Record: ${x}`),
+  ];
+  return { elements, reason: reasonOf(c, check), sources };
+}
+
+function reasonOf(c: Comparison, check: ConditionCheck): string | null {
+  const v = formatValue;
+  const op = OPERATOR_SYMBOLS[c.operator];
+  if (check.truth === null) {
+    const missing = [check.left, check.right, check.upper].some((x) => x === null);
+    return missing ? 'Not decided: a value had no data on this bar' : 'Not decided';
+  }
+  switch (c.operator) {
+    case 'is_available':
+      return check.truth ? 'The value was available' : 'The value had no data';
+    case 'is_stale':
+      return check.truth ? 'The data was stale' : 'The data was up to date';
+    case 'is_true':
+      return check.truth ? 'It held (yes)' : 'It did not hold (no)';
+    case 'between':
+    case 'outside':
+      return `${v(check.left)} is ${
+        (c.operator === 'between') === check.truth ? 'between' : 'outside'
+      } ${v(check.right)} and ${v(check.upper)}`;
+    case 'crosses_above':
+    case 'crosses_below':
+      return check.truth
+        ? `Crossed: ${v(check.prevLeft)} → ${v(check.left)} against ${v(check.prevRight)} → ${v(check.right)}`
+        : `Did not cross: ${v(check.prevLeft)} → ${v(check.left)} against ${v(check.prevRight)} → ${v(check.right)}`;
+    default:
+      return check.truth
+        ? `${v(check.left)} ${op} ${v(check.right)}`
+        : `${v(check.left)} ${NEGATED[c.operator] ?? `not ${op}`} ${v(check.right)}`;
   }
 }
 
