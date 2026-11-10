@@ -238,9 +238,15 @@ export const COMPARISON_OPERATORS = [
   'outside',
   'is_available',
   'is_stale',
+  // A yes/no metric such as Earnings window needs nothing to compare with (N216).
+  'is_true',
 ] as const;
 export type ComparisonOperator = (typeof COMPARISON_OPERATORS)[number];
-export const UNARY_OPERATORS: readonly ComparisonOperator[] = ['is_available', 'is_stale'];
+export const UNARY_OPERATORS: readonly ComparisonOperator[] = [
+  'is_available',
+  'is_stale',
+  'is_true',
+];
 export const RANGE_OPERATORS: readonly ComparisonOperator[] = ['between', 'outside'];
 
 export interface Comparison {

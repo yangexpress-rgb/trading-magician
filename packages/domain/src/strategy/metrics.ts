@@ -14,7 +14,7 @@ import {
   type IndicatorParamSpec,
   type PriceAdjustment,
 } from './catalog';
-import type { IndicatorExpr, MarketExpr, MetricExpr, MetricRef } from './schema';
+import type { Expr, IndicatorExpr, MarketExpr, MetricExpr, MetricRef } from './schema';
 
 /**
  * The shared metric registry (Design v1.2 principle 3, item 1). Each metric is
@@ -96,6 +96,11 @@ export interface MetricSpec {
   assetClasses: readonly string[];
   /** The daily series it reads, with enough history, for loading bars ahead of a run. */
   requirements(instrumentId: string, params: Record<string, number | string>): DailySeries[];
+  /**
+   * A yes/no metric (1 yes, 0 no), such as Earnings window: its condition needs
+   * nothing to compare with, so the builder offers "Not needed" (N216).
+   */
+  yesNo?: true;
   /** Problems with the resolved params beyond each one's own range, e.g. From after To. */
   checkParams?(params: Record<string, number | string>): string[];
   compute(
@@ -689,9 +694,10 @@ function earningsWindowMetric(): MetricSpec {
   return {
     id: 'earnings.window',
     label: 'Earnings window',
-    help: 'Whether the bar date is within the chosen range of trading days around an earnings release (weekends and market holidays skipped): 1 inside, 0 outside. Day 0 is the release day, −1 the trading day before, +1 the trading day after; −1 to +1 covers three trading days. Use it as "Earnings window = 1". Coming dates come from the earnings calendar feed; in back tests before the feed began, the actual release date stands in. Unknown with no earnings dates on record.',
+    help: 'Whether the bar date is within the chosen range of trading days around an earnings release (weekends and market holidays skipped): 1 inside, 0 outside. Day 0 is the release day, −1 the trading day before, +1 the trading day after; −1 to +1 covers three trading days. It needs no comparison: with "Not needed" the condition holds inside the window. Coming dates come from the earnings calendar feed; in back tests before the feed began, the actual release date stands in. Unknown with no earnings dates on record.',
     category: 'earnings',
     unit: 'number',
+    yesNo: true,
     params: [day('fromDay', 'From day (− before)', -1), day('toDay', 'To day (+ after)', 1)],
     assetClasses: ['stock'],
     requirements: (instrumentId) => [rawClose(instrumentId)],
@@ -810,6 +816,11 @@ const BY_ID = new Map(METRICS.map((m) => [m.id, m]));
 
 export function getMetric(id: string): MetricSpec | undefined {
   return BY_ID.get(id);
+}
+
+/** Whether an expression is a yes/no metric, which needs nothing to compare with (N216). */
+export function isYesNoExpr(expr: Expr | undefined): boolean {
+  return expr?.kind === 'metric' && getMetric(expr.metric)?.yesNo === true;
 }
 
 /** Metrics the registry can compute for an asset class, for the metric picker. */

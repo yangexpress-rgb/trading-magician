@@ -253,7 +253,10 @@ export function ComparisonText({
   return (
     <span>
       {describeExpr(c.left, symbol)}{' '}
-      <span className="text-ink-muted">{OPERATOR_LABELS[c.operator]}</span> {right}
+      <span className="text-ink-muted">
+        {c.operator === 'is_true' ? 'holds' : OPERATOR_LABELS[c.operator]}
+      </span>{' '}
+      {right}
       {upper}
     </span>
   );

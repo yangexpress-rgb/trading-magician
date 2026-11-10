@@ -74,6 +74,8 @@ function comparedValues(c: Comparison, check: ConditionCheck): string {
   switch (c.operator) {
     case 'is_available':
       return check.left === null ? 'no data' : v(check.left);
+    case 'is_true':
+      return check.left == null ? 'no data' : Number(check.left) === 0 ? 'no' : 'yes';
     case 'is_stale':
       return check.truth ? 'stale' : 'up to date';
     case 'between':

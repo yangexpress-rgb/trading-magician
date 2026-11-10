@@ -4,6 +4,7 @@ import {
   COMPARISON_OPERATORS,
   duplicateNode,
   insertNode,
+  isYesNoExpr,
   moveNode,
   randomId,
   RANGE_OPERATORS,
@@ -312,6 +313,17 @@ function withOperator(
   };
 }
 
+/**
+ * A new left side. A yes/no metric such as Earnings window defaults to "Not
+ * needed" (N216); moving off one picks "is greater than" again.
+ */
+function withLeft(c: Comparison, left: Comparison['left'], instrumentId: string): Comparison {
+  const next = { ...c, left };
+  if (isYesNoExpr(left) && !isYesNoExpr(c.left)) return withOperator(next, 'is_true', instrumentId);
+  if (!isYesNoExpr(left) && c.operator === 'is_true') return withOperator(next, 'gt', instrumentId);
+  return next;
+}
+
 function ComparisonEditor({
   comparison: c,
   ops,
@@ -331,6 +343,7 @@ function ComparisonEditor({
   const instrumentId = instruments[0]?.id ?? '';
   const range = RANGE_OPERATORS.includes(c.operator);
   const unary = UNARY_OPERATORS.includes(c.operator);
+  const yesNo = isYesNoExpr(c.left);
 
   return (
     <div
@@ -357,7 +370,7 @@ function ComparisonEditor({
           expr={c.left}
           legend="Left side"
           path={[...path, 'left']}
-          onChange={(left) => ops.update({ ...c, left })}
+          onChange={(left) => ops.update(withLeft(c, left, instrumentId))}
         />
         <div className="sm:max-w-xs">
           <MiniSelect
@@ -369,12 +382,20 @@ function ComparisonEditor({
               ops.update(withOperator(c, e.target.value as ComparisonOperator, instrumentId))
             }
           >
-            {COMPARISON_OPERATORS.map((op) => (
+            {/* "Not needed" only for a yes/no metric (N216). */}
+            {COMPARISON_OPERATORS.filter(
+              (op) => op !== 'is_true' || yesNo || c.operator === 'is_true',
+            ).map((op) => (
               <option key={op} value={op}>
                 {OPERATOR_LABELS[op]}
               </option>
             ))}
           </MiniSelect>
+          {c.operator === 'is_true' && (
+            <p className="mt-1 text-xs text-ink-muted">
+              Holds when the metric says yes, for example inside the earnings window.
+            </p>
+          )}
         </div>
         {!unary && c.right && (
           <div className="space-y-2">

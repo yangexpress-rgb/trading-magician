@@ -27,7 +27,7 @@ import {
   walkExpressions,
 } from './tree';
 import { CONTEXT_INSTRUMENT_ID } from './evaluate';
-import { checkMetricRef, getMetric, metricReferences } from './metrics';
+import { checkMetricRef, getMetric, isYesNoExpr, metricReferences } from './metrics';
 import { atrStopDistance, sizesFromAtr } from './risk-exits';
 import {
   hasComparisons,
@@ -650,6 +650,15 @@ function checkComparison(
       'state_needs_market_data',
       'Staleness checks need market data or an indicator on the left',
       [...path, 'left'],
+      c.id,
+    );
+  }
+  if (c.operator === 'is_true' && !isYesNoExpr(c.left)) {
+    add(
+      'error',
+      'not_needed_needs_yes_no',
+      '"Not needed" works only with a yes/no metric on the left, such as Earnings window',
+      [...path, 'operator'],
       c.id,
     );
   }
