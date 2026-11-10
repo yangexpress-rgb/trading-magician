@@ -189,12 +189,18 @@ export function describeChart(
   bars: readonly Bar[],
   range: ChartRange,
   interval: ChartInterval,
+  /** The person scrolled or zoomed (N197): name the bars' own dates instead of the range. */
+  moved = false,
 ): string {
   const s = summarize(bars);
-  if (!s) return `${symbol}: no prices in this range.`;
+  const first = bars[0];
+  if (!s || !first) return `${symbol}: no prices in this range.`;
   const dir = s.change > 0 ? 'up' : s.change < 0 ? 'down' : 'unchanged';
+  const span = moved
+    ? `from ${formatBarTime(first.t, interval)} to ${formatBarTime(s.lastAt, interval)}`
+    : `over ${RANGE_NAMES[range]}`;
   return (
-    `${symbol}, ${INTERVAL_NAMES[interval]} prices over ${RANGE_NAMES[range]}: ` +
+    `${symbol}, ${INTERVAL_NAMES[interval]} prices ${span}: ` +
     `${dir} ${formatChange(s.change, s.changePct).replace(/^[+−]/, '')}, last ${formatPrice(s.last)}, ` +
     `high ${formatPrice(s.high)}, low ${formatPrice(s.low)}, ${bars.length} bars.`
   );

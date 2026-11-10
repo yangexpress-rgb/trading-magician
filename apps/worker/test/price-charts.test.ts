@@ -64,9 +64,10 @@ async function chart(
   instrumentId: string,
   range: '1d' | '1w' | '1m' | '3m' | '6m' | '1y' | '5y' = '1m',
   interval: '5m' | '1d' | '1h' = '1d',
+  end?: string,
 ) {
   const started = await as(userId, (tx) =>
-    requestPriceChart(tx, { userId, instrumentId, range, interval, now: NOW }),
+    requestPriceChart(tx, { userId, instrumentId, range, interval, end, now: NOW }),
   );
   await charts();
   return as(userId, (tx) => getPriceChart(tx, started.id));
@@ -148,6 +149,22 @@ describe('price charts', () => {
         }),
       ),
     ).rejects.toThrow(/5-minute bars go back up to a week/);
+  });
+
+  it('ends on an earlier date the person went to (N196)', async () => {
+    const week = await chart(userA, demoIdx, '1w', '5m', '2026-09-18');
+    expect(week).toMatchObject({ status: 'ready', from: '2026-09-11', to: '2026-09-18' });
+    const times = week.bars!.map((b) => b[0]);
+    expect(times[0]).toBeGreaterThanOrEqual(Date.parse('2026-09-11T13:30:00Z'));
+    expect(times.at(-1)).toBeLessThan(Date.parse('2026-09-18T20:00:00Z'));
+    // A day ending on a Sunday is the Friday session before it.
+    const sunday = await chart(userA, demoIdx, '1d', '5m', '2026-09-20');
+    expect(sunday.bars).toHaveLength(78);
+    expect(sunday.bars![0]![0]).toBe(Date.parse('2026-09-18T13:30:00Z'));
+    // Another end date is another chart, not the recent one for today.
+    const today = await chart(userA, demoIdx, '1w', '5m');
+    expect(today.id).not.toBe(week.id);
+    expect(today.to).toBe('2026-10-06');
   });
 
   it('reuses a recent chart instead of asking the feed again', async () => {

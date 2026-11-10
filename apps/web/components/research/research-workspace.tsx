@@ -1,6 +1,6 @@
 'use client';
 
-import { ApiError, type InstrumentOptionDto, type PriceChartDto } from '@tm/contracts';
+import type { InstrumentOptionDto } from '@tm/contracts';
 import {
   CHART_INTERVALS,
   CHART_RANGES,
@@ -8,6 +8,8 @@ import {
   defaultChartInterval,
   INDEX_BADGE,
   isIndicatorOnlyClass,
+  nyDate,
+  stepChartEnd,
   type ChartInterval,
   type ConePoint,
   type ChartRange,
@@ -15,7 +17,7 @@ import {
 import { Alert, Badge, Card, cx } from '@tm/ui';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { apiClient } from '@/lib/api-client';
+import { MAX_COMPARE } from '@/lib/chart-history';
 import { ASSET_CLASS_LABELS } from '@/lib/integration-text';
 import {
   formatBarTime,
@@ -26,16 +28,15 @@ import {
   RANGE_LABELS,
   RANGE_NAMES,
   summarize,
-  toBars,
+  type Bar,
 } from '@/lib/research-text';
 import { CompanyPanel } from './company-panel';
+import { ComparePicker } from './compare-picker';
 import { EarningsPanel } from './earnings-panel';
 import { OptionsPanel } from './options-panel';
-import { PriceChart, type ChartStyle } from './price-chart';
+import { PriceChart, type ChartStyle, type ComparedSeries } from './price-chart';
 import { StockPicker } from './stock-picker';
-
-const POLL_MS = 700;
-const GIVE_UP_MS = 45_000;
+import { useChartHistory } from './use-chart-history';
 
 /** Every stock or ETF opens on its latest session: 5-minute bars, as a line. */
 const OPENING_VIEW = { range: '1d', interval: '5m', style: 'line' } as const;
@@ -49,7 +50,19 @@ export interface ResearchSelection {
   range: ChartRange;
   interval: ChartInterval;
   style: ChartStyle;
+  /** New York date the chart ends on (N196); null for today. */
+  end: string | null;
+  /** Other instruments drawn on the same chart (N198), in the order added. */
+  compare: string[];
 }
+
+const DAY_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+});
+const formatDay = (date: string) => DAY_FMT.format(new Date(`${date}T12:00:00Z`));
 
 /**
  * Quantitative Research, first tool (ADR 0029): pick a stock or ETF and see
@@ -74,14 +87,8 @@ export function ResearchWorkspace({
   const router = useRouter();
   const [instruments, setInstruments] = useState(initialInstruments);
   const [sel, setSel] = useState<ResearchSelection>(initial);
-  const [chart, setChart] = useState<PriceChartDto | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [cone, setCone] = useState<ConePoint[] | null>(null);
   const [showCone, setShowCone] = useState(true);
-  const request = useRef(0);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
   const selected = instruments.find((i) => i.id === sel.instrumentId) ?? null;
   /** An index: daily bars only, no company behind it (v1.2 item 5). */
   const dailyOnly = !!selected && isIndicatorOnlyClass(selected.assetClass);
@@ -114,10 +121,10 @@ export function ResearchWorkspace({
     q.set('range', sel.range);
     q.set('interval', sel.interval);
     if (sel.style !== 'line') q.set('style', sel.style);
+    if (sel.end) q.set('date', sel.end);
+    if (sel.compare.length) q.set('compare', sel.compare.join(','));
     router.replace(`/research?${q.toString()}`, { scroll: false });
-  }, [router, sel.instrumentId, sel.range, sel.interval, sel.style]);
-
-  useEffect(() => () => clearTimeout(timer.current), []);
+  }, [router, sel.instrumentId, sel.range, sel.interval, sel.style, sel.end, sel.compare]);
 
   // A bookmarked intraday view of an index: show its daily bars instead.
   useEffect(() => {
@@ -125,52 +132,71 @@ export function ResearchWorkspace({
       update({ range: sel.range === '1d' ? INDEX_VIEW.range : sel.range, interval: '1d' });
   }, [dailyOnly, sel.interval, sel.range, update]);
 
-  useEffect(() => {
-    clearTimeout(timer.current);
-    if (!sel.instrumentId) return;
-    const mine = ++request.current;
-    const stale = () => mine !== request.current;
-    setLoading(true);
-    setError(null);
-    const deadline = Date.now() + GIVE_UP_MS;
-    const settle = (c: PriceChartDto) => {
-      if (stale()) return;
-      if (c.status === 'pending') {
-        if (Date.now() > deadline) {
-          setLoading(false);
-          setError('The prices are taking longer than expected. Try again in a minute.');
-          return;
-        }
-        timer.current = setTimeout(() => {
-          apiClient.research.getChart(c.id).then(settle, () => {
-            if (stale()) return;
-            setLoading(false);
-            setError('Could not check on the chart. Try again.');
-          });
-        }, POLL_MS);
-        return;
-      }
-      setLoading(false);
-      if (c.status === 'failed') {
-        setError(c.message ?? 'The prices could not be loaded.');
-        setChart(null);
-      } else setChart(c);
-    };
-    apiClient.research
-      .chart({ instrumentId: sel.instrumentId, range: sel.range, interval: sel.interval })
-      .then(settle, (err: unknown) => {
-        if (stale()) return;
-        setLoading(false);
-        setError(err instanceof ApiError ? err.message : 'Could not load the prices.');
-      });
-  }, [sel.instrumentId, sel.range, sel.interval]);
+  const history = useChartHistory({
+    instrumentId: sel.instrumentId,
+    range: sel.range,
+    interval: sel.interval,
+    end: sel.end,
+    compare: sel.compare,
+  });
+  const { chart, loading, error } = history;
 
   // Keep showing the previous chart, dimmed, while another range or bar size of the same
   // instrument loads. Another instrument's chart is never shown under this one's name, even
   // while the new chart loads or after it failed (N153).
   const showing = chart && selected && chart.instrument.id === selected.id ? chart : null;
-  const bars = useMemo(() => toBars(showing?.bars ?? []), [showing]);
-  const summary = summarize(bars);
+  const bars = useMemo(
+    () => (showing && selected ? (history.series[selected.id]?.bars ?? []) : []),
+    [showing, selected, history.series],
+  );
+
+  // Each compared symbol keeps its colour while others come and go (N198).
+  const slots = useRef(new Map<string, number>());
+  const compared: ComparedSeries[] = useMemo(() => {
+    for (const id of [...slots.current.keys()]) {
+      if (!sel.compare.includes(id)) slots.current.delete(id);
+    }
+    return sel.compare.flatMap((id) => {
+      const inst = instruments.find((i) => i.id === id);
+      if (!inst || id === sel.instrumentId) return [];
+      if (!slots.current.has(id)) {
+        const used = new Set(slots.current.values());
+        slots.current.set(id, [2, 3, 4, 5].find((n) => !used.has(n)) ?? 5);
+      }
+      const st = history.series[id];
+      return [
+        {
+          id,
+          symbol: inst.symbol,
+          bars: st?.bars ?? [],
+          slot: slots.current.get(id) ?? 5,
+          loading: st?.loading ?? true,
+          error: st?.error ?? null,
+        },
+      ];
+    });
+  }, [sel.compare, sel.instrumentId, instruments, history.series]);
+
+  // The header follows the bars in view, which the person can scroll and zoom (N197).
+  const [inView, setInView] = useState<{ from: number; to: number; moved: boolean } | null>(null);
+  const onViewChange = useCallback(
+    (a: Bar, b: Bar, moved: boolean) => setInView({ from: a.t, to: b.t, moved }),
+    [],
+  );
+  const viewBars = useMemo(
+    () => (inView ? bars.filter((b) => b.t >= inView.from && b.t <= inView.to) : bars),
+    [bars, inView],
+  );
+  const summary = summarize(viewBars.length ? viewBars : bars);
+  const spanLabel =
+    inView?.moved && summary && showing
+      ? 'in view'
+      : showing
+        ? sel.end
+          ? `${RANGE_NAMES[showing.range]} to ${formatDay(showing.to)}`
+          : RANGE_NAMES[showing.range]
+        : '';
+  const today = nyDate(new Date());
 
   return (
     <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
@@ -179,7 +205,12 @@ export function ResearchWorkspace({
           instruments={instruments}
           selectedId={sel.instrumentId}
           onSelect={(instrumentId) =>
-            update({ instrumentId, ...viewFor(instruments.find((i) => i.id === instrumentId)) })
+            update({
+              instrumentId,
+              ...viewFor(instruments.find((i) => i.id === instrumentId)),
+              end: null,
+              compare: sel.compare.filter((c) => c !== instrumentId),
+            })
           }
           canSearchMarket={canSearchMarket}
           onAdded={(found) => {
@@ -188,7 +219,12 @@ export function ResearchWorkspace({
                 ? cur
                 : [...cur, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
             );
-            update({ instrumentId: found.id, ...viewFor(found) });
+            update({
+              instrumentId: found.id,
+              ...viewFor(found),
+              end: null,
+              compare: sel.compare.filter((c) => c !== found.id),
+            });
           }}
         />
       </aside>
@@ -228,12 +264,12 @@ export function ResearchWorkspace({
                     <div className="text-right tabular-nums" data-testid="chart-summary">
                       <p className="text-2xl font-semibold">{formatPrice(summary.last)}</p>
                       <p className="text-sm">
-                        <span className="sr-only">Change over {RANGE_NAMES[showing.range]}: </span>
+                        <span className="sr-only">Change over {spanLabel}: </span>
                         <span className={summary.change < 0 ? 'text-danger' : 'text-ok'}>
                           {summary.change < 0 ? '▼' : '▲'}{' '}
                           {formatChange(summary.change, summary.changePct)}
                         </span>{' '}
-                        <span className="text-ink-muted">{RANGE_NAMES[showing.range]}</span>
+                        <span className="text-ink-muted">{spanLabel}</span>
                       </p>
                     </div>
                   )}
@@ -282,6 +318,82 @@ export function ResearchWorkspace({
                   </p>
                 </div>
 
+                <div
+                  role="group"
+                  aria-label="Date"
+                  className="mb-3 flex flex-wrap items-center gap-2"
+                >
+                  <span className="text-xs font-medium text-ink-muted">Date</span>
+                  <button
+                    type="button"
+                    className="h-7 rounded-md border border-line bg-surface-2 px-2 text-sm"
+                    aria-label={`Previous ${sel.range === '1d' ? 'trading day' : RANGE_NAMES[sel.range]}`}
+                    title={`Previous ${sel.range === '1d' ? 'trading day' : RANGE_NAMES[sel.range]}`}
+                    onClick={() =>
+                      update({ end: stepChartEnd(sel.range, sel.end, -1, new Date()) })
+                    }
+                  >
+                    ‹
+                  </button>
+                  <label className="sr-only" htmlFor="chart-end-date">
+                    Chart ends on
+                  </label>
+                  <input
+                    id="chart-end-date"
+                    type="date"
+                    max={today}
+                    min="2000-01-01"
+                    value={sel.end ?? today}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+                      update({ end: v >= today ? null : v });
+                    }}
+                    className="h-7 rounded-md border border-line bg-surface px-2 text-sm tabular-nums"
+                  />
+                  <button
+                    type="button"
+                    className="h-7 rounded-md border border-line bg-surface-2 px-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label={`Next ${sel.range === '1d' ? 'trading day' : RANGE_NAMES[sel.range]}`}
+                    title={`Next ${sel.range === '1d' ? 'trading day' : RANGE_NAMES[sel.range]}`}
+                    disabled={!sel.end}
+                    onClick={() => update({ end: stepChartEnd(sel.range, sel.end, 1, new Date()) })}
+                  >
+                    ›
+                  </button>
+                  <button
+                    type="button"
+                    className="h-7 rounded-md border border-line bg-surface-2 px-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={!sel.end}
+                    onClick={() => update({ end: null })}
+                  >
+                    Latest
+                  </button>
+                  <span className="text-xs text-ink-muted">
+                    {sel.end
+                      ? `${RANGE_NAMES[sel.range]} ending ${formatDay(sel.end)}`
+                      : `${RANGE_NAMES[sel.range]} to today`}
+                  </span>
+                </div>
+
+                <ComparePicker
+                  instruments={instruments}
+                  mainId={selected.id}
+                  compared={compared}
+                  canSearchMarket={canSearchMarket}
+                  onAdd={(id) => update({ compare: [...sel.compare, id].slice(0, MAX_COMPARE) })}
+                  onRemove={(id) => update({ compare: sel.compare.filter((c) => c !== id) })}
+                  onFound={(found) => {
+                    setInstruments((cur) =>
+                      cur.some((i) => i.id === found.id)
+                        ? cur
+                        : [...cur, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
+                    );
+                    if (found.id !== selected.id && !sel.compare.includes(found.id))
+                      update({ compare: [...sel.compare, found.id].slice(0, MAX_COMPARE) });
+                  }}
+                />
+
                 {error && <Alert>{error}</Alert>}
 
                 {showing && bars.length > 0 ? (
@@ -292,7 +404,16 @@ export function ResearchWorkspace({
                     range={showing.range}
                     style={sel.style}
                     dimmed={loading}
-                    cone={showCone ? cone : null}
+                    cone={showCone && !sel.end ? cone : null}
+                    compared={compared}
+                    openingCount={history.openingCount}
+                    resetKey={showing.id}
+                    extending={history.extending}
+                    atStart={history.atStart}
+                    atLatest={history.atLatest}
+                    onNeedEarlier={history.loadEarlier}
+                    onNeedLater={history.loadLater}
+                    onViewChange={onViewChange}
                   />
                 ) : (
                   showing &&
@@ -310,6 +431,8 @@ export function ResearchWorkspace({
                     <span>
                       {INTERVAL_LABELS[showing.interval]} bars, regular session, split-adjusted.
                       {summary && ` Last bar ${formatBarTime(summary.lastAt, showing.interval)}.`}
+                      {sel.compare.length > 0 &&
+                        ' Compared symbols are drawn as percent change from the first bar in view.'}
                     </span>
                     {cone && (
                       <span className="flex items-center gap-2">
@@ -350,7 +473,7 @@ export function ResearchWorkspace({
         {selected && !dailyOnly && (
           <CompanyPanel
             instrument={selected}
-            price={summary && showing ? summary.last : null}
+            price={showing && !sel.end ? (bars.at(-1)?.close ?? null) : null}
             companyFeed={companyFeed}
           />
         )}

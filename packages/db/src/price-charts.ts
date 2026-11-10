@@ -31,7 +31,8 @@ export interface PriceChartSummary {
   createdAt: string;
 }
 
-const MAX_PENDING = 5;
+/** Room for a chart plus four compared symbols, each fetching more history (N197, N198). */
+const MAX_PENDING = 12;
 /** A ready chart this recent is shown again instead of asking the feed. */
 export const CHART_REUSE_SECONDS = 300;
 
@@ -42,6 +43,8 @@ export async function requestPriceChart(
     instrumentId: string;
     interval: ChartInterval;
     range: ChartRange;
+    /** New York date the chart ends on (N196); left out, today. */
+    end?: string | undefined;
     now?: Date;
   },
 ): Promise<PriceChartSummary> {
@@ -56,10 +59,12 @@ export async function requestPriceChart(
   if (!allowed.some((i) => i.id === input.instrumentId)) {
     throw new IntegrationError('not_found', 'No such instrument');
   }
+  const window = chartWindow(input.range, input.now ?? new Date(), input.end);
   const same = and(
     eq(priceCharts.instrumentId, input.instrumentId),
     eq(priceCharts.interval, input.interval),
     eq(priceCharts.range, input.range),
+    eq(priceCharts.toDate, window.to),
   );
   const [recent] = await tx
     .select({ id: priceCharts.id })
@@ -86,7 +91,6 @@ export async function requestPriceChart(
   if ((pending?.n ?? 0) >= MAX_PENDING) {
     throw new IntegrationError('conflict', 'Wait for your other charts to load');
   }
-  const window = chartWindow(input.range, input.now ?? new Date());
   const [row] = await tx
     .insert(priceCharts)
     .values({
