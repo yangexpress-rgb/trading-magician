@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import type { PriceAdjustment } from './catalog';
+import type { BarInterval, PriceAdjustment } from './catalog';
 import type {
   EntryPhase,
   ExitPhase,
@@ -41,17 +41,36 @@ export function atrExpr(
   };
 }
 
-/** The daily close the ATR stop is checked against. */
+/**
+ * The bar size the trailing, ATR and expected-move stops read closes at
+ * (O144, ADR 0073): Check Exit's bar size. Every 1-minute bar reads 5-minute
+ * closes until a 1-minute feed exists (O135). Once a day, a calendar period,
+ * or no Check Exit (every bar, as before schema 3) read daily closes. The ATR
+ * itself stays a daily ATR.
+ */
+export function stopInterval(part: { exit: Pick<ExitPhase, 'schedule'> }): BarInterval {
+  const f = part.exit.schedule?.frequency;
+  return f === 'bar1m' || f === 'bar5m' ? '5m' : f === 'bar1h' ? '1h' : '1d';
+}
+
+/** "daily", "hourly" or "5-minute": the closes the stops read, for help texts and run notes. */
+export function stopCloseWord(part: { exit: Pick<ExitPhase, 'schedule'> }): string {
+  const i = stopInterval(part);
+  return i === '5m' ? '5-minute' : i === '1h' ? 'hourly' : 'daily';
+}
+
+/** The close a stop is checked against: daily unless Check Exit picks a bar size. */
 export function stopCloseExpr(
   instrumentId: string,
   adjustment: PriceAdjustment = 'split_and_dividend',
+  interval: BarInterval = '1d',
 ) {
   return {
     kind: 'market' as const,
-    id: `close-${instrumentId}`,
+    id: interval === '1d' ? `close-${instrumentId}` : `close-${interval}-${instrumentId}`,
     instrumentId,
     field: 'close' as const,
-    interval: '1d' as const,
+    interval,
     adjustment,
     session: 'regular' as const,
     offset: 0,
@@ -98,7 +117,7 @@ export function riskSeries(
     const instrument = p.entry.orders[0]?.instrumentId;
     if (stop && instrument) {
       out.push(atrExpr(instrument, stop.atrPeriod, adjustment));
-      out.push(stopCloseExpr(instrument, adjustment));
+      out.push(stopCloseExpr(instrument, adjustment, stopInterval(def)));
     }
   }
   return out;

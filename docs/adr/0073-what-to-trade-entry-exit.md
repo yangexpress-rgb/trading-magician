@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-10
-- **Design refs:** design v1.2 rows N206 to N214, open points O142 to O148. Amends ADR 0049
+- **Design refs:** design v1.2 rows N206 to N215, open points O142 to O148. Amends ADR 0049
   (D3, the Entry trigger and Regime gate labels, and §2.6's exits on every bar), ADR 0059
   (`keepHoldings`) and ADR 0067 (where the schedule lives)
 
@@ -40,8 +40,7 @@ approved as recommended the same day.
   due; when it is absent they are checked on every bar the run steps on, exactly as before.
   Positions, fills and the trailing stop's high keep updating on every bar. A new group gets
   `suggestedExitSchedule(entry)`: the same as Entry, or daily when Entry is a calendar period
-  (O145). Stops still read daily closes; reading closes at the Check Exit bar size is build 2
-  (O144).
+  (O145). Stops read closes at the Check Exit bar size (O144, N215, build 2): 5-minute for a 1- or 5-minute Check Exit, hourly for an hourly one, daily otherwise; the ATR stays daily.
 - **Left the group** (`{ kind: 'leftGroup' }`) is an exit rule for groups. Its absence is the
   former `keepHoldings: true`.
 - **Group amounts are per pick** unless `trade.splitTotal` (O146).

@@ -97,6 +97,7 @@ import {
   sizesFromAtr,
   riskSizingCap,
   stopCloseExpr,
+  stopInterval,
   newRuntimeTriggerState,
   slotKey,
   slotModeOf,
@@ -975,7 +976,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     if (exitDue && atrRule && atrInstrument && c.cycle.atrAtEntry && c.cycle.status === 'open') {
       const entry = c.entries.get(atrInstrument);
       const held = c.positions.get(atrInstrument) ?? ZERO;
-      const close = evaluateExpr(stopCloseExpr(atrInstrument), view);
+      const close = evaluateExpr(stopCloseExpr(atrInstrument, undefined, stopInterval(def)), view);
       if (entry && !entry.quantity.isZero() && !held.isZero() && close) {
         const long = held.gt(0);
         const level = atrStopLevel(
@@ -998,7 +999,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     if (exitDue && moveRule && atrInstrument && c.cycle.moveAtEntry && c.cycle.status === 'open') {
       const entry = c.entries.get(atrInstrument);
       const held = c.positions.get(atrInstrument) ?? ZERO;
-      const close = evaluateExpr(stopCloseExpr(atrInstrument), view);
+      const close = evaluateExpr(stopCloseExpr(atrInstrument, undefined, stopInterval(def)), view);
       if (entry && !entry.quantity.isZero() && !held.isZero() && close) {
         const band = expectedMoveBand(
           entry.cost.div(entry.quantity),
@@ -1015,7 +1016,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     if (exitDue && trailRule && atrInstrument && c.cycle.status === 'open') {
       const entry = c.entries.get(atrInstrument);
       const held = c.positions.get(atrInstrument) ?? ZERO;
-      const close = evaluateExpr(stopCloseExpr(atrInstrument), view);
+      const close = evaluateExpr(stopCloseExpr(atrInstrument, undefined, stopInterval(def)), view);
       if (entry && !entry.quantity.isZero() && !held.isZero() && close) {
         const long = held.gt(0);
         const start = c.cycle.trailPeak

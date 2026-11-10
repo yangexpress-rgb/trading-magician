@@ -1,5 +1,5 @@
 import type Decimal from 'decimal.js';
-import { stopCloseExpr } from './risk-exits';
+import { stopCloseExpr, stopInterval } from './risk-exits';
 import type { EntryPhase, ExitPhase, ExitRule, StrategyDefinition } from './schema';
 
 /**
@@ -19,7 +19,7 @@ export function trailingStopRuleOf(part: Pick<Part, 'exit'>): TrailingStopRule |
   return part.exit.rules?.find((r): r is TrailingStopRule => r.kind === 'trailingStop');
 }
 
-/** The daily closes every part's trailing stop is checked against, on the run's price basis. */
+/** The closes (at the Check Exit bar size, O144) every part's trailing stop is checked against, on the run's price basis. */
 export function trailingStopCloses(
   def: StrategyDefinition,
   adjustment: Parameters<typeof stopCloseExpr>[1] = 'split_and_dividend',
@@ -27,7 +27,8 @@ export function trailingStopCloses(
   const out: ReturnType<typeof stopCloseExpr>[] = [];
   for (const p of [def, ...(def.groups ?? [])]) {
     const instrument = p.entry.orders[0]?.instrumentId;
-    if (trailingStopRuleOf(p) && instrument) out.push(stopCloseExpr(instrument, adjustment));
+    if (trailingStopRuleOf(p) && instrument)
+      out.push(stopCloseExpr(instrument, adjustment, stopInterval(def)));
   }
   return out;
 }

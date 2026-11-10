@@ -12,6 +12,7 @@ import {
   SCHEDULE_BAR_MINUTES,
   defaultSchedule,
   hasLeftGroupRule,
+  stopCloseWord,
   isScheduled,
   sizesFromAtr,
   slotModeOf,
@@ -596,6 +597,8 @@ export function ExitRulesEditor({
   const hasMoveExit = rules.some((r) => r.kind === 'expectedMove');
   const hasTrailingStop = rules.some((r) => r.kind === 'trailingStop');
   const isGroup = definition.trade.kind === 'group';
+  // Stops read closes at the Check Exit bar size (O144, ADR 0073).
+  const closes = stopCloseWord(definition);
   const replace = (i: number, r: ExitRule) => setRules(rules.map((x, j) => (j === i ? r : x)));
   const remove = (i: number) => setRules(rules.filter((_, j) => j !== i));
   const asInt = (v: string) => (v === '' ? Number.NaN : Number(v));
@@ -661,9 +664,9 @@ export function ExitRulesEditor({
                     onChange={(e) => replace(i, { ...r, percent: e.target.value.trim() })}
                   />
                   <p className="flex-1 pb-1 text-xs text-ink-muted">
-                    Starts at the entry price and rises with each higher daily close (falls with
-                    each lower one, for a short). It exits at the next open after a daily close more
-                    than this far from that peak.
+                    Starts at the entry price and rises with each higher {closes} close (falls with
+                    each lower one, for a short). It exits at the next bar after a {closes} close
+                    more than this far from that peak.
                   </p>
                 </>
               ) : r.kind === 'expectedMove' ? (
@@ -705,7 +708,7 @@ export function ExitRulesEditor({
                   </div>
                   <p className="text-xs text-ink-muted">
                     Set once, at entry: the options expected move recorded for the first Entry
-                    leg&rsquo;s stock on the entry day. It exits at the next open after a daily
+                    leg&rsquo;s stock on the entry day. It exits at the next bar after a {closes}{' '}
                     close more than that many expected moves from the entry price. Needs the CBOE
                     options feed and a recorded stock or ETF.
                   </p>
@@ -766,7 +769,7 @@ export function ExitRulesEditor({
                   )}
                   <p className="text-xs text-ink-muted">
                     Set once, at entry: the entry price minus (long) or plus (short) the distance,
-                    using the ATR on the entry day. It exits at the next open after a daily close
+                    using the ATR on the entry day. It exits at the next bar after a {closes} close
                     beyond it. It does not trail.
                   </p>
                 </div>
@@ -959,8 +962,10 @@ export function ExitScheduleField({
               picked === 'yearEnd'
             ? 'The exit rules wait for this date too, so a stop can be days late. '
             : ''}
-        The Exit condition and every exit rule are checked on this schedule. The stops read daily
-        closes.
+        Exit when and every exit rule are checked on this schedule. The trailing, ATR and
+        expected-move stops read {stopCloseWord(definition)} closes
+        {picked === 'bar1m' ? ' (5-minute until a 1-minute feed exists)' : ''}; the ATR itself stays
+        daily.
       </p>
     </div>
   );
