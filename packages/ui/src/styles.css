@@ -42,6 +42,10 @@
   /* Chart series in fixed order (validated for colour-vision deficiency): calls, then puts. */
   --color-series-1: var(--tm-series-1);
   --color-series-2: var(--tm-series-2);
+  /* Symbols compared on one price chart (N196): slots 3 to 5 of the same validated order. */
+  --color-series-3: var(--tm-series-3);
+  --color-series-4: var(--tm-series-4);
+  --color-series-5: var(--tm-series-5);
 }
 
 :root {
@@ -79,6 +83,9 @@
   --tm-sec-3: #0f766e;
   --tm-series-1: #2a78d6;
   --tm-series-2: #eb6834;
+  --tm-series-3: #1baf7a;
+  --tm-series-4: #eda100;
+  --tm-series-5: #e87ba4;
   /* Content text (brief v2.2 D1, N126): what the user entered or the app produced.
      11.5:1 on surface, 10.7:1 on canvas. Raw variable on purpose: no colour entry
      in @theme, which would generate a clashing text-content colour utility. */
@@ -120,6 +127,9 @@
     --tm-sec-3: #5eead4;
     --tm-series-1: #3987e5;
     --tm-series-2: #d95926;
+    --tm-series-3: #199e70;
+    --tm-series-4: #c98500;
+    --tm-series-5: #d55181;
     /* 10.2:1 on surface, 11.0:1 on canvas. */
     --tm-content: #a9c6e8;
   }

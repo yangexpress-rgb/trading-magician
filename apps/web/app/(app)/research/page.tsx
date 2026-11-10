@@ -11,6 +11,7 @@ import {
   chartIntervalAllowed,
   defaultChartInterval,
   isProviderId,
+  nyDate,
   providerCoversVenue,
   PROVIDERS,
   type ChartInterval,
@@ -20,6 +21,7 @@ import { PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
 import { ResearchNav } from '@/components/research/research-nav';
 import { ResearchWorkspace } from '@/components/research/research-workspace';
+import { MAX_COMPARE } from '@/lib/chart-history';
 import { appDb } from '@/lib/server/db';
 import { requireTenant } from '@/lib/server/session';
 
@@ -62,6 +64,15 @@ export default async function ResearchPage({
     CHART_INTERVALS.includes(rawInterval) && chartIntervalAllowed(range, rawInterval)
       ? rawInterval
       : defaultChartInterval(range);
+  // A chart can end on an earlier date (N194) and compare other symbols (N196).
+  const rawDate = one(params.date);
+  const end =
+    rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) && rawDate < nyDate(new Date()) ? rawDate : null;
+  const compare = [
+    ...new Set(
+      (one(params.compare) ?? '').split(',').filter((id) => instruments.some((i) => i.id === id)),
+    ),
+  ].slice(0, MAX_COMPARE);
   const instrumentId =
     instruments.find((i) => i.id === wanted)?.id ??
     // With demo data on (tests only, ADR 0039), start on the broad-market demo ETF.
@@ -86,6 +97,8 @@ export default async function ResearchPage({
           range,
           interval,
           style: one(params.style) === 'candles' ? 'candles' : 'line',
+          end,
+          compare,
         }}
       />
     </>
