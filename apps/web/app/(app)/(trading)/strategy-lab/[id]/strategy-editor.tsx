@@ -27,7 +27,6 @@ import {
   type InstrumentOption,
   type OptionUnderlying,
 } from '@/components/strategy/editor-context';
-import { InstrumentFinder } from '@/components/strategy/instrument-finder';
 import { useBacktests } from '@/components/strategy/backtest';
 import {
   BackTestSection,
@@ -207,9 +206,21 @@ export function StrategyEditor({
     return [...classes];
   }, [universeKey, instruments]);
 
+  // Any symbol a picker looks up joins every picker at once (N193, ADR 0069).
+  const addInstrument = useCallback(
+    (found: InstrumentOption) =>
+      setInstruments((list) =>
+        list.some((i) => i.id === found.id)
+          ? list
+          : [...list, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
+      ),
+    [],
+  );
+
   const ctx: EditorContextValue = useMemo(
     () => ({
       instruments,
+      addInstrument,
       accounts,
       timeZone,
       baseCurrency,
@@ -221,6 +232,7 @@ export function StrategyEditor({
     }),
     [
       instruments,
+      addInstrument,
       accounts,
       timeZone,
       baseCurrency,
@@ -290,17 +302,6 @@ export function StrategyEditor({
           description="What it trades, when it enters and exits, how orders are sent and the limits they must stay inside."
         >
           {/* Its theory is changed from the line under its name (N191, N192). */}
-          <InstrumentFinder
-            instruments={instruments}
-            editable={editable}
-            onFound={(found) =>
-              setInstruments((list) =>
-                list.some((i) => i.id === found.id)
-                  ? list
-                  : [...list, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
-              )
-            }
-          />
           <PhaseCards
             definition={definition}
             onChange={edit}

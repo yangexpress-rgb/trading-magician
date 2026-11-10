@@ -17,7 +17,7 @@ import { SignOutButton } from './sign-out-button';
 
 /**
  * Primary navigation, in the order fixed by Design v1.0 §5. Trading Strategy
- * holds the Strategy Library, Strategy Lab and Sharing as tabs (N156).
+ * holds Strategy Lab, Theory Library and Sharing as tabs under its title (N156, N194).
  */
 interface NavItem {
   href: string;

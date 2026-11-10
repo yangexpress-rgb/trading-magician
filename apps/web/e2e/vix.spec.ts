@@ -48,21 +48,25 @@ test('VIX: added from search, watched by conditions, charted, never traded', asy
     await page.request.post('/api/v1/strategies', { data: { name: 'VIX watcher' }, headers })
   ).json();
   await page.goto(`/strategy-lab/${created.id}`);
-  await page.getByText('Find a stock, ETF or index').click();
-  await page.getByLabel('Symbol').fill('VIX');
-  await page.getByRole('button', { name: 'Find' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Added VIX' })).toContainText(
-    'CBOE Volatility Index',
-  );
-  const yours = page.getByRole('list', { name: 'Your US stocks, ETFs and indices' });
-  await expect(yours).toContainText('Index — not tradable');
-
-  // A leg's picker leaves it out; a condition's picker offers it, badged.
+  // Typed into a leg's picker, the index is found but refused: legs can't trade it.
   await page.getByRole('button', { name: '+ Add Entry order' }).click();
-  const legPicker = page
-    .getByRole('region', { name: 'Entry leg 1', exact: true })
-    .getByLabel('Instrument', { exact: true });
+  const legRegion = page.getByRole('region', { name: 'Entry leg 1', exact: true });
+  const legPicker = legRegion.getByLabel('Instrument', { exact: true });
+  await legPicker.selectOption({ label: 'Another stock, ETF or index…' });
+  await legRegion.getByLabel('Symbol or company name').fill('VIX');
+  await legRegion.getByRole('button', { name: 'Use', exact: true }).click();
+  await expect(legRegion.getByText(/VIX is an index: conditions can watch it/)).toBeVisible();
   await expect(legPicker.locator('option', { hasText: 'VIX' })).toHaveCount(0);
+
+  // A condition's picker offers it, badged, once it has been looked up.
+  const entry = page.getByRole('region', { name: 'Entry trigger' });
+  await entry.getByRole('button', { name: 'Add condition to Entry trigger' }).click();
+  await expect(
+    entry
+      .getByLabel('Instrument')
+      .first()
+      .locator('option', { hasText: 'VIX · CBOE Volatility Index · Index — not tradable' }),
+  ).toHaveCount(1);
 
   // The VIX's id, from the same lookup the editor used.
   const lookup = await (

@@ -1,8 +1,8 @@
-# ADR 0069: Many strategies may refer to one theory; Esc closes any dropdown
+# ADR 0070: Many strategies may refer to one theory; Esc closes any dropdown
 
 - **Status:** accepted
 - **Date:** 2026-11-10
-- **Design refs:** design v1.2 rows N193 and N194, open point O139. Amends ADR 0054 (D6)
+- **Design refs:** design v1.2 rows N196 and N197, open point O139. Amends ADR 0054 (D6)
 
 ## Context
 
@@ -16,7 +16,7 @@ built by … — unlink that strategy first", or "built in another member's Stra
 
 ## Decision
 
-- **Many-to-one (N193).** Migration 0082 replaces the unique index with a plain partial index, so
+- **Many-to-one (N196).** Migration 0082 replaces the unique index with a plain partial index, so
   any number of live strategies, in any member's Strategy Lab, may refer to the same theory.
   Linking is refused only for a retired theory.
 - **Built link.** The record's `built_strategy_id` stays as the one strategy that keeps it Built:
@@ -29,7 +29,7 @@ built by … — unlink that strategy first", or "built in another member's Stra
 - **Copies.** Duplicating a strategy that refers to a theory makes a copy that refers to the same
   theory. A strategy whose record was auto-created from it refers to none, so its copy still gets
   a record of its own.
-- **Esc (N194).** Esc closes any open dropdown and puts the display back as it was: the theory
+- **Esc (N197).** Esc closes any open dropdown and puts the display back as it was: the theory
   search under a strategy's name closes with the line unchanged and the focus back on it, and an
   app-wide handler closes open `<details>` dropdowns (such as the screener's Columns list),
   innermost or most recently opened first, returning focus to its summary. Native `<select>`

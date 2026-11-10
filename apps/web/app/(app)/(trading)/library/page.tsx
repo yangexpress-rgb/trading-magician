@@ -15,18 +15,7 @@ import {
   LIBRARY_MATURITIES,
   MATURITY_LABELS,
 } from '@tm/domain';
-import {
-  Badge,
-  buttonClasses,
-  EmptyState,
-  LibraryIcon,
-  PageHeader,
-  SelectField,
-  Table,
-  Td,
-  TextField,
-  Th,
-} from '@tm/ui';
+import { Badge, buttonClasses, EmptyState, LibraryIcon, PageHeader, Table, Td, Th } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
@@ -35,10 +24,12 @@ import {
   ShareSelectedBar,
   ShareSelection,
 } from '@/components/sharing/share-selection';
+import { UrlFilterBar } from '@/components/filters/url-filter-bar';
 import { BUILT_LABELS, codeMeaning, codeOption, versionsByLabel } from '@/lib/library-text';
 import { isAdmin } from '@/lib/server/admin';
 import { appDb } from '@/lib/server/db';
 import { requireTenant } from '@/lib/server/session';
+import { TradingStrategyNav } from '@/components/trading/trading-strategy-nav';
 
 export const metadata: Metadata = { title: 'Theory Library' };
 
@@ -205,7 +196,7 @@ export default async function LibraryPage({
   return (
     <>
       <PageHeader
-        title="Theory Library"
+        title="Trading Strategy"
         description="Every theory we know about, built in Strategy Lab or not, with one permanent registration number each."
         actions={
           <Link href="/library/new" className={buttonClasses('primary')}>
@@ -213,104 +204,118 @@ export default async function LibraryPage({
           </Link>
         }
       />
+      <TradingStrategyNav />
 
-      {/* Keyed by the query, so Clear also resets the selects (they are uncontrolled). */}
-      <form
-        key={JSON.stringify(q)}
-        role="search"
-        aria-label="Filter the library"
-        className="mb-4 grid-fields items-end gap-3"
-      >
-        <div className="sm:col-span-2">
-          <TextField
-            label="Search"
-            name="q"
-            type="search"
-            defaultValue={q.q ?? ''}
-            placeholder="Number, name, description or tag"
-          />
-        </div>
-        <SelectField label="Asset class" name="asset" defaultValue={q.asset ?? ''}>
-          <option value="">Any asset class</option>
-          {current.tables.assetClass.map((c) => (
-            <option key={c.code} value={c.code}>
-              {codeOption(c)}
-            </option>
-          ))}
-        </SelectField>
-        <SelectField label="Timeframe" name="timeframe" defaultValue={q.timeframe ?? ''}>
-          <option value="">Any timeframe</option>
-          {current.tables.timeframe.map((c) => (
-            <option key={c.code} value={c.code}>
-              {codeOption(c)}
-            </option>
-          ))}
-        </SelectField>
-        <SelectField label="Category" name="category" defaultValue={q.category ?? ''}>
-          <option value="">Any category</option>
-          {LIBRARY_CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {CATEGORY_LABELS[c]}
-            </option>
-          ))}
-        </SelectField>
-        <SelectField label="Built" name="built" defaultValue={q.built ?? ''}>
-          <option value="">Built or not</option>
-          <option value="built">Built</option>
-          <option value="not_built">Not built</option>
-        </SelectField>
-        <SelectField label="Direction" name="side" defaultValue={q.side ?? ''}>
-          <option value="">Any direction</option>
-          {LIBRARY_DIRECTIONS.map((d) => (
-            <option key={d} value={d}>
-              {DIRECTION_LABELS[d]}
-            </option>
-          ))}
-        </SelectField>
-        <SelectField label="Maturity" name="maturity" defaultValue={q.maturity ?? ''}>
-          <option value="">Any maturity</option>
-          {LIBRARY_MATURITIES.map((m) => (
-            <option key={m} value={m}>
-              {MATURITY_LABELS[m]}
-            </option>
-          ))}
-        </SelectField>
-        <SelectField label="Data needs" name="data" defaultValue={q.data ?? ''}>
-          <option value="">Any data</option>
-          {DATA_NEEDS.map((d) => (
-            <option key={d} value={d}>
-              {DATA_NEED_LABELS[d]}
-            </option>
-          ))}
-        </SelectField>
-        <SelectField label="Status" name="status" defaultValue={q.status}>
-          <option value="all">Registered and retired</option>
-          <option value="registered">Registered</option>
-          <option value="retired">Retired</option>
-        </SelectField>
-        <SelectField label="Whose" name="mine" defaultValue={q.mine ?? ''}>
-          <option value="">Everyone’s</option>
-          <option value="registered">Registered by me</option>
-          <option value="shared">Shared with me</option>
-        </SelectField>
-        <SelectField label="Sort by" name="sort" defaultValue={sortKey}>
-          {Object.entries(SORTS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </SelectField>
-        <div className="col-span-full flex gap-2">
-          <button type="submit" className={buttonClasses('secondary', 'sm')}>
-            Apply filters
-          </button>
-          {filtered && (
-            <Link href="/library" className={buttonClasses('ghost', 'sm')}>
-              Clear
-            </Link>
-          )}
-        </div>
-      </form>
+      {/* Filters apply as they are picked; most wait in the Filter menu (N195). */}
+      <div className="mb-4">
+        <UrlFilterBar
+          label="Filter the library"
+          search={{
+            param: 'q',
+            label: 'Search',
+            placeholder: 'Number, name or tag',
+            value: q.q ?? '',
+          }}
+          filters={[
+            {
+              kind: 'choice',
+              key: 'asset',
+              label: 'Asset class',
+              pinned: true,
+              value: q.asset ?? '',
+              options: current.tables.assetClass.map((c) => ({
+                value: c.code,
+                label: codeOption(c),
+              })),
+            },
+            {
+              kind: 'choice',
+              key: 'timeframe',
+              label: 'Timeframe',
+              pinned: true,
+              value: q.timeframe ?? '',
+              options: current.tables.timeframe.map((c) => ({
+                value: c.code,
+                label: codeOption(c),
+              })),
+            },
+            {
+              kind: 'choice',
+              key: 'category',
+              label: 'Category',
+              pinned: true,
+              value: q.category ?? '',
+              options: LIBRARY_CATEGORIES.map((c) => ({ value: c, label: CATEGORY_LABELS[c] })),
+            },
+            {
+              kind: 'choice',
+              key: 'built',
+              label: 'Built',
+              pinned: true,
+              value: q.built ?? '',
+              options: [
+                { value: 'built', label: 'Built' },
+                { value: 'not_built', label: 'Not built' },
+              ],
+            },
+            {
+              kind: 'choice',
+              key: 'side',
+              label: 'Direction',
+              value: q.side ?? '',
+              options: LIBRARY_DIRECTIONS.map((d) => ({ value: d, label: DIRECTION_LABELS[d] })),
+            },
+            {
+              kind: 'choice',
+              key: 'maturity',
+              label: 'Maturity',
+              value: q.maturity ?? '',
+              options: LIBRARY_MATURITIES.map((m) => ({ value: m, label: MATURITY_LABELS[m] })),
+            },
+            {
+              kind: 'choice',
+              key: 'data',
+              label: 'Data needs',
+              value: q.data ?? '',
+              options: DATA_NEEDS.map((d) => ({ value: d, label: DATA_NEED_LABELS[d] })),
+            },
+            {
+              kind: 'choice',
+              key: 'status',
+              label: 'Status',
+              anyValue: 'all',
+              value: q.status,
+              options: [
+                { value: 'registered', label: 'Registered' },
+                { value: 'retired', label: 'Retired' },
+              ],
+            },
+            {
+              kind: 'choice',
+              key: 'mine',
+              label: 'Whose',
+              value: q.mine ?? '',
+              options: [
+                { value: 'registered', label: 'Registered by me' },
+                { value: 'shared', label: 'Shared with me' },
+              ],
+            },
+          ]}
+          trailing={[
+            {
+              kind: 'choice',
+              key: 'sort',
+              label: 'Sort',
+              setting: true,
+              anyValue: 'number',
+              value: sortKey,
+              options: Object.entries(SORTS).map(([value, label]) => ({ value, label })),
+            },
+          ]}
+          keepOnClear={['sort', 'direction']}
+          resets={{ sort: ['direction'] }}
+        />
+      </div>
 
       {items.length === 0 ? (
         <EmptyState icon={<LibraryIcon />} title={filtered ? 'No entries match' : 'No entries yet'}>

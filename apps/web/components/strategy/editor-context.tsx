@@ -30,6 +30,11 @@ export interface AccountOption {
 
 export interface EditorContextValue {
   instruments: readonly InstrumentOption[];
+  /**
+   * Adds an instrument a picker just looked up (N190), so every picker offers
+   * it. Absent where the editor can't look symbols up.
+   */
+  addInstrument?: ((instrument: InstrumentOption) => void) | undefined;
   accounts: readonly AccountOption[];
   /** The user's display zone, the default for exact order times. */
   timeZone: string;

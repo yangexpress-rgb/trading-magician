@@ -53,7 +53,7 @@ export function EntrySearch({
   }, [query]);
 
   return (
-    // Esc cancels the search and puts the display back as it was (N194).
+    // Esc cancels the search and puts the display back as it was (N197).
     <div
       className="mt-3 rounded-md border border-line p-3"
       onKeyDown={(e) => {

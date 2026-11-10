@@ -942,7 +942,7 @@ export const strategies = pgTable(
     defaultAccountId: uuid('default_account_id'),
     /**
      * The theory (Library record) this strategy refers to (ADR 0054). Many
-     * strategies may refer to the same theory (ADR 0069). Null only until the
+     * strategies may refer to the same theory (ADR 0070). Null only until the
      * first save with instruments.
      */
     libraryEntryId: uuid('library_entry_id').references(
@@ -988,7 +988,7 @@ export const strategies = pgTable(
       foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
     }),
     index('strategy_user_updated_idx').on(t.userId, t.updatedAt),
-    // Many strategies may refer to one theory (ADR 0069, N193); the D6 one-to-one rule is gone.
+    // Many strategies may refer to one theory (ADR 0070, N196); the D6 one-to-one rule is gone.
     index('strategy_library_entry_idx')
       .on(t.libraryEntryId)
       .where(sql`${t.libraryEntryId} is not null and ${t.deletedAt} is null`),

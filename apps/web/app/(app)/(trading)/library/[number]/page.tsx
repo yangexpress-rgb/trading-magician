@@ -385,7 +385,7 @@ function Muted({ children }: { children: ReactNode }) {
 
 function BuiltLink({ entry }: { entry: NonNullable<Awaited<ReturnType<typeof getLibraryEntry>>> }) {
   const b = entry.builtStrategy;
-  // Many strategies may refer to one theory (ADR 0069, N193).
+  // Many strategies may refer to one theory (ADR 0070, N196).
   const mine = entry.referringStrategies;
   return (
     <Field label={mine.length > 1 ? 'Built strategies' : 'Built strategy'}>

@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 
 /**
- * Esc closes the open dropdown and puts the display back as it was (N194),
+ * Esc closes the open dropdown and puts the display back as it was (N197),
  * everywhere in the app. Native <select> lists and dialogs already do this;
  * this covers the disclosure dropdowns built on <details> (such as the
  * screener's Columns list). The one holding the keyboard focus closes first,

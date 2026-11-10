@@ -64,7 +64,7 @@ test('a strategy is renamed by double-clicking its name, on its page and in the 
   await theory.dblclick();
   const search = page.getByLabel('Search the Library by number or name');
   await expect(search).toBeFocused();
-  // Esc cancels the search and puts the line back as it was (N194).
+  // Esc cancels the search and puts the line back as it was (N197).
   await search.fill('trend');
   await page.keyboard.press('Escape');
   await expect(search).toHaveCount(0);
