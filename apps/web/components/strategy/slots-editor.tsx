@@ -35,6 +35,7 @@ import { ConditionTreeEditor } from './condition-editor';
 import { useEditor } from './editor-context';
 import { MetricRefFields } from './expression-editor';
 import { MiniInput, MiniSelect, RowButton } from './fields';
+import { SymbolLookup } from './symbol-lookup';
 
 const UNIVERSE_LABELS: Record<(typeof BUILTIN_UNIVERSES)[number], string> = {
   sp500: 'S&P 500 (current members)',
@@ -226,8 +227,8 @@ function SelectionEditor({
       {u.type === 'list' && (
         <fieldset disabled={!editable} className="min-w-0">
           <legend className="text-xs font-medium text-ink-muted">
-            Instruments in the list ({u.instrumentIds.length}). Find more with &ldquo;Find an
-            instrument&rdquo; above.
+            Instruments in the list ({u.instrumentIds.length}). Type any other US stock or ETF below
+            to add it.
           </legend>
           {err('universe', 'instrumentIds') && (
             <p className="text-xs font-medium text-danger">{err('universe', 'instrumentIds')}</p>
@@ -253,6 +254,24 @@ function SelectionEditor({
               </label>
             ))}
           </div>
+          {editable && (
+            <SymbolLookup
+              id={id('add-symbol')}
+              label="Add a stock or ETF to the list"
+              actionLabel="Add"
+              tradableOnly
+              onPick={(found) =>
+                set({
+                  universe: {
+                    type: 'list',
+                    instrumentIds: u.instrumentIds.includes(found.id)
+                      ? u.instrumentIds
+                      : [...u.instrumentIds, found.id],
+                  },
+                })
+              }
+            />
+          )}
         </fieldset>
       )}
 
