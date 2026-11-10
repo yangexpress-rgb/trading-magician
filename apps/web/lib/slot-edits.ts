@@ -231,6 +231,15 @@ export function leftGroupRule(): ExitRule {
   return { kind: 'leftGroup', id: randomId() };
 }
 
+/** Turns "Sell a pick when it leaves the group" on or off: the Left the group rule (N222). */
+export function withLeftGroup(def: StrategyDefinition, on: boolean): StrategyDefinition {
+  const rest = (def.exit.rules ?? []).filter((r) => r.kind !== 'leftGroup');
+  const rules = on ? [...rest, leftGroupRule()] : rest;
+  const { rules: _r, ...exit } = def.exit;
+  void _r;
+  return { ...def, exit: rules.length > 0 ? { ...exit, rules } : exit };
+}
+
 /**
  * Adds a trailing stop to Exit when (N217, ADR 0074): "Off best close since
  * entry % > percent" on the first Entry leg's instrument, by OR, so it exits

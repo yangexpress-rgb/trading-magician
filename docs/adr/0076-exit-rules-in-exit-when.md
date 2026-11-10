@@ -41,3 +41,5 @@ to move into Exit when too, on 10 November 2026.
   bar checks show the ATR or move at entry and the close checked.
 - Paper cycles keep `daysHeld`, `atrsAtEntry` and `movesAtEntry` in the runtime state JSON. No
   database migration.
+- N222 (same day): the Exits section goes. Left the group is the What to trade setting "Sell a
+  pick when it leaves the group"; the buttons and any kept rules sit under Exit when.

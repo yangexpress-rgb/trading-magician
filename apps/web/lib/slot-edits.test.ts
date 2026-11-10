@@ -13,6 +13,7 @@ import {
   removeAsset,
   replaceAsset,
   withExitShortcut,
+  withLeftGroup,
   toAssets,
   toGroup,
   tradedAssets,
@@ -86,6 +87,13 @@ describe('What to trade: a group (ADR 0073)', () => {
     expect(def.entry.orders[0]?.instrumentId).toBe(B);
     expect(def.exit.orders[0]?.instrumentId).toBe(B);
     expect(strategyDefinitionSchema.safeParse(def).success).toBe(true);
+  });
+
+  it('turns "Sell a pick when it leaves the group" on and off (N222)', () => {
+    const on = withLeftGroup(fixed(), true);
+    expect(on.exit.rules?.map((r) => r.kind)).toEqual(['leftGroup']);
+    expect(withLeftGroup(on, true).exit.rules).toHaveLength(1);
+    expect(withLeftGroup(on, false).exit.rules).toBeUndefined();
   });
 
   it('adds the holding-period, ATR and expected-move exits to Exit when (N221)', () => {
