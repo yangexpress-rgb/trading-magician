@@ -5,7 +5,7 @@ import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 const SHOTS = process.env.E2E_SCREENSHOT_DIR;
 
-test('build a Selection group with a time stop, back test it, and read the ranking', async ({
+test('build a group with a time stop, back test it, and read the ranking', async ({
   page,
   baseURL,
 }) => {
@@ -13,9 +13,9 @@ test('build a Selection group with a time stop, back test it, and read the ranki
   const strategy = await createTestedStrategy(page, baseURL!, 'Momentum rotation');
   await page.goto(`/strategy-lab/${strategy.id}`);
 
-  // Entry becomes a Selection group: one leg on "each selected instrument".
-  await page.getByLabel('Selection group: rank a universe and hold the top N').check();
-  await expect(page.getByLabel('Universe', { exact: true })).toHaveValue('list');
+  // What to trade becomes a group (ADR 0073): one Entry leg buys each pick.
+  await page.getByLabel('A group: filter and rank its members').check();
+  await expect(page.getByLabel('Members', { exact: true })).toHaveValue('list');
   await expect(page.getByLabel('Rank by', { exact: true })).toHaveValue('return');
   await page.getByLabel('Lookback (months)').selectOption('3');
   await page.getByLabel('N', { exact: true }).fill('1');
@@ -23,22 +23,22 @@ test('build a Selection group with a time stop, back test it, and read the ranki
   await expect(entryLeg.getByLabel('Instrument')).toHaveValue(
     '00000000-0000-0000-0000-000000000000',
   );
-  await expect(page.getByLabel('Evaluate Entry and re-selection')).toHaveValue('monthEnd');
+  await expect(page.getByLabel('Check Entry')).toHaveValue('monthEnd');
+  // A month-end Entry checks Exit once a day (O145).
+  await expect(page.getByLabel('Check Exit')).toHaveValue('daily');
   await expect(page.getByText(/each instrument is evaluated on its own/).first()).toBeVisible();
-  // The rebalance is shown as an exit of its own (ADR 0049).
-  await expect(
-    page.getByText('Sells whatever leaves the top N at the next rebalance.', { exact: false }),
-  ).toBeVisible();
+  // Selling what leaves the top N is an exit rule of its own.
+  await expect(page.getByText('Left the group', { exact: true })).toBeVisible();
 
-  // The regime gate is the crossover from the fixture; clear it so every month-end rebalances.
-  const entry = page.getByRole('region', { name: 'Regime gate' });
+  // Enter when is the crossover from the fixture; clear it so every month-end rebalances.
+  const entry = page.getByRole('region', { name: 'Enter when' });
   while ((await entry.getByRole('button', { name: /^Remove condition/ }).count()) > 0) {
     await entry
       .getByRole('button', { name: /^Remove condition/ })
       .first()
       .click();
   }
-  const exit = page.getByRole('region', { name: 'Exit condition' });
+  const exit = page.getByRole('region', { name: 'Exit when' });
   while ((await exit.getByRole('button', { name: /^Remove condition/ }).count()) > 0) {
     await exit
       .getByRole('button', { name: /^Remove condition/ })
@@ -76,7 +76,7 @@ test('build a Selection group with a time stop, back test it, and read the ranki
   if (SHOTS) await results.screenshot({ path: `${SHOTS}/selection-results.png` });
 });
 
-test('per-leg conditions, a z-score and a registry metric in the builder', async ({
+test('a z-score and a registry metric in Enter when; no new per-leg conditions', async ({
   page,
   baseURL,
 }) => {
@@ -84,30 +84,29 @@ test('per-leg conditions, a z-score and a registry metric in the builder', async
   const strategy = await createTestedStrategy(page, baseURL!, 'Pair legs', { pair: true });
   await page.goto(`/strategy-lab/${strategy.id}`);
 
+  // Per-leg conditions left the builder (ADR 0073, O148).
   const leg1 = page.getByRole('region', { name: /^Entry leg 1/ });
-  await leg1.getByRole('button', { name: 'Add a condition for Entry leg 1' }).click();
-  const legConditions = leg1.getByRole('region', { name: 'Entry leg 1 conditions' });
-  await legConditions
-    .getByRole('button', { name: 'Add condition to Entry leg 1 conditions' })
-    .click();
-  const left = legConditions.getByRole('group', { name: 'Left side', exact: true });
-  await left
+  await expect(leg1.getByRole('button', { name: 'Add a condition for Entry leg 1' })).toHaveCount(
+    0,
+  );
+  await expect(page.getByLabel('When several legs qualify')).toHaveCount(0);
+
+  const entry = page.getByRole('region', { name: 'Enter when' });
+  await entry.getByRole('button', { name: 'Add condition to Enter when' }).click();
+  const condition = entry.getByRole('group', { name: 'Left side', exact: true }).last();
+  await condition
     .getByLabel('Type', { exact: true })
     .selectOption({ label: 'Statistic (std. dev., z-score, Bollinger, BandWidth)' });
-  await expect(left.getByLabel('Function')).toHaveValue('ZSCORE');
-  await left.getByLabel('Period (bars)').fill('60');
-  await expect(left.getByLabel('Instrument').first()).toBeVisible();
-  const right = legConditions.getByRole('group', { name: 'Right side', exact: true });
+  await expect(condition.getByLabel('Function')).toHaveValue('ZSCORE');
+  await condition.getByLabel('Period (bars)').fill('60');
+  await expect(condition.getByLabel('Instrument').first()).toBeVisible();
+  const right = entry.getByRole('group', { name: 'Right side', exact: true }).last();
   await right
     .getByLabel('Type', { exact: true })
     .selectOption({ label: 'Metric (price-based, shared registry)' });
   await expect(right.getByLabel('Metric')).toHaveValue('return');
   await expect(right.getByLabel('Metric').locator('option', { hasText: 'RSI' })).toHaveCount(1);
 
-  // "Only the best ones" is a Selection group of these legs (ADR 0049).
-  await page.getByLabel('When several legs qualify').selectOption('best');
-  await expect(page.getByLabel('Rank by', { exact: true })).toHaveValue('return');
-  await expect(page.getByText('Universe: these Entry legs', { exact: false })).toBeVisible();
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/per-leg-builder.png`, fullPage: true });
   await page.getByRole('button', { name: 'Save draft' }).click();
   await expect(page.locator('#save-state')).toHaveText('All changes saved');

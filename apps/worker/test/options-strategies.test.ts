@@ -283,16 +283,19 @@ describe('an options condition in a strategy (F5)', () => {
 
   it('ranks a Selection group by an options metric (brief §10 item 10)', async () => {
     const def = expectedMoveRule();
-    def.entry.kind = 'selection';
     def.entry.condition.children = [];
     def.exit.condition.children = [];
-    def.entry.selection = {
+    def.trade = {
+      kind: 'group',
       universe: { type: 'list', instrumentIds: [spy, qqq] },
-      ranking: { metric: 'options.expected_move_5d_pct', params: {} },
-      direction: 'desc',
-      count: { type: 'fixed', value: 1 },
-      weighting: 'equal',
-    } as NonNullable<StrategyDefinition['entry']['selection']>;
+      ranking: {
+        metric: 'options.expected_move_5d_pct',
+        params: {},
+        direction: 'desc',
+        count: { type: 'fixed', value: 1 },
+      },
+    };
+    def.exit.rules = [...(def.exit.rules ?? []), { kind: 'leftGroup', id: 'left' }];
     const leg = def.entry.orders[0]!;
     def.entry.orders = [{ ...leg, legLabel: 'Buy each', instrumentId: CONTEXT_INSTRUMENT_ID }];
     def.exit.orders = [
@@ -325,10 +328,9 @@ describe('an options condition in a strategy (F5)', () => {
   it('picks the best leg by an options metric in a Selection group of these legs', async () => {
     const def = expectedMoveRule();
     def.entry.condition.children = [];
-    def.entry.kind = 'selection';
-    def.entry.selection = {
-      universe: { type: 'legs' },
-      ranking: { metric: 'options.iv30', params: {} },
+    def.entry.rankedLegs = {
+      metric: 'options.iv30',
+      params: {},
       direction: 'desc',
       count: { type: 'fixed', value: 1 },
     };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONTEXT_INSTRUMENT_ID } from '../strategy/evaluate';
-import type { StrategyDefinition } from '../strategy/schema';
+import type { ScheduleFrequency, StrategyDefinition } from '../strategy/schema';
 import {
   comparison,
   indicator,
@@ -78,30 +78,25 @@ describe('letters for an auto-created record (brief D4)', () => {
 
   it('reads a Selection group by its universe: S&P 500 is stocks, a list takes its classes', () => {
     const sp = withLegs(CONTEXT_INSTRUMENT_ID);
-    sp.entry.kind = 'selection';
-    sp.entry.selection = {
-      universe: { type: 'builtin', id: 'sp500' },
-      ranking: { metric: 'return', params: { lookback: 126 } },
-      direction: 'desc',
-      count: { type: 'fixed', value: 3 },
+    const ranking = {
+      metric: 'return',
+      params: { lookback: 126 },
+      direction: 'desc' as const,
+      count: { type: 'fixed' as const, value: 3 },
     };
+    sp.trade = { kind: 'group', universe: { type: 'builtin', id: 'sp500' }, ranking };
     expect(deriveLibraryCodes(sp, classOf)?.assetClassCode).toBe('S');
     const list: StrategyDefinition = {
       ...sp,
-      entry: {
-        ...sp.entry,
-        selection: { ...sp.entry.selection!, universe: { type: 'list', instrumentIds: [ETF_A] } },
-      },
+      trade: { kind: 'group', universe: { type: 'list', instrumentIds: [ETF_A] }, ranking },
     };
     expect(deriveLibraryCodes(list, classOf)?.assetClassCode).toBe('E');
     const mixed: StrategyDefinition = {
       ...sp,
-      entry: {
-        ...sp.entry,
-        selection: {
-          ...sp.entry.selection!,
-          universe: { type: 'list', instrumentIds: [ETF_A, STOCK_A] },
-        },
+      trade: {
+        kind: 'group',
+        universe: { type: 'list', instrumentIds: [ETF_A, STOCK_A] },
+        ranking,
       },
     };
     expect(deriveLibraryCodes(mixed, classOf)?.assetClassCode).toBe('A');
@@ -110,11 +105,11 @@ describe('letters for an auto-created record (brief D4)', () => {
   it('takes the timescale from the schedule first (O73), then the bars, D when unclear', () => {
     const def = withLegs(STOCK_A);
     expect(deriveTimeframeCode(def)).toBe('D');
-    expect(deriveTimeframeCode({ ...def, schedule: { frequency: 'monthEnd' } })).toBe('M');
-    expect(deriveTimeframeCode({ ...def, schedule: { frequency: 'quarterEnd' } })).toBe('Q');
-    expect(deriveTimeframeCode({ ...def, schedule: { frequency: 'yearEnd' } })).toBe('Y');
-    expect(deriveTimeframeCode({ ...def, schedule: { frequency: 'weekly' } })).toBe('W');
-    expect(deriveTimeframeCode({ ...def, schedule: { frequency: 'daily' } })).toBe('D');
+    expect(deriveTimeframeCode(withSchedule(def, 'monthEnd'))).toBe('M');
+    expect(deriveTimeframeCode(withSchedule(def, 'quarterEnd'))).toBe('Q');
+    expect(deriveTimeframeCode(withSchedule(def, 'yearEnd'))).toBe('Y');
+    expect(deriveTimeframeCode(withSchedule(def, 'weekly'))).toBe('W');
+    expect(deriveTimeframeCode(withSchedule(def, 'daily'))).toBe('D');
 
     const bars = (...intervals: ('5m' | '1h' | '1d' | '1w')[]) => {
       const d = withLegs(STOCK_A);
@@ -128,9 +123,13 @@ describe('letters for an auto-created record (brief D4)', () => {
     expect(deriveTimeframeCode(bars('1h'))).toBe('H');
     expect(deriveTimeframeCode(bars('1w'))).toBe('W');
     expect(deriveTimeframeCode(bars('5m', '1d'))).toBe('D');
-    expect(deriveTimeframeCode({ ...bars('5m'), schedule: { frequency: 'monthEnd' } })).toBe('M');
+    expect(deriveTimeframeCode(withSchedule(bars('5m'), 'monthEnd'))).toBe('M');
   });
 });
+
+function withSchedule(def: StrategyDefinition, frequency: ScheduleFrequency): StrategyDefinition {
+  return { ...def, entry: { ...def.entry, schedule: { frequency } } };
+}
 
 describe('the auto-created record (brief D3)', () => {
   it('is a valid registration made from the strategy', () => {

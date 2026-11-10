@@ -1,6 +1,7 @@
 import {
   CONTEXT_INSTRUMENT_ID,
   createDefinition,
+  parseDefinition,
   nyDate,
   sequentialIds,
   validateStrategy,
@@ -134,13 +135,18 @@ const SECTOR_INSTRUMENTS = new Map<string, InstrumentRef>(
 /** The brief's fixture: top 3 of 9 sector ETFs by 6-month return, above their 200-day SMA. */
 function sectorFixture(schedule?: 'monthEnd'): StrategyDefinition {
   const def = baseDefinition();
-  def.entry.kind = 'selection';
-  def.entry.selection = {
+  def.trade = {
+    kind: 'group',
     universe: { type: 'list', instrumentIds: sectorIds },
-    ranking: { metric: 'return', params: { lookbackMonths: '6', skipMonths: '0' } },
-    direction: 'desc',
-    count: { type: 'fixed', value: 3 },
-    preFilter: all(
+    ranking: {
+      metric: 'return',
+      params: { lookbackMonths: '6', skipMonths: '0' },
+      direction: 'desc',
+      count: { type: 'fixed', value: 3 },
+    },
+    // The leg's amount is the total, split over the 3 picks, as these hand checks assume.
+    splitTotal: true,
+    filter: all(
       cmp(
         market(CONTEXT_INSTRUMENT_ID),
         'gt',
@@ -150,8 +156,14 @@ function sectorFixture(schedule?: 'monthEnd'): StrategyDefinition {
   };
   def.entry.orders = [leg('buy-each', CONTEXT_INSTRUMENT_ID)];
   def.exit.orders = [leg('close-each', CONTEXT_INSTRUMENT_ID, { side: 'close' })];
-  if (schedule) def.schedule = { frequency: schedule };
+  // Holdings that drop out of the top 3 are sold at the next check (ADR 0073).
+  def.exit.rules = [{ kind: 'leftGroup', id: 'left' }];
+  if (schedule) def.entry.schedule = { frequency: schedule };
   return def;
+}
+
+function setFilter(def: StrategyDefinition, filter: ConditionGroup) {
+  if (def.trade.kind === 'group') def.trade.filter = filter;
 }
 
 const runSectors = (def: StrategyDefinition, bars = sectorBars) =>
@@ -303,8 +315,11 @@ describe('item 1: Selection group, top 3 of 9 sector ETFs', () => {
   it('holds only the members that pass when fewer than N pass, and cash when none do', () => {
     const def = sectorFixture('monthEnd');
     // Only members more than 30% above their 200-day average qualify: rarely anyone.
-    def.entry.selection!.preFilter = all(
-      cmp(metric(CONTEXT_INSTRUMENT_ID, 'ma_distance', { period: 200 }), 'gt', constant('0.30')),
+    setFilter(
+      def,
+      all(
+        cmp(metric(CONTEXT_INSTRUMENT_ID, 'ma_distance', { period: 200 }), 'gt', constant('0.30')),
+      ),
     );
     const r = runSectors(def);
     for (const round of r.selections?.rounds ?? []) {
@@ -403,7 +418,7 @@ function dualMomentum(schedule: 'monthEnd' | undefined = 'monthEnd'): StrategyDe
     }),
   );
   def.exit.orders = RISK3.map(([id, symbol]) => leg(`sell-${symbol}`, id, { side: 'close' }));
-  if (schedule) def.schedule = { frequency: schedule };
+  if (schedule) def.entry.schedule = { frequency: schedule };
   return def;
 }
 
@@ -463,15 +478,15 @@ describe('item 2: per-leg conditions, SPY / EFA / AGG', () => {
     def.entry.orders = RISK3.map(([id, s]) =>
       leg(`buy-${s}`, id, { quantity: { type: 'pct_equity', value: '30', rounding: 'down' } }),
     );
-    def.entry.kind = 'selection';
-    def.entry.selection = {
-      universe: { type: 'legs' },
-      ranking: { metric: 'return', params: { lookbackMonths: '12' } },
+    // Schema 2's ranked legs, kept as saved (ADR 0073).
+    def.entry.rankedLegs = {
+      metric: 'return',
+      params: { lookbackMonths: '12' },
       direction: 'desc',
       count: { type: 'fixed', value: 1 },
     };
     def.exit.orders = RISK3.map(([id, s]) => leg(`sell-${s}`, id, { side: 'close' }));
-    def.schedule = { frequency: 'monthEnd' };
+    def.entry.schedule = { frequency: 'monthEnd' };
     const r = run3(def);
     for (const round of r.selections?.rounds ?? []) {
       const selected = round.rows.filter((row) => row[4]);
@@ -692,10 +707,95 @@ describe('a Selection group that keeps its picks (ADR 0059)', () => {
     const base = runSectors(sectorFixture('monthEnd'));
     expect(base.trades.some((t) => t.exitReason === 'rebalance')).toBe(true);
     const def = sectorFixture('monthEnd');
-    def.entry.selection!.keepHoldings = true;
+    // No "Left the group" rule: each pick is kept until its own exit.
     def.exit.rules = [{ kind: 'trailingStop', id: 'ts', percent: '3' }];
     const r = runSectors(def);
     expect(r.trades.some((t) => t.exitReason === 'rebalance')).toBe(false);
     expect(r.trades.some((t) => t.exitReason === 'trailing_stop')).toBe(true);
+  });
+});
+
+describe('What to trade, Entry, Exit (ADR 0073)', () => {
+  const sellsDecidedOn = (r: BacktestResult) =>
+    r.fills
+      .filter((f) => f.side !== 'buy')
+      .map((f) => {
+        const i = (sectorBars[0] as Bar[]).findIndex((b) => b.start === f.time);
+        return (sectorBars[0] as Bar[])[i - 1]?.end ?? '';
+      });
+
+  it('checks Exit only on its own schedule', () => {
+    const def = sectorFixture();
+    // Each pick is kept, and Exit when is always true: without a schedule it exits every bar.
+    def.exit.rules = [];
+    def.exit.condition = all(cmp(market(CONTEXT_INSTRUMENT_ID), 'gt', constant('0')));
+    const everyBar = runSectors(def);
+    def.exit.schedule = { frequency: 'monthEnd' };
+    const monthly = runSectors(def);
+    expect(monthly.trades.length).toBeGreaterThan(0);
+    expect(monthly.trades.length).toBeLessThan(everyBar.trades.length);
+    const monthEnds = new Set(
+      (runSectors(sectorFixture('monthEnd')).selections?.rounds ?? []).map((x) => nyDate(x.time)),
+    );
+    const decided = sellsDecidedOn(monthly);
+    expect(decided.length).toBeGreaterThan(0);
+    for (const d of decided) expect(monthEnds.has(nyDate(d))).toBe(true);
+  });
+
+  it('holds every member that passes the filter when the group has no ranking', () => {
+    const def = sectorFixture('monthEnd');
+    if (def.trade.kind === 'group') delete def.trade.ranking;
+    def.trade = { ...def.trade, splitTotal: false } as typeof def.trade;
+    def.entry.orders = [
+      leg('buy-each', CONTEXT_INSTRUMENT_ID, {
+        quantity: { type: 'pct_equity', value: '10', rounding: 'down' },
+      }),
+    ];
+    def.risk = { ...def.risk, maxInstrumentsHeld: 9 };
+    const r = runSectors(def);
+    const rounds = r.selections?.rounds ?? [];
+    expect(rounds.length).toBeGreaterThan(20);
+    const positions = replayPositions(r);
+    let checked = 0;
+    for (const round of rounds) {
+      const passing = round.rows
+        .filter((row) => row[2])
+        .map((row) => row[0])
+        .sort();
+      const i = (sectorBars[0] as Bar[]).findIndex((b) => b.end === round.time);
+      const nextOpen = (sectorBars[0] as Bar[])[i + 1]?.start;
+      if (!nextOpen || (round.entered.length === 0 && round.exited.length === 0)) continue;
+      const held = [...(positions.get(nextOpen) ?? new Map<string, number>())]
+        .filter(([, q]) => q !== 0)
+        .map(([s]) => s)
+        .sort();
+      expect(held).toEqual(passing);
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(3);
+  });
+
+  it('back tests a schema 2 Selection group exactly as its schema 3 form', () => {
+    const v3 = sectorFixture('monthEnd');
+    if (v3.trade.kind !== 'group' || !v3.trade.ranking) throw new Error('fixture');
+    const { ranking, universe, filter } = v3.trade;
+    const doc = JSON.parse(JSON.stringify(v3)) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    doc.schemaVersion = 2;
+    delete doc.trade;
+    doc.schedule = doc.entry.schedule;
+    delete doc.entry.schedule;
+    doc.exit.rules = [];
+    doc.entry.kind = 'selection';
+    doc.entry.selection = {
+      universe,
+      ranking: { metric: ranking.metric, params: ranking.params },
+      direction: ranking.direction,
+      count: ranking.count,
+      preFilter: filter,
+    };
+    const migrated = parseDefinition(doc);
+    // The 90% total over 3 picks is now 30% per pick, with no split.
+    expect(migrated.entry.orders[0]?.quantity.value).toBe('30');
+    expect(behaviour(runSectors(migrated))).toEqual(behaviour(runSectors(v3)));
   });
 });

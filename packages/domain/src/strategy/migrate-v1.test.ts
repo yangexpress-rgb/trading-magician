@@ -193,10 +193,11 @@ describe('migrateV1 (schema 1 → 2)', () => {
       d.exit.trigger = { mode: 'on_transition', cooldownSec: 0, confirmationBars: 0 };
     });
     const def = parseDefinition(doc);
-    expect(def.entry.kind).toBe('selection');
-    expect(def.entry.selection).toEqual({
-      universe: { type: 'legs' },
-      ranking: { metric: 'return', params: { lookback: 20 } },
+    // Schema 3 keeps the ranked legs as saved (ADR 0073).
+    expect(def.trade).toEqual({ kind: 'assets' });
+    expect(def.entry.rankedLegs).toEqual({
+      metric: 'return',
+      params: { lookback: 20 },
       direction: 'desc',
       count: { type: 'fixed', value: 1 },
     });

@@ -118,6 +118,8 @@ export interface CycleInput {
   now: number;
   /** Truth of the Exit condition on data that is new since the last pass. */
   exitTruth?: { truth: Truth } | undefined;
+  /** Whether Check Exit is due on this pass (ADR 0073); the time stop waits for it. Default true. */
+  exitDue?: boolean | undefined;
   /** Exit now because a rebalance no longer selects this slot (v1.2 items 1, 2). */
   forceExit?: 'rebalance' | 'atr_stop' | 'expected_move' | 'trailing_stop' | undefined;
 }
@@ -442,7 +444,7 @@ export function planCycle(input: CycleInput): CyclePlan {
   if (cycle.status === 'open') {
     const reason = input.forceExit
       ? input.forceExit
-      : timeStopReached(def, events.entry_partial_fill, now)
+      : input.exitDue !== false && timeStopReached(def, events.entry_partial_fill, now)
         ? 'time_stop'
         : undefined;
     if (reason) {

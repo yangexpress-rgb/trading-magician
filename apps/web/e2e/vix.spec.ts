@@ -60,8 +60,8 @@ test('VIX: added from search, watched by conditions, charted, never traded', asy
   await expect(legPicker.locator('option', { hasText: 'VIX' })).toHaveCount(0);
 
   // A condition's picker offers it, badged, once it has been looked up.
-  const entry = page.getByRole('region', { name: 'Entry trigger' });
-  await entry.getByRole('button', { name: 'Add condition to Entry trigger' }).click();
+  const entry = page.getByRole('region', { name: 'Enter when' });
+  await entry.getByRole('button', { name: 'Add condition to Enter when' }).click();
   await expect(
     entry
       .getByLabel('Instrument')

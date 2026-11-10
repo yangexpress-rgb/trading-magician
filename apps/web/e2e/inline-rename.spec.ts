@@ -47,8 +47,8 @@ test('a strategy is renamed by double-clicking its name, on its page and in the 
   expect(detail.labNumber).toBe(number);
 
   // The builder saves after a rename without a "changed somewhere else" conflict.
-  const entry = page.getByRole('region', { name: 'Entry trigger' });
-  await entry.getByRole('button', { name: 'Add condition to Entry trigger' }).click();
+  const entry = page.getByRole('region', { name: 'Enter when' });
+  await entry.getByRole('button', { name: 'Add condition to Enter when' }).click();
   await entry
     .getByRole('group', { name: 'Condition 1', exact: true })
     .getByRole('group', { name: 'Right side' })

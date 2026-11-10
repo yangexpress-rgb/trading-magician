@@ -163,20 +163,20 @@ function fixture(): StrategyDefinition {
     dailyLossLimit: '50000',
     priceCollarPct: '20',
   };
-  def.entry.kind = 'selection';
-  def.entry.selection = {
+  def.trade = {
+    kind: 'group',
     universe: { type: 'builtin', id: 'sp500' },
-    ranking: { metric: 'pe', params: {} },
-    direction: 'asc',
-    count: { type: 'fixed', value: 10 },
-    preFilter: all(
+    ranking: { metric: 'pe', params: {}, direction: 'asc', count: { type: 'fixed', value: 10 } },
+    splitTotal: true,
+    filter: all(
       cmp(metric('dividend_yield'), 'gt', '0.03'),
       cmp(metric('earnings_yield'), 'gt', '0'),
     ),
   };
   def.entry.orders = [leg('buy-each')];
   def.exit.orders = [leg('close-each', { side: 'close' })];
-  def.schedule = { frequency: 'yearEnd' };
+  def.exit.rules = [{ kind: 'leftGroup', id: 'left' }];
+  def.entry.schedule = { frequency: 'yearEnd' };
   return def;
 }
 

@@ -2,15 +2,16 @@ import { z } from 'zod';
 import { BAR_INTERVALS, MARKET_FIELDS, PRICE_ADJUSTMENTS, SESSIONS } from './catalog';
 
 /**
- * Strategy definition, schema version 2 (Design v1.0 §6, §13.2; proposal §4.5;
- * the Strategy Lab simplification, ADR 0049).
+ * Strategy definition, schema version 3 (Design v1.0 §6, §13.2; proposal §4.5;
+ * the Strategy Lab simplification, ADR 0049; What to trade, Entry, Exit,
+ * ADR 0073).
  *
  * A definition is a validated tree, never display text. It is stored as one
  * JSON document per immutable strategy version. Structural rules live here;
  * rules that need outside context (instruments, accounts, feeds) live in
- * validate.ts. Version 1 documents are migrated on read (migrate-v1.ts).
+ * validate.ts. Older documents are migrated on read (migrate-v1.ts, migrate-v2.ts).
  */
-export const STRATEGY_SCHEMA_VERSION = 2 as const;
+export const STRATEGY_SCHEMA_VERSION = 3 as const;
 
 /** Decimal values travel as strings so no precision is lost (§17.1). */
 export const decimalString = z
@@ -427,6 +428,26 @@ export type Phase = z.infer<typeof phaseSchema>;
 // hash and run exactly as before (design principle 5).
 // ---------------------------------------------------------------------------
 
+export const SCHEDULE_FREQUENCIES = [
+  'bar1m',
+  'bar5m',
+  'bar1h',
+  'daily',
+  'weekly',
+  'monthEnd',
+  'quarterEnd',
+  'yearEnd',
+] as const;
+export type ScheduleFrequency = (typeof SCHEDULE_FREQUENCIES)[number];
+/**
+ * When a part is checked: `entry.schedule` (Entry and a group's filter and
+ * ranking) and `exit.schedule` (ADR 0073). bar1m/bar5m/bar1h: every bar of
+ * that size (N184); daily: once a day after the NYSE close; the rest: once a
+ * calendar period.
+ */
+export const scheduleSchema = z.object({ frequency: z.enum(SCHEDULE_FREQUENCIES) });
+export type Schedule = z.infer<typeof scheduleSchema>;
+
 /** A metric from the registry with its parameters (see metrics.ts). */
 export const metricRefSchema = z.object({
   metric: z.string().min(1).max(40),
@@ -437,14 +458,9 @@ export type MetricRef = z.infer<typeof metricRefSchema>;
 export const BUILTIN_UNIVERSES = ['sp500'] as const;
 export type BuiltinUniverse = (typeof BUILTIN_UNIVERSES)[number];
 
-export const universeSchema = z.discriminatedUnion('type', [
+/** A group's members (ADR 0073): a built-in universe or the person's own list. */
+export const groupUniverseSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('builtin'), id: z.enum(BUILTIN_UNIVERSES) }),
-  /**
-   * "These legs" (ADR 0049): the Entry legs themselves are the candidates,
-   * each with its own instrument, sizing and leg condition (its pre-filter).
-   * What "best by metric" used to do is this universe with a count of 1.
-   */
-  z.object({ type: z.literal('legs') }),
   z.object({
     type: z.literal('list'),
     instrumentIds: z
@@ -453,27 +469,62 @@ export const universeSchema = z.discriminatedUnion('type', [
       .max(600),
   }),
 ]);
-export type Universe = z.infer<typeof universeSchema>;
+export type GroupUniverse = z.infer<typeof groupUniverseSchema>;
 
-export const selectionSchema = z.object({
-  universe: universeSchema,
-  ranking: metricRefSchema,
+export const selectionCountSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('fixed'), value: z.number().int().min(1).max(600) }),
+  z.object({ type: z.literal('percent'), value: z.number().gt(0).max(100) }),
+]);
+export type SelectionCount = z.infer<typeof selectionCountSchema>;
+
+/** Rank by a metric, highest or lowest first, and keep the top N or N%. */
+export const groupRankingSchema = metricRefSchema.extend({
   /** Highest value first, or lowest first (cheapest by P/E style). */
   direction: z.enum(['desc', 'asc']),
-  count: z.discriminatedUnion('type', [
-    z.object({ type: z.literal('fixed'), value: z.number().int().min(1).max(600) }),
-    z.object({ type: z.literal('percent'), value: z.number().gt(0).max(100) }),
-  ]),
-  /** Evaluated per member before ranking; failing or unknown members are left out. */
-  preFilter: conditionGroupSchema.optional(),
-  /**
-   * ADR 0059: keep each pick until its own Exit (condition or exit rules)
-   * instead of selling it when it leaves the top N at a rebalance. New picks
-   * still enter at each rebalance, so more than N can be held at once.
-   */
-  keepHoldings: z.boolean().optional(),
+  count: selectionCountSchema,
 });
-export type Selection = z.infer<typeof selectionSchema>;
+export type GroupRanking = z.infer<typeof groupRankingSchema>;
+
+/**
+ * What to trade (ADR 0073), the first part of every strategy.
+ *
+ * - `assets`: specific instruments, the ones the Entry legs trade (so they
+ *   can never disagree). One is the usual case; several are entered and
+ *   exited together as one position. The builder picks them in What to trade
+ *   and writes them to the legs.
+ * - `group`: a universe, an optional filter each member must pass, then an
+ *   optional ranking. Each candidate is traded on its own by the one Entry
+ *   leg ("each pick"). Without a ranking every member that passes is a
+ *   candidate, up to the risk limit on instruments held.
+ */
+export const tradeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('assets') }),
+  z.object({
+    kind: z.literal('group'),
+    universe: groupUniverseSchema,
+    /** Evaluated per member before ranking; failing or unknown members are left out. */
+    filter: conditionGroupSchema.optional(),
+    ranking: groupRankingSchema.optional(),
+    /**
+     * The Entry leg's amount is the total, split equally over the N picks
+     * (schema 2's form, kept for converted strategies). Absent: per pick.
+     */
+    splitTotal: z.boolean().optional(),
+  }),
+]);
+export type Trade = z.infer<typeof tradeSchema>;
+export type GroupTrade = Extract<Trade, { kind: 'group' }>;
+
+/**
+ * Schema 2's "Selection group of these legs" (ADR 0049 D3), kept as saved
+ * (ADR 0073): the Entry legs are ranked by the metric and the top N
+ * qualifying legs fire, each with its own quantity. The builder no longer
+ * offers it.
+ */
+export const rankedLegsSchema = groupRankingSchema.extend({
+  preFilter: conditionGroupSchema.optional(),
+});
+export type RankedLegs = z.infer<typeof rankedLegsSchema>;
 
 export const POSITION_DIRECTIONS = ['long', 'short'] as const;
 export type PositionDirection = (typeof POSITION_DIRECTIONS)[number];
@@ -491,14 +542,21 @@ export const riskDistanceSchema = z.object({
 export type RiskDistance = z.infer<typeof riskDistanceSchema>;
 
 export const entryPhaseSchema = phaseSchema.extend({
-  /** `fixed` when absent: the legs name their instruments, as in v1.1. */
-  kind: z.enum(['fixed', 'selection']).optional(),
-  selection: selectionSchema.optional(),
+  /** When Entry (and a group's filter and ranking) is checked; absent: `defaultSchedule`. */
+  schedule: scheduleSchema.optional(),
   risk: riskDistanceSchema.optional(),
+  /** Kept as saved (ADR 0073): schema 2's ranked legs. */
+  rankedLegs: rankedLegsSchema.optional(),
 });
 export type EntryPhase = z.infer<typeof entryPhaseSchema>;
 
-export const EXIT_RULE_KINDS = ['timeStop', 'atrStop', 'expectedMove', 'trailingStop'] as const;
+export const EXIT_RULE_KINDS = [
+  'timeStop',
+  'atrStop',
+  'expectedMove',
+  'trailingStop',
+  'leftGroup',
+] as const;
 export const EXPECTED_MOVE_SIDES = ['either', 'gain', 'loss'] as const;
 export const exitRuleSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -541,6 +599,12 @@ export const exitRuleSchema = z.discriminatedUnion('kind', [
     id,
     percent: positiveDecimalString.refine((v) => Number(v) < 100, 'Use less than 100%'),
   }),
+  /**
+   * ADR 0073, groups only: at each Entry check, sell a holding that no longer
+   * passes the filter or the ranking (schema 2's rebalance exit; its absence
+   * is schema 2's `keepHoldings`).
+   */
+  z.object({ kind: z.literal('leftGroup'), id }),
 ]);
 export type ExitRule = z.infer<typeof exitRuleSchema>;
 
@@ -553,7 +617,12 @@ export const exitPhaseSchema = phaseSchema.extend({
   /** "Mirror Entry legs" (ADR 0049): the Exit legs are generated from the Entry legs. */
   mirrorEntry: z.boolean().optional(),
   /** Rules combined with the Exit condition by OR: the first to trigger exits. */
-  rules: z.array(exitRuleSchema).max(5).optional(),
+  rules: z.array(exitRuleSchema).max(6).optional(),
+  /**
+   * When the Exit condition and the exit rules are checked (ADR 0073). Absent:
+   * on every bar the run steps on, as schema 2 did.
+   */
+  schedule: scheduleSchema.optional(),
 });
 export type ExitPhase = z.infer<typeof exitPhaseSchema>;
 
@@ -569,26 +638,6 @@ export const entryGroupSchema = z.object({
   exit: exitPhaseSchema,
 });
 export type EntryGroup = z.infer<typeof entryGroupSchema>;
-
-export const SCHEDULE_FREQUENCIES = [
-  'bar1m',
-  'bar5m',
-  'bar1h',
-  'daily',
-  'weekly',
-  'monthEnd',
-  'quarterEnd',
-  'yearEnd',
-] as const;
-export type ScheduleFrequency = (typeof SCHEDULE_FREQUENCIES)[number];
-/**
- * When Entry and re-selection are evaluated; Exit rules run on every bar
- * regardless. bar1m/bar5m/bar1h: every bar of that size (N184); daily: once a
- * day after the NYSE close; the rest: once a calendar period. Absent: the
- * cadence of the finest bars the rules read (`defaultSchedule`).
- */
-export const scheduleSchema = z.object({ frequency: z.enum(SCHEDULE_FREQUENCIES) });
-export type Schedule = z.infer<typeof scheduleSchema>;
 
 export const executionSchema = z.object({
   multiLegPolicy: z.enum(['concurrent', 'sequential', 'after_prior_fill']),
@@ -636,12 +685,12 @@ export const REQUIRED_RISK_LIMITS = [
 
 export const strategyDefinitionSchema = z.object({
   schemaVersion: z.literal(STRATEGY_SCHEMA_VERSION),
+  /** What to trade (ADR 0073). */
+  trade: tradeSchema,
   entry: entryPhaseSchema,
   exit: exitPhaseSchema,
   execution: executionSchema,
   risk: riskProfileSchema,
-  /** Absent means daily: every bar, as in v1.1. */
-  schedule: scheduleSchema.optional(),
   /** More entry groups after the strategy's own Entry and Exit (v1.2 item 8). */
   groups: z.array(entryGroupSchema).max(3).optional(),
 });

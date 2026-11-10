@@ -72,6 +72,9 @@ import {
   rankUniverse,
   scheduledPeriod,
   scheduleOf,
+  exitScheduleOf,
+  readsThisInstrument,
+  selectionOf,
   isCalendarSchedule,
   selectionCount,
   selectLegs,
@@ -689,7 +692,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   }
   const newData = dataTime > 0 && dataTime > (state.lastDataTime ?? 0);
   if (newData) state.lastDataTime = dataTime;
-  // The schedule gates Entry and re-selection; Exit rules run on every bar (v1.2 item 4).
+  // Check Entry gates Entry and re-selection; Check Exit gates Exit (ADR 0073).
   // Bar cadences count the newest bar's end; once a day and calendar periods count closes (N184).
   const frequency = scheduleOf(def);
   const period = newData
@@ -697,6 +700,16 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     : undefined;
   const entryDue = period !== undefined;
   if (entryDue) state.lastSchedulePeriod = period;
+  // Check Exit (ADR 0073): without one, Exit is checked on every new bar, as before.
+  const exitFrequency = exitScheduleOf(def);
+  let exitDue = newData;
+  if (newData && exitFrequency) {
+    const exitPeriod = scheduledPeriod(exitFrequency, t, state.lastExitSchedulePeriod, dataTime);
+    exitDue = exitPeriod !== undefined;
+    if (exitPeriod !== undefined) state.lastExitSchedulePeriod = exitPeriod;
+  }
+  /** The group What to trade names, as the engines run it (ADR 0073). */
+  const selection = selectionOf(def);
   const evaluate = (phase: PhaseName, r: SeriesResolver = view, d = def): Truth =>
     evaluateCondition(d[phase].condition, r);
   /** The view plus a cycle's positions, for Exit rules and Exit order prices. */
@@ -710,10 +723,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     return c.cycle.slot ? withContext(r, c.cycle.slot.instrumentId) : r;
   };
   const symbolOf = (id: string) => work.instruments.get(id)?.symbol ?? '?';
-  const count =
-    mode === 'selection' && def.entry.selection
-      ? selectionCount(def.entry.selection, members.length)
-      : 1;
+  const count = mode === 'selection' && selection ? selectionCount(selection, members.length) : 1;
   /** What a cycle runs: the strategy, or its slot's definition. */
   const cycleDefinition = (c: ActiveCycle): StrategyDefinition =>
     c.cycle.slot
@@ -869,13 +879,26 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   } else if (entryDue) {
     // Selection groups and per-leg conditions (v1.2 items 1, 2), as the back test does.
     let candidates: Slot[] = [];
-    if (mode === 'selection' && def.entry.selection) {
+    let inGroup: Slot[] | undefined;
+    if (mode === 'selection' && selection) {
       const template = def.entry.orders[0];
-      const gate: Truth = hasComparisons(def.entry.condition) ? evaluate('entry') : true;
-      const ranking = rankUniverse(def.entry.selection, members, view, symbolOf);
-      if (gate === true && template)
-        candidates = ranking.selected.map((instrumentId) => ({ legId: template.id, instrumentId }));
-      entryTruth = { truth: gate };
+      const ranking = rankUniverse(selection, members, view, symbolOf);
+      if (readsThisInstrument(def.entry.condition) && template) {
+        // Enter when reads "this stock": checked for each selected member (ADR 0073).
+        inGroup = ranking.selected.map((instrumentId) => ({ legId: template.id, instrumentId }));
+        candidates = inGroup.filter(
+          (c) => evaluateCondition(def.entry.condition, withContext(view, c.instrumentId)) === true,
+        );
+        entryTruth = { truth: candidates.length > 0 };
+      } else {
+        const gate: Truth = hasComparisons(def.entry.condition) ? evaluate('entry') : true;
+        if (gate === true && template)
+          candidates = ranking.selected.map((instrumentId) => ({
+            legId: template.id,
+            instrumentId,
+          }));
+        entryTruth = { truth: gate };
+      }
     } else {
       const legs = selectLegs(def, view, symbolOf);
       candidates = legs.selected;
@@ -894,7 +917,8 @@ async function planPass(tx: Transaction, ctx: PassContext) {
           open: c.cycle.status === 'open',
         })),
       halted: entryHalted,
-      keepHoldings: def.entry.selection?.keepHoldings === true,
+      keepHoldings: selection?.keepHoldings === true,
+      ...(inGroup ? { inGroup } : {}),
     });
     for (const id of plan.exit) rebalanceExits.add(id);
     for (const slot of plan.enter) await openCycle({ ...newCycleState(t), slot }, true);
@@ -935,7 +959,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   for (const c of cycles) {
     const cycleDef = cycleDefinition(c);
     const exitTruth =
-      newData && c.cycle.status === 'open'
+      exitDue && c.cycle.status === 'open'
         ? { truth: evaluate('exit', cycleView(c), cycleDef) }
         : undefined;
     // ATR stop (v1.2 item 9): the ATR is fixed when Entry is decided; a daily
@@ -948,7 +972,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       if (atr) c.cycle = { ...c.cycle, atrAtEntry: atr.toString() };
     }
     let atrStopFired = false;
-    if (newData && atrRule && atrInstrument && c.cycle.atrAtEntry && c.cycle.status === 'open') {
+    if (exitDue && atrRule && atrInstrument && c.cycle.atrAtEntry && c.cycle.status === 'open') {
       const entry = c.entries.get(atrInstrument);
       const held = c.positions.get(atrInstrument) ?? ZERO;
       const close = evaluateExpr(stopCloseExpr(atrInstrument), view);
@@ -971,7 +995,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       if (move && move.gt(0)) c.cycle = { ...c.cycle, moveAtEntry: move.toString() };
     }
     let moveFired = false;
-    if (newData && moveRule && atrInstrument && c.cycle.moveAtEntry && c.cycle.status === 'open') {
+    if (exitDue && moveRule && atrInstrument && c.cycle.moveAtEntry && c.cycle.status === 'open') {
       const entry = c.entries.get(atrInstrument);
       const held = c.positions.get(atrInstrument) ?? ZERO;
       const close = evaluateExpr(stopCloseExpr(atrInstrument), view);
@@ -988,7 +1012,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     // with the cycle; a close more than the percent off it exits, by OR.
     const trailRule = trailingStopRuleOf(cycleDef);
     let trailFired = false;
-    if (newData && trailRule && atrInstrument && c.cycle.status === 'open') {
+    if (exitDue && trailRule && atrInstrument && c.cycle.status === 'open') {
       const entry = c.entries.get(atrInstrument);
       const held = c.positions.get(atrInstrument) ?? ZERO;
       const close = evaluateExpr(stopCloseExpr(atrInstrument), view);
@@ -1012,6 +1036,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       positions: c.positions,
       now: t,
       exitTruth,
+      exitDue,
       forceExit: rebalanceExits.has(c.id)
         ? 'rebalance'
         : atrStopFired

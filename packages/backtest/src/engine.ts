@@ -34,6 +34,9 @@ import {
   rankUniverse,
   scheduledPeriod,
   scheduleOf,
+  exitScheduleOf,
+  readsThisInstrument,
+  selectionOf,
   isCalendarSchedule,
   SCHEDULE_BAR_MINUTES,
   SCHEDULE_LABELS,
@@ -317,6 +320,12 @@ export function simulate({
   const mode = slotModeOf(def);
   const frequency = scheduleOf(def);
   const calendar = isCalendarSchedule(frequency);
+  /** Check Exit (ADR 0073); undefined checks Exit on every run bar, as before schema 3. */
+  const exitFrequency = exitScheduleOf(def);
+  /** The group What to trade names, as the engine runs it (ADR 0073). */
+  const selection = selectionOf(def);
+  /** A group's Enter when that reads "this stock" is checked per candidate (ADR 0073). */
+  const perCandidateEntry = mode === 'selection' && readsThisInstrument(def.entry.condition);
   /** v1.2 features in use: results then say why each cycle exited. */
   const v12 = mode !== 'none' || calendar || (def.exit.rules?.length ?? 0) > 0;
   for (const w of data.warnings) warnings.add(`data:${w}`, w);
@@ -371,6 +380,18 @@ export function simulate({
       `Entry is set to "${SCHEDULE_LABELS[frequency]}", but this run steps on ${BAR_SIZE_TEXT[inputs.interval]} bars, so Entry was checked once a ${BAR_SIZE_TEXT[inputs.interval]} bar`,
     );
   }
+  const exitCadence = exitFrequency ? SCHEDULE_BAR_MINUTES[exitFrequency] : undefined;
+  if (exitFrequency && exitCadence !== undefined && exitCadence < runMinutes) {
+    warnings.add(
+      'exit_schedule_finer_than_bars',
+      `Exit is set to "${SCHEDULE_LABELS[exitFrequency]}", but this run steps on ${BAR_SIZE_TEXT[inputs.interval]} bars, so Exit was checked once a ${BAR_SIZE_TEXT[inputs.interval]} bar`,
+    );
+  }
+  if (exitFrequency && isCalendarSchedule(exitFrequency) && (def.exit.rules?.length ?? 0) > 0)
+    warnings.add(
+      'exit_schedule_calendar',
+      `Exit is checked only on "${SCHEDULE_LABELS[exitFrequency]}", so the exit rules wait for that date too`,
+    );
   // Options metrics read end-of-day signals: say how many bars had one (options brief v2 §5.3).
   if (data.options && steps.length > 0)
     for (const c of optionsCoverage(steps, data.options, symbol))
@@ -1041,6 +1062,7 @@ export function simulate({
   const selectionRounds: SelectionRound[] = [];
   let roundsDropped = 0;
   let lastPeriod: string | undefined;
+  let lastExitPeriod: string | undefined;
   let entryEvaluations = 0;
   const template = def.entry.orders[0];
   const excludedNoValue = new Set<string>();
@@ -1162,30 +1184,55 @@ export function simulate({
     let candidates: Slot[] = [];
     let count = 1;
     const round: SelectionRound = { time: iso(now), period, rows: [], entered: [], exited: [] };
-    if (mode === 'selection' && def.entry.selection && template) {
-      // A strategy-level Entry condition gates the whole selection (a regime filter).
-      const gate = hasComparisons(def.entry.condition)
-        ? evaluateCondition(def.entry.condition, view)
-        : true;
-      if (hasComparisons(def.entry.condition)) {
-        const row = entryConditions.record(iso(now), view);
-        if (gate === true) entryConditions.markFired(row, 'fired');
-      }
-      const ranking = rankUniverse(def.entry.selection, members, view, symbol);
+    let inGroup: Slot[] | undefined;
+    if (mode === 'selection' && selection && template) {
+      const ranking = rankUniverse(selection, members, view, symbol);
       count = ranking.count;
-      round.gate = gate ?? null;
-      round.rows = ranking.rows.map((r) => [
-        r.symbol,
-        r.value,
-        r.filter,
-        r.rank,
-        r.selected && gate === true,
-        r.excluded,
-      ]);
+      if (perCandidateEntry) {
+        // Enter when reads "this stock": checked for each selected member (ADR 0073).
+        const passes = new Set(
+          ranking.selected.filter(
+            (id) => evaluateCondition(def.entry.condition, withContext(view, id)) === true,
+          ),
+        );
+        round.rows = ranking.rows.map((r) => [
+          r.symbol,
+          r.value,
+          r.filter,
+          r.rank,
+          r.selected && passes.has(r.instrumentId),
+          r.excluded,
+        ]);
+        inGroup = ranking.selected.map((instrumentId) => ({ legId: template.id, instrumentId }));
+        candidates = inGroup.filter((c) => passes.has(c.instrumentId));
+        if (candidates.length > 0)
+          entryConditions.markFired(entryConditions.record(iso(now), view), 'fired');
+      } else {
+        // An Enter when on named instruments gates the whole selection (a regime filter).
+        const gate = hasComparisons(def.entry.condition)
+          ? evaluateCondition(def.entry.condition, view)
+          : true;
+        if (hasComparisons(def.entry.condition)) {
+          const row = entryConditions.record(iso(now), view);
+          if (gate === true) entryConditions.markFired(row, 'fired');
+        }
+        round.gate = gate ?? null;
+        round.rows = ranking.rows.map((r) => [
+          r.symbol,
+          r.value,
+          r.filter,
+          r.rank,
+          r.selected && gate === true,
+          r.excluded,
+        ]);
+        if (gate === true)
+          candidates = ranking.selected.map((instrumentId) => ({
+            legId: template.id,
+            instrumentId,
+          }));
+      }
       for (const r of ranking.rows)
         if (r.excluded === 'no_value') excludedNoValue.add(r.instrumentId);
-      if (gate === true)
-        candidates = ranking.selected.map((instrumentId) => ({ legId: template.id, instrumentId }));
     } else {
       const legs = selectLegs(def, view, symbol);
       round.rows = legs.rows.map((r) => [r.symbol, r.value, r.passed, null, r.selected, null]);
@@ -1201,7 +1248,8 @@ export function simulate({
       candidates,
       held,
       halted,
-      keepHoldings: def.entry.selection?.keepHoldings === true,
+      keepHoldings: selection?.keepHoldings === true,
+      ...(inGroup ? { inGroup } : {}),
     });
     for (const id of plan.exit) {
       const c = cycles[Number(id) - 1];
@@ -1373,9 +1421,20 @@ export function simulate({
       selectSlots(now, period);
     }
 
+    // Check Exit gates the Exit condition and exit rules (ADR 0073); without
+    // one they run on every bar, as before.
+    let evaluateExit = true;
+    if (exitFrequency) {
+      const p = scheduledPeriod(exitFrequency, now, lastExitPeriod);
+      evaluateExit = p !== undefined;
+      if (p !== undefined) lastExitPeriod = p;
+    }
+
     for (const c of activeCycles()) {
       scheduleLegs(c, c.entryLegs, c.entryTriggeredAt, now);
-      if (c.state === 'open') {
+      if (c.state === 'open' && !evaluateExit && c.exitLegs.length === 0)
+        c.exitLegs = exitLegsFor(c);
+      if (c.state === 'open' && evaluateExit) {
         const exitRec = groupOf(c).exitRec;
         const row = exitRec.record(iso(now), cycleView(c), c.no);
         const truth = row.truth ?? undefined;
@@ -1797,11 +1856,11 @@ export function simulate({
   }
 
   function selectionLog(): SelectionLog {
-    const ref = mode === 'selection' ? def.entry.selection?.ranking : rankedLegs(def)?.ranking;
+    const ref = mode === 'selection' ? selection?.ranking : rankedLegs(def)?.ranking;
     return {
       kind: mode === 'selection' ? 'ranking' : 'legs',
       metric: ref ? { metric: ref.metric, params: ref.params } : null,
-      direction: mode === 'selection' ? (def.entry.selection?.direction ?? 'desc') : 'desc',
+      direction: mode === 'selection' ? (selection?.direction ?? 'desc') : 'desc',
       schedule: frequency,
       exclusionLabels: EXCLUSION_LABELS,
       rounds: selectionRounds,

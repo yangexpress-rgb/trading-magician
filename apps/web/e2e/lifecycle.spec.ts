@@ -81,7 +81,7 @@ test('define, validate, test, start on paper, stop, revise and review versions',
   );
 
   // Define both phases: a pair entered together and exited together.
-  for (const region of ['Entry trigger', 'Exit condition'] as const) {
+  for (const region of ['Enter when', 'Exit when'] as const) {
     await page
       .getByRole('region', { name: region })
       .getByRole('button', { name: `Add condition to ${region}` })

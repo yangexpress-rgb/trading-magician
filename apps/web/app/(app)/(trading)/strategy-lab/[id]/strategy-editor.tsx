@@ -41,10 +41,11 @@ import { PageSection, SectionNav } from '@/components/strategy/page-sections';
 import { useRowVersion } from '@/components/strategy/row-version';
 import { OrdersEditor } from '@/components/strategy/orders-editor';
 import {
-  EntryStructure,
   ExitRulesEditor,
+  ExitScheduleField,
   RiskDistanceEditor,
   ScheduleField,
+  WhatToTrade,
 } from '@/components/strategy/slots-editor';
 import {
   addGroup,
@@ -185,18 +186,20 @@ export function StrategyEditor({
   }
 
   const slotMode = slotModeOf(definition);
-  const universe = definition.entry.selection?.universe;
-  // "These legs" ranks the Entry legs' instruments (ADR 0049).
+  // What to trade (ADR 0073): a list group's members, or the Entry legs' instruments.
+  const trade = definition.trade;
   const memberIds =
-    universe?.type === 'list'
-      ? universe.instrumentIds
-      : universe?.type === 'legs'
+    trade.kind === 'group'
+      ? trade.universe.type === 'list'
+        ? trade.universe.instrumentIds
+        : undefined
+      : definition.entry.rankedLegs
         ? definition.entry.orders.map((o) => o.instrumentId)
         : undefined;
   const universeKey = memberIds
     ? memberIds.join(',')
-    : universe?.type === 'builtin'
-      ? universe.id
+    : trade.kind === 'group' && trade.universe.type === 'builtin'
+      ? trade.universe.id
       : '';
   const universeClasses = useMemo(() => {
     if (!memberIds) return ['stock'];
@@ -447,16 +450,12 @@ function PhaseCards({
     onChange({ ...definition, [phase]: { ...definition[phase], condition } });
   return (
     <>
+      {own && <WhatToTrade definition={definition} onChange={onChange} />}
       {(['entry', 'exit'] as const).map((phase) => {
         const title = phase === 'entry' ? 'Entry' : 'Exit';
         const heading = groupTitle ? `${title}: ${groupTitle} (${direction})` : title;
         // One field, named for its job (ADR 0049).
-        const conditionTitle =
-          phase === 'exit'
-            ? 'Exit condition'
-            : slotMode === 'none'
-              ? 'Entry trigger'
-              : 'Regime gate';
+        const conditionTitle = phase === 'exit' ? 'Exit when' : 'Enter when';
         return (
           <Card
             key={phase}
@@ -483,21 +482,22 @@ function PhaseCards({
             {phase === 'entry' && slotMode === 'none' && (
               <DirectionField definition={definition} id={`${idPrefix}entry-direction`} />
             )}
-            {phase === 'entry' && own && (
-              <EntryStructure definition={definition} onChange={onChange} />
-            )}
-            {/* "When" lives in one place per phase (ADR 0049): the schedule is part of Entry. */}
+            {/* Each phase has its own "when" (ADR 0073): Check Entry and Check Exit. */}
             {phase === 'entry' && own && (
               <ScheduleField definition={definition} onChange={onChange} />
+            )}
+            {phase === 'exit' && own && (
+              <ExitScheduleField definition={definition} onChange={onChange} />
             )}
             {phase === 'entry' && (
               <RiskDistanceEditor definition={definition} onChange={onChange} idPrefix={idPrefix} />
             )}
             <h3 className="mb-1 text-base font-semibold text-cond">{conditionTitle}</h3>
-            {phase === 'entry' && slotMode !== 'none' && (
+            {phase === 'entry' && slotMode === 'selection' && (
               <p className="mb-2 text-xs text-ink-muted">
-                Checked once for the whole strategy, for example a market regime filter: while it is
-                false nothing new enters. Leave it empty to enter on every scheduled date.
+                Conditions on &ldquo;this stock&rdquo; are checked for each pick; conditions on a
+                named symbol, such as a market regime filter, are checked once for the whole
+                strategy. Leave it empty to enter on every Check Entry.
               </p>
             )}
             <ConditionTreeEditor
@@ -518,8 +518,8 @@ function PhaseCards({
             ) : (
               <p className="mt-3 text-xs text-ink-muted">
                 {phase === 'entry'
-                  ? `With ${slotMode === 'selection' ? 'a Selection group' : 'per-leg conditions'} each instrument is evaluated on its own at every scheduled evaluation.`
-                  : 'The Exit condition exits on every bar it is true: there is nothing to confirm or wait for.'}
+                  ? `With ${slotMode === 'selection' ? 'a group' : 'per-leg conditions'} each instrument is evaluated on its own at every Check Entry.`
+                  : 'Exit when exits on every Check Exit it is true: there is nothing to confirm or wait for.'}
               </p>
             )}
             {phase === 'exit' && <ExitRulesEditor definition={definition} onChange={onChange} />}

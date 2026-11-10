@@ -1,4 +1,4 @@
-import type { IndicatorExpr } from '@tm/domain';
+import type { IndicatorExpr, ScheduleFrequency, StrategyDefinition } from '@tm/domain';
 import { createDemoHistoryProvider, DEMO_HISTORY_VERSION } from '@tm/market-data';
 import { describe, expect, it } from 'vitest';
 import { loadData, planSeries } from './data';
@@ -39,6 +39,10 @@ const pair = () => {
   def.risk.priceCollarPct = '10';
   return def;
 };
+
+function onSchedule(def: StrategyDefinition, frequency: ScheduleFrequency): StrategyDefinition {
+  return { ...def, entry: { ...def.entry, schedule: { frequency } } };
+}
 
 describe('simulate over demo history', () => {
   it('plans warm-up bars before the start date', () => {
@@ -90,10 +94,10 @@ describe('simulate over demo history', () => {
 
   it('checks Entry on the picked schedule, whatever the bars (N184)', async () => {
     const run = backtestInputsSchema.parse(inputs('2024-03-01', '2024-03-29', { interval: '5m' }));
-    const everyBar = { ...pair(), schedule: { frequency: 'bar5m' as const } };
+    const everyBar = onSchedule(pair(), 'bar5m');
     const data = await loadData(provider, planSeries(everyBar, run), INSTRUMENTS);
     const a = simulate({ definition: everyBar, instruments: INSTRUMENTS, inputs: run, data });
-    const onceADay = { ...pair(), schedule: { frequency: 'daily' as const } };
+    const onceADay = onSchedule(pair(), 'daily');
     const b = simulate({ definition: onceADay, instruments: INSTRUMENTS, inputs: run, data });
     // Once a day, Entry is decided at a close, so its fills land at the next open (9:30 New York).
     const buys = b.fills.filter((f) => f.side === 'buy');
@@ -101,7 +105,7 @@ describe('simulate over demo history', () => {
     for (const f of buys)
       expect(new Date(f.time).toISOString().slice(11, 16)).toMatch(/^(13|14):30$/);
     expect(a.warnings.some((w) => w.code === 'schedule_finer_than_bars')).toBe(false);
-    const oneMinute = { ...pair(), schedule: { frequency: 'bar1m' as const } };
+    const oneMinute = onSchedule(pair(), 'bar1m');
     const c = simulate({ definition: oneMinute, instruments: INSTRUMENTS, inputs: run, data });
     expect(c.warnings.find((w) => w.code === 'schedule_finer_than_bars')?.message).toBe(
       'Entry is set to "Every 1-minute bar", but this run steps on 5-minute bars, so Entry was checked once a 5-minute bar',

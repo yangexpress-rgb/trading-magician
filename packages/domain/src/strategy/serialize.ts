@@ -1,4 +1,5 @@
 import { migrateV1 } from './migrate-v1';
+import { migrateV2 } from './migrate-v2';
 import {
   STRATEGY_SCHEMA_VERSION,
   strategyDefinitionSchema,
@@ -33,6 +34,8 @@ type Migration = (input: Record<string, unknown>) => Record<string, unknown>;
 const MIGRATIONS: Record<number, Migration> = {
   // The Strategy Lab simplification (ADR 0049).
   1: (doc) => migrateV1(doc).doc,
+  // What to trade, Entry, Exit (ADR 0073).
+  2: (doc) => migrateV2(doc).doc,
 };
 
 /** Parses a stored or submitted definition, migrating older schema versions first. */

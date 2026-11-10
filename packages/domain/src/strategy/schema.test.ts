@@ -201,7 +201,7 @@ describe('strategy definition', () => {
 
   it('rejects unknown schema versions', () => {
     expect(
-      strategyDefinitionSchema.safeParse({ ...validDefinition(), schemaVersion: 3 }).success,
+      strategyDefinitionSchema.safeParse({ ...validDefinition(), schemaVersion: 4 }).success,
     ).toBe(false);
   });
 });

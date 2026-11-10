@@ -847,13 +847,18 @@ describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, ti
   it('holds the top-ranked member of a list universe, with split sizing', async () => {
     clock = T0 + 3 * 86_400_000; // Friday
     const def = createDefinition();
-    def.entry.kind = 'selection';
-    def.entry.selection = {
+    def.trade = {
+      kind: 'group',
       universe: { type: 'list', instrumentIds: [demoA, demoB] },
-      ranking: { metric: 'return', params: { lookbackMonths: '1', skipMonths: '0' } },
-      direction: 'desc',
-      count: { type: 'fixed', value: 2 },
+      ranking: {
+        metric: 'return',
+        params: { lookbackMonths: '1', skipMonths: '0' },
+        direction: 'desc',
+        count: { type: 'fixed', value: 2 },
+      },
+      splitTotal: true,
     };
+    def.exit.rules = [{ kind: 'leftGroup', id: 'left' }];
     def.entry.orders = [
       leg('each', {
         legLabel: 'Buy each',
@@ -885,12 +890,15 @@ describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, ti
 
   it('refuses to start an S&P 500 Selection group on paper, saying why', async () => {
     const def = createDefinition();
-    def.entry.kind = 'selection';
-    def.entry.selection = {
+    def.trade = {
+      kind: 'group',
       universe: { type: 'builtin', id: 'sp500' },
-      ranking: { metric: 'return', params: {} },
-      direction: 'desc',
-      count: { type: 'fixed', value: 10 },
+      ranking: {
+        metric: 'return',
+        params: {},
+        direction: 'desc',
+        count: { type: 'fixed', value: 10 },
+      },
     };
     def.entry.orders = [leg('each', { instrumentId: CONTEXT })];
     def.exit.orders = [leg('close-each', { instrumentId: CONTEXT, side: 'close' })];
@@ -907,7 +915,7 @@ describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, ti
       { ...above('in', demoA, '1'), left: daily(demoA, 'in-px') },
     ]);
     def.exit.condition = never();
-    def.schedule = { frequency: 'monthEnd' };
+    def.entry.schedule = { frequency: 'monthEnd' };
     const { runtimeId } = await startPaper('Month end', def);
     await pass();
     clock = Date.parse('2026-10-30T15:31:00Z'); // the 29th's daily bar is in, but not a month end

@@ -59,6 +59,8 @@ export interface RuntimeState {
   staleSince?: number | undefined;
   /** The calendar period last evaluated on a non-daily schedule, e.g. "2026-03" (v1.2 item 4). */
   lastSchedulePeriod?: string | undefined;
+  /** The period Check Exit last evaluated (ADR 0073), as `lastSchedulePeriod` is for Entry. */
+  lastExitSchedulePeriod?: string | undefined;
   /** Entry trigger state of each further entry group, by group id (v1.2 item 8). */
   groupTriggers?: Record<string, RuntimeTriggerState> | undefined;
 }
