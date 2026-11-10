@@ -26,6 +26,7 @@ import { requireTenant } from '@/lib/server/session';
 import { type CopySource, NewStrategyButton } from './new-strategy';
 import { RowActions } from './row-actions';
 import { bare } from '@/lib/units';
+import { TradingStrategyNav } from '@/components/trading/trading-strategy-nav';
 
 export const metadata: Metadata = { title: 'Strategy Lab' };
 
@@ -159,10 +160,11 @@ export default async function StrategyLabPage({
   return (
     <>
       <PageHeader
-        title="Strategy Lab"
+        title="Trading Strategy"
         description="Define entry and exit rules across any mix of assets, test them, then run them on paper."
         actions={<NewStrategyButton sources={copySources} initialCopyFrom={one('copy')} />}
       />
+      <TradingStrategyNav />
 
       {/* Filters apply as they are picked; the rarer ones wait in the Filter menu (N194). */}
       <div className="mb-4">

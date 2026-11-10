@@ -10,7 +10,7 @@ import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 test('lists the seed, registers with a previewed number, edits and retires', async ({ page }) => {
   await signUpAndVerify(page, uniqueEmail('library'));
   await page.goto('/library');
-  await expect(page.getByRole('heading', { level: 1, name: 'Theory Library' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Trading Strategy' })).toBeVisible();
   const rows = page.getByRole('table', { name: 'Theory Library entries' }).locator('tbody tr');
   await expect(rows.first()).toContainText('T00001-SD');
   await expect(rows.nth(17)).toContainText('T00018-AM');

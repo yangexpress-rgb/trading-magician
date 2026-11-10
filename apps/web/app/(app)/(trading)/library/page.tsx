@@ -29,6 +29,7 @@ import { BUILT_LABELS, codeMeaning, codeOption, versionsByLabel } from '@/lib/li
 import { isAdmin } from '@/lib/server/admin';
 import { appDb } from '@/lib/server/db';
 import { requireTenant } from '@/lib/server/session';
+import { TradingStrategyNav } from '@/components/trading/trading-strategy-nav';
 
 export const metadata: Metadata = { title: 'Theory Library' };
 
@@ -195,7 +196,7 @@ export default async function LibraryPage({
   return (
     <>
       <PageHeader
-        title="Theory Library"
+        title="Trading Strategy"
         description="Every theory we know about, built in Strategy Lab or not, with one permanent registration number each."
         actions={
           <Link href="/library/new" className={buttonClasses('primary')}>
@@ -203,6 +204,7 @@ export default async function LibraryPage({
           </Link>
         }
       />
+      <TradingStrategyNav />
 
       {/* Filters apply as they are picked; most wait in the Filter menu (N194). */}
       <div className="mb-4">
