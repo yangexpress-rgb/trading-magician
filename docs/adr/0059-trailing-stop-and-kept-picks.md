@@ -1,6 +1,6 @@
 # ADR 0059: Trailing stop, and Selection groups that keep their picks
 
-- **Status:** accepted
+- **Status:** accepted; the trailing stop rule is amended by ADR 0074 (now an Exit when condition)
 - **Date:** 2026-11-08
 - **Design refs:** §6.4, §6.6, §6.9; design v1.2 rows N147 to N150, open points O115 and O116.
   Builds on ADR 0040 (Selection groups), 0049 (Exits list) and 0053 (expected-move exit)

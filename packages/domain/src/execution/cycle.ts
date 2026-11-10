@@ -70,6 +70,8 @@ export interface CycleState {
   moveAtEntry?: string | undefined;
   /** Trailing stop (ADR 0059): the best daily close since Entry filled, from the entry price. */
   trailPeak?: string | undefined;
+  /** Off best close since entry (N217): each holding's best close and the close last checked. */
+  peaks?: Record<string, { peak: string; close: string }> | undefined;
   /**
    * Risk-based sizing per Entry leg id (v1.2 item 9): how the quantity was
    * worked out, or why nothing was placed (`no_atr`, `zero_quantity`).

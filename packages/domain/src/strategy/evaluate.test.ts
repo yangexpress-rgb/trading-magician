@@ -239,6 +239,26 @@ describe('position values', () => {
     expect(evaluateComparison(tp, held(10, 100, [105]))).toBe(true);
   });
 
+  it('reads off best close since entry, for a long and a short (N217)', () => {
+    const at = (quantity: number, peak: number, close: number) =>
+      withPositions(resolver({ pos: [close] }), (id) =>
+        id === STOCK_A
+          ? {
+              quantity: new Decimal(quantity),
+              averagePrice: new Decimal(100),
+              peak: new Decimal(peak),
+              peakClose: new Decimal(close),
+            }
+          : undefined,
+      );
+    const off = position('pos', { field: 'off_peak_pct' });
+    expect(evaluateExpr(off, at(10, 120, 114))?.toString()).toBe('5');
+    // A short's best close is its lowest; a rise above it reads as a positive amount off.
+    expect(evaluateExpr(off, at(-10, 80, 84))?.toString()).toBe('5');
+    // No peak yet (no Check Exit since Entry filled): unknown, so it cannot exit.
+    expect(evaluateExpr(off, held(10, 100, [90]))).toBeUndefined();
+  });
+
   it('reports the mark series as stale', () => {
     const r = withPositions(resolver({ pos: [100] }, ['pos']), () => undefined);
     expect(evaluateComparison(comparison('s', position('pos'), 'is_stale'), r)).toBe(true);
