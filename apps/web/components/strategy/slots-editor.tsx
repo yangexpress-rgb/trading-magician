@@ -516,22 +516,21 @@ function GroupEditor({
       {/* "Left the group" is a group setting, not an Exit (N222). */}
       <fieldset disabled={!editable}>
         <legend className="sr-only">Holdings that leave the group</legend>
-        <label className="flex items-start gap-1.5 text-sm">
+        <label className="flex items-center gap-1.5 text-sm">
           <input
             type="checkbox"
-            className="mt-1"
             checked={sellsLeavers}
+            aria-describedby={id('leavers-help')}
             onChange={(e) => onSellsLeavers(e.target.checked)}
           />
-          <span>
-            Sell a pick when it leaves the group
-            <span className="block text-xs text-ink-muted">
-              At each Check Entry, sells a holding that no longer passes the filter or the ranking
-              {leavesSold ? '' : ', and every holding while Enter when is false'}. Untick it to keep
-              each pick until Exit when sells it.
-            </span>
-          </span>
+          Sell a pick when it leaves the group
         </label>
+        {/* Help sits outside the label so the checkbox's name stays short. */}
+        <p id={id('leavers-help')} className="ml-5 text-xs text-ink-muted">
+          At each Check Entry, sells a holding that no longer passes the filter or the ranking
+          {leavesSold ? '' : ', and every holding while Enter when is false'}. Untick it to keep
+          each pick until Exit when sells it.
+        </p>
       </fieldset>
     </div>
   );
