@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  DEFAULT_HOLDING_ATR_PERIOD,
   BAR_INTERVALS,
   CALC_OPS,
   CONTEXT_INSTRUMENT_ID,
@@ -40,6 +41,15 @@ import {
 import { useEditor } from './editor-context';
 import { MiniInput, MiniSelect, RowButton } from './fields';
 import { InstrumentSelect } from './instrument-select';
+
+/** Position values the engines keep for each holding, read at the Check Exit bar size. */
+const HOLDING_FIELDS: ReadonlySet<PositionExpr['field']> = new Set([
+  'off_peak_pct',
+  'days_held',
+  'atrs_below_entry',
+  'expected_moves_1d',
+  'expected_moves_5d',
+]);
 
 type Path = readonly (string | number)[];
 type Kind = Expr['kind'];
@@ -680,8 +690,27 @@ function PositionFields({
           </option>
         ))}
       </MiniSelect>
-      {/* Off best close follows Check Exit's bar size, like the stops (N217). */}
-      {expr.field !== 'off_peak_pct' && (
+      {/* The ATR period the value divides by (N221). */}
+      {expr.field === 'atrs_below_entry' && (
+        <MiniInput
+          id={id('period')}
+          label="ATR period (daily bars)"
+          type="number"
+          min={1}
+          max={500}
+          step={1}
+          value={String(expr.period ?? DEFAULT_HOLDING_ATR_PERIOD)}
+          error={err('period')}
+          onChange={(e) =>
+            onChange({
+              ...expr,
+              period: e.target.value === '' ? Number.NaN : Number(e.target.value),
+            })
+          }
+        />
+      )}
+      {/* Values kept for each holding follow Check Exit's bar size, like the stops (N217, N221). */}
+      {!HOLDING_FIELDS.has(expr.field) && (
         <MiniSelect
           id={id('interval')}
           label="Check every"
@@ -698,15 +727,21 @@ function PositionFields({
         </MiniSelect>
       )}
       <p className="col-span-full text-xs text-ink-muted">
-        {expr.field === 'off_peak_pct'
-          ? 'How far the latest close is below the best close since Entry filled (above the lowest, for a short), in percent; the best close starts at the entry price. "Is greater than 5" is a 5% trailing stop. Closes are read at the Check Exit bar size.'
-          : expr.field === 'gain_pct'
-            ? 'Percent above your average Entry fill price (below it for a short), at each bar close.'
-            : expr.field === 'entry_price'
-              ? 'Your average Entry fill price in this cycle.'
-              : expr.field === 'pnl'
-                ? 'Unrealized profit or loss in dollars, at each bar close.'
-                : 'Shares held in this cycle; negative when short.'}
+        {expr.field === 'days_held'
+          ? 'Trading days since Entry first filled, counting that day. "Is greater than or equal to 5" exits after five closes held: a holding-period exit.'
+          : expr.field === 'atrs_below_entry'
+            ? 'How far the latest close is below your entry price (above it, for a short), in ATRs as they were when Entry was decided. "Is greater than 2" is a stop 2 ATRs below entry: an ATR stop. Closes are read at the Check Exit bar size.'
+            : expr.field === 'expected_moves_1d' || expr.field === 'expected_moves_5d'
+              ? 'The move since your entry price, in expected moves from the options signal when Entry was decided; positive in your favour. "Is greater than 1" exits beyond one expected move up, "is less than -1" one down. Needs the options feed. Closes are read at the Check Exit bar size.'
+              : expr.field === 'off_peak_pct'
+                ? 'How far the latest close is below the best close since Entry filled (above the lowest, for a short), in percent; the best close starts at the entry price. "Is greater than 5" is a 5% trailing stop. Closes are read at the Check Exit bar size.'
+                : expr.field === 'gain_pct'
+                  ? 'Percent above your average Entry fill price (below it for a short), at each bar close.'
+                  : expr.field === 'entry_price'
+                    ? 'Your average Entry fill price in this cycle.'
+                    : expr.field === 'pnl'
+                      ? 'Unrealized profit or loss in dollars, at each bar close.'
+                      : 'Shares held in this cycle; negative when short.'}
       </p>
     </>
   );

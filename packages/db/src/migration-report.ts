@@ -2,6 +2,7 @@ import {
   migrateV1,
   migrateV2,
   migrateV3,
+  migrateV4,
   parseDefinition,
   STRATEGY_SCHEMA_VERSION,
   validateStrategy,
@@ -52,7 +53,13 @@ export function migrationNotes(doc: Record<string, unknown>): MigrationNote[] {
     d = r.doc;
   }
   // The trailing stop moves into Exit when (ADR 0074).
-  if (d.schemaVersion === 3) notes.push(...migrateV3(d).notes);
+  if (d.schemaVersion === 3) {
+    const r = migrateV3(d);
+    notes.push(...r.notes);
+    d = r.doc;
+  }
+  // The holding-period, ATR and expected-move exits move into Exit when (ADR 0076).
+  if (d.schemaVersion === 4) notes.push(...migrateV4(d).notes);
   return notes;
 }
 
@@ -62,6 +69,7 @@ const KEPT = new Set([
   'ranked_legs_kept',
   'leg_conditions_kept',
   'trailing_stop_kept',
+  'exit_rule_kept',
 ]);
 
 export interface MigrationReportEntry {

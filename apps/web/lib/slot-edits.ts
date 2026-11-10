@@ -2,6 +2,7 @@ import {
   CONTEXT_INSTRUMENT_ID,
   DEFAULT_TRIGGER,
   getMetric,
+  holdingCondition,
   offPeakCondition,
   orInto,
   randomId,
@@ -230,23 +231,6 @@ export function leftGroupRule(): ExitRule {
   return { kind: 'leftGroup', id: randomId() };
 }
 
-export function timeStopRule(barsHeld = 5): ExitRule {
-  return { kind: 'timeStop', id: randomId(), barsHeld };
-}
-
-/** A fixed stop at the Entry's risk distance from the entry price (ADR 0049). */
-export function atrStopRule(): ExitRule {
-  return { kind: 'atrStop', id: randomId() };
-}
-
-/**
- * Exit beyond the expected move at entry (ADR 0053): one 5-day expected move,
- * either way, until the person changes it.
- */
-export function expectedMoveRule(): ExitRule {
-  return { kind: 'expectedMove', id: randomId(), horizon: 5, multiple: '1', side: 'either' };
-}
-
 /**
  * Adds a trailing stop to Exit when (N217, ADR 0074): "Off best close since
  * entry % > percent" on the first Entry leg's instrument, by OR, so it exits
@@ -261,6 +245,32 @@ export function withTrailingCondition(def: StrategyDefinition, percent = '5'): S
   );
   const condition = orInto(def.exit.condition, c) as unknown as ConditionGroup;
   return { ...def, exit: { ...def.exit, condition } };
+}
+
+export type ExitShortcut = 'holdingPeriod' | 'atrStop' | 'expectedMove';
+
+/**
+ * Adds a common exit to Exit when, by OR (N221, ADR 0076), on the first Entry
+ * leg's instrument: "Trading days held ≥ 5"; "Below entry, in ATRs at entry >
+ * 2" with the Entry's risk distance (2 × ATR(20) when it has none); or "Move
+ * since entry, in 5-day expected moves" beyond 1 either way.
+ */
+export function withExitShortcut(def: StrategyDefinition, kind: ExitShortcut): StrategyDefinition {
+  const id = randomId();
+  const at = def.entry.orders[0]?.instrumentId ?? CONTEXT_INSTRUMENT_ID;
+  const d = def.entry.risk ?? DEFAULT_RISK_DISTANCE;
+  const conditions =
+    kind === 'holdingPeriod'
+      ? [holdingCondition(id, at, 'days_held', 'gte', '5')]
+      : kind === 'atrStop'
+        ? [holdingCondition(id, at, 'atrs_below_entry', 'gt', d.atrMultiple, d.atrPeriod)]
+        : [
+            holdingCondition(`${id}-gain`, at, 'expected_moves_5d', 'gt', '1'),
+            holdingCondition(`${id}-loss`, at, 'expected_moves_5d', 'lt', '-1'),
+          ];
+  let condition: unknown = def.exit.condition;
+  for (const c of conditions) condition = orInto(condition, c);
+  return { ...def, exit: { ...def.exit, condition: condition as unknown as ConditionGroup } };
 }
 
 /** The risk distance a new Entry starts with: 2 × ATR(20) (v1.2 item 9). */

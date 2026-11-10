@@ -66,6 +66,10 @@ export const POSITION_FIELD_LABELS = {
   pnl: 'Profit or loss',
   quantity: 'Quantity held',
   off_peak_pct: 'Off best close since entry %',
+  days_held: 'Trading days held',
+  atrs_below_entry: 'Below entry, in ATRs at entry',
+  expected_moves_1d: 'Move since entry, in 1-day expected moves',
+  expected_moves_5d: 'Move since entry, in 5-day expected moves',
 } as const;
 
 export const INTERVAL_LABELS = {

@@ -1,6 +1,6 @@
 # ADR 0074: Trailing stop in Exit when
 
-- **Status:** accepted
+- **Status:** accepted; the other exit rules follow in ADR 0076
 - **Date:** 2026-11-10
 - **Design refs:** design v1.2 row N217. Amends ADR 0059 (the trailing stop rule); builds on
   ADR 0027 (position values in exits) and ADR 0073 (Check Exit, O144)

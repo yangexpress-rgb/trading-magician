@@ -1,7 +1,8 @@
 import Decimal from 'decimal.js';
 import { riskSeries } from './risk-exits';
 import { expectedMoveCloses, expectedMoveExprs } from './expected-move-exit';
-import { offPeakCloses, trailingStopCloses } from './trailing-stop';
+import { holdingMoveExprs, holdingSeries } from './holding-values';
+import { trailingStopCloses } from './trailing-stop';
 import {
   CONTEXT_INSTRUMENT_ID,
   evaluateCondition,
@@ -469,6 +470,8 @@ export function definitionExpressions(def: StrategyDefinition): Expr[] {
   }
   // The expected-move exit reads its options metric at entry (ADR 0053).
   all.push(...expectedMoveExprs(def));
+  // Exit when's expected moves at entry (N221) read the options signal too.
+  all.push(...holdingMoveExprs(def));
   return all;
 }
 
@@ -544,11 +547,12 @@ export function definitionSeries(
   // ATR sizing and ATR stops (v1.2 item 9).
   for (const e of riskSeries(def)) visit(e, 0);
   // The expected-move exit (ADR 0053): its metric at entry, then closes at the stops' bar size.
-  for (const e of [...expectedMoveExprs(def), ...expectedMoveCloses(def)]) visit(e, 0);
+  for (const e of [...expectedMoveExprs(def), ...expectedMoveCloses(def), ...holdingMoveExprs(def)])
+    visit(e, 0);
   // The trailing stop (ADR 0059): closes at the stops' bar size (O144).
   for (const e of trailingStopCloses(def)) visit(e, 0);
-  // Off best close since entry (N217): closes at the Check Exit bar size.
-  for (const e of offPeakCloses(def)) visit(e, 0);
+  // Exit when's holding values (N217, N221): closes at the Check Exit bar size, ATRs at entry.
+  for (const e of holdingSeries(def)) visit(e, 0);
   return out;
 }
 

@@ -216,9 +216,11 @@ test('risk % of equity sized from ATR, with an ATR stop, explained per trade', a
   test.setTimeout(180_000);
   await signUpAndVerify(page, uniqueEmail('risk-atr'));
   const headers = { origin: baseURL! };
-  const s = await createStrategyWithRules(page, baseURL!, 'ATR-sized breakout', (ids, account) =>
-    longBreakout(ids['DEMO-A']!, account),
-  );
+  // An ATR stop saved before N221 (ADR 0076), kept as saved and run as before.
+  const s = await createStrategyWithRules(page, baseURL!, 'ATR-sized breakout', (ids, account) => {
+    const d = longBreakout(ids['DEMO-A']!, account);
+    return { ...d, exit: { ...d.exit, rules: [{ kind: 'atrStop', id: 'atr-stop' }] } };
+  });
 
   // In the builder: Entry leg 1 risks 1% of equity over the Entry's one risk
   // distance, 1 ATR(20), and the Exit's ATR stop uses the same distance (ADR 0049).
@@ -231,7 +233,6 @@ test('risk % of equity sized from ATR, with an ATR stop, explained per trade', a
   const distance = page.getByRole('group', { name: 'Risk distance' }).first();
   await expect(distance.getByLabel('ATR period (daily bars)')).toHaveValue('20');
   await distance.getByLabel('ATRs from the entry price').fill('1');
-  await page.getByRole('button', { name: 'Add an ATR stop' }).click();
   await expect(page.getByLabel(/Use the Entry.s risk distance \(1 × ATR\(20\)\)/)).toBeChecked();
   await page.getByRole('button', { name: 'Save draft' }).click();
   await expect(page.locator('#save-state')).toHaveText('All changes saved');

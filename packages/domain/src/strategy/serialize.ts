@@ -1,6 +1,7 @@
 import { migrateV1 } from './migrate-v1';
 import { migrateV2 } from './migrate-v2';
 import { migrateV3 } from './migrate-v3';
+import { migrateV4 } from './migrate-v4';
 import {
   STRATEGY_SCHEMA_VERSION,
   strategyDefinitionSchema,
@@ -39,6 +40,8 @@ const MIGRATIONS: Record<number, Migration> = {
   2: (doc) => migrateV2(doc).doc,
   // The trailing stop moves into Exit when (ADR 0074).
   3: (doc) => migrateV3(doc).doc,
+  // The holding-period, ATR and expected-move exits move into Exit when (ADR 0076).
+  4: (doc) => migrateV4(doc).doc,
 };
 
 /** Parses a stored or submitted definition, migrating older schema versions first. */

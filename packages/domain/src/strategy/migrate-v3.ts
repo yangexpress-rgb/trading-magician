@@ -31,6 +31,23 @@ function firesOnAnyTrue(exit: Json): boolean {
   );
 }
 
+/**
+ * Whether an exit rule of `part` can become an Exit when condition with the
+ * same exits: a group's Exit (no Fire when; its slots drop it, ADR 0049), or
+ * a Fire when that exits on any check the condition holds. Per-leg conditions
+ * and ranked legs (O148) watch each slot's own leg, which one condition on the
+ * first leg's instrument would not, so those keep their rules.
+ */
+export function movesIntoExitWhen(doc: Json, part: Json, at: string): boolean {
+  const entry = isObj(part.entry) ? part.entry : {};
+  const exit = isObj(part.exit) ? part.exit : {};
+  const isGroup = at === '' && isObj(doc.trade) && doc.trade.kind === 'group';
+  const legSlots =
+    at === '' &&
+    (isObj(entry.rankedLegs) || arr(entry.orders).some((o) => isObj(o) && isObj(o.legCondition)));
+  return !legSlots && (isGroup || firesOnAnyTrue(exit));
+}
+
 /** "Off best close since entry % > percent": the trailing stop as an Exit when condition. */
 export function offPeakCondition(id: string, instrumentId: unknown, percent: unknown): Json {
   return {
@@ -79,14 +96,7 @@ export function migrateV3(input: Json): { doc: Json; notes: MigrationNote[] } {
     const rules = arr(exit.rules);
     const trailing = rules.find((r) => isObj(r) && r.kind === 'trailingStop');
     if (!isObj(trailing)) continue;
-    // A group's Exit has no Fire when (its slots drop it, ADR 0049), so it exits directly.
-    const isGroup = at === '' && isObj(doc.trade) && doc.trade.kind === 'group';
-    // Per-leg conditions and ranked legs (O148) watch each slot's own leg; one
-    // condition on the first leg's instrument would not, so those keep the rule.
-    const legSlots =
-      at === '' &&
-      (isObj(entry.rankedLegs) || arr(entry.orders).some((o) => isObj(o) && isObj(o.legCondition)));
-    if (legSlots || (!isGroup && !firesOnAnyTrue(exit))) {
+    if (!movesIntoExitWhen(doc, part, at)) {
       notes.push({
         code: 'trailing_stop_kept',
         effect: 'grandfathered',

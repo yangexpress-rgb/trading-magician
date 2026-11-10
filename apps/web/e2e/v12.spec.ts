@@ -52,9 +52,10 @@ test('build a group with a time stop, back test it, and read the ranking', async
       .click();
   }
 
-  // A time stop sits in the Exit rules.
-  await page.getByRole('button', { name: 'Add a holding-period exit' }).click();
-  await page.getByLabel('Holding-period exit: trading days held').fill('15');
+  // A holding period is an Exit when condition (N221, ADR 0076).
+  await page.getByRole('button', { name: 'Add a holding-period exit to Exit when' }).click();
+  await expect(exit.getByRole('combobox', { name: 'Value' })).toHaveValue('days_held');
+  await exit.getByRole('textbox', { name: 'Value' }).fill('15');
 
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/selection-builder.png`, fullPage: true });
   await page.getByRole('button', { name: 'Save draft' }).click();
