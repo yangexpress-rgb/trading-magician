@@ -52,7 +52,14 @@ export interface PositionSnapshot {
    * (N217). The engines keep them at the Check Exit bar size.
    */
   peak?: Decimal | undefined;
-  peakClose?: Decimal | undefined;
+  /** The latest close at the Check Exit bar size, on the run's price basis. */
+  checkClose?: Decimal | undefined;
+  /** Trading days since Entry first filled, counting that day (N221). */
+  daysHeld?: number | undefined;
+  /** ATR(period) of daily bars when Entry was decided, by period (N221). */
+  atrAtEntry?: Readonly<Record<number, Decimal>> | undefined;
+  /** The options expected move (a fraction) over 1 or 5 days when Entry was decided (N221). */
+  moveAtEntry?: Readonly<Partial<Record<1 | 5, Decimal>>> | undefined;
 }
 
 export interface SeriesResolver {
@@ -180,6 +187,8 @@ export function withPositions(
 }
 
 const HUNDRED = new Decimal(100);
+/** The ATR period "Below entry, in ATRs at entry" reads when it names none. */
+export const DEFAULT_HOLDING_ATR_PERIOD = 20;
 
 function positionValue(e: PositionExpr, r: SeriesResolver, barsBack: number): Decimal | undefined {
   const p = r.position?.(e.instrumentId);
@@ -189,9 +198,26 @@ function positionValue(e: PositionExpr, r: SeriesResolver, barsBack: number): De
   if (e.field === 'entry_price') return held.averagePrice;
   // The trailing stop as a value (N217): percent off the best close since entry.
   if (e.field === 'off_peak_pct') {
-    if (!held.peak || !held.peakClose || held.peak.isZero()) return undefined;
-    const off = held.peak.minus(held.peakClose).div(held.peak).times(HUNDRED);
+    if (!held.peak || !held.checkClose || held.peak.isZero()) return undefined;
+    const off = held.peak.minus(held.checkClose).div(held.peak).times(HUNDRED);
     return held.quantity.isNegative() ? off.negated() : off;
+  }
+  // The holding-period exit as a value (N221).
+  if (e.field === 'days_held')
+    return held.daysHeld === undefined ? undefined : new Decimal(held.daysHeld);
+  // The ATR stop as a value (N221): how far below the entry price, in ATRs at entry.
+  if (e.field === 'atrs_below_entry') {
+    const atr = held.atrAtEntry?.[e.period ?? DEFAULT_HOLDING_ATR_PERIOD];
+    if (!atr || atr.isZero() || !held.checkClose) return undefined;
+    const below = held.averagePrice.minus(held.checkClose).div(atr);
+    return held.quantity.isNegative() ? below.negated() : below;
+  }
+  // The expected-move exit as a value (N221): the move since entry, in expected moves at entry.
+  if (e.field === 'expected_moves_1d' || e.field === 'expected_moves_5d') {
+    const move = held.moveAtEntry?.[e.field === 'expected_moves_1d' ? 1 : 5];
+    if (!move || !move.gt(0) || !held.checkClose || held.averagePrice.isZero()) return undefined;
+    const n = held.checkClose.minus(held.averagePrice).div(held.averagePrice.times(move));
+    return held.quantity.isNegative() ? n.negated() : n;
   }
   const mark = r.value(markExpr(e), barsBack);
   if (!mark) return undefined;

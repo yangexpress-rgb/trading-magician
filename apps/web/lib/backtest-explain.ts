@@ -162,6 +162,8 @@ export function comparisonEvidence(
     };
     add('entry', 'Entry price');
     add('peak', e.field === 'off_peak_pct' ? 'Best close since entry' : 'Best close');
+    add('atr', 'ATR at entry');
+    add('move', 'Expected move at entry');
     add('close', 'Close checked');
   };
   const crosses = c.operator === 'crosses_above' || c.operator === 'crosses_below';

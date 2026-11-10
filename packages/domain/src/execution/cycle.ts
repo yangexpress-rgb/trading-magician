@@ -72,6 +72,11 @@ export interface CycleState {
   trailPeak?: string | undefined;
   /** Off best close since entry (N217): each holding's best close and the close last checked. */
   peaks?: Record<string, { peak: string; close: string }> | undefined;
+  /** Trading days since Entry first filled, as of the last Check Exit (N221). */
+  daysHeld?: number | undefined;
+  /** ATR(period) and expected moves when Entry was decided, by instrument (N221). */
+  atrsAtEntry?: Record<string, Record<string, string>> | undefined;
+  movesAtEntry?: Record<string, Record<string, string>> | undefined;
   /**
    * Risk-based sizing per Entry leg id (v1.2 item 9): how the quantity was
    * worked out, or why nothing was placed (`no_atr`, `zero_quantity`).

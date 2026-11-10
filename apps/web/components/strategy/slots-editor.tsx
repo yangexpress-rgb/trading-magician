@@ -26,18 +26,16 @@ import {
 import { Card } from '@tm/ui';
 import {
   addAsset,
-  atrStopRule,
   DEFAULT_RISK_DISTANCE,
   defaultRanking,
-  expectedMoveRule,
   fromLegsSelection,
   leftGroupRule,
   removeAsset,
   replaceAsset,
-  timeStopRule,
   toAssets,
   toGroup,
   tradedAssets,
+  withExitShortcut,
   withTrailingCondition,
 } from '@/lib/slot-edits';
 import { ConditionTreeEditor } from './condition-editor';
@@ -592,10 +590,6 @@ export function ExitRulesEditor({
         : definition.entry;
     onChange({ ...definition, entry, exit: next.length > 0 ? { ...exit, rules: next } : exit });
   };
-  const hasTimeStop = rules.some((r) => r.kind === 'timeStop');
-  const hasAtrStop = rules.some((r) => r.kind === 'atrStop');
-  const hasMoveExit = rules.some((r) => r.kind === 'expectedMove');
-  const hasTrailingStop = rules.some((r) => r.kind === 'trailingStop');
   const isGroup = definition.trade.kind === 'group';
   // Stops read closes at the Check Exit bar size (O144, ADR 0073).
   const closes = stopCloseWord(definition);
@@ -610,8 +604,9 @@ export function ExitRulesEditor({
     <div className="mt-4">
       <h3 className="mb-1 text-base font-semibold text-cond">Exits</h3>
       <p className="mb-2 text-sm text-ink-muted">
-        Whichever comes first exits: the Exit condition above or one of these, each time Check Exit
-        is due.
+        {rules.length > 0
+          ? 'Whichever comes first exits: Exit when above or one of these, each time Check Exit is due. The buttons add a common exit to Exit when, under Position.'
+          : 'These add a common exit to Exit when above, under Position (after Entry fills), where you can change it or combine it with anything else.'}
       </p>
       <ul className="space-y-2">
         {rules.map((r, i) => {
@@ -637,7 +632,7 @@ export function ExitRulesEditor({
                 <>
                   <MiniInput
                     id={`rule-${r.id}-bars`}
-                    label="Holding-period exit: trading days held"
+                    label="Holding-period exit (kept as saved): trading days held"
                     type="number"
                     min={1}
                     max={2520}
@@ -672,7 +667,9 @@ export function ExitRulesEditor({
                 </>
               ) : r.kind === 'expectedMove' ? (
                 <div className="w-full space-y-2">
-                  <p className="text-sm font-semibold">Exit beyond the expected move at entry</p>
+                  <p className="text-sm font-semibold">
+                    Exit beyond the expected move at entry (kept as saved)
+                  </p>
                   <div className="grid-fields-wide gap-2">
                     <MiniInput
                       id={`rule-${r.id}-multiple`}
@@ -716,7 +713,7 @@ export function ExitRulesEditor({
                 </div>
               ) : (
                 <div className="w-full space-y-2">
-                  <p className="text-sm font-semibold">ATR stop</p>
+                  <p className="text-sm font-semibold">ATR stop (kept as saved)</p>
                   <label className="flex items-center gap-1.5 text-sm">
                     <input
                       type="checkbox"
@@ -820,36 +817,31 @@ export function ExitRulesEditor({
               + Left the group
             </RowButton>
           )}
-          {!hasTimeStop && (
-            <RowButton
-              label="Add a holding-period exit"
-              onClick={() => setRules([...rules, timeStopRule()])}
-            >
-              + Holding-period exit
-            </RowButton>
-          )}
-          {!hasAtrStop && (
-            <RowButton label="Add an ATR stop" onClick={() => setRules([...rules, atrStopRule()])}>
-              + ATR stop
-            </RowButton>
-          )}
-          {/* A trailing stop is an Exit when condition (N217, ADR 0074). */}
-          {!hasTrailingStop && (
-            <RowButton
-              label="Add a trailing stop to Exit when"
-              onClick={() => onChange(withTrailingCondition(definition))}
-            >
-              + Trailing stop (in Exit when)
-            </RowButton>
-          )}
-          {!hasMoveExit && (
-            <RowButton
-              label="Add an exit beyond the expected move at entry"
-              onClick={() => setRules([...rules, expectedMoveRule()])}
-            >
-              + Expected-move exit
-            </RowButton>
-          )}
+          {/* Each adds its condition to Exit when (N217, N221, ADR 0074, ADR 0076). */}
+          <RowButton
+            label="Add a trailing stop to Exit when"
+            onClick={() => onChange(withTrailingCondition(definition))}
+          >
+            + Trailing stop
+          </RowButton>
+          <RowButton
+            label="Add a holding-period exit to Exit when"
+            onClick={() => onChange(withExitShortcut(definition, 'holdingPeriod'))}
+          >
+            + Holding period
+          </RowButton>
+          <RowButton
+            label="Add an ATR stop to Exit when"
+            onClick={() => onChange(withExitShortcut(definition, 'atrStop'))}
+          >
+            + ATR stop
+          </RowButton>
+          <RowButton
+            label="Add an expected-move exit to Exit when"
+            onClick={() => onChange(withExitShortcut(definition, 'expectedMove'))}
+          >
+            + Expected move
+          </RowButton>
         </div>
       )}
     </div>

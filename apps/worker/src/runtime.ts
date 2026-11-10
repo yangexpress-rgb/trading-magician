@@ -98,7 +98,8 @@ import {
   riskSizingCap,
   stopCloseExpr,
   stopInterval,
-  readsOffPeak,
+  holdingReads,
+  tradingDaysHeld,
   newRuntimeTriggerState,
   slotKey,
   slotModeOf,
@@ -720,10 +721,17 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       const e = c.entries.get(id);
       if (!e || e.quantity.isZero()) return undefined;
       const k = c.cycle.peaks?.[id];
+      const atr = c.cycle.atrsAtEntry?.[id];
+      const move = c.cycle.movesAtEntry?.[id];
+      const decimals = (r: Record<string, string>) =>
+        Object.fromEntries(Object.entries(r).map(([n, v]) => [n, new Decimal(v)]));
       return {
         quantity: c.positions.get(id) ?? ZERO,
         averagePrice: e.cost.div(e.quantity),
-        ...(k ? { peak: new Decimal(k.peak), peakClose: new Decimal(k.close) } : {}),
+        ...(k ? { peak: new Decimal(k.peak), checkClose: new Decimal(k.close) } : {}),
+        ...(c.cycle.daysHeld === undefined ? {} : { daysHeld: c.cycle.daysHeld }),
+        ...(atr ? { atrAtEntry: decimals(atr) } : {}),
+        ...(move ? { moveAtEntry: decimals(move) } : {}),
       };
     });
     // A slot's rules read "this instrument" as the slot's own (v1.2).
@@ -963,12 +971,39 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   // 4. Plan and act on each active cycle.
   const working = () => work.working.length;
   let placedThisPass = 0;
-  // Exit when may read each holding's best close since entry (N217).
-  const offPeak = readsOffPeak(def);
+  // Exit when may read values kept for each holding (N217, N221).
+  const holding = holdingReads(def);
   for (const c of cycles) {
     const cycleDef = cycleDefinition(c);
     // Kept before Exit when is checked, with the trailing stop's arithmetic (ADR 0074).
-    if (offPeak && exitDue && c.cycle.status === 'open') {
+    // ATRs and expected moves Exit when reads, fixed as the rules fix theirs (N221).
+    if (holding.atrPeriods.length > 0 || holding.moveHorizons.length > 0) {
+      const atrs = { ...(c.cycle.atrsAtEntry ?? {}) };
+      const moves = { ...(c.cycle.movesAtEntry ?? {}) };
+      for (const id of new Set(cycleDef.entry.orders.map((o) => o.instrumentId))) {
+        const a = { ...(atrs[id] ?? {}) };
+        for (const period of holding.atrPeriods)
+          if (!a[period]) {
+            const atr = evaluateExpr(atrExpr(id, period), view);
+            if (atr) a[period] = atr.toString();
+          }
+        atrs[id] = a;
+        const m = { ...(moves[id] ?? {}) };
+        for (const h of holding.moveHorizons)
+          if (!m[h]) {
+            const move = evaluateExpr(expectedMoveExpr(id, h), view);
+            if (move && move.gt(0)) m[h] = move.toString();
+          }
+        moves[id] = m;
+      }
+      c.cycle = { ...c.cycle, atrsAtEntry: atrs, movesAtEntry: moves };
+    }
+    if (holding.any && exitDue && c.cycle.status === 'open') {
+      const opened = c.legs
+        .filter((l) => l.phase === 'entry' && l.firstFillAt !== undefined)
+        .map((l) => l.firstFillAt as number);
+      if (opened.length > 0)
+        c.cycle = { ...c.cycle, daysHeld: tradingDaysHeld(Math.min(...opened), t) };
       const peaks = { ...(c.cycle.peaks ?? {}) };
       for (const [id, e] of c.entries) {
         const held = c.positions.get(id) ?? ZERO;

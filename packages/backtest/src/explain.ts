@@ -1,4 +1,5 @@
 import {
+  DEFAULT_HOLDING_ATR_PERIOD,
   evaluateComparison,
   evaluateCondition,
   evaluateExpr,
@@ -80,7 +81,16 @@ function calcInputs(exprs: (Expr | undefined)[], r: SeriesResolver): Record<stri
       out[`${e.id}:entry`] = num(p.averagePrice);
       if (e.field === 'off_peak_pct') {
         out[`${e.id}:peak`] = num(p.peak);
-        out[`${e.id}:close`] = num(p.peakClose);
+        out[`${e.id}:close`] = num(p.checkClose);
+      }
+      // The ATR and expected-move exits as values (N221): what was fixed at entry, and the close.
+      if (e.field === 'atrs_below_entry') {
+        out[`${e.id}:atr`] = num(p.atrAtEntry?.[e.period ?? DEFAULT_HOLDING_ATR_PERIOD]);
+        out[`${e.id}:close`] = num(p.checkClose);
+      }
+      if (e.field === 'expected_moves_1d' || e.field === 'expected_moves_5d') {
+        out[`${e.id}:move`] = num(p.moveAtEntry?.[e.field === 'expected_moves_1d' ? 1 : 5]);
+        out[`${e.id}:close`] = num(p.checkClose);
       }
     }
   };

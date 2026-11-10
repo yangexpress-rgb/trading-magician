@@ -11,7 +11,7 @@ import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 const SHOTS = process.env.E2E_SCREENSHOT_DIR;
 
-test('build a group with a time stop, back test it, and read the ranking', async ({
+test('build a group with a holding period, back test it, and read the ranking', async ({
   page,
   baseURL,
 }) => {
@@ -52,9 +52,10 @@ test('build a group with a time stop, back test it, and read the ranking', async
       .click();
   }
 
-  // A time stop sits in the Exit rules.
-  await page.getByRole('button', { name: 'Add a holding-period exit' }).click();
-  await page.getByLabel('Holding-period exit: trading days held').fill('15');
+  // A holding period is an Exit when condition (N221, ADR 0076).
+  await page.getByRole('button', { name: 'Add a holding-period exit to Exit when' }).click();
+  await expect(exit.getByRole('combobox', { name: 'Value' })).toHaveValue('days_held');
+  await exit.getByRole('textbox', { name: 'Value' }).fill('15');
 
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/selection-builder.png`, fullPage: true });
   await page.getByRole('button', { name: 'Save draft' }).click();
@@ -78,7 +79,9 @@ test('build a group with a time stop, back test it, and read the ranking', async
   await expect(table.locator('tbody tr').first()).toBeVisible();
   await expect(results.getByRole('button', { name: 'Download all rounds (CSV)' })).toBeVisible();
   // Each trade says why it exited.
-  await expect(results.getByText(/Rebalance: no longer selected|Time stop/).first()).toBeVisible();
+  await expect(
+    results.getByText(/Rebalance: no longer selected|Exit condition/).first(),
+  ).toBeVisible();
   if (SHOTS) await results.screenshot({ path: `${SHOTS}/selection-results.png` });
 
   // The cycle card follows the strategy's three parts (N219, N220).

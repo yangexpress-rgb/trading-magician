@@ -53,6 +53,8 @@ export interface MigrationNote {
     | 'ranked_legs_kept'
     | 'leg_conditions_kept'
     | 'trailing_stop_in_exit_when'
+    | 'exit_rule_in_exit_when'
+    | 'exit_rule_kept'
     | 'trailing_stop_kept';
   effect: MigrationEffect;
   message: string;

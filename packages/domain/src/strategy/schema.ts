@@ -11,7 +11,7 @@ import { BAR_INTERVALS, MARKET_FIELDS, PRICE_ADJUSTMENTS, SESSIONS } from './cat
  * rules that need outside context (instruments, accounts, feeds) live in
  * validate.ts. Older documents are migrated on read (migrate-v1.ts, migrate-v2.ts).
  */
-export const STRATEGY_SCHEMA_VERSION = 4 as const;
+export const STRATEGY_SCHEMA_VERSION = 5 as const;
 
 /** Decimal values travel as strings so no precision is lost (§17.1). */
 export const decimalString = z
@@ -83,6 +83,10 @@ export const POSITION_FIELDS = [
   'pnl',
   'quantity',
   'off_peak_pct',
+  'days_held',
+  'atrs_below_entry',
+  'expected_moves_1d',
+  'expected_moves_5d',
 ] as const;
 export type PositionField = (typeof POSITION_FIELDS)[number];
 export interface PositionExpr {
@@ -90,6 +94,8 @@ export interface PositionExpr {
   id: NodeId;
   instrumentId: string;
   field: PositionField;
+  /** `atrs_below_entry` only: the ATR period (N221); 20 when absent. */
+  period?: number | undefined;
   interval: (typeof BAR_INTERVALS)[number];
   adjustment: (typeof PRICE_ADJUSTMENTS)[number];
   session: (typeof SESSIONS)[number];
@@ -172,6 +178,7 @@ export const positionExprSchema = z.object({
   kind: z.literal('position'),
   id,
   field: z.enum(POSITION_FIELDS),
+  period: z.number().int().min(1).max(500).optional(),
   ...seriesSource,
 });
 

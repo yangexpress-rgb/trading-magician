@@ -247,7 +247,7 @@ describe('position values', () => {
               quantity: new Decimal(quantity),
               averagePrice: new Decimal(100),
               peak: new Decimal(peak),
-              peakClose: new Decimal(close),
+              checkClose: new Decimal(close),
             }
           : undefined,
       );
@@ -257,6 +257,38 @@ describe('position values', () => {
     expect(evaluateExpr(off, at(-10, 80, 84))?.toString()).toBe('5');
     // No peak yet (no Check Exit since Entry filled): unknown, so it cannot exit.
     expect(evaluateExpr(off, held(10, 100, [90]))).toBeUndefined();
+  });
+
+  it('reads days held, ATRs below entry and expected moves since entry (N221)', () => {
+    const at = (quantity: number, close: number) =>
+      withPositions(resolver({ pos: [close] }), (id) =>
+        id === STOCK_A
+          ? {
+              quantity: new Decimal(quantity),
+              averagePrice: new Decimal(100),
+              checkClose: new Decimal(close),
+              daysHeld: 4,
+              atrAtEntry: { 20: new Decimal(2), 14: new Decimal(4) },
+              moveAtEntry: { 5: new Decimal('0.05') },
+            }
+          : undefined,
+      );
+    const v = (field: string, quantity: number, close: number, period?: number) =>
+      evaluateExpr(
+        position('pos', { field: field as never, ...(period ? { period } : {}) }),
+        at(quantity, close),
+      )?.toString();
+    expect(v('days_held', 10, 95)).toBe('4');
+    // 5 below a 100 entry is 2.5 ATR(20)s of 2, or 1.25 ATR(14)s of 4.
+    expect(v('atrs_below_entry', 10, 95)).toBe('2.5');
+    expect(v('atrs_below_entry', 10, 95, 14)).toBe('1.25');
+    // For a short the stop is above: a rise reads as positive.
+    expect(v('atrs_below_entry', -10, 105)).toBe('2.5');
+    // A 5% move with a 5% expected move is 1 expected move; positive in the holding's favour.
+    expect(v('expected_moves_5d', 10, 105)).toBe('1');
+    expect(v('expected_moves_5d', -10, 105)).toBe('-1');
+    // No 1-day move was fixed at entry: unknown, so it cannot exit.
+    expect(v('expected_moves_1d', 10, 105)).toBeUndefined();
   });
 
   it('reports the mark series as stale', () => {

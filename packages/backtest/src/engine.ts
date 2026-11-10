@@ -25,7 +25,8 @@ import {
   riskSizingCap,
   stopCloseExpr,
   stopInterval,
-  readsOffPeak,
+  holdingReads,
+  tradingDaysHeld,
   stopCloseWord,
   type RiskSizing,
   entryGroups,
@@ -247,6 +248,11 @@ interface Cycle {
   trailPeak?: Decimal;
   /** Off best close since entry (N217): each holding's best close and the close last checked. */
   peaks?: Map<string, { peak: Decimal; close: Decimal }>;
+  /** Trading days since Entry first filled, as of the last Check Exit (N221). */
+  daysHeld?: number;
+  /** ATRs and expected moves when Entry was decided, by instrument (N221). */
+  atrsAtEntry?: Map<string, Record<number, Decimal>>;
+  movesAtEntry?: Map<string, Partial<Record<1 | 5, Decimal>>>;
   /** Why a group picked this cycle's stock, for the cycle card (N219). */
   pick?: CyclePick;
   /** The trailing stop's last check, for the cycle card (N166). */
@@ -334,7 +340,8 @@ export function simulate({
   /** The group What to trade names, as the engine runs it (ADR 0073). */
   const selection = selectionOf(def);
   /** Whether Exit when reads each holding's best close since entry (N217). */
-  const offPeak = readsOffPeak(def);
+  // Exit when may read values kept for each holding (N217, N221).
+  const holding = holdingReads(def);
   /** A group's Enter when that reads "this stock" is checked per candidate (ADR 0073). */
   const perCandidateEntry = mode === 'selection' && readsThisInstrument(def.entry.condition);
   /** v1.2 features in use: results then say why each cycle exited. */
@@ -491,10 +498,15 @@ export function simulate({
       const p = c.positions.get(id);
       if (!p || p.entryQuantity.isZero()) return undefined;
       const k = c.peaks?.get(id);
+      const atr = c.atrsAtEntry?.get(id);
+      const move = c.movesAtEntry?.get(id);
       return {
         quantity: p.quantity,
         averagePrice: p.entryCost.div(p.entryQuantity),
-        ...(k ? { peak: k.peak, peakClose: k.close } : {}),
+        ...(k ? { peak: k.peak, checkClose: k.close } : {}),
+        ...(c.daysHeld === undefined ? {} : { daysHeld: c.daysHeld }),
+        ...(atr ? { atrAtEntry: atr } : {}),
+        ...(move ? { moveAtEntry: move } : {}),
       };
     });
     // A slot's rules read "this instrument" as the slot's own (v1.2).
@@ -710,6 +722,9 @@ export function simulate({
           'Some positions had no ATR stop because the ATR had too little history at entry',
         );
     }
+    // Exit when's ATRs and expected moves at entry (N221): fixed as the rules fix
+    // theirs, on the bar Entry is decided, for each Entry leg's instrument.
+    if (leg.phase === 'entry') fixAtEntry(c);
     // Expected-move exit (ADR 0053): the options signal as of the bar Entry is decided on.
     const moveRule = leg.phase === 'entry' ? expectedMoveRuleOf(c.def) : undefined;
     if (moveRule && c.moveAtEntry === undefined) {
@@ -1077,7 +1092,9 @@ export function simulate({
    * same arithmetic as the trailing stop, so the converted rule exits on the
    * same closes.
    */
-  function updatePeaks(c: Cycle) {
+  function updatePeaks(c: Cycle, now: number) {
+    const opened = c.events.get('entry_partial_fill');
+    if (opened !== undefined) c.daysHeld = tradingDaysHeld(opened, now);
     const peaks = (c.peaks ??= new Map());
     for (const [id, p] of c.positions) {
       if (p.entryQuantity.isZero() || p.quantity.isZero()) continue;
@@ -1085,6 +1102,27 @@ export function simulate({
       if (close === undefined) continue;
       const start = peaks.get(id)?.peak ?? p.entryCost.div(p.entryQuantity);
       peaks.set(id, { peak: trailingPeak(start, close, p.quantity.gt(0)), close });
+    }
+  }
+
+  /** Fixes the ATRs and expected moves Exit when reads, where not yet known (N221). */
+  function fixAtEntry(c: Cycle) {
+    if (holding.atrPeriods.length === 0 && holding.moveHorizons.length === 0) return;
+    for (const id of new Set(c.def.entry.orders.map((o) => o.instrumentId))) {
+      const atrs = (c.atrsAtEntry ??= new Map()).get(id) ?? {};
+      for (const period of holding.atrPeriods)
+        if (!atrs[period]) {
+          const atr = evaluateExpr(atrExpr(id, period, inputs.adjustment), view);
+          if (atr) atrs[period] = atr;
+        }
+      c.atrsAtEntry.set(id, atrs);
+      const moves = (c.movesAtEntry ??= new Map()).get(id) ?? {};
+      for (const h of holding.moveHorizons)
+        if (!moves[h]) {
+          const move = evaluateExpr(expectedMoveExpr(id, h), view);
+          if (move && move.gt(0)) moves[h] = move;
+        }
+      c.movesAtEntry.set(id, moves);
     }
   }
 
@@ -1499,7 +1537,7 @@ export function simulate({
         c.exitLegs = exitLegsFor(c);
       if (c.state === 'open' && evaluateExit) {
         // Exit when may read each holding's best close since entry (N217): keep it first.
-        if (offPeak) updatePeaks(c);
+        if (holding.any) updatePeaks(c, now);
         const exitRec = groupOf(c).exitRec;
         const row = exitRec.record(iso(now), cycleView(c), c.no);
         const truth = row.truth ?? undefined;

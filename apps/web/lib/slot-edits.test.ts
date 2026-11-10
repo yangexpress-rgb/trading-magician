@@ -12,7 +12,7 @@ import {
   fromLegsSelection,
   removeAsset,
   replaceAsset,
-  timeStopRule,
+  withExitShortcut,
   toAssets,
   toGroup,
   tradedAssets,
@@ -88,9 +88,15 @@ describe('What to trade: a group (ADR 0073)', () => {
     expect(strategyDefinitionSchema.safeParse(def).success).toBe(true);
   });
 
-  it('adds a time stop that parses', () => {
-    const def = fixed();
-    def.exit.rules = [timeStopRule(5)];
+  it('adds the holding-period, ATR and expected-move exits to Exit when (N221)', () => {
+    let def = fixed();
+    for (const kind of ['holdingPeriod', 'atrStop', 'expectedMove'] as const)
+      def = withExitShortcut(def, kind);
+    expect(def.exit.rules).toBeUndefined();
+    const text = JSON.stringify(def.exit.condition);
+    for (const field of ['days_held', 'atrs_below_entry', 'expected_moves_5d'])
+      expect(text).toContain(field);
+    expect(def.exit.condition.op).toBe('or');
     expect(strategyDefinitionSchema.safeParse(def).success).toBe(true);
   });
 });
