@@ -1,5 +1,6 @@
 import { expect } from '@playwright/test';
 import { createStrategyWithRules, group, leg, series } from './backtest-fixtures';
+import { openStockPicker } from './research-helpers';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 /**
@@ -150,6 +151,7 @@ test('VIX: added from search, watched by conditions, charted, never traded', asy
 
   // Research charts years of daily VIX history, badged.
   await page.goto('/research');
+  await openStockPicker(page);
   await page.getByRole('list', { name: 'Indices' }).getByRole('button', { name: /VIX/ }).click();
   await expect(page.getByRole('heading', { name: /VIX/ })).toContainText('Index — not tradable');
   await expect(page.getByTestId('chart-summary')).toBeVisible({ timeout: 30_000 });

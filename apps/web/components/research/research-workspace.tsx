@@ -198,61 +198,111 @@ export function ResearchWorkspace({
         : '';
   const today = nyDate(new Date());
 
-  return (
-    <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
-      <aside className="space-y-4" aria-label="Choose a stock">
-        <StockPicker
-          instruments={instruments}
-          selectedId={sel.instrumentId}
-          onSelect={(instrumentId) =>
-            update({
-              instrumentId,
-              ...viewFor(instruments.find((i) => i.id === instrumentId)),
-              end: null,
-              compare: sel.compare.filter((c) => c !== instrumentId),
-            })
-          }
-          canSearchMarket={canSearchMarket}
-          onAdded={(found) => {
-            setInstruments((cur) =>
-              cur.some((i) => i.id === found.id)
-                ? cur
-                : [...cur, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
-            );
-            update({
-              instrumentId: found.id,
-              ...viewFor(found),
-              end: null,
-              compare: sel.compare.filter((c) => c !== found.id),
-            });
-          }}
-        />
-      </aside>
+  const [picking, setPicking] = useState(false);
+  const pickerBox = useRef<HTMLDivElement>(null);
+  const pickerPanel = useRef<HTMLDivElement>(null);
+  // Opening the picker puts the cursor in its search box.
+  useEffect(() => {
+    if (picking) pickerPanel.current?.querySelector<HTMLInputElement>('input')?.focus();
+  }, [picking]);
+  // A click outside the open picker closes it.
+  useEffect(() => {
+    if (!picking) return;
+    const onDown = (e: MouseEvent) => {
+      if (pickerBox.current && !pickerBox.current.contains(e.target as Node)) setPicking(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [picking]);
 
+  // The stock picker opens over the chart from its title (N201): no card beside the chart.
+  const picker = (
+    <StockPicker
+      instruments={instruments}
+      selectedId={sel.instrumentId}
+      onSelect={(instrumentId) => {
+        setPicking(false);
+        update({
+          instrumentId,
+          ...viewFor(instruments.find((i) => i.id === instrumentId)),
+          end: null,
+          compare: sel.compare.filter((c) => c !== instrumentId),
+        });
+      }}
+      canSearchMarket={canSearchMarket}
+      onAdded={(found) => {
+        setPicking(false);
+        setInstruments((cur) =>
+          cur.some((i) => i.id === found.id)
+            ? cur
+            : [...cur, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
+        );
+        update({
+          instrumentId: found.id,
+          ...viewFor(found),
+          end: null,
+          compare: sel.compare.filter((c) => c !== found.id),
+        });
+      }}
+    />
+  );
+
+  return (
+    <div className="min-w-0">
       <div className="min-w-0 space-y-6">
         <section aria-labelledby="chart-heading" className="min-w-0">
           <Card>
             {!selected ? (
-              <div className="py-16 text-center">
-                <h2 id="chart-heading" className="text-lg font-semibold">
+              <div className="mx-auto max-w-md py-8">
+                <h2 id="chart-heading" className="mb-3 text-center text-lg font-semibold">
                   Pick a stock to see its prices
                 </h2>
-                <p className="mt-1 text-sm text-ink-muted">
-                  Choose one from the list, or find another US stock or ETF by its symbol.
-                </p>
+                {picker}
               </div>
             ) : (
               <>
                 <header className="mb-4 flex flex-wrap items-start justify-between gap-4">
-                  <div className="min-w-0">
+                  <div ref={pickerBox} className="relative min-w-0">
                     <h2
                       id="chart-heading"
                       className="flex flex-wrap items-baseline gap-x-2 text-lg"
                     >
-                      <span className="font-semibold">{selected.symbol}</span>
+                      <span
+                        className="cursor-pointer rounded font-semibold select-none hover:bg-surface-2"
+                        title="Double-click to chart another stock"
+                        onDoubleClick={() => setPicking(true)}
+                        data-testid="chart-symbol"
+                      >
+                        {selected.symbol}
+                      </span>
                       <span className="truncate text-ink-muted">{selected.displayName}</span>
                       {dailyOnly && <Badge tone="warn">{INDEX_BADGE}</Badge>}
+                      <button
+                        type="button"
+                        aria-expanded={picking}
+                        aria-label="Change stock"
+                        title="Change stock"
+                        onClick={() => setPicking((p) => !p)}
+                        className="self-center rounded px-1 text-sm text-ink-muted hover:bg-surface-2 hover:text-ink"
+                      >
+                        ▾
+                      </button>
                     </h2>
+                    {/* Kept mounted while hidden, so a search still running finishes. */}
+                    {
+                      <div
+                        ref={pickerPanel}
+                        role="dialog"
+                        aria-label="Change stock"
+                        hidden={!picking}
+                        className="absolute top-full left-0 z-30 mt-2 w-[24rem] max-w-[calc(100vw-2.5rem)] rounded-lg shadow-lg"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setPicking(false);
+                        }}
+                      >
+                        {picker}
+                      </div>
+                    }
                     <p className="text-xs text-ink-muted">
                       {ASSET_CLASS_LABELS[selected.assetClass] ?? selected.assetClass} ·{' '}
                       {selected.venue === 'DEMO'

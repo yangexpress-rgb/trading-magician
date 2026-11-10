@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect } from '@playwright/test';
+import { openSection, openStockPicker } from './research-helpers';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 /**
@@ -62,6 +63,7 @@ test('adds SEC EDGAR as a company data feed and reads a company’s financials',
 
   // A real stock's chart now has its company section underneath.
   await page.goto('/research');
+  await openStockPicker(page);
   const search = page.getByLabel('Search by ticker or company name');
   await search.fill('ztsta');
   await search.press('Enter');
@@ -69,6 +71,7 @@ test('adds SEC EDGAR as a company data feed and reads a company’s financials',
     timeout: 15_000,
   });
   const company = page.getByRole('region', { name: 'Company' });
+  await openSection(page, 'Company');
   await expect(company.getByText('Test Alpha Inc.')).toBeVisible({ timeout: 15_000 });
   await expect(company.getByText('Company data from SEC EDGAR')).toBeVisible();
   await expect(

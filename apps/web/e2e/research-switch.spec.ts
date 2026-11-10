@@ -1,4 +1,5 @@
 import { expect } from '@playwright/test';
+import { openStockPicker } from './research-helpers';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 /**
@@ -14,6 +15,7 @@ test('every switch shows the selected instrumentâ€™s chart', async ({ page }) =>
   const chart = page.getByTestId('price-chart');
   await expect(chart).toHaveAttribute('aria-label', /^DEMO-IDX,/);
   for (const sym of ['DEMO-C', 'DEMO-A', 'DEMO-IDX', 'DEMO-B']) {
+    await openStockPicker(page);
     await page.getByLabel('Search').fill(sym);
     await page
       .getByRole('button', { name: new RegExp(`^${sym}\\b`) })
@@ -40,6 +42,7 @@ test('a switch whose chart is slow or fails never shows the previous instrumentâ
     await held;
     await route.continue();
   });
+  await openStockPicker(page);
   await page.getByLabel('Search').fill('DEMO-C');
   await page
     .getByRole('button', { name: /^DEMO-C\b/ })
@@ -64,6 +67,7 @@ test('a switch whose chart is slow or fails never shows the previous instrumentâ
       }),
     }),
   );
+  await openStockPicker(page);
   await page.getByLabel('Search').fill('DEMO-A');
   await page
     .getByRole('button', { name: /^DEMO-A\b/ })
