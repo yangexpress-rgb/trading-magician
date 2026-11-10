@@ -46,17 +46,19 @@ test('shows the five tabs in the specified order and marks the current one', asy
   }
 });
 
-test('Trading Strategy holds the Library, Lab and Sharing as tabs', async ({ page }) => {
+test('Trading Strategy holds Strategy Lab, Theory Library and Sharing as tabs under its title', async ({
+  page,
+}) => {
   await signUpAndVerify(page, uniqueEmail('trading-tabs'));
   const nav = page.getByRole('navigation', { name: 'Primary' });
   await nav.getByRole('link', { name: 'Trading Strategy' }).click();
   await expect(page).toHaveURL(/\/strategy-lab$/);
   const tabs = page.getByRole('navigation', { name: 'Trading Strategy' });
-  await expect(tabs.getByRole('link')).toHaveText(['Lab', 'Library', 'Sharing']);
-  for (const [name, path, heading] of [
-    ['Lab', '/strategy-lab', 'Strategy Lab'],
-    ['Sharing', '/sharing', 'Sharing'],
-    ['Library', '/library', 'Theory Library'],
+  await expect(tabs.getByRole('link')).toHaveText(['Strategy Lab', 'Theory Library', 'Sharing']);
+  for (const [name, path] of [
+    ['Strategy Lab', '/strategy-lab'],
+    ['Sharing', '/sharing'],
+    ['Theory Library', '/library'],
   ] as const) {
     await tabs.getByRole('link', { name }).click();
     await expect(page).toHaveURL(new RegExp(`${path}$`));
@@ -65,7 +67,8 @@ test('Trading Strategy holds the Library, Lab and Sharing as tabs', async ({ pag
       'aria-current',
       'page',
     );
-    await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
+    // The page title is "Trading Strategy" and the tabs sit under it, as in Research (N194).
+    await expect(page.getByRole('heading', { level: 1, name: 'Trading Strategy' })).toBeVisible();
   }
   await page.screenshot({ path: 'test-results/trading-strategy-tabs.png' });
 });

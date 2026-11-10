@@ -8,6 +8,7 @@ import { SHARE_KIND_LABELS, SHARE_STATUS_LABELS } from '@/lib/share-text';
 import { appDb } from '@/lib/server/db';
 import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
+import { TradingStrategyNav } from '@/components/trading/trading-strategy-nav';
 
 export const metadata: Metadata = { title: 'Sharing' };
 
@@ -37,9 +38,10 @@ export default async function SharingPage({
   return (
     <>
       <PageHeader
-        title="Sharing"
+        title="Trading Strategy"
         description="Theories and strategies other members shared with you, and the ones you shared. Accepting makes your own copy with a new number; nothing changes for the sender."
       />
+      <TradingStrategyNav />
       <nav aria-label="Sharing" className="mb-4 flex gap-2 border-b border-line">
         {(['received', 'sent'] as const).map((b) => (
           <Link
