@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect } from '@playwright/test';
+import { openSection, openStockPicker } from './research-helpers';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 /**
@@ -26,10 +27,12 @@ test('shows a stock’s options figures, charts and computed chain', async ({ pa
 
   // Without the options feed, the section says how to get it.
   await page.goto('/research');
+  await openStockPicker(page);
   const search = page.getByLabel('Search by ticker or company name');
   await search.fill('ztsta');
   await search.press('Enter');
   const options = page.getByRole('region', { name: 'Options' });
+  await openSection(page, 'Options');
   await expect(options.getByText('CBOE delayed options (daily) is free')).toBeVisible({
     timeout: 15_000,
   });
@@ -41,8 +44,10 @@ test('shows a stock’s options figures, charts and computed chain', async ({ pa
   await expect(add).toBeHidden();
 
   await page.goto('/research');
+  await openStockPicker(page);
   await search.fill('ztsta');
   await search.press('Enter');
+  await openSection(page, 'Options');
   await expect(options.getByTestId('options-figures')).toBeVisible({ timeout: 30_000 });
   const iv30 = options.getByTestId('options-figures').locator('div', { hasText: /^IV30/ });
   await expect(iv30.getByRole('definition')).toHaveText(/^\d+\.\d%$/);

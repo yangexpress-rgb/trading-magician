@@ -1,4 +1,5 @@
 import { expect } from '@playwright/test';
+import { openStockPicker } from './research-helpers';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 /**
@@ -27,13 +28,19 @@ test('picks a stock and reads its price chart', async ({ page }) => {
   ).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText(/Prices from /)).toBeVisible();
 
-  // Without a real data feed, the page says how to search every US stock.
+  // The picker opens from the charted symbol (N199); without a real data feed it says how
+  // to search every US stock.
+  await openStockPicker(page);
   await expect(page.getByTestId('needs-feed')).toContainText('add an Alpaca data feed');
+  // Esc closes it again.
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Change stock' })).toBeHidden();
 
   // Picking another stock opens it on 1D, 5-minute bars, line, whatever was shown before.
   await page.getByRole('group', { name: 'Range' }).getByRole('button', { name: '1Y' }).click();
   await page.getByRole('group', { name: 'Chart' }).getByRole('button', { name: 'Candles' }).click();
   await expect(chart).toHaveAttribute('aria-label', /DEMO-IDX, daily prices over 1 year/);
+  await openStockPicker(page);
   await page.getByLabel('Search').fill('software c');
   await page.getByRole('button', { name: /DEMO-C/ }).click();
   await expect(page.getByRole('heading', { level: 2, name: /DEMO-C/ })).toBeVisible();
@@ -97,6 +104,7 @@ test('finds a US stock by name or ticker and charts it from the Alpaca feed', as
   await expect(add).toBeHidden();
 
   await page.goto('/research');
+  await openStockPicker(page);
   await expect(page.getByTestId('needs-feed')).toBeHidden();
 
   // A company name finds the listing to pick, then its chart.
@@ -121,12 +129,14 @@ test('finds a US stock by name or ticker and charts it from the Alpaca feed', as
   await expect(page.getByText('Prices from Alpaca prices')).toBeVisible();
 
   // An exact ticker, submitted with Enter, is charted straight away.
+  await openStockPicker(page);
   const search = page.getByLabel('Search by ticker or company name');
   await search.fill('ztsta');
   await search.press('Enter');
   await expect(page.getByRole('heading', { level: 2, name: /ZTSTA/ })).toBeVisible({
     timeout: 15_000,
   });
+  await openStockPicker(page);
   await expect(
     page.getByRole('list', { name: 'Your US stocks and ETFs' }).getByRole('button'),
   ).toHaveText([/ZTSTA/, /ZTSTB/]);

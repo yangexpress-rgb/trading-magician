@@ -2,7 +2,7 @@
 
 import { ApiError, type CompanyReportDto, type InstrumentOptionDto } from '@tm/contracts';
 import { companyMetrics, SP500_SECTORS, type CompanyReport } from '@tm/domain';
-import { Alert, Badge, Card, Table, Td, Th } from '@tm/ui';
+import { Alert, Badge, Table, Td, Th } from '@tm/ui';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
@@ -15,6 +15,7 @@ import {
   KEY_FIGURES,
   STATEMENT_LINES,
 } from '@/lib/company-text';
+import { ResearchSection } from './research-section';
 
 const POLL_MS = 800;
 const GIVE_UP_MS = 60_000;
@@ -84,48 +85,44 @@ export function CompanyPanel({
   }, [applies, instrument.symbol]);
 
   return (
-    <Card>
-      <section aria-labelledby="company-heading" className="space-y-4">
-        <header className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 id="company-heading" className="text-lg font-semibold">
-            Company
-          </h2>
-          {result?.source && <Badge>{`Company data from ${result.source}`}</Badge>}
-        </header>
-        {demo ? (
-          <p className="text-sm text-ink-muted">
-            Demo instruments are invented, so they have no company filings. Pick a real US stock to
-            see its financials.
+    <ResearchSection
+      id="company"
+      title="Company"
+      extra={<>{result?.source && <Badge>{`Company data from ${result.source}`}</Badge>}</>}
+    >
+      {demo ? (
+        <p className="text-sm text-ink-muted">
+          Demo instruments are invented, so they have no company filings. Pick a real US stock to
+          see its financials.
+        </p>
+      ) : etf ? (
+        <p className="text-sm text-ink-muted">
+          ETFs and funds file no company financials, so there is nothing to show here.
+        </p>
+      ) : companyFeed === null ? (
+        <div className="text-sm">
+          <p>
+            See this company’s revenue, earnings, balance sheet, profile and filings by adding a
+            company data feed.
           </p>
-        ) : etf ? (
-          <p className="text-sm text-ink-muted">
-            ETFs and funds file no company financials, so there is nothing to show here.
+          <p className="mt-1 text-ink-muted">
+            SEC EDGAR is free and needs only a contact email:{' '}
+            <Link href="/settings/data-feeds" className="underline">
+              add it under Settings › Data feeds
+            </Link>
+            .
           </p>
-        ) : companyFeed === null ? (
-          <div className="text-sm">
-            <p>
-              See this company’s revenue, earnings, balance sheet, profile and filings by adding a
-              company data feed.
-            </p>
-            <p className="mt-1 text-ink-muted">
-              SEC EDGAR is free and needs only a contact email:{' '}
-              <Link href="/settings/data-feeds" className="underline">
-                add it under Settings › Data feeds
-              </Link>
-              .
-            </p>
-          </div>
-        ) : (
-          <>
-            <p role="status" aria-live="polite" className="text-sm text-ink-muted">
-              {loading ? `Loading ${instrument.symbol} company data…` : ''}
-            </p>
-            {error && <Alert>{error}</Alert>}
-            {result?.report && <CompanyReportView report={result.report} price={price} />}
-          </>
-        )}
-      </section>
-    </Card>
+        </div>
+      ) : (
+        <>
+          <p role="status" aria-live="polite" className="text-sm text-ink-muted">
+            {loading ? `Loading ${instrument.symbol} company data…` : ''}
+          </p>
+          {error && <Alert>{error}</Alert>}
+          {result?.report && <CompanyReportView report={result.report} price={price} />}
+        </>
+      )}
+    </ResearchSection>
   );
 }
 

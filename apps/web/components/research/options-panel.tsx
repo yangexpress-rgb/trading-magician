@@ -12,7 +12,7 @@ import {
   type ConePoint,
   type LiveChainView,
 } from '@tm/domain';
-import { Alert, Badge, Card, Table, Td, Th, cx } from '@tm/ui';
+import { Alert, Badge, Table, Td, Th, cx } from '@tm/ui';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
@@ -30,6 +30,7 @@ import {
 } from '@/lib/options-text';
 import { MiniLine, StrikeBars } from './options-charts';
 import { bare } from '@/lib/units';
+import { ResearchSection } from './research-section';
 
 const POLL_MS = 1000;
 const GIVE_UP_MS = 90_000;
@@ -122,12 +123,11 @@ export function OptionsPanel({
   }, [view, onCone]);
 
   return (
-    <Card>
-      <section aria-labelledby="options-heading" className="space-y-4">
-        <header className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 id="options-heading" className="text-lg font-semibold">
-            Options
-          </h2>
+    <ResearchSection
+      id="options"
+      title="Options"
+      extra={
+        <>
           {view && (
             <button
               type="button"
@@ -139,52 +139,53 @@ export function OptionsPanel({
               Refresh
             </button>
           )}
-        </header>
-        {demo ? (
-          <p className="text-sm text-ink-muted">
-            Demo instruments have no options. Pick a real US stock or ETF to see its options data.
+        </>
+      }
+    >
+      {demo ? (
+        <p className="text-sm text-ink-muted">
+          Demo instruments have no options. Pick a real US stock or ETF to see its options data.
+        </p>
+      ) : optionsFeed === null ? (
+        <div className="text-sm">
+          <p>
+            See how far the market expects this stock to move, and how its options are positioned,
+            by turning on the options feed.
           </p>
-        ) : optionsFeed === null ? (
-          <div className="text-sm">
-            <p>
-              See how far the market expects this stock to move, and how its options are positioned,
-              by turning on the options feed.
-            </p>
-            <p className="mt-1 text-ink-muted">
-              CBOE delayed options (daily) is free and needs no key:{' '}
-              <Link href="/settings/data-feeds" className="underline">
-                add it under Settings › Data feeds
-              </Link>
-              .
-            </p>
-          </div>
-        ) : (
-          <>
-            <p role="status" aria-live="polite" className="text-sm text-ink-muted">
-              {loading ? `Loading ${instrument.symbol} option chain…` : ''}
-            </p>
-            {error && <Alert>{error}</Alert>}
-            {view && <ChainView view={view} history={history} />}
-            {!view && !loading && history?.latest && (
-              <p className="text-sm text-ink-muted">Latest recorded day: {history.latest.date}.</p>
-            )}
-            {view && (
-              <footer className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-                <Badge>{`Options from ${optionsFeed}`}</Badge>
-                <span>
-                  Chain at {formatChainTime(view.chainTime)} (about 15 minutes delayed), priced at{' '}
-                  {view.underlyingPrice.toFixed(2)}
-                  {view.priceSource === 'close' ? ' (last close)' : ''}. IV, delta and gamma are the
-                  app’s own (Black–Scholes–Merton, risk-free {formatPct(view.riskFreeRate, 2)},
-                  dividend yield {formatPct(view.dividendYield, 2)}).
-                </span>
-                <span className="basis-full">{CBOE_OPTIONS_DISPLAY_TERMS.attribution}.</span>
-              </footer>
-            )}
-          </>
-        )}
-      </section>
-    </Card>
+          <p className="mt-1 text-ink-muted">
+            CBOE delayed options (daily) is free and needs no key:{' '}
+            <Link href="/settings/data-feeds" className="underline">
+              add it under Settings › Data feeds
+            </Link>
+            .
+          </p>
+        </div>
+      ) : (
+        <>
+          <p role="status" aria-live="polite" className="text-sm text-ink-muted">
+            {loading ? `Loading ${instrument.symbol} option chain…` : ''}
+          </p>
+          {error && <Alert>{error}</Alert>}
+          {view && <ChainView view={view} history={history} />}
+          {!view && !loading && history?.latest && (
+            <p className="text-sm text-ink-muted">Latest recorded day: {history.latest.date}.</p>
+          )}
+          {view && (
+            <footer className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+              <Badge>{`Options from ${optionsFeed}`}</Badge>
+              <span>
+                Chain at {formatChainTime(view.chainTime)} (about 15 minutes delayed), priced at{' '}
+                {view.underlyingPrice.toFixed(2)}
+                {view.priceSource === 'close' ? ' (last close)' : ''}. IV, delta and gamma are the
+                app’s own (Black–Scholes–Merton, risk-free {formatPct(view.riskFreeRate, 2)},
+                dividend yield {formatPct(view.dividendYield, 2)}).
+              </span>
+              <span className="basis-full">{CBOE_OPTIONS_DISPLAY_TERMS.attribution}.</span>
+            </footer>
+          )}
+        </>
+      )}
+    </ResearchSection>
   );
 }
 
