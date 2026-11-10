@@ -17,7 +17,7 @@ test('steps back a week, goes to a date and comes back to the latest', async ({ 
   await expect(chart).toHaveAttribute('aria-label', /^DEMO-IDX, 5-minute prices over 1 day/);
 
   await page.getByRole('group', { name: 'Range' }).getByRole('button', { name: '1W' }).click();
-  await expect(chart).toHaveAttribute('aria-label', /daily prices over 1 week/);
+  await expect(chart).toHaveAttribute('aria-label', /hourly prices over 1 week/);
   const date = page.getByRole('group', { name: 'Date' });
   await expect(date.getByLabel('Chart ends on')).toHaveValue(nyToday());
   await expect(date.getByRole('button', { name: 'Latest' })).toBeDisabled();
@@ -26,7 +26,7 @@ test('steps back a week, goes to a date and comes back to the latest', async ({ 
   await date.getByRole('button', { name: 'Previous 1 week' }).click();
   await expect(page).toHaveURL(/date=\d{4}-\d{2}-\d{2}/);
   await expect(page.getByTestId('chart-summary')).toContainText(/1 week to \w{3} \d+, \d{4}/);
-  await expect(chart).toHaveAttribute('aria-label', /daily prices over 1 week/);
+  await expect(chart).toHaveAttribute('aria-label', /hourly prices over 1 week/);
   await expect(page.getByTestId('chart-readout')).not.toContainText('latest');
 
   // A chosen day, kept on reload.
@@ -34,7 +34,7 @@ test('steps back a week, goes to a date and comes back to the latest', async ({ 
   await expect(page).toHaveURL(/date=2026-03-13/);
   await page.reload();
   await expect(date.getByLabel('Chart ends on')).toHaveValue('2026-03-13');
-  await expect(page.getByTestId('chart-span')).toContainText('Mar 13, 2026');
+  await expect(page.getByTestId('chart-span')).toContainText('Mar 13');
 
   // A single day steps by trading days: back from Monday 16 March is Friday 13 March.
   await page.getByRole('group', { name: 'Range' }).getByRole('button', { name: '1D' }).click();

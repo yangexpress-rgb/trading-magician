@@ -20,11 +20,11 @@ test('picks a stock and reads its price chart', async ({ page }) => {
   await expect(chartHeading).toBeVisible();
   const chart = page.getByTestId('price-chart');
   await expect(chart).toBeVisible();
-  // Opens on the latest session: 5-minute bars, as a line.
+  // Opens on the latest session: 5-minute bars, as candles (N203).
   await expect(chart).toHaveAttribute('aria-label', /DEMO-IDX, 5-minute prices over 1 day/);
   await expect(page.getByTestId('chart-summary')).toContainText('1 day');
   await expect(
-    page.getByRole('group', { name: 'Chart' }).getByRole('button', { name: 'Line' }),
+    page.getByRole('group', { name: 'Chart' }).getByRole('button', { name: 'Candles' }),
   ).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText(/Prices from /)).toBeVisible();
 
@@ -36,24 +36,28 @@ test('picks a stock and reads its price chart', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog', { name: 'Change stock' })).toBeHidden();
 
-  // Picking another stock opens it on 1D, 5-minute bars, line, whatever was shown before.
+  // Picking another stock opens it on 1D, 5-minute bars, candles, whatever was shown before.
   await page.getByRole('group', { name: 'Range' }).getByRole('button', { name: '1Y' }).click();
-  await page.getByRole('group', { name: 'Chart' }).getByRole('button', { name: 'Candles' }).click();
+  await page.getByRole('group', { name: 'Chart' }).getByRole('button', { name: 'Line' }).click();
   await expect(chart).toHaveAttribute('aria-label', /DEMO-IDX, daily prices over 1 year/);
   await openStockPicker(page);
   await page.getByLabel('Search').fill('software c');
   await page.getByRole('button', { name: /DEMO-C/ }).click();
   await expect(page.getByRole('heading', { level: 2, name: /DEMO-C/ })).toBeVisible();
   await expect(chart).toHaveAttribute('aria-label', /^DEMO-C, 5-minute prices over 1 day/);
-  await expect(page).not.toHaveURL(/style=candles/);
+  await expect(page).not.toHaveURL(/style=line/);
   await expect(page).toHaveURL(/instrument=[0-9a-f-]{36}/);
 
-  // Hourly bars over a month, as candles.
+  // A week opens on hourly bars (N203).
+  await page.getByRole('group', { name: 'Range' }).getByRole('button', { name: '1W' }).click();
+  await expect(chart).toHaveAttribute('aria-label', /DEMO-C, hourly prices over 1 week/);
+
+  // Hourly bars over a month, as a line.
   await page.getByRole('group', { name: 'Range' }).getByRole('button', { name: '1M' }).click();
   await page.getByRole('group', { name: 'Bars' }).getByRole('button', { name: 'Hourly' }).click();
-  await page.getByRole('group', { name: 'Chart' }).getByRole('button', { name: 'Candles' }).click();
+  await page.getByRole('group', { name: 'Chart' }).getByRole('button', { name: 'Line' }).click();
   await expect(chart).toHaveAttribute('aria-label', /DEMO-C, hourly prices over 1 month/);
-  await expect(page).toHaveURL(/range=1m&interval=1h&style=candles/);
+  await expect(page).toHaveURL(/range=1m&interval=1h&style=line/);
 
   // Hourly is not offered for a year; picking a year falls back to daily.
   await page.getByRole('group', { name: 'Range' }).getByRole('button', { name: '1Y' }).click();

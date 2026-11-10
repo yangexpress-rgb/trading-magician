@@ -2,7 +2,7 @@ DROP INDEX "strategy_share_pending_uq";--> statement-breakpoint
 ALTER TABLE "strategy_share" ALTER COLUMN "source_entry_id" DROP NOT NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX "strategy_share_pending_uq" ON "strategy_share" USING btree ("sender_id","recipient_id",coalesce("source_strategy_id", "source_entry_id")) WHERE "strategy_share"."status" = 'pending';--> statement-breakpoint
 ALTER TABLE "strategy_share" ADD CONSTRAINT "strategy_share_library_source" CHECK ("strategy_share"."kind" <> 'library' or "strategy_share"."source_entry_id" is not null);--> statement-breakpoint
--- Strategies and theories are separate objects (N203, ADR 0072). A save no
+-- Strategies and theories are separate objects (N205, ADR 0072). A save no
 -- longer creates a theory; a strategy refers to any theory, or to none.
 -- Records auto-created before this stay, and so do their links (Yong's choice,
 -- O141): each such strategy now shows that record as its theory. No data changes.

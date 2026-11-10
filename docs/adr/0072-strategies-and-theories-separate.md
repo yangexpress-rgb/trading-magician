@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-10
-- **Design refs:** design v1.2 row N203, open point O141. Replaces ADR 0054 D3 (auto-created
+- **Design refs:** design v1.2 row N205, open point O141. Replaces ADR 0054 D3 (auto-created
   records) and the "none referred for an auto-created theory" rule of N187; amends ADR 0056
   (Lab shares) and ADR 0071
 

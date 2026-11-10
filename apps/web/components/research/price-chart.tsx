@@ -8,7 +8,7 @@ import {
   type ConePoint,
 } from '@tm/domain';
 import { Table, Td, Th } from '@tm/ui';
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   alignBars,
   axisScaleFor,
@@ -110,6 +110,7 @@ export function PriceChart({
   onNeedEarlier,
   onNeedLater,
   onViewChange,
+  leading,
 }: {
   symbol: string;
   bars: readonly Bar[];
@@ -134,6 +135,8 @@ export function PriceChart({
   onNeedLater?: () => void;
   /** The bars in view, and whether the person moved or zoomed away from the opening view. */
   onViewChange?: (first: Bar, last: Bar, moved: boolean) => void;
+  /** Controls drawn on the readout's row, before it, such as the Date row (N204). */
+  leading?: ReactNode;
 }) {
   const id = useId();
   const box = useRef<HTMLDivElement>(null);
@@ -429,36 +432,39 @@ export function PriceChart({
         {symbol} price chart
       </figcaption>
       {/* The readout: the hovered bar, or the latest one in view. Values lead. */}
-      <dl
-        aria-live="polite"
-        className="mb-2 flex flex-wrap gap-x-5 gap-y-1 text-sm tabular-nums"
-        data-testid="chart-readout"
-      >
-        <div>
-          <dt className="sr-only">Time</dt>
-          <dd className="text-ink-muted">
-            {bar ? formatBarTime(bar.t, interval) : '—'}
-            {active === null && bar && atNewest && atLatest ? ' · latest' : ''}
-          </dd>
-        </div>
-        {(
-          [
-            ['Open', bar?.open],
-            ['High', bar?.high],
-            ['Low', bar?.low],
-            ['Close', bar?.close],
-          ] as const
-        ).map(([label, v]) => (
-          <div key={label} className="flex gap-1">
-            <dt className="text-ink-muted">{label}</dt>
-            <dd className="text-content">{v === undefined ? '—' : formatPrice(v)}</dd>
+      <div className="mb-2 flex flex-wrap items-center gap-x-6 gap-y-2">
+        {leading}
+        <dl
+          aria-live="polite"
+          className="flex flex-wrap gap-x-5 gap-y-1 text-sm tabular-nums"
+          data-testid="chart-readout"
+        >
+          <div>
+            <dt className="sr-only">Time</dt>
+            <dd className="text-ink-muted">
+              {bar ? formatBarTime(bar.t, interval) : '—'}
+              {active === null && bar && atNewest && atLatest ? ' · latest' : ''}
+            </dd>
           </div>
-        ))}
-        <div className="flex gap-1">
-          <dt className="text-ink-muted">Volume</dt>
-          <dd className="text-content">{bar ? formatVolume(bar.volume) : '—'}</dd>
-        </div>
-      </dl>
+          {(
+            [
+              ['Open', bar?.open],
+              ['High', bar?.high],
+              ['Low', bar?.low],
+              ['Close', bar?.close],
+            ] as const
+          ).map(([label, v]) => (
+            <div key={label} className="flex gap-1">
+              <dt className="text-ink-muted">{label}</dt>
+              <dd className="text-content">{v === undefined ? '—' : formatPrice(v)}</dd>
+            </div>
+          ))}
+          <div className="flex gap-1">
+            <dt className="text-ink-muted">Volume</dt>
+            <dd className="text-content">{bar ? formatVolume(bar.volume) : '—'}</dd>
+          </div>
+        </dl>
+      </div>
       {comparing && (
         <ul
           aria-label="Symbols on the chart"
