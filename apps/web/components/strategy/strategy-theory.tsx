@@ -3,7 +3,7 @@
 import { ApiError, type StrategyLibraryDto } from '@tm/contracts';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { EntrySearch, toChoiceRequest, type LibraryPick } from './library-entry-field';
 import { useRowVersion } from './row-version';
@@ -33,6 +33,7 @@ export function StrategyTheoryLine({
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
+  const lineRef = useRef<HTMLSpanElement>(null);
   const referred = library && !library.autoCreated ? library : null;
   const start = () => {
     if (!editable) return;
@@ -64,6 +65,7 @@ export function StrategyTheoryLine({
   return (
     <div className="mt-1 text-sm" aria-busy={pending || undefined}>
       <span
+        ref={lineRef}
         tabIndex={referred ? undefined : 0}
         title={hint}
         className="cursor-default rounded"
@@ -107,7 +109,12 @@ export function StrategyTheoryLine({
             // Referring to none already means its own record; "new" is how to stop referring.
             offerNew={referred !== null}
             onPick={(choice) => void pick(choice)}
-            onClose={() => setOpen(false)}
+            onClose={() => {
+              setOpen(false);
+              // Back to the line as it was, with the keyboard where it started.
+              const line = lineRef.current;
+              (line?.querySelector<HTMLElement>('a') ?? line)?.focus();
+            }}
           />
         </div>
       )}

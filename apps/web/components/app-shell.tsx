@@ -10,6 +10,7 @@ import {
 } from '@tm/ui';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { EscapeCloses } from './escape-closes';
 import { NavLink } from './nav-link';
 import { NotificationsLink } from './notifications-link';
 import { SignOutButton } from './sign-out-button';
@@ -56,6 +57,7 @@ export function AppShell({
   const nav: readonly NavItem[] = isAdmin ? [...PRIMARY_NAV, ADMIN_NAV] : PRIMARY_NAV;
   return (
     <div className="min-h-screen md:grid md:grid-cols-[232px_1fr]">
+      <EscapeCloses />
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-10 focus:rounded focus:bg-surface focus:px-3 focus:py-2"

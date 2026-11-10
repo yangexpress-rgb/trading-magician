@@ -385,9 +385,20 @@ function Muted({ children }: { children: ReactNode }) {
 
 function BuiltLink({ entry }: { entry: NonNullable<Awaited<ReturnType<typeof getLibraryEntry>>> }) {
   const b = entry.builtStrategy;
+  // Many strategies may refer to one theory (ADR 0069, N193).
+  const mine = entry.referringStrategies;
   return (
-    <Field label="Built strategy">
-      {!b ? (
+    <Field label={mine.length > 1 ? 'Built strategies' : 'Built strategy'}>
+      {mine.length > 0 ? (
+        <ul className="space-y-1">
+          {mine.map((s) => (
+            <li key={s.id}>
+              <Link href={`/strategy-lab/${s.id}`}>{s.name}</Link>
+              {s.archived && <span className="text-ink-muted"> (archived)</span>}
+            </li>
+          ))}
+        </ul>
+      ) : !b ? (
         <Muted>Not built.</Muted>
       ) : b.visibility === 'yours' ? (
         <p>

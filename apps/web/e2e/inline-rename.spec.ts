@@ -64,6 +64,14 @@ test('a strategy is renamed by double-clicking its name, on its page and in the 
   await theory.dblclick();
   const search = page.getByLabel('Search the Library by number or name');
   await expect(search).toBeFocused();
+  // Esc cancels the search and puts the line back as it was (N194).
+  await search.fill('trend');
+  await page.keyboard.press('Escape');
+  await expect(search).toHaveCount(0);
+  await expect(theory).toContainText('Theory none referred');
+  await expect(theory).toBeFocused();
+  await theory.dblclick();
+  await expect(search).toBeFocused();
   await expect(page.getByRole('button', { name: 'New Library record' })).toHaveCount(0);
   const choice = page.getByRole('button', { name: /^T\d{5}-[A-Z]{2} .*Not built/ }).first();
   const theoryNumber = ((await choice.textContent()) ?? '').match(/T\d{5}-[A-Z]{2}/)![0];

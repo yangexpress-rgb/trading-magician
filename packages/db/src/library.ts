@@ -37,7 +37,7 @@ import {
   type RegistrationCodes,
   type UsedBy,
 } from '@tm/domain';
-import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { z } from 'zod';
 import type { Transaction } from './client';
 import { sharedProvenance, type SharedProvenance } from './share-provenance';
@@ -137,6 +137,8 @@ export interface LibraryEntry extends LibraryEntrySummary {
     | { visibility: 'yours_deleted'; id: string }
     | { visibility: 'elsewhere' }
     | null;
+  /** The viewer's own live strategies that refer to this theory, oldest first (ADR 0069). */
+  referringStrategies: { id: string; name: string; archived: boolean }[];
   /** A shared copy (ADR 0056): the number it was copied from, shown to everyone. */
   copiedFrom: string | null;
   /** Who shared it; only the sender and the recipient see this. */
@@ -404,7 +406,7 @@ export async function getLibraryEntry(
   if (!row) return null;
   const isSeed = row.seedKey !== null;
 
-  const [versions, history, related] = await Promise.all([
+  const [versions, history, related, referring] = await Promise.all([
     listConventionVersions(tx),
     tx
       .select()
@@ -421,6 +423,12 @@ export async function getLibraryEntry(
           .from(entries)
           .where(inArray(entries.registrationNumber, row.relatedEntries))
       : Promise.resolve([]),
+    // Row-level security limits this to the viewer's own workspace.
+    tx
+      .select({ id: strategies.id, name: strategies.name, archivedAt: strategies.archivedAt })
+      .from(strategies)
+      .where(and(eq(strategies.libraryEntryId, row.id), isNull(strategies.deletedAt)))
+      .orderBy(asc(strategies.createdAt), asc(strategies.id)),
   ]);
 
   let builtStrategy: LibraryEntry['builtStrategy'] = null;
@@ -468,6 +476,11 @@ export async function getLibraryEntry(
     })),
     builtStrategyId: row.builtStrategyId,
     builtStrategy,
+    referringStrategies: referring.map((r) => ({
+      id: r.id,
+      name: r.name,
+      archived: r.archivedAt !== null,
+    })),
     copiedFrom: row.copiedFrom,
     sharedBy: await sharedProvenance(tx, row.receivedShareId),
     retiredReason: row.retiredReason,
@@ -763,7 +776,10 @@ export async function updateLibraryEntry(
     throw new LibraryError('bad_request', 'Nothing changed. Edit a field before saving.');
   }
   const linkChanged = changed.includes('builtStrategyId');
-  if (linkChanged) await checkLinkChange(tx, actorId, row, values.builtStrategyId);
+  if (linkChanged) {
+    await checkLinkChange(tx, actorId, row, values.builtStrategyId);
+    values.builtStrategyId = await keepBuiltWhileReferred(tx, row, values.builtStrategyId);
+  }
 
   const [updated] = await tx
     .update(entries)
@@ -862,6 +878,8 @@ export async function linkLibraryEntry(
   if (!row) throw new LibraryError('not_found', 'No entry has that registration number');
   if (row.builtStrategyId === strategyId) return;
   await checkLinkChange(tx, actorId, row, strategyId);
+  strategyId = await keepBuiltWhileReferred(tx, row, strategyId);
+  if (row.builtStrategyId === strategyId) return;
   await tx
     .update(entries)
     .set({
@@ -943,21 +961,91 @@ export async function setStrategyEntry(
     .where(and(eq(strategies.id, strategyId), isNull(strategies.deletedAt)));
 }
 
-/** The named refusal for a record built by another strategy (brief D6), or null. */
-export async function builtElsewhereMessage(
+/**
+ * Another of the actor's live strategies that refers to this theory, oldest
+ * first, or null (ADR 0069: many strategies may refer to one theory). Row-level
+ * security limits the read to the actor's own workspace.
+ */
+export async function otherReferringStrategy(
+  tx: Transaction,
+  entryId: string,
+  exceptStrategyId: string,
+): Promise<{ id: string; name: string } | null> {
+  const [s] = await tx
+    .select({ id: strategies.id, name: strategies.name })
+    .from(strategies)
+    .where(
+      and(
+        eq(strategies.libraryEntryId, entryId),
+        ne(strategies.id, exceptStrategyId),
+        isNull(strategies.deletedAt),
+      ),
+    )
+    .orderBy(asc(strategies.createdAt), asc(strategies.id))
+    .limit(1);
+  return s ?? null;
+}
+
+/**
+ * A strategy stops referring to a theory (ADR 0069). The record's built link
+ * names one of the strategies that refer to it; when that was this strategy
+ * it moves to another of the actor's strategies still referring to it, and
+ * the record goes back to Not built only when none is left. The record and
+ * its number stay.
+ */
+export async function releaseEntry(
   tx: Transaction,
   actorId: string,
-  row: Pick<EntryRow, 'registrationNumber' | 'builtStrategyId' | 'builtStrategyOwner'>,
-  strategyId: string | null,
-): Promise<string | null> {
-  if (!row.builtStrategyId || row.builtStrategyId === strategyId) return null;
-  if (row.builtStrategyOwner !== actorId) {
-    return `${row.registrationNumber} is built in another member's Strategy Lab`;
+  entryId: string,
+  strategy: { id: string; name: string },
+  why: string,
+): Promise<void> {
+  const [row] = await tx
+    .select({ built: entries.builtStrategyId })
+    .from(entries)
+    .where(eq(entries.id, entryId));
+  if (!row || row.built !== strategy.id) return;
+  const next = await otherReferringStrategy(tx, entryId, strategy.id);
+  await setEntryBuilt(
+    tx,
+    actorId,
+    entryId,
+    next?.id ?? null,
+    next
+      ? `${why}; still built by “${next.name}”`
+      : `Unlinked: ${why.charAt(0).toLowerCase()}${why.slice(1)}`,
+  );
+}
+
+/**
+ * A strategy starts referring to a theory (ADR 0069). The record reads Built
+ * from then on: its built link names this strategy unless another live
+ * strategy already holds it, in which case it stays as it is.
+ */
+export async function claimEntry(
+  tx: Transaction,
+  actorId: string,
+  entryId: string,
+  strategy: { id: string; name: string },
+): Promise<void> {
+  const [row] = await tx
+    .select({ built: entries.builtStrategyId, owner: entries.builtStrategyOwner })
+    .from(entries)
+    .where(eq(entries.id, entryId));
+  if (!row) return;
+  if (row.built && row.built !== strategy.id) {
+    // Another member's link can't be checked from here: it stays.
+    if (row.owner !== actorId) return;
+    // One of the actor's own strategies still holds it.
+    if (await strategyLinkRow(tx, row.built)) return;
   }
-  const other = await strategyLinkRow(tx, row.builtStrategyId);
-  // A link to a deleted strategy no longer holds the record.
-  if (!other) return null;
-  return `${row.registrationNumber} is already built by ${other.name} — unlink that strategy first`;
+  await setEntryBuilt(
+    tx,
+    actorId,
+    entryId,
+    strategy.id,
+    `Linked to the Strategy Lab strategy “${strategy.name}”`,
+  );
 }
 
 /**
@@ -978,7 +1066,21 @@ async function checkLinkChange(
   }
 }
 
-/** The strategy becomes this record: its previous record goes back to Not built. */
+/**
+ * Clearing a record's built link from the Library unlinks the strategy it
+ * named; while other strategies of the actor still refer to the record, the
+ * link moves to one of them instead of reading Not built (ADR 0069).
+ */
+async function keepBuiltWhileReferred(
+  tx: Transaction,
+  row: EntryRow,
+  strategyId: string | null,
+): Promise<string | null> {
+  if (strategyId || !row.builtStrategyId) return strategyId;
+  return (await otherReferringStrategy(tx, row.id, row.builtStrategyId))?.id ?? null;
+}
+
+/** The strategy refers to this record: its previous record is released (ADR 0069). */
 async function adoptStrategy(
   tx: Transaction,
   actorId: string,
@@ -987,12 +1089,12 @@ async function adoptStrategy(
   registrationNumber: string,
 ): Promise<void> {
   if (strategy.libraryEntryId && strategy.libraryEntryId !== entryId) {
-    await setEntryBuilt(
+    await releaseEntry(
       tx,
       actorId,
       strategy.libraryEntryId,
-      null,
-      `Unlinked: the Strategy Lab strategy “${strategy.name}” now uses ${registrationNumber}`,
+      strategy,
+      `The Strategy Lab strategy “${strategy.name}” now uses ${registrationNumber}`,
     );
   }
   await setStrategyEntry(tx, strategy.id, entryId);
