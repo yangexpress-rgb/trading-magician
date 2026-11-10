@@ -38,8 +38,8 @@ import { PriceChart, type ChartStyle, type ComparedSeries } from './price-chart'
 import { StockPicker } from './stock-picker';
 import { useChartHistory } from './use-chart-history';
 
-/** Every stock or ETF opens on its latest session: 5-minute bars, as a line. */
-const OPENING_VIEW = { range: '1d', interval: '5m', style: 'line' } as const;
+/** Every stock or ETF opens on its latest session: 5-minute bars, as candles (N203). */
+const OPENING_VIEW = { range: '1d', interval: '5m', style: 'candles' } as const;
 /** An index has daily bars only (CBOE end-of-day, v1.2 item 5): it opens on 5 years of them. */
 const INDEX_VIEW = { range: '5y', interval: '1d', style: 'line' } as const;
 const viewFor = (i: InstrumentOptionDto | undefined) =>
@@ -97,11 +97,13 @@ export function ResearchWorkspace({
     setSel((cur) => {
       const next = { ...cur, ...patch };
       // Hourly bars only go back 3 months; a longer range falls back to daily.
-      // Each range opens on bars it offers: a day on 5-minute bars, longer ranges on daily.
+      // Each range opens on bars it offers: a day on 5-minute bars, a week on hourly (N203),
+      // longer ranges on daily.
+      const ownBars = (r: ChartRange) => r === '1d' || r === '1w';
       if (patch.range && patch.range !== cur.range && !patch.interval) {
         next.interval =
-          patch.range === '1d' ||
-          cur.range === '1d' ||
+          ownBars(patch.range) ||
+          ownBars(cur.range) ||
           !chartIntervalAllowed(next.range, next.interval)
             ? defaultChartInterval(next.range)
             : next.interval;
@@ -120,7 +122,7 @@ export function ResearchWorkspace({
     if (sel.instrumentId) q.set('instrument', sel.instrumentId);
     q.set('range', sel.range);
     q.set('interval', sel.interval);
-    if (sel.style !== 'line') q.set('style', sel.style);
+    if (sel.style !== 'candles') q.set('style', sel.style);
     if (sel.end) q.set('date', sel.end);
     if (sel.compare.length) q.set('compare', sel.compare.join(','));
     router.replace(`/research?${q.toString()}`, { scroll: false });
@@ -247,6 +249,60 @@ export function ResearchWorkspace({
     />
   );
 
+  /** The Date controls (N196), on one row with the bar readout (N204). */
+  const dateRow = (
+    <div role="group" aria-label="Date" className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-medium text-ink-muted">Date</span>
+      <button
+        type="button"
+        className="h-7 rounded-md border border-line bg-surface-2 px-2 text-sm"
+        aria-label={`Previous ${sel.range === '1d' ? 'trading day' : RANGE_NAMES[sel.range]}`}
+        title={`Previous ${sel.range === '1d' ? 'trading day' : RANGE_NAMES[sel.range]}`}
+        onClick={() => update({ end: stepChartEnd(sel.range, sel.end, -1, new Date()) })}
+      >
+        ‹
+      </button>
+      <label className="sr-only" htmlFor="chart-end-date">
+        Chart ends on
+      </label>
+      <input
+        id="chart-end-date"
+        type="date"
+        max={today}
+        min="2000-01-01"
+        value={sel.end ?? today}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+          update({ end: v >= today ? null : v });
+        }}
+        className="h-7 rounded-md border border-line bg-surface px-2 text-sm tabular-nums"
+      />
+      <button
+        type="button"
+        className="h-7 rounded-md border border-line bg-surface-2 px-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+        aria-label={`Next ${sel.range === '1d' ? 'trading day' : RANGE_NAMES[sel.range]}`}
+        title={`Next ${sel.range === '1d' ? 'trading day' : RANGE_NAMES[sel.range]}`}
+        disabled={!sel.end}
+        onClick={() => update({ end: stepChartEnd(sel.range, sel.end, 1, new Date()) })}
+      >
+        ›
+      </button>
+      <button
+        type="button"
+        className="h-7 rounded-md border border-line bg-surface-2 px-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+        disabled={!sel.end}
+        onClick={() => update({ end: null })}
+      >
+        Latest
+      </button>
+      <span className="text-xs text-ink-muted">
+        {sel.end
+          ? `${RANGE_NAMES[sel.range]} ending ${formatDay(sel.end)}`
+          : `${RANGE_NAMES[sel.range]} to today`}
+      </span>
+    </div>
+  );
   return (
     <div className="min-w-0">
       <div className="min-w-0 space-y-6">
@@ -363,86 +419,29 @@ export function ResearchWorkspace({
                     ]}
                     onChange={(style) => update({ style })}
                   />
+                  <ComparePicker
+                    instruments={instruments}
+                    mainId={selected.id}
+                    compared={compared}
+                    canSearchMarket={canSearchMarket}
+                    onAdd={(id) => update({ compare: [...sel.compare, id].slice(0, MAX_COMPARE) })}
+                    onRemove={(id) => update({ compare: sel.compare.filter((c) => c !== id) })}
+                    onFound={(found) => {
+                      setInstruments((cur) =>
+                        cur.some((i) => i.id === found.id)
+                          ? cur
+                          : [...cur, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
+                      );
+                      if (found.id !== selected.id && !sel.compare.includes(found.id))
+                        update({ compare: [...sel.compare, found.id].slice(0, MAX_COMPARE) });
+                    }}
+                  />
                   <p role="status" aria-live="polite" className="text-sm text-ink-muted">
                     {loading ? `Loading ${selected.symbol} prices…` : ''}
                   </p>
                 </div>
 
-                <div
-                  role="group"
-                  aria-label="Date"
-                  className="mb-3 flex flex-wrap items-center gap-2"
-                >
-                  <span className="text-xs font-medium text-ink-muted">Date</span>
-                  <button
-                    type="button"
-                    className="h-7 rounded-md border border-line bg-surface-2 px-2 text-sm"
-                    aria-label={`Previous ${sel.range === '1d' ? 'trading day' : RANGE_NAMES[sel.range]}`}
-                    title={`Previous ${sel.range === '1d' ? 'trading day' : RANGE_NAMES[sel.range]}`}
-                    onClick={() =>
-                      update({ end: stepChartEnd(sel.range, sel.end, -1, new Date()) })
-                    }
-                  >
-                    ‹
-                  </button>
-                  <label className="sr-only" htmlFor="chart-end-date">
-                    Chart ends on
-                  </label>
-                  <input
-                    id="chart-end-date"
-                    type="date"
-                    max={today}
-                    min="2000-01-01"
-                    value={sel.end ?? today}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
-                      update({ end: v >= today ? null : v });
-                    }}
-                    className="h-7 rounded-md border border-line bg-surface px-2 text-sm tabular-nums"
-                  />
-                  <button
-                    type="button"
-                    className="h-7 rounded-md border border-line bg-surface-2 px-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
-                    aria-label={`Next ${sel.range === '1d' ? 'trading day' : RANGE_NAMES[sel.range]}`}
-                    title={`Next ${sel.range === '1d' ? 'trading day' : RANGE_NAMES[sel.range]}`}
-                    disabled={!sel.end}
-                    onClick={() => update({ end: stepChartEnd(sel.range, sel.end, 1, new Date()) })}
-                  >
-                    ›
-                  </button>
-                  <button
-                    type="button"
-                    className="h-7 rounded-md border border-line bg-surface-2 px-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
-                    disabled={!sel.end}
-                    onClick={() => update({ end: null })}
-                  >
-                    Latest
-                  </button>
-                  <span className="text-xs text-ink-muted">
-                    {sel.end
-                      ? `${RANGE_NAMES[sel.range]} ending ${formatDay(sel.end)}`
-                      : `${RANGE_NAMES[sel.range]} to today`}
-                  </span>
-                </div>
-
-                <ComparePicker
-                  instruments={instruments}
-                  mainId={selected.id}
-                  compared={compared}
-                  canSearchMarket={canSearchMarket}
-                  onAdd={(id) => update({ compare: [...sel.compare, id].slice(0, MAX_COMPARE) })}
-                  onRemove={(id) => update({ compare: sel.compare.filter((c) => c !== id) })}
-                  onFound={(found) => {
-                    setInstruments((cur) =>
-                      cur.some((i) => i.id === found.id)
-                        ? cur
-                        : [...cur, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
-                    );
-                    if (found.id !== selected.id && !sel.compare.includes(found.id))
-                      update({ compare: [...sel.compare, found.id].slice(0, MAX_COMPARE) });
-                  }}
-                />
+                {!(showing && bars.length > 0) && <div className="mb-3">{dateRow}</div>}
 
                 {error && <Alert>{error}</Alert>}
 
@@ -453,6 +452,7 @@ export function ResearchWorkspace({
                     interval={showing.interval}
                     range={showing.range}
                     style={sel.style}
+                    leading={dateRow}
                     dimmed={loading}
                     cone={showCone && !sel.end ? cone : null}
                     compared={compared}

@@ -38,6 +38,8 @@ describe('price chart windows', () => {
     expect(chartIntervalAllowed('1d', '1d')).toBe(false);
     expect(chartIntervalAllowed('5y', '1d')).toBe(true);
     expect(defaultChartInterval('1d')).toBe('5m');
+    expect(defaultChartInterval('1w')).toBe('1h');
+    expect(defaultChartInterval('1m')).toBe('1d');
     expect(defaultChartInterval('1y')).toBe('1d');
   });
 

@@ -63,7 +63,7 @@ export function ComparePicker({
   }
 
   return (
-    <div className="mb-4" data-testid="compare">
+    <div className="min-w-0" data-testid="compare">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-medium text-ink-muted">Compare</span>
         <ul aria-label="Compared symbols" className="contents">
