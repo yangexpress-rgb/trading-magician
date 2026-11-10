@@ -1,8 +1,8 @@
-# ADR 0070: Many strategies may refer to one theory; Esc closes any dropdown
+# ADR 0071: Many strategies may refer to one theory; Esc closes any dropdown
 
 - **Status:** accepted
 - **Date:** 2026-11-10
-- **Design refs:** design v1.2 rows N196 and N197, open point O139. Amends ADR 0054 (D6)
+- **Design refs:** design v1.2 rows N199 and N200, open point O140. Amends ADR 0054 (D6)
 
 ## Context
 
@@ -16,7 +16,7 @@ built by … — unlink that strategy first", or "built in another member's Stra
 
 ## Decision
 
-- **Many-to-one (N196).** Migration 0082 replaces the unique index with a plain partial index, so
+- **Many-to-one (N199).** Migration 0082 replaces the unique index with a plain partial index, so
   any number of live strategies, in any member's Strategy Lab, may refer to the same theory.
   Linking is refused only for a retired theory.
 - **Built link.** The record's `built_strategy_id` stays as the one strategy that keeps it Built:
@@ -29,7 +29,7 @@ built by … — unlink that strategy first", or "built in another member's Stra
 - **Copies.** Duplicating a strategy that refers to a theory makes a copy that refers to the same
   theory. A strategy whose record was auto-created from it refers to none, so its copy still gets
   a record of its own.
-- **Esc (N197).** Esc closes any open dropdown and puts the display back as it was: the theory
+- **Esc (N200).** Esc closes any open dropdown and puts the display back as it was: the theory
   search under a strategy's name closes with the line unchanged and the focus back on it, and an
   app-wide handler closes open `<details>` dropdowns (such as the screener's Columns list),
   innermost or most recently opened first, returning focus to its summary. Native `<select>`
@@ -39,6 +39,6 @@ built by … — unlink that strategy first", or "built in another member's Stra
 ## Consequences
 
 - Strategy sharing is unaffected: it already checks that a shared strategy refers to the record.
-- O139 (confirmed by Yong 2026-11-10): if member A's strategy holds the built link and member B's strategies also refer to the
+- O140 (confirmed by Yong 2026-11-10): if member A's strategy holds the built link and member B's strategies also refer to the
   theory, the theory reads Not built once A's strategies all stop referring, because the server
   cannot read B's workspace on A's behalf. B's strategies keep their theory.

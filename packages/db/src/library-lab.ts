@@ -34,7 +34,7 @@ import {
  * Library record (a theory); a strategy saved with no link gets a record
  * created for it, and the next number from the shared counter, in the same
  * transaction as the save. Many strategies may refer to the same theory
- * (ADR 0070). Built status follows the association both ways.
+ * (ADR 0071). Built status follows the association both ways.
  */
 
 /** What the builder's "Library entry" picker sends with a save (brief D2, D5). */
@@ -111,7 +111,7 @@ type StrategyRow = NonNullable<Awaited<ReturnType<typeof strategyLinkRow>>>;
  * Links the strategy to entry `registrationNumber` (D2): the strategy refers
  * to it and the entry shows Built. Its previous record is released and keeps
  * its number. No number is consumed. Many strategies may refer to the same
- * entry (ADR 0070, N196); only a retired entry is refused (D6).
+ * entry (ADR 0071, N199); only a retired entry is refused (D6).
  */
 export async function linkStrategyToEntry(
   tx: Transaction,
@@ -324,7 +324,7 @@ async function applyTheoryChoice(
 
 /**
  * Deleting a Lab strategy unlinks it (D8): the record stays with its number,
- * and reads Not built unless another strategy still refers to it (ADR 0070).
+ * and reads Not built unless another strategy still refers to it (ADR 0071).
  */
 export async function unlinkDeletedStrategy(
   tx: Transaction,

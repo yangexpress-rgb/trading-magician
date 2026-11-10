@@ -137,7 +137,7 @@ export interface LibraryEntry extends LibraryEntrySummary {
     | { visibility: 'yours_deleted'; id: string }
     | { visibility: 'elsewhere' }
     | null;
-  /** The viewer's own live strategies that refer to this theory, oldest first (ADR 0070). */
+  /** The viewer's own live strategies that refer to this theory, oldest first (ADR 0071). */
   referringStrategies: { id: string; name: string; archived: boolean }[];
   /** A shared copy (ADR 0056): the number it was copied from, shown to everyone. */
   copiedFrom: string | null;
@@ -963,7 +963,7 @@ export async function setStrategyEntry(
 
 /**
  * Another of the actor's live strategies that refers to this theory, oldest
- * first, or null (ADR 0070: many strategies may refer to one theory). Row-level
+ * first, or null (ADR 0071: many strategies may refer to one theory). Row-level
  * security limits the read to the actor's own workspace.
  */
 export async function otherReferringStrategy(
@@ -987,7 +987,7 @@ export async function otherReferringStrategy(
 }
 
 /**
- * A strategy stops referring to a theory (ADR 0070). The record's built link
+ * A strategy stops referring to a theory (ADR 0071). The record's built link
  * names one of the strategies that refer to it; when that was this strategy
  * it moves to another of the actor's strategies still referring to it, and
  * the record goes back to Not built only when none is left. The record and
@@ -1018,7 +1018,7 @@ export async function releaseEntry(
 }
 
 /**
- * A strategy starts referring to a theory (ADR 0070). The record reads Built
+ * A strategy starts referring to a theory (ADR 0071). The record reads Built
  * from then on: its built link names this strategy unless another live
  * strategy already holds it, in which case it stays as it is.
  */
@@ -1069,7 +1069,7 @@ async function checkLinkChange(
 /**
  * Clearing a record's built link from the Library unlinks the strategy it
  * named; while other strategies of the actor still refer to the record, the
- * link moves to one of them instead of reading Not built (ADR 0070).
+ * link moves to one of them instead of reading Not built (ADR 0071).
  */
 async function keepBuiltWhileReferred(
   tx: Transaction,
@@ -1080,7 +1080,7 @@ async function keepBuiltWhileReferred(
   return (await otherReferringStrategy(tx, row.id, row.builtStrategyId))?.id ?? null;
 }
 
-/** The strategy refers to this record: its previous record is released (ADR 0070). */
+/** The strategy refers to this record: its previous record is released (ADR 0071). */
 async function adoptStrategy(
   tx: Transaction,
   actorId: string,

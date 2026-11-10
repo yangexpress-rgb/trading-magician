@@ -251,7 +251,7 @@ describe('Strategy Lab numbering', () => {
     expect(await nextSeq()).toBe(34);
   });
 
-  it('lets many strategies refer to one theory (ADR 0070)', async () => {
+  it('lets many strategies refer to one theory (ADR 0071)', async () => {
     const make = (name: string, number: string) =>
       asA((tx) =>
         createStrategy(tx, userA, {
