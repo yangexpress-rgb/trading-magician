@@ -15,6 +15,7 @@ import { instruments, tradingAccounts, users } from '../src/schema';
 import {
   createStrategy,
   deleteStrategy,
+  duplicateStrategy,
   getStrategy,
   listStrategies,
   updateStrategy,
@@ -215,24 +216,12 @@ describe('Strategy Lab numbering', () => {
     expect(await nextSeq()).toBe(33);
   });
 
-  it('refuses a retired entry and one built by another strategy, with named errors', async () => {
+  it('refuses a retired entry with a named error', async () => {
     const other = await asA((tx) =>
       createStrategy(tx, userA, { name: 'Another trend', definition: definition(['DEMO-A']) }),
     );
     ids.other = other.id;
     expect(other.library?.registrationNumber).toBe('T00033-SD');
-
-    const taken = await rejects(
-      asA((tx) =>
-        updateStrategy(tx, userA, other.id, {
-          rowVersion: other.rowVersion,
-          library: { kind: 'entry', registrationNumber: 'T00001-SD' },
-        }),
-      ),
-    );
-    expect(taken.message).toBe(
-      'T00001-SD is already built by Trend — SPY SMA200 — unlink that strategy first',
-    );
 
     const theirs = await as(userB, (tx) =>
       createStrategy(tx, userB, {
@@ -242,15 +231,6 @@ describe('Strategy Lab numbering', () => {
       }),
     );
     expect(theirs.library?.registrationNumber).toBe('T00003-SD');
-    const elsewhere = await rejects(
-      asA((tx) =>
-        updateStrategy(tx, userA, other.id, {
-          rowVersion: other.rowVersion,
-          library: { kind: 'entry', registrationNumber: 'T00003-SD' },
-        }),
-      ),
-    );
-    expect(elsewhere.message).toBe("T00003-SD is built in another member's Strategy Lab");
 
     const e = await asA((tx) => getLibraryEntry(tx, userA, 'T00012-SQ'));
     await asA((tx) =>
@@ -269,6 +249,64 @@ describe('Strategy Lab numbering', () => {
     const still = await asA((tx) => getStrategy(tx, other.id));
     expect(still.library?.registrationNumber).toBe('T00033-SD');
     expect(await nextSeq()).toBe(34);
+  });
+
+  it('lets many strategies refer to one theory (ADR 0071)', async () => {
+    const make = (name: string, number: string) =>
+      asA((tx) =>
+        createStrategy(tx, userA, {
+          name,
+          definition: definition(['DEMO-A']),
+          library: { kind: 'entry', registrationNumber: number },
+        }),
+      );
+    // A second strategy on a theory another strategy already uses.
+    const second = await make('Second on T00001', 'T00001-SD');
+    expect(second.library).toMatchObject({ registrationNumber: 'T00001-SD', autoCreated: false });
+    // A copy refers to the same theory as its source.
+    const copy = await asA((tx) => duplicateStrategy(tx, userA, second.id));
+    expect(copy.library).toMatchObject({ registrationNumber: 'T00001-SD', autoCreated: false });
+    let shared = (await entryOf(userA, 'T00001-SD'))!;
+    expect(shared.builtStatus).toBe('built');
+    expect(shared.builtStrategyId).toBe(ids.trend);
+    expect(shared.referringStrategies.map((r) => r.name)).toEqual([
+      'Trend — SPY SMA200',
+      'Second on T00001',
+      'Copy of Second on T00001',
+    ]);
+    // A theory another member's strategy uses is open too; each sees only their own.
+    const onB = await make('A on B’s theory', 'T00003-SD');
+    expect(onB.library?.registrationNumber).toBe('T00003-SD');
+    expect((await entryOf(userA, 'T00003-SD'))!.referringStrategies.map((r) => r.name)).toEqual([
+      'A on B’s theory',
+    ]);
+    expect((await entryOf(userB, 'T00003-SD'))!.referringStrategies.map((r) => r.name)).toEqual([
+      'B trend',
+    ]);
+    expect(await nextSeq()).toBe(34);
+
+    // The built link moves to a strategy still referring when its strategy leaves.
+    const first = await make('First on T00004', 'T00004-SD');
+    const next = await make('Next on T00004', 'T00004-SD');
+    expect((await entryOf(userA, 'T00004-SD'))!.builtStrategyId).toBe(first.id);
+    await asA((tx) => deleteStrategy(tx, userA, first.id, { rowVersion: first.rowVersion }));
+    const moved = (await entryOf(userA, 'T00004-SD'))!;
+    expect(moved).toMatchObject({ builtStatus: 'built', builtStrategyId: next.id });
+    expect(moved.revisions[0]?.note).toContain('still built by “Next on T00004”');
+    await asA((tx) => deleteStrategy(tx, userA, next.id, { rowVersion: next.rowVersion }));
+    expect((await entryOf(userA, 'T00004-SD'))!.builtStatus).toBe('not_built');
+
+    for (const id of [second.id, copy.id, onB.id]) {
+      const row = await asA((tx) => getStrategy(tx, id));
+      await asA((tx) => deleteStrategy(tx, userA, id, { rowVersion: row.rowVersion }));
+    }
+    shared = (await entryOf(userA, 'T00001-SD'))!;
+    expect(shared.builtStrategyId).toBe(ids.trend);
+    expect(shared.referringStrategies.map((r) => r.name)).toEqual(['Trend — SPY SMA200']);
+    // B's link was never touched.
+    expect((await entryOf(userB, 'T00003-SD'))!.builtStrategy).toMatchObject({
+      visibility: 'yours',
+    });
   });
 
   it('switches to a new record: the old entry reverts and a fresh number is issued', async () => {

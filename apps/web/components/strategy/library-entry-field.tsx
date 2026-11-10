@@ -53,7 +53,17 @@ export function EntrySearch({
   }, [query]);
 
   return (
-    <div className="mt-3 rounded-md border border-line p-3">
+    // Esc cancels the search and puts the display back as it was (N200).
+    <div
+      className="mt-3 rounded-md border border-line p-3"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
       <label htmlFor="library-entry-search" className="block text-sm font-semibold text-ink-muted">
         Search the Library by number or name
       </label>

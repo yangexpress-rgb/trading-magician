@@ -917,11 +917,17 @@ export async function duplicateStrategy(
 ): Promise<StrategyDetail> {
   const source = await loadStrategyRow(tx, id);
   const name = input.name ?? `Copy of ${source.name}`.slice(0, 120);
+  // A copy refers to the same theory as its source (ADR 0071); a source whose
+  // record was auto-created from it refers to none, so the copy gets its own.
+  const theory = await strategyLibraryRecord(tx, source.libraryEntryId);
   const copy = await createStrategy(tx, userId, {
     name,
     description: input.description ?? source.description,
     tags: source.tags,
     definition: source.draftDefinition,
+    ...(theory && !theory.autoCreated && theory.status === 'registered'
+      ? { library: { kind: 'entry' as const, registrationNumber: theory.registrationNumber } }
+      : {}),
   });
   await recordAudit(tx, {
     userId,

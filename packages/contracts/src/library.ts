@@ -145,6 +145,8 @@ export interface LibraryEntryDto extends LibraryEntrySummaryDto {
     | { visibility: 'yours_deleted'; id: string }
     | { visibility: 'elsewhere' }
     | null;
+  /** The viewer's own live strategies that refer to this theory, oldest first (ADR 0071). */
+  referringStrategies: { id: string; name: string; archived: boolean }[];
   /** A shared copy (ADR 0056): the number it was copied from. */
   copiedFrom: string | null;
   /** Who shared it; only the sender and the recipient see it. */

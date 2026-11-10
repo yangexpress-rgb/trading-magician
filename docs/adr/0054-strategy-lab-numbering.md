@@ -18,7 +18,7 @@ sequence (ADR 0051), so a Lab-only number space would leave holes in the Library
 - **Every Lab strategy is one Library record** (brief §1, D1). `strategy.library_entry_id`
   (migration 0069, foreign key to `strategy_library_entries`) names it, and the number shown in
   Strategy Lab is that record's number. There is no second number space. A partial unique index
-  allows one live strategy per record (D6).
+  allows one live strategy per record (D6; replaced by ADR 0071: many strategies may refer to one record).
 - **The record's built link mirrors the strategy.** `built_strategy_id` / `built_strategy_owner`
   stay on the entry as in ADR 0051 (N92), and every change keeps the two sides equal in the same
   transaction, with a history note on each record it touches. Built status therefore follows the

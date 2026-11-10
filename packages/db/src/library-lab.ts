@@ -12,8 +12,9 @@ import {
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { Transaction } from './client';
 import {
-  builtElsewhereMessage,
+  claimEntry,
   LibraryError,
+  releaseEntry,
   registerLibraryEntry,
   resolveLibraryEntryRow,
   setEntryBuilt,
@@ -29,11 +30,11 @@ import {
 } from './schema';
 
 /**
- * Strategy Lab numbering (ADR 0054). Every Lab strategy is associated with
- * exactly one Strategy Library record and shows that record's number: linking
- * to an entry uses its number; a strategy saved with no link gets a record
+ * Strategy Lab numbering (ADR 0054). Every Lab strategy refers to one Strategy
+ * Library record (a theory); a strategy saved with no link gets a record
  * created for it, and the next number from the shared counter, in the same
- * transaction as the save. Built status follows the association both ways.
+ * transaction as the save. Many strategies may refer to the same theory
+ * (ADR 0071). Built status follows the association both ways.
  */
 
 /** What the builder's "Library entry" picker sends with a save (brief D2, D5). */
@@ -107,10 +108,10 @@ export async function libraryNumbers(
 type StrategyRow = NonNullable<Awaited<ReturnType<typeof strategyLinkRow>>>;
 
 /**
- * Links the strategy to entry `registrationNumber` (D2): the strategy takes
- * its number and the entry shows Built. Its previous record goes back to Not
- * built and keeps its number. No number is consumed. Refused (D6) for a
- * retired entry and for one another strategy builds.
+ * Links the strategy to entry `registrationNumber` (D2): the strategy refers
+ * to it and the entry shows Built. Its previous record is released and keeps
+ * its number. No number is consumed. Many strategies may refer to the same
+ * entry (ADR 0071, N199); only a retired entry is refused (D6).
  */
 export async function linkStrategyToEntry(
   tx: Transaction,
@@ -130,26 +131,17 @@ export async function linkStrategyToEntry(
       `${entry.registrationNumber} is retired — pick another entry or a new Library record`,
     );
   }
-  const elsewhere = await builtElsewhereMessage(tx, actorId, entry, strategy.id);
-  if (elsewhere) throw new LibraryError('invalid_state', elsewhere);
-
   if (strategy.libraryEntryId) {
-    await setEntryBuilt(
+    await releaseEntry(
       tx,
       actorId,
       strategy.libraryEntryId,
-      null,
-      `Unlinked: the Strategy Lab strategy “${strategy.name}” now uses ${entry.registrationNumber}`,
+      strategy,
+      `The Strategy Lab strategy “${strategy.name}” now uses ${entry.registrationNumber}`,
     );
   }
-  await setEntryBuilt(
-    tx,
-    actorId,
-    entry.id,
-    strategy.id,
-    `Linked to the Strategy Lab strategy “${strategy.name}”`,
-  );
   await setStrategyEntry(tx, strategy.id, entry.id);
+  await claimEntry(tx, actorId, entry.id, strategy);
 }
 
 async function requireStrategy(tx: Transaction, strategyId: string): Promise<StrategyRow> {
@@ -314,14 +306,14 @@ async function applyTheoryChoice(
   const strategy = await requireStrategy(tx, strategyId);
   if (choice?.kind === 'new') {
     if (strategy.libraryEntryId) {
-      await setEntryBuilt(
+      await setStrategyEntry(tx, strategy.id, null);
+      await releaseEntry(
         tx,
         actorId,
         strategy.libraryEntryId,
-        null,
-        `Unlinked: the Strategy Lab strategy “${strategy.name}” moved to a new Library record`,
+        strategy,
+        `The Strategy Lab strategy “${strategy.name}” moved to a new Library record`,
       );
-      await setStrategyEntry(tx, strategy.id, null);
     }
     await autoCreateLibraryRecord(tx, actorId, strategy.id);
     return;
@@ -330,34 +322,23 @@ async function applyTheoryChoice(
   await autoCreateLibraryRecord(tx, actorId, strategy.id);
 }
 
-/** Deleting a Lab strategy unlinks it (D8): the record stays, Not built, with its number. */
+/**
+ * Deleting a Lab strategy unlinks it (D8): the record stays with its number,
+ * and reads Not built unless another strategy still refers to it (ADR 0071).
+ */
 export async function unlinkDeletedStrategy(
   tx: Transaction,
   actorId: string,
   strategy: { id: string; name: string; libraryEntryId: string | null },
 ): Promise<void> {
   if (!strategy.libraryEntryId) return;
-  await setEntryBuiltIfStrategy(
+  await releaseEntry(
     tx,
     actorId,
     strategy.libraryEntryId,
-    strategy.id,
-    `Unlinked: the Strategy Lab strategy “${strategy.name}” was deleted`,
+    strategy,
+    `The Strategy Lab strategy “${strategy.name}” was deleted`,
   );
-}
-
-async function setEntryBuiltIfStrategy(
-  tx: Transaction,
-  actorId: string,
-  entryId: string,
-  strategyId: string,
-  note: string,
-) {
-  const [row] = await tx
-    .select({ built: entries.builtStrategyId })
-    .from(entries)
-    .where(eq(entries.id, entryId));
-  if (row?.built === strategyId) await setEntryBuilt(tx, actorId, entryId, null, note);
 }
 
 /** An account deletion unlinks every record its strategies built (they read Not built). */
