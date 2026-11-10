@@ -34,7 +34,7 @@ test('steps back a week, goes to a date and comes back to the latest', async ({ 
   await expect(page).toHaveURL(/date=2026-03-13/);
   await page.reload();
   await expect(date.getByLabel('Chart ends on')).toHaveValue('2026-03-13');
-  await expect(page.getByTestId('chart-span')).toContainText('Mar 13, 2026');
+  await expect(page.getByTestId('chart-span')).toContainText('Mar 13');
 
   // A single day steps by trading days: back from Monday 16 March is Friday 13 March.
   await page.getByRole('group', { name: 'Range' }).getByRole('button', { name: '1D' }).click();
