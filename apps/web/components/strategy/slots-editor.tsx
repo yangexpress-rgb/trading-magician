@@ -29,13 +29,13 @@ import {
   DEFAULT_RISK_DISTANCE,
   defaultRanking,
   fromLegsSelection,
-  leftGroupRule,
   removeAsset,
   replaceAsset,
   toAssets,
   toGroup,
   tradedAssets,
   withExitShortcut,
+  withLeftGroup,
   withTrailingCondition,
 } from '@/lib/slot-edits';
 import { ConditionTreeEditor } from './condition-editor';
@@ -118,7 +118,13 @@ export function WhatToTrade({
         <p className="mt-2 text-xs font-medium text-danger">{issueAt(['trade'])}</p>
       )}
       {group ? (
-        <GroupEditor group={group} onChange={(trade) => onChange({ ...definition, trade })} />
+        <GroupEditor
+          group={group}
+          onChange={(trade) => onChange({ ...definition, trade })}
+          sellsLeavers={hasLeftGroupRule(definition)}
+          leavesSold={readsContextEntry(definition)}
+          onSellsLeavers={(on) => onChange(withLeftGroup(definition, on))}
+        />
       ) : (
         <AssetsEditor definition={definition} assets={assets} onChange={onChange} />
       )}
@@ -232,9 +238,17 @@ function RankedLegsNote({
 function GroupEditor({
   group,
   onChange,
+  sellsLeavers,
+  leavesSold,
+  onSellsLeavers,
 }: {
   group: GroupTrade;
   onChange: (g: GroupTrade) => void;
+  /** Whether Exit has the Left the group rule (ADR 0073), shown here as a group setting (N222). */
+  sellsLeavers: boolean;
+  /** Whether Enter when reads "this stock", so holdings are not sold while it is false. */
+  leavesSold: boolean;
+  onSellsLeavers: (on: boolean) => void;
 }) {
   const { instruments: all, issueAt, editable, universeClasses } = useEditor();
   // An index can be watched by a filter but never held (v1.2 item 5).
@@ -499,6 +513,25 @@ function GroupEditor({
         Each candidate is then traded on its own by the Entry leg: its own Entry check, position and
         Exit.
       </p>
+      {/* "Left the group" is a group setting, not an Exit (N222). */}
+      <fieldset disabled={!editable}>
+        <legend className="sr-only">Holdings that leave the group</legend>
+        <label className="flex items-center gap-1.5 text-sm">
+          <input
+            type="checkbox"
+            checked={sellsLeavers}
+            aria-describedby={id('leavers-help')}
+            onChange={(e) => onSellsLeavers(e.target.checked)}
+          />
+          Sell a pick when it leaves the group
+        </label>
+        {/* Help sits outside the label so the checkbox's name stays short. */}
+        <p id={id('leavers-help')} className="ml-5 text-xs text-ink-muted">
+          At each Check Entry, sells a holding that no longer passes the filter or the ranking
+          {leavesSold ? '' : ', and every holding while Enter when is false'}. Untick it to keep
+          each pick until Exit when sells it.
+        </p>
+      </fieldset>
     </div>
   );
 }
@@ -590,7 +623,7 @@ export function ExitRulesEditor({
         : definition.entry;
     onChange({ ...definition, entry, exit: next.length > 0 ? { ...exit, rules: next } : exit });
   };
-  const isGroup = definition.trade.kind === 'group';
+  const kept = rules.filter((r) => r.kind !== 'leftGroup');
   // Stops read closes at the Check Exit bar size (O144, ADR 0073).
   const closes = stopCloseWord(definition);
   const replace = (i: number, r: ExitRule) => setRules(rules.map((x, j) => (j === i ? r : x)));
@@ -601,34 +634,54 @@ export function ExitRulesEditor({
   const rebalances = mode === 'legs' && isScheduled(definition);
   const distance = definition.entry.risk ?? DEFAULT_RISK_DISTANCE;
   return (
-    <div className="mt-4">
-      <h3 className="mb-1 text-base font-semibold text-cond">Exits</h3>
-      <p className="mb-2 text-sm text-ink-muted">
-        {rules.length > 0
-          ? 'Whichever comes first exits: Exit when above or one of these, each time Check Exit is due. The buttons add a common exit to Exit when, under Position.'
-          : 'These add a common exit to Exit when above, under Position (after Entry fills), where you can change it or combine it with anything else.'}
-      </p>
-      <ul className="space-y-2">
+    <div className="mt-3">
+      {editable && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-ink-muted">Add to Exit when:</span>
+          {/* Each adds its condition to Exit when (N217, N221, ADR 0074, ADR 0076). */}
+          <RowButton
+            label="Add a trailing stop to Exit when"
+            onClick={() => onChange(withTrailingCondition(definition))}
+          >
+            + Trailing stop
+          </RowButton>
+          <RowButton
+            label="Add a holding-period exit to Exit when"
+            onClick={() => onChange(withExitShortcut(definition, 'holdingPeriod'))}
+          >
+            + Holding period
+          </RowButton>
+          <RowButton
+            label="Add an ATR stop to Exit when"
+            onClick={() => onChange(withExitShortcut(definition, 'atrStop'))}
+          >
+            + ATR stop
+          </RowButton>
+          <RowButton
+            label="Add an expected-move exit to Exit when"
+            onClick={() => onChange(withExitShortcut(definition, 'expectedMove'))}
+          >
+            + Expected move
+          </RowButton>
+        </div>
+      )}
+      {kept.length > 0 && (
+        <p className="mt-3 text-sm text-ink-muted">
+          Kept as saved: these exits run as before, alongside Exit when, because moving them into it
+          would change when they exit.
+        </p>
+      )}
+      <ul className="mt-2 space-y-2">
         {rules.map((r, i) => {
+          // Left the group is a group setting in What to trade (N222).
+          if (r.kind === 'leftGroup') return null;
           const own = r.kind === 'atrStop' ? r.override : undefined;
           return (
             <li
               key={r.id}
               className="flex flex-wrap items-end gap-2 rounded-md border border-line bg-surface p-2"
             >
-              {r.kind === 'leftGroup' ? (
-                <div className="flex-1">
-                  <p className="text-sm font-semibold">Left the group</p>
-                  <p className="text-xs text-ink-muted">
-                    At each Entry check, sells a holding that no longer passes the filter or the
-                    ranking
-                    {readsContextEntry(definition)
-                      ? ''
-                      : ', and every holding while Enter when is false'}
-                    . Remove it to keep each pick until one of its own exits fires.
-                  </p>
-                </div>
-              ) : r.kind === 'timeStop' ? (
+              {r.kind === 'timeStop' ? (
                 <>
                   <MiniInput
                     id={`rule-${r.id}-bars`}
@@ -775,15 +828,13 @@ export function ExitRulesEditor({
               {editable && (
                 <RowButton
                   label={
-                    r.kind === 'leftGroup'
-                      ? 'Remove the Left the group exit'
-                      : r.kind === 'timeStop'
-                        ? 'Remove the holding-period exit'
-                        : r.kind === 'expectedMove'
-                          ? 'Remove the expected-move exit'
-                          : r.kind === 'trailingStop'
-                            ? 'Remove the trailing stop'
-                            : 'Remove the ATR stop'
+                    r.kind === 'timeStop'
+                      ? 'Remove the holding-period exit'
+                      : r.kind === 'expectedMove'
+                        ? 'Remove the expected-move exit'
+                        : r.kind === 'trailingStop'
+                          ? 'Remove the trailing stop'
+                          : 'Remove the ATR stop'
                   }
                   className="text-danger"
                   onClick={() => remove(i)}
@@ -807,43 +858,6 @@ export function ExitRulesEditor({
           </li>
         )}
       </ul>
-      {editable && (
-        <div className="mt-1 flex flex-wrap gap-2">
-          {isGroup && !hasLeftGroupRule(definition) && (
-            <RowButton
-              label="Add a Left the group exit"
-              onClick={() => setRules([...rules, leftGroupRule()])}
-            >
-              + Left the group
-            </RowButton>
-          )}
-          {/* Each adds its condition to Exit when (N217, N221, ADR 0074, ADR 0076). */}
-          <RowButton
-            label="Add a trailing stop to Exit when"
-            onClick={() => onChange(withTrailingCondition(definition))}
-          >
-            + Trailing stop
-          </RowButton>
-          <RowButton
-            label="Add a holding-period exit to Exit when"
-            onClick={() => onChange(withExitShortcut(definition, 'holdingPeriod'))}
-          >
-            + Holding period
-          </RowButton>
-          <RowButton
-            label="Add an ATR stop to Exit when"
-            onClick={() => onChange(withExitShortcut(definition, 'atrStop'))}
-          >
-            + ATR stop
-          </RowButton>
-          <RowButton
-            label="Add an expected-move exit to Exit when"
-            onClick={() => onChange(withExitShortcut(definition, 'expectedMove'))}
-          >
-            + Expected move
-          </RowButton>
-        </div>
-      )}
     </div>
   );
 }

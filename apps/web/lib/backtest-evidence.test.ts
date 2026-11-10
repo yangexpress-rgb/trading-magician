@@ -1,7 +1,7 @@
 import type { Comparison, Expr } from '@tm/domain';
 import { CONTEXT_INSTRUMENT_ID } from '@tm/domain';
 import { describe, expect, it } from 'vitest';
-import { comparisonEvidence } from './backtest-explain';
+import { comparisonEvidence, heldExits } from './backtest-explain';
 
 const close = (id: string, offset = 0): Expr => ({
   kind: 'market',
@@ -110,5 +110,40 @@ describe('comparisonEvidence (N218)', () => {
       { label: 'Close checked', value: '52.73', inside: true },
     ]);
     expect(ev.reason).toBe('1.07 > 1');
+  });
+});
+
+describe('heldExits (N223)', () => {
+  const pos = (id: string, field: string): Comparison => ({
+    kind: 'comparison',
+    id,
+    left: {
+      kind: 'position',
+      id: `${id}-v`,
+      field: field as never,
+      instrumentId: CONTEXT_INSTRUMENT_ID,
+      interval: '1d',
+      adjustment: 'split_and_dividend',
+      session: 'regular',
+    },
+    operator: 'gt',
+    right: { kind: 'constant', id: `${id}-k`, value: '1' },
+  });
+  const tree = {
+    kind: 'group' as const,
+    id: 'g',
+    op: 'or' as const,
+    negate: false,
+    children: [pos('t', 'off_peak_pct'), pos('d', 'days_held'), pos('a', 'atrs_below_entry')],
+  };
+
+  it('names the common exits that held on the bar Exit when fired', () => {
+    const checks = [
+      { id: 't', truth: true as const },
+      { id: 'd', truth: false as const },
+      { id: 'a', truth: true as const },
+    ];
+    expect(heldExits(tree, checks)).toEqual(['trailing stop', 'ATR stop']);
+    expect(heldExits(tree, [])).toEqual([]);
   });
 });

@@ -33,8 +33,8 @@ test('build a group with a holding period, back test it, and read the ranking', 
   // A month-end Entry checks Exit once a day (O145).
   await expect(page.getByLabel('Check Exit')).toHaveValue('daily');
   await expect(page.getByText(/each instrument is evaluated on its own/).first()).toBeVisible();
-  // Selling what leaves the top N is an exit rule of its own.
-  await expect(page.getByText('Left the group', { exact: true })).toBeVisible();
+  // Selling what leaves the top N is a group setting in What to trade (N222).
+  await expect(page.getByLabel('Sell a pick when it leaves the group')).toBeChecked();
 
   // Enter when is the crossover from the fixture; clear it so every month-end rebalances.
   const entry = page.getByRole('region', { name: 'Enter when' });
@@ -80,7 +80,7 @@ test('build a group with a holding period, back test it, and read the ranking', 
   await expect(results.getByRole('button', { name: 'Download all rounds (CSV)' })).toBeVisible();
   // Each trade says why it exited.
   await expect(
-    results.getByText(/Rebalance: no longer selected|Exit condition/).first(),
+    results.getByText(/Left the group: no longer selected|Exit condition/).first(),
   ).toBeVisible();
   if (SHOTS) await results.screenshot({ path: `${SHOTS}/selection-results.png` });
 

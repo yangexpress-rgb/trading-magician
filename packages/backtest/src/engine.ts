@@ -25,6 +25,7 @@ import {
   riskSizingCap,
   stopCloseExpr,
   stopInterval,
+  holdingExprs,
   holdingReads,
   tradingDaysHeld,
   stopCloseWord,
@@ -1975,6 +1976,24 @@ export function simulate({
     if (defs.some((d) => expectedMoveRuleOf(d)))
       out.push(
         `The expected-move exit captures the latest recorded options expected move (as of the bar Entry was decided on) and fixes the band entry × (1 ± multiple × move); a ${closes} close beyond it exits at the next bar, like the other exits`,
+      );
+    // Exit when's values kept for each holding (N217, N221).
+    const fields = new Set(holdingExprs(def).map((e) => e.field));
+    if (fields.has('off_peak_pct'))
+      out.push(
+        `Off best close since entry: the best close starts at the entry price and follows each ${closes} close at a Check Exit; the value is how far the latest close is below it, in percent (above the lowest, for a short)`,
+      );
+    if (fields.has('days_held'))
+      out.push(
+        'Trading days held counts NYSE trading days from the day Entry first filled, that day included, up to the last closed day at each Check Exit',
+      );
+    if (fields.has('atrs_below_entry'))
+      out.push(
+        `Below entry, in ATRs at entry: the ATR of daily bars on the fill price basis is fixed on the bar Entry was decided on; the value is (entry price − ${closes} close) ÷ that ATR (reversed for a short)`,
+      );
+    if (fields.has('expected_moves_1d') || fields.has('expected_moves_5d'))
+      out.push(
+        `Move since entry, in expected moves: the latest recorded options expected move is fixed on the bar Entry was decided on; the value is (${closes} close − entry price) ÷ (entry price × that move), positive in the holding's favour`,
       );
     return out;
   }

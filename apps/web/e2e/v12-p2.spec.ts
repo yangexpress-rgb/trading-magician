@@ -297,7 +297,7 @@ test('risk % of equity sized from ATR, with an ATR stop, explained per trade', a
   const card = page
     .getByRole('region', { name: 'Back test results' })
     .getByRole('region', { name: 'Cycle 1', exact: true });
-  await expect(card.getByText('Risk % of equity, ATR stop')).toBeVisible({ timeout: 15_000 });
+  await expect(card.getByText('Sized from risk % of equity')).toBeVisible({ timeout: 15_000 });
   await expect(card.getByText(/^Risk 1% of \$[\d,.]+ equity = /)).toBeVisible();
   await card.getByText(/^While open/).click();
   await expect(
