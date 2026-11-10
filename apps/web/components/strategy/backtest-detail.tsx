@@ -478,7 +478,7 @@ export const EXIT_REASON_LABELS: Record<NonNullable<BacktestTradeDto['exitReason
   atr_stop: 'ATR stop',
   expected_move: 'Beyond the expected move',
   trailing_stop: 'Trailing stop',
-  rebalance: 'Rebalance: no longer selected',
+  rebalance: 'Left the group: no longer selected',
 };
 
 /** A metric's name with its parameters, e.g. "Return (lookback 6, skip 0)". */

@@ -80,7 +80,7 @@ test('build a group with a holding period, back test it, and read the ranking', 
   await expect(results.getByRole('button', { name: 'Download all rounds (CSV)' })).toBeVisible();
   // Each trade says why it exited.
   await expect(
-    results.getByText(/Rebalance: no longer selected|Exit condition/).first(),
+    results.getByText(/Left the group: no longer selected|Exit condition/).first(),
   ).toBeVisible();
   if (SHOTS) await results.screenshot({ path: `${SHOTS}/selection-results.png` });
 

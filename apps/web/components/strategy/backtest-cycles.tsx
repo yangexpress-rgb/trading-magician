@@ -20,6 +20,7 @@ import {
 import {
   comparisonEvidence,
   comparisonsOf,
+  heldExits,
   CONDITION_OUTCOMES,
   describeOrder,
   describeTrigger,
@@ -490,7 +491,7 @@ function CycleCard({
           />
           {t?.sizing && (
             <div className="text-xs">
-              <div className="font-medium">Risk % of equity, ATR stop</div>
+              <div className="font-medium">Sized from risk % of equity</div>
               {sizingText(t.sizing).map((line) => (
                 <div key={line} className="text-ink-muted">
                   {line}
@@ -963,6 +964,13 @@ function ExitSignal({
   const heading = (
     <SubHeading kind="cond">
       Why it exited: {EXIT_REASON_LABELS[reason]}
+      {/* Which part of Exit when sold: a trailing stop, holding period, ATR stop or expected move (N223). */}
+      {reason === 'condition' && c.exit.report && c.exit.bar
+        ? (() => {
+            const held = heldExits(c.exit.report.condition, c.exit.bar.checks);
+            return held.length > 0 ? ` (${held.join(', ')})` : '';
+          })()
+        : ''}
       {c.exit.decidedAt ? ` · ${formatMarketTime(c.exit.decidedAt, interval)} close` : ''}
     </SubHeading>
   );

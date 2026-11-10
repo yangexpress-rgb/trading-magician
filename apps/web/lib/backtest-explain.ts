@@ -64,6 +64,33 @@ export function comparisonsOf(node: ConditionNode): Comparison[] {
   return node.kind === 'comparison' ? [node] : node.children.flatMap(comparisonsOf);
 }
 
+/** The common exits a Position value stands for in Exit when (N217, N221). */
+const HOLDING_EXITS: Partial<Record<string, string>> = {
+  off_peak_pct: 'trailing stop',
+  days_held: 'holding period',
+  atrs_below_entry: 'ATR stop',
+  expected_moves_1d: 'expected move',
+  expected_moves_5d: 'expected move',
+};
+
+/**
+ * Which common exits held on the bar Exit when fired, e.g. ["trailing stop"],
+ * so the cycle card can say which part of Exit when sold (N223). Empty when
+ * only other conditions held.
+ */
+export function heldExits(
+  node: ConditionNode,
+  checks: readonly ConditionCheck[] | undefined,
+): string[] {
+  const truth = new Map((checks ?? []).map((c) => [c.id, c.truth]));
+  const out: string[] = [];
+  for (const c of comparisonsOf(node)) {
+    const name = c.left.kind === 'position' ? HOLDING_EXITS[c.left.field] : undefined;
+    if (name && truth.get(c.id) === true && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
 /** The data a comparison saw on one bar, e.g. "101.2 vs 100" or "101 (was 99) vs 100 (was 100)". */
 export function describeValues(c: Comparison, check: ConditionCheck | undefined): string {
   if (!check) return '—';
