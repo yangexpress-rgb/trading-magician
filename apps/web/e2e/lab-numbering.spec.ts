@@ -82,6 +82,7 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
 
   // "No theory" stops referring (ADR 0072).
   await page.goto(`/strategy-lab/${saved.id}`);
+  await expect(page.getByRole('link', { name: 'Theory Library entry T00009-SM' })).toBeVisible();
   await page.getByTitle('Double-click to change the theory').first().dblclick();
   await page.getByRole('button', { name: /^No theory/ }).click();
   await expect(page.getByTitle('Double-click to change the theory').first()).toContainText(

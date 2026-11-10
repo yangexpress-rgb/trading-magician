@@ -69,7 +69,7 @@ export function StrategyTheoryLine({
         tabIndex={referred ? undefined : 0}
         title={hint}
         className="cursor-default rounded"
-        onDoubleClick={referred ? undefined : start}
+        onDoubleClick={start}
         onKeyDown={(e) => {
           if (!referred && e.key === 'F2') {
             e.preventDefault();
@@ -89,9 +89,7 @@ export function StrategyTheoryLine({
             >
               {referred.registrationNumber}
             </Link>{' '}
-            <span className="text-content" onDoubleClick={start}>
-              {referred.name}
-            </span>
+            <span className="text-content">{referred.name}</span>
           </>
         ) : (
           <span className="text-ink-muted">none referred</span>
