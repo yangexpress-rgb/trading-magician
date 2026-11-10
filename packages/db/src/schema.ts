@@ -2387,10 +2387,8 @@ export const strategyShares = pgTable(
     senderIsAdmin: boolean('sender_is_admin').notNull().default(false),
     recipientName: text('recipient_name'),
     recipientCode: text('recipient_code').notNull(),
-    /** The Library record shared, or the shared strategy's record. */
-    sourceEntryId: uuid('source_entry_id')
-      .notNull()
-      .references(() => strategyLibraryEntries.id),
+    /** The Library record shared, or the theory the shared strategy refers to (null: none). */
+    sourceEntryId: uuid('source_entry_id').references(() => strategyLibraryEntries.id),
     sourceNumber: text('source_number').notNull(),
     sourceName: text('source_name').notNull(),
     /** A strategy in the sender's workspace (no FK across workspaces). */
@@ -2418,9 +2416,13 @@ export const strategyShares = pgTable(
     check('strategy_share_note_length', sql`char_length(${t.note}) <= 500`),
     check('strategy_share_not_self', sql`${t.senderId} is distinct from ${t.recipientId}`),
     check('strategy_share_decided', sql`(${t.status} = 'pending') = (${t.decidedAt} is null)`),
-    // One pending share of one source from one person to another.
+    check(
+      'strategy_share_library_source',
+      sql`${t.kind} <> 'library' or ${t.sourceEntryId} is not null`,
+    ),
+    // One pending share of one source (a record, or a strategy) from one person to another.
     uniqueIndex('strategy_share_pending_uq')
-      .on(t.senderId, t.recipientId, t.sourceEntryId)
+      .on(t.senderId, t.recipientId, sql`coalesce(${t.sourceStrategyId}, ${t.sourceEntryId})`)
       .where(sql`${t.status} = 'pending'`),
     index('strategy_share_recipient_idx').on(t.recipientId, t.createdAt),
     index('strategy_share_sender_idx').on(t.senderId, t.createdAt),

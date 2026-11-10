@@ -2,7 +2,7 @@ import { expect } from '@playwright/test';
 import { createStrategyWithRules, leg } from './backtest-fixtures';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
-/** One leg on DEMO-A, monthly: enough for a record of its own (ADR 0054). */
+/** One leg on DEMO-A, enough for settled letters. */
 function oneLeg(ids: Record<string, string>, accountId: string) {
   return {
     entry: {
@@ -20,8 +20,8 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
   await signUpAndVerify(page, uniqueEmail('numbering'));
   const headers = { origin: baseURL! };
 
-  // A draft with no Entry legs has no theory record yet, but it has its strategy
-  // number from the start, with provisional letters (ADR 0068).
+  // A draft refers to no theory, and has its strategy number from the start,
+  // with provisional letters (ADR 0068, ADR 0072).
   const draft = await (
     await page.request.post('/api/v1/strategies', { data: { name: 'Empty draft' }, headers })
   ).json();
@@ -33,12 +33,10 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
     'Theory none referred',
   );
 
-  // Saved with an instrument and no link, it gets a record of its own.
+  // Saved with an instrument and no link, it still refers to no theory (ADR 0072).
   const saved = await createStrategyWithRules(page, baseURL!, 'Numbered one', oneLeg);
   const detail = await (await page.request.get(`/api/v1/strategies/${saved.id}`)).json();
-  const own = detail.library.registrationNumber as string;
-  expect(own).toMatch(/^T\d{5}-SD$/);
-  expect(detail.library.autoCreated).toBe(true);
+  expect(detail.library).toBeNull();
   // Its own Strategy Lab number (ADR 0065): theory rules, letter S, a range of its own (ADR 0066).
   const labNumber = detail.labNumber as string;
   expect(labNumber).toMatch(/^S\d{5}-SD$/);
@@ -46,8 +44,8 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
   await page.goto('/strategy-lab');
   const row = page.getByRole('row', { name: /Numbered one/ });
   await expect(row.getByRole('link', { name: labNumber })).toBeVisible();
-  // Its theory was auto-created from it, so the Theory column is blank (N187).
-  await expect(row.getByRole('link', { name: `Theory ${own}` })).toHaveCount(0);
+  // It refers to no theory, so the Theory column is blank.
+  await expect(row.getByRole('link', { name: /^Theory / })).toHaveCount(0);
   // The list is sorted by strategy number, ascending (N188).
   await expect(page.getByRole('columnheader', { name: /^Number/ })).toHaveAttribute(
     'aria-sort',
@@ -78,9 +76,16 @@ test('Strategy Lab shows each strategy’s own S number and its theory, and link
     page.getByRole('row', { name: /Numbered one/ }).getByRole('link', { name: 'Theory T00009-SM' }),
   ).toBeVisible();
 
-  // The Library shows the entry Built, and the old record Not built with its number.
+  // The Library shows the theory Built, listing the strategy.
   await page.goto('/library/T00009-SM');
   await expect(page.getByRole('link', { name: 'Numbered one' })).toBeVisible();
-  const old = await (await page.request.get(`/api/v1/library/${own}`)).json();
-  expect(old.builtStatus).toBe('not_built');
+
+  // "No theory" stops referring (ADR 0072).
+  await page.goto(`/strategy-lab/${saved.id}`);
+  await expect(page.getByRole('link', { name: 'Theory Library entry T00009-SM' })).toBeVisible();
+  await page.getByTitle('Double-click to change the theory').first().dblclick();
+  await page.getByRole('button', { name: /^No theory/ }).click();
+  await expect(page.getByTitle('Double-click to change the theory').first()).toContainText(
+    'Theory none referred',
+  );
 });

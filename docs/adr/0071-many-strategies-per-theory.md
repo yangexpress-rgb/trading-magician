@@ -26,7 +26,7 @@ built by … — unlink that strategy first", or "built in another member's Stra
   none is left. Clearing the link from the Library's edit form follows the same rule.
 - **Theory page.** A theory lists every strategy of the viewer that refers to it ("Built
   strategies"); other members' strategies stay private, as before.
-- **Copies.** Duplicating a strategy that refers to a theory makes a copy that refers to the same
+- **Copies.** (See also ADR 0072: strategies never create theories.) Duplicating a strategy that refers to a theory makes a copy that refers to the same
   theory. A strategy whose record was auto-created from it refers to none, so its copy still gets
   a record of its own.
 - **Esc (N200).** Esc closes any open dropdown and puts the display back as it was: the theory

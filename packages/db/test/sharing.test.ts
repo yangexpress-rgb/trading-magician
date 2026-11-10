@@ -356,17 +356,8 @@ describe('sharing a Library record', () => {
 });
 
 describe('sharing a Strategy Lab strategy', () => {
-  it('refuses a strategy with no number yet', async () => {
+  it('shares only your own strategies', async () => {
     const draft = await as(u.a, (tx) => createStrategy(tx, u.a, { name: 'Draft' }));
-    await refused(
-      as(u.a, (tx) =>
-        createShares(tx, u.a, {
-          source: { kind: 'lab', strategyId: draft.id },
-          recipients: ['U0003'],
-        }),
-      ),
-      /has a number/,
-    );
     await refused(
       as(u.b, (tx) =>
         createShares(tx, u.b, {
@@ -378,7 +369,7 @@ describe('sharing a Strategy Lab strategy', () => {
     );
   });
 
-  it('copies the strategy and its record into the recipient’s Lab with new numbers', async () => {
+  it('copies a strategy with no theory into the recipient’s Lab with its own S number', async () => {
     const mine = await as(u.a, (tx) =>
       createStrategy(tx, u.a, {
         name: 'Ann’s momentum',
@@ -388,7 +379,8 @@ describe('sharing a Strategy Lab strategy', () => {
       }),
     );
     ids.annStrategy = mine.id;
-    const sourceNumber = mine.library!.registrationNumber;
+    expect(mine.library).toBeNull();
+    const sourceNumber = mine.labNumber!;
     const [share] = await as(u.a, (tx) =>
       createShares(tx, u.a, {
         source: { kind: 'lab', strategyId: mine.id },
@@ -401,11 +393,13 @@ describe('sharing a Strategy Lab strategy', () => {
       updateStrategy(tx, u.a, mine.id, { rowVersion: mine.rowVersion, name: 'Renamed later' }),
     );
 
-    const expected = await nextNumber();
+    const theories = await nextNumber();
     const accepted = await as(u.b, (tx) => acceptShare(tx, u.b, share!.id));
     expect(accepted.kind).toBe('lab');
-    expect(accepted.number.slice(0, 6)).toBe(`T${String(expected).padStart(5, '0')}`);
+    expect(accepted.number).toMatch(/^S\d{5}-[A-Z]{2}$/);
     expect(accepted.number).not.toBe(sourceNumber);
+    // No theory is created for the copy.
+    expect(await nextNumber()).toBe(theories);
 
     const copy = await as(u.b, (tx) => getStrategy(tx, accepted.strategyId!));
     expect(copy).toMatchObject({
@@ -414,7 +408,8 @@ describe('sharing a Strategy Lab strategy', () => {
       tags: ['momentum'],
       status: 'created',
       versions: [],
-      library: { registrationNumber: accepted.number },
+      labNumber: accepted.number,
+      library: null,
       sharedBy: { senderCode: 'U0002', senderName: 'Ann', sourceNumber },
     });
     const accounts = new Set(
@@ -423,17 +418,40 @@ describe('sharing a Strategy Lab strategy', () => {
     expect([...accounts]).toEqual([account.b]);
     const list = await as(u.b, (tx) => listStrategies(tx, { shared: true }));
     expect(list.items.map((s) => [s.id, s.shared])).toEqual([[accepted.strategyId, true]]);
-
-    const record = await as(u.b, (tx) => getLibraryEntry(tx, u.b, accepted.number));
-    expect(record).toMatchObject({
-      builtStatus: 'built',
-      builtStrategy: { visibility: 'yours', id: accepted.strategyId },
-      copiedFrom: sourceNumber,
-    });
-    // The sender's strategy and record are untouched.
+    const sent = await as(u.a, (tx) => getShare(tx, u.a, share!.id));
+    expect(sent?.result).toEqual({ number: accepted.number, strategyId: null });
+    // The sender's strategy is untouched.
     const theirs = await as(u.a, (tx) => getStrategy(tx, mine.id));
-    expect(theirs).toMatchObject({ name: 'Renamed later', sharedBy: null });
-    expect(theirs.library?.registrationNumber).toBe(sourceNumber);
+    expect(theirs).toMatchObject({ name: 'Renamed later', sharedBy: null, library: null });
+  });
+
+  it('a copy refers to the same theory as the shared strategy (ADR 0072)', async () => {
+    const mine = await as(u.a, (tx) =>
+      createStrategy(tx, u.a, {
+        name: 'Ann on a theory',
+        definition: definition('DEMO-A', account.a!),
+        library: { kind: 'entry', registrationNumber: num(1) },
+      }),
+    );
+    const [share] = await as(u.a, (tx) =>
+      createShares(tx, u.a, {
+        source: { kind: 'lab', strategyId: mine.id },
+        recipients: ['U0003'],
+      }),
+    );
+    expect(share).toMatchObject({ sourceNumber: mine.labNumber });
+    const detail = await as(u.b, (tx) => getShare(tx, u.b, share!.id));
+    expect(detail?.snapshot.theory).toMatchObject({ registrationNumber: num(1) });
+    expect(detail?.snapshot.record).toBeUndefined();
+    const theories = await nextNumber();
+    const accepted = await as(u.b, (tx) => acceptShare(tx, u.b, share!.id));
+    expect(await nextNumber()).toBe(theories);
+    const copy = await as(u.b, (tx) => getStrategy(tx, accepted.strategyId!));
+    expect(copy.library?.registrationNumber).toBe(num(1));
+    expect(accepted.number).toBe(copy.labNumber);
+    // A repeated accept returns the same copy.
+    const again = await as(u.b, (tx) => acceptShare(tx, u.b, share!.id));
+    expect(again).toEqual(accepted);
   });
 
   it('leaves legs without an account when the recipient has none', async () => {

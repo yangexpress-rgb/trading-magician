@@ -23,7 +23,10 @@ export interface ShareSummaryDto {
 
 export interface ShareDetailDto extends ShareSummaryDto {
   snapshot: {
-    record: Omit<RegisterLibraryEntryInput, 'builtStrategyId'>;
+    /** A Library share, and Lab shares made before ADR 0072. */
+    record?: Omit<RegisterLibraryEntryInput, 'builtStrategyId'>;
+    /** A Lab share since ADR 0072: the theory its strategy refers to, or null. */
+    theory?: { registrationNumber: string; name: string } | null;
     strategy?: { name: string; description: string; tags: string[]; definition: unknown };
   };
 }

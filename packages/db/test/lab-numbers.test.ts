@@ -97,12 +97,12 @@ afterAll(async () => {
 });
 
 describe('Strategy Lab numbers', () => {
-  it('gives a strategy saved with instruments its own S number and its theory a T number', async () => {
+  it('gives a strategy saved with instruments its own S number, and no theory (ADR 0072)', async () => {
     const s = await asA((tx) =>
       createStrategy(tx, userA, { name: 'Trend A', definition: definition(['DEMO-A']) }),
     );
     expect(s.labNumber).toBe(`S${seq(floor + 1)}-SD`);
-    expect(s.library?.registrationNumber).toMatch(/^T\d{5}-SD$/);
+    expect(s.library).toBeNull();
     // S00001-SD is also a former theory number; the ranges are separate (ADR 0066).
     const theories = await t.ownerSql`
       select 1 from strategy_library_entries where ${s.labNumber} = any(former_numbers)`;
@@ -207,7 +207,7 @@ describe('Strategy Lab numbers', () => {
     expect(b.labNumber).toBe(`S${seq(floor + 8)}-SD`);
   });
 
-  it('lists the theory a strategy refers to, and none for a theory auto-created from it', async () => {
+  it('lists the theory a strategy refers to, and none for a strategy that refers to none', async () => {
     const linked = await asA((tx) =>
       createStrategy(tx, userA, {
         name: 'Built from a theory',
@@ -220,7 +220,6 @@ describe('Strategy Lab numbers', () => {
     const byName = new Map(items.map((i) => [i.name, i]));
     expect(byName.get('Built from a theory')?.theoryNumber).toBe('T00001-SD');
     expect(byName.get('Trend A')?.theoryNumber).toBeNull();
-    expect(byName.get('Trend A')?.libraryNumber).toMatch(/^T\d{5}-SD$/);
     expect(items[0]?.name).toBe('Built from a theory');
   });
 

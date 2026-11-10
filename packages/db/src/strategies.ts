@@ -16,7 +16,6 @@ import {
   type StrategyStatus,
   type ValidationContext,
   type ValidationResult,
-  AUTO_CREATED_TAG,
 } from '@tm/domain';
 import {
   and,
@@ -159,12 +158,7 @@ export interface StrategySummary {
   name: string;
   /** Its own Strategy Lab number (ADR 0065); null until the first save with instruments. */
   labNumber: string | null;
-  /** The number of the theory it builds (ADR 0054); null until the first save with instruments. */
-  libraryNumber: string | null;
-  /**
-   * The theory it was built from (N187): its number when the strategy refers to
-   * a theory of its own choosing; null when its theory was auto-created from it.
-   */
+  /** The number of the theory it refers to, or null when it refers to none (ADR 0072). */
   theoryNumber: string | null;
   description: string;
   tags: string[];
@@ -190,9 +184,6 @@ export interface StrategyLatestBacktest {
   netReturnPct: string | null;
   finishedAt: Date | null;
 }
-
-const theoryNumberOf = (t: { number: string; autoCreated: boolean } | undefined) =>
-  t && !t.autoCreated ? t.number : null;
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
@@ -245,7 +236,7 @@ export async function listStrategies(
     name: sql`lower(${strategies.name})`,
     status: sql`${strategies.status}`,
     number: sql`${strategies.labSequenceNo}`,
-    theory: sql`(select ${strategyLibraryEntries.sequenceNo} from ${strategyLibraryEntries} where ${strategyLibraryEntries.id} = ${strategies.libraryEntryId} and (${strategyLibraryEntries.receivedShareId} is not null or not (${AUTO_CREATED_TAG} = any(${strategyLibraryEntries.tags}))))`,
+    theory: sql`(select ${strategyLibraryEntries.sequenceNo} from ${strategyLibraryEntries} where ${strategyLibraryEntries.id} = ${strategies.libraryEntryId})`,
     assets: sql`(select string_agg(distinct ${instruments.symbol}, ',' order by ${instruments.symbol}) from ${strategyInstruments} join ${instruments} on ${instruments.id} = ${strategyInstruments.instrumentId} where ${strategyInstruments.strategyId} = ${strategies.id})`,
     version: sql`${strategyVersions.versionNo}`,
     account: sql`${tradingAccounts.mode}`,
@@ -310,8 +301,7 @@ export async function listStrategies(
       id: s.id,
       name: s.name,
       labNumber: s.labNumber,
-      libraryNumber: (s.libraryEntryId && numbers.get(s.libraryEntryId)?.number) || null,
-      theoryNumber: theoryNumberOf(s.libraryEntryId ? numbers.get(s.libraryEntryId) : undefined),
+      theoryNumber: (s.libraryEntryId && numbers.get(s.libraryEntryId)) || null,
       description: s.description,
       tags: s.tags,
       status: s.status,
@@ -917,15 +907,14 @@ export async function duplicateStrategy(
 ): Promise<StrategyDetail> {
   const source = await loadStrategyRow(tx, id);
   const name = input.name ?? `Copy of ${source.name}`.slice(0, 120);
-  // A copy refers to the same theory as its source (ADR 0071); a source whose
-  // record was auto-created from it refers to none, so the copy gets its own.
+  // A copy refers to the same theory as its source (ADR 0071), if any.
   const theory = await strategyLibraryRecord(tx, source.libraryEntryId);
   const copy = await createStrategy(tx, userId, {
     name,
     description: input.description ?? source.description,
     tags: source.tags,
     definition: source.draftDefinition,
-    ...(theory && !theory.autoCreated && theory.status === 'registered'
+    ...(theory?.status === 'registered'
       ? { library: { kind: 'entry' as const, registrationNumber: theory.registrationNumber } }
       : {}),
   });

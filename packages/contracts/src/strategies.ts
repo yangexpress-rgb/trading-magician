@@ -25,25 +25,25 @@ const tags = z
 const rowVersion = z.number().int().positive();
 
 /**
- * The builder's Library entry picker (ADR 0054): link an existing entry, whose
- * number the strategy then shows, or start a new record of its own.
+ * The theory picker (ADR 0072): refer to any theory by its number, or to none.
+ * A strategy and a theory are separate objects; many strategies may refer to
+ * the same theory.
  */
 export const libraryChoice = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('entry'),
     registrationNumber: z.string().trim().toUpperCase().min(5).max(16),
   }),
-  z.object({ kind: z.literal('new') }),
+  z.object({ kind: z.literal('none') }),
 ]);
 export type LibraryChoiceRequest = z.input<typeof libraryChoice>;
 
-/** A strategy's Library record as the API returns it; null until the first save with instruments. */
+/** The theory a strategy refers to, as the API returns it; null when it refers to none. */
 export interface StrategyLibraryDto {
   entryId: string;
   registrationNumber: string;
   name: string;
   status: 'registered' | 'retired';
-  autoCreated: boolean;
 }
 
 export const STRATEGY_SORTS = [
@@ -144,9 +144,7 @@ export interface StrategySummaryDto {
   name: string;
   /** The strategy's own Strategy Lab number (ADR 0065), e.g. S00032-SD. */
   labNumber: string | null;
-  /** The number of the theory it builds (ADR 0054). */
-  libraryNumber: string | null;
-  /** The theory it was built from; null when its theory was auto-created from it (N187). */
+  /** The theory it refers to, or null when it refers to none (ADR 0072). */
   theoryNumber: string | null;
   description: string;
   tags: string[];
