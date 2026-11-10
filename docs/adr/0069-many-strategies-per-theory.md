@@ -39,6 +39,6 @@ built by … — unlink that strategy first", or "built in another member's Stra
 ## Consequences
 
 - Strategy sharing is unaffected: it already checks that a shared strategy refers to the record.
-- O139: if member A's strategy holds the built link and member B's strategies also refer to the
+- O139 (confirmed by Yong 2026-11-10): if member A's strategy holds the built link and member B's strategies also refer to the
   theory, the theory reads Not built once A's strategies all stop referring, because the server
   cannot read B's workspace on A's behalf. B's strategies keep their theory.
