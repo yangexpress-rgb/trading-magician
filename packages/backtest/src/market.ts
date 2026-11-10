@@ -213,6 +213,14 @@ export class MarketView implements SeriesResolver {
     return eventPointAt(this.events, instrumentId, metric, asOf, close);
   }
 
+  /** When the bar `value` reads ended (N224); undefined when there is none. */
+  barEnd(expr: SeriesExpr, barsBack: number): number | undefined {
+    const key = seriesKey(expr);
+    const at = (this.pointers.get(key) ?? -1) - expr.offset - barsBack;
+    const bar = at >= 0 ? this.series.get(key)?.[at] : undefined;
+    return bar ? Date.parse(bar.end) : undefined;
+  }
+
   /** A series' value on its last bar ending at or before `timeMs` (never after now). */
   valueAt(expr: SeriesExpr, timeMs: number): Decimal | undefined {
     if (expr.kind !== 'market') return undefined;

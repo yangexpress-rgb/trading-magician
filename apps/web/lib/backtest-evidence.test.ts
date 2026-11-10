@@ -59,13 +59,19 @@ describe('comparisonEvidence (N218)', () => {
     };
     const ev = comparisonEvidence(
       window,
-      { id: 'w', truth: false, left: '12', right: '1', eventsAsOf: ['earnings 2026-10-30'] },
+      {
+        id: 'w',
+        truth: false,
+        left: '12',
+        right: '1',
+        eventsAsOf: ['Earnings release 2026-10-30'],
+      },
       symbol,
     );
     // A plain number is not a data element.
     expect(ev.elements).toHaveLength(1);
     expect(ev.reason).toBe('12 > 1');
-    expect(ev.sources).toEqual(['Record: earnings 2026-10-30']);
+    expect(ev.sources).toEqual(['Earnings release Oct 30, 2026']);
   });
 
   it('says when a value had no data', () => {

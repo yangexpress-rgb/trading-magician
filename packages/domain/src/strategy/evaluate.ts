@@ -54,6 +54,10 @@ export interface PositionSnapshot {
   peak?: Decimal | undefined;
   /** The latest close at the Check Exit bar size, on the run's price basis. */
   checkClose?: Decimal | undefined;
+  /** When that close's bar ended (ms), for the back test's cycle card (N224). */
+  checkCloseAt?: number | undefined;
+  /** When Entry first filled (ms), for the back test's cycle card (N224). */
+  openedAt?: number | undefined;
   /** Trading days since Entry first filled, counting that day (N221). */
   daysHeld?: number | undefined;
   /** ATR(period) of daily bars when Entry was decided, by period (N221). */
@@ -97,6 +101,8 @@ export interface SeriesResolver {
   ): OptionPoint | undefined;
   /** An earnings, deal or rate value as known at that bar (free data feeds brief v1 §6). */
   event?(instrumentId: string, metric: EventMetricId, barsBack: number): EventPoint | undefined;
+  /** When the bar `value` reads ended (ms), for explaining a check (N224). */
+  barEnd?(expr: SeriesExpr, barsBack: number): number | undefined;
 }
 
 /** The bar series a position expression is marked against: its interval's close. */
@@ -135,6 +141,9 @@ export function withContext(r: SeriesResolver, instrumentId: string): SeriesReso
         }
       : {}),
     ...(r.valueAt ? { valueAt: (expr: SeriesExpr, t: number) => r.valueAt?.(bind(expr), t) } : {}),
+    ...(r.barEnd
+      ? { barEnd: (expr: SeriesExpr, barsBack: number) => r.barEnd?.(bind(expr), barsBack) }
+      : {}),
     ...(r.option
       ? {
           option: (id: string, field: OptionSignalField, barsBack: number) =>
@@ -170,6 +179,9 @@ export function withPositions(
         }
       : {}),
     ...(r.valueAt ? { valueAt: (expr: SeriesExpr, t: number) => r.valueAt?.(expr, t) } : {}),
+    ...(r.barEnd
+      ? { barEnd: (expr: SeriesExpr, barsBack: number) => r.barEnd?.(expr, barsBack) }
+      : {}),
     ...(r.option
       ? {
           option: (id: string, field: OptionSignalField, barsBack: number) =>

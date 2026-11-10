@@ -143,6 +143,15 @@ export function daysToNextEarnings(
   releases: readonly EarningsSignal[] | undefined,
   atMs: number,
 ): number | undefined {
+  return nextScheduledEarnings(schedule, releases, atMs)?.days;
+}
+
+/** The calendar feed's next earnings date as known at `atMs`, and the trading days to it. */
+export function nextScheduledEarnings(
+  schedule: readonly ScheduledEarnings[] | undefined,
+  releases: readonly EarningsSignal[] | undefined,
+  atMs: number,
+): { days: number; date: string } | undefined {
   if (!schedule || schedule.length === 0) return undefined;
   const barDate = nyDate(new Date(atMs));
   const reported = (releases ?? []).filter((r) => Date.parse(r.announcedAt) <= atMs);
@@ -158,7 +167,7 @@ export function daysToNextEarnings(
       continue;
     if (!best || s.date < best) best = s.date;
   }
-  return best === undefined ? undefined : tradingDaysBetween(barDate, best);
+  return best === undefined ? undefined : { days: tradingDaysBetween(barDate, best), date: best };
 }
 
 /**
@@ -172,14 +181,18 @@ export function daysToNextEarningsDate(
   schedule: readonly ScheduledEarnings[] | undefined,
   releases: readonly EarningsSignal[] | undefined,
   atMs: number,
-): { days: number; standIn: boolean } | undefined {
-  const scheduled = daysToNextEarnings(schedule, releases, atMs);
-  if (scheduled !== undefined) return { days: scheduled, standIn: false };
+): { days: number; standIn: boolean; date: string } | undefined {
+  const scheduled = nextScheduledEarnings(schedule, releases, atMs);
+  if (scheduled !== undefined) return { ...scheduled, standIn: false };
   // The feed already listed this stock by then and has nothing coming: no stand-in.
   if (schedule?.some((s) => s.firstSeenMs <= atMs)) return undefined;
   const next = releases?.find((r) => Date.parse(r.announcedAt) > atMs);
   if (!next) return undefined;
-  return { days: tradingDaysBetween(nyDate(new Date(atMs)), next.announcedDate), standIn: true };
+  return {
+    days: tradingDaysBetween(nyDate(new Date(atMs)), next.announcedDate),
+    standIn: true,
+    date: next.announcedDate,
+  };
 }
 
 /**

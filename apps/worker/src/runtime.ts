@@ -729,6 +729,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         quantity: c.positions.get(id) ?? ZERO,
         averagePrice: e.cost.div(e.quantity),
         ...(k ? { peak: new Decimal(k.peak), checkClose: new Decimal(k.close) } : {}),
+        ...(k?.at === undefined ? {} : { checkCloseAt: k.at }),
         ...(c.cycle.daysHeld === undefined ? {} : { daysHeld: c.cycle.daysHeld }),
         ...(atr ? { atrAtEntry: decimals(atr) } : {}),
         ...(move ? { moveAtEntry: decimals(move) } : {}),
@@ -1005,15 +1006,21 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       if (opened.length > 0)
         c.cycle = { ...c.cycle, daysHeld: tradingDaysHeld(Math.min(...opened), t) };
       const peaks = { ...(c.cycle.peaks ?? {}) };
+      const firstFill = opened.length > 0 ? Math.min(...opened) : undefined;
       for (const [id, e] of c.entries) {
         const held = c.positions.get(id) ?? ZERO;
         if (e.quantity.isZero() || held.isZero()) continue;
-        const close = evaluateExpr(stopCloseExpr(id, undefined, stopInterval(def)), view);
-        if (!close) continue;
+        const expr = stopCloseExpr(id, undefined, stopInterval(def));
+        const close = evaluateExpr(expr, view);
+        const at = view.barEnd(expr, 0);
+        if (!close || at === undefined) continue;
+        // A close from before Entry filled says nothing about this holding (N225).
+        if (firstFill !== undefined && at < firstFill) continue;
         const start = peaks[id] ? new Decimal(peaks[id].peak) : e.cost.div(e.quantity);
         peaks[id] = {
           peak: trailingPeak(start, close, held.gt(0)).toString(),
           close: close.toString(),
+          at,
         };
       }
       c.cycle = { ...c.cycle, peaks };

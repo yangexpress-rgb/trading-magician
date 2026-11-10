@@ -2,7 +2,7 @@ import Decimal from 'decimal.js';
 import { nyDate, tradingDaysBetween } from '../market/calendar';
 import { activeDealAt, dealSpread, type DealSignal } from './deals';
 import {
-  daysToNextEarnings,
+  nextScheduledEarnings,
   daysToNextEarningsDate,
   latestRelease,
   type EarningsSignal,
@@ -89,13 +89,14 @@ export function eventPointAt(
       const v = metric === 'earnings.sue_ts' ? r.sue : r.surprisePct;
       return v === null ? undefined : point(v, r.announcedDate, note);
     }
+    // The next earnings metrics are dated by the coming date they count to (N224).
     case 'earnings.next_earnings_days': {
-      const d = daysToNextEarnings(
+      const d = nextScheduledEarnings(
         data.calendar.get(instrumentId),
         data.earnings.get(instrumentId),
         atMs,
       );
-      return d === undefined ? undefined : point(d, barDate);
+      return d === undefined ? undefined : point(d.days, d.date);
     }
     case 'earnings.next_date_days': {
       const d = daysToNextEarningsDate(
@@ -103,7 +104,7 @@ export function eventPointAt(
         data.earnings.get(instrumentId),
         atMs,
       );
-      return d === undefined ? undefined : point(d.days, barDate, d.standIn ? 'edgar' : undefined);
+      return d === undefined ? undefined : point(d.days, d.date, d.standIn ? 'edgar' : undefined);
     }
     case 'deals.spread_pct': {
       const deal = activeDealAt(data.deals.get(instrumentId), atMs);
