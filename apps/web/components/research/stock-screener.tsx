@@ -375,7 +375,7 @@ export function StockScreener({
           search={{
             label: 'Symbol or name',
             value: filters.text,
-            placeholder: 'Symbol or name, e.g. NVDA or bank',
+            placeholder: 'Symbol or name',
             onChange: (text) => changeFilters({ text }),
           }}
           filters={filterDefs}
@@ -394,44 +394,44 @@ export function StockScreener({
             else clearRange(key as ScreenNumberColumn);
           }}
           onClear={clearFilters}
-          actions={
-            <>
-              <PillMenu
-                label="Ready-made screens"
-                menuLabel="Ready-made screens"
-                align="right"
-                items={presets.map((p) => ({ value: p.id, label: p.label }))}
-                onPick={applyPreset}
-              />
-              <ColumnPicker columns={columns} onChange={setColumns} />
-              <Button size="sm" onClick={() => void load(want, true)} disabled={loading}>
-                Refresh prices
-              </Button>
-              <Button size="sm" onClick={exportCsv} disabled={!rows || matched.length === 0}>
-                Download CSV
-              </Button>
-            </>
-          }
         />
-        <p role="status" aria-live="polite" className="text-sm text-ink-muted">
-          {loading
-            ? want === 'sp500'
-              ? 'Getting prices for the S&P 500…'
-              : canScreenMarket
-                ? 'Getting prices for every US stock and ETF… the first screen of the day takes a minute or two.'
-                : 'Getting prices…'
-            : rows && screen
-              ? `${matched.length.toLocaleString('en-US')} of ${inUniverse.toLocaleString('en-US')} ${universe === 'sp500' ? 'S&P 500 stocks' : inUniverse === 1 ? 'stock' : 'stocks and ETFs'} match`
-              : ''}
-          {!loading && screen?.status === 'ready' && (
-            <span className="text-xs">
-              {' · '}
-              {screen.sessionDate &&
-                `“Today” is the session of ${nyDay(screen.sessionDate)}; “yesterday” is the one before. `}
-              Prices as of {nyTime(screen.updatedAt)} New York time.
-            </span>
-          )}
-        </p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <p role="status" aria-live="polite" className="min-w-0 flex-1 text-sm text-ink-muted">
+            {loading
+              ? want === 'sp500'
+                ? 'Getting prices for the S&P 500…'
+                : canScreenMarket
+                  ? 'Getting prices for every US stock and ETF… the first screen of the day takes a minute or two.'
+                  : 'Getting prices…'
+              : rows && screen
+                ? `${matched.length.toLocaleString('en-US')} of ${inUniverse.toLocaleString('en-US')} ${universe === 'sp500' ? 'S&P 500 stocks' : inUniverse === 1 ? 'stock' : 'stocks and ETFs'} match`
+                : ''}
+            {!loading && screen?.status === 'ready' && (
+              <span className="text-xs">
+                {' · '}
+                {screen.sessionDate &&
+                  `“Today” is the session of ${nyDay(screen.sessionDate)}; “yesterday” is the one before. `}
+                Prices as of {nyTime(screen.updatedAt)} New York time.
+              </span>
+            )}
+          </p>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <PillMenu
+              label="Ready-made screens"
+              menuLabel="Ready-made screens"
+              align="right"
+              items={presets.map((p) => ({ value: p.id, label: p.label }))}
+              onPick={applyPreset}
+            />
+            <ColumnPicker columns={columns} onChange={setColumns} />
+            <Button size="sm" onClick={() => void load(want, true)} disabled={loading}>
+              Refresh prices
+            </Button>
+            <Button size="sm" onClick={exportCsv} disabled={!rows || matched.length === 0}>
+              Download CSV
+            </Button>
+          </div>
+        </div>
         {error && <Alert>{error}</Alert>}
       </section>
 

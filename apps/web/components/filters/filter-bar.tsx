@@ -196,6 +196,10 @@ function Chevron() {
   );
 }
 
+/** Whether a popover this wide would run off the right of the window from here. */
+const runsOffRight = (el: HTMLElement | null, width: number) =>
+  el !== null && el.getBoundingClientRect().left + width > window.innerWidth - 16;
+
 /** Closes a popover on a click outside it or on Escape. */
 function useDismiss(
   open: boolean,
@@ -245,6 +249,7 @@ function FilterPill({
   const button = useRef<HTMLButtonElement>(null);
   const panelId = useId();
   useDismiss(open, root, onClose, button);
+  const [flip, setFlip] = useState(false);
   const value = summary(f);
   const setting = f.kind === 'choice' && f.setting;
   const on = value !== null && !setting;
@@ -268,7 +273,11 @@ function FilterPill({
           aria-controls={open ? panelId : undefined}
           disabled={f.disabled}
           title={f.title}
-          onClick={() => (open ? onClose() : onOpen())}
+          onClick={() => {
+            if (open) return onClose();
+            setFlip(runsOffRight(root.current, 300));
+            onOpen();
+          }}
           className={cx(
             'inline-flex h-full items-center gap-1 rounded-full pl-3 disabled:cursor-not-allowed',
             on ? 'pr-1' : 'pr-2.5',
@@ -302,7 +311,10 @@ function FilterPill({
           id={panelId}
           role="dialog"
           aria-label={f.label}
-          className="absolute left-0 z-30 mt-1 min-w-[14rem] rounded-md border border-line bg-surface p-2 shadow-lg"
+          className={cx(
+            'absolute z-30 mt-1 min-w-[14rem] rounded-md border border-line bg-surface p-2 shadow-lg',
+            flip ? 'right-0' : 'left-0',
+          )}
         >
           {f.kind === 'choice' ? (
             <ChoiceList filter={f} onPick={onChoice} />
@@ -430,6 +442,7 @@ export function PillMenu({
   const button = useRef<HTMLButtonElement>(null);
   const [find, setFind] = useState('');
   useDismiss(open, root, () => setOpen(false), button);
+  const [flip, setFlip] = useState(align === 'right');
   const t = find.trim().toLowerCase();
   const shown = t ? items.filter((f) => f.label.toLowerCase().includes(t)) : items;
   const long = items.length > 8;
@@ -442,6 +455,7 @@ export function PillMenu({
         aria-expanded={open}
         aria-label={dashed ? menuLabel : undefined}
         onClick={() => {
+          setFlip(align === 'right' || runsOffRight(root.current, 256));
           setOpen((o) => !o);
           setFind('');
         }}
@@ -458,7 +472,7 @@ export function PillMenu({
         <div
           className={cx(
             'absolute z-30 mt-1 w-64 rounded-md border border-line bg-surface p-1 shadow-lg',
-            align === 'right' ? 'right-0' : 'left-0',
+            flip ? 'right-0' : 'left-0',
           )}
         >
           {long && (

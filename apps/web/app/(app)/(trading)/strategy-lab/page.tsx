@@ -173,7 +173,7 @@ export default async function StrategyLabPage({
           search={{
             param: 'q',
             label: 'Search',
-            placeholder: 'Name, number, description or tag',
+            placeholder: 'Name, number or tag',
             value: q.q ?? '',
           }}
           filters={[

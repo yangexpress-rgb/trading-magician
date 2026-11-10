@@ -213,7 +213,7 @@ export default async function LibraryPage({
           search={{
             param: 'q',
             label: 'Search',
-            placeholder: 'Number, name, description or tag',
+            placeholder: 'Number, name or tag',
             value: q.q ?? '',
           }}
           filters={[
