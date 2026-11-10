@@ -8,13 +8,12 @@ import {
   type ScreenNumberColumn,
   type ScreenRow,
 } from '@tm/domain';
-import { Alert, Badge, Button, Card, cx } from '@tm/ui';
+import { Alert, Badge, Button, cx } from '@tm/ui';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 import {
-  activeFilterCount,
   COLUMN_BY_KEY,
   decodeScreenState,
   EMPTY_FILTERS,
@@ -37,6 +36,7 @@ import {
   type SortState,
   type Universe,
 } from '@/lib/screener';
+import { type FilterDef, FilterBar, PillMenu } from '../filters/filter-bar';
 import { useInstrumentLookup } from '../strategy/use-instrument-lookup';
 import { bare } from '@/lib/units';
 
@@ -44,6 +44,8 @@ const POLL_MS = 1000;
 /** The first screen of the whole market downloads a month of prices; give it time. */
 const GIVE_UP_MS = 10 * 60_000;
 const PAGE_SIZES = [50, 100, 250, 1000] as const;
+/** Range filters shown as pills before they are set; the rest are in the Filter menu. */
+const PINNED_RANGES: readonly ScreenNumberColumn[] = ['last', 'changePct', 'marketCap'];
 
 type RawRanges = Partial<Record<ScreenNumberColumn, { min: string; max: string }>>;
 
@@ -208,7 +210,6 @@ export function StockScreener({
   );
   const iex = (screen?.warnings ?? []).some((w) => /IEX/.test(w));
   const presets = useMemo(() => screenPresets(iex), [iex]);
-  const active = activeFilterCount(filters);
 
   const changeFilters = (patch: Partial<ScreenFilters>) => {
     setFilters((f) => ({ ...f, ...patch }));
@@ -229,6 +230,62 @@ export function StockScreener({
     setRaw(next);
     changeFilters({ ranges });
   };
+
+  const clearRange = (key: ScreenNumberColumn) => {
+    const next = Object.fromEntries(Object.entries(raw).filter(([k]) => k !== key)) as RawRanges;
+    const ranges = Object.fromEntries(
+      Object.entries(filters.ranges).filter(([k]) => k !== key),
+    ) as ScreenFilters['ranges'];
+    setRaw(next);
+    changeFilters({ ranges });
+  };
+
+  // Type and sector, and the main price columns, are pinned as pills; every
+  // other column waits in the Filter menu (N194).
+  const filterDefs: FilterDef[] = [
+    {
+      kind: 'choice',
+      key: 'type',
+      label: 'Type',
+      pinned: true,
+      anyValue: 'all',
+      value: filters.type,
+      options: [
+        { value: 'stock', label: 'Stocks' },
+        { value: 'etf', label: 'ETFs' },
+      ],
+    },
+    {
+      kind: 'choice',
+      key: 'sector',
+      label: 'Sector',
+      pinned: true,
+      value: filters.sector,
+      hint: 'GICS sector, for S&P 500 members',
+      options: SECTORS.map((x) => ({ value: x, label: x })),
+    },
+    {
+      kind: 'choice',
+      key: 'exchange',
+      label: 'Exchange',
+      value: filters.exchange,
+      options: exchanges.map((x) => ({ value: x, label: x })),
+    },
+    ...NUMBER_COLUMNS.filter(
+      (c) =>
+        ((!c.company || companyFigures) && (!c.options || optionFigures)) ||
+        filters.ranges[c.key] !== undefined,
+    ).map((c): FilterDef => ({
+      kind: 'range',
+      key: c.key,
+      label: c.label,
+      pinned: PINNED_RANGES.includes(c.key),
+      min: raw[c.key]?.min ?? '',
+      max: raw[c.key]?.max ?? '',
+      invalid: (text) => parseAmount(text) === undefined,
+      hint: `${c.hint}. Amounts can be written like 2, -1.5, 250k or 1.5M${c.format === 'pct' ? '; in percent' : ''}.`,
+    })),
+  ];
 
   const applyPreset = (id: string) => {
     const preset = presets.find((p) => p.id === id);
@@ -294,144 +351,89 @@ export function StockScreener({
         </Alert>
       )}
 
-      <Card>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <p role="status" aria-live="polite" className="text-sm text-ink-muted">
-            {loading
-              ? want === 'sp500'
-                ? 'Getting prices for the S&P 500…'
-                : canScreenMarket
-                  ? 'Getting prices for every US stock and ETF… the first screen of the day takes a minute or two.'
-                  : 'Getting prices…'
-              : rows && screen
-                ? `${matched.length.toLocaleString('en-US')} of ${inUniverse.toLocaleString('en-US')} ${universe === 'sp500' ? 'S&P 500 stocks' : inUniverse === 1 ? 'stock' : 'stocks and ETFs'} match`
-                : ''}
-          </p>
-          <div className="ml-auto flex items-center gap-2">
-            <Button size="sm" onClick={() => void load(want, true)} disabled={loading}>
-              Refresh prices
-            </Button>
-            <Button size="sm" onClick={exportCsv} disabled={!rows || matched.length === 0}>
-              Download CSV
-            </Button>
-          </div>
-        </div>
-        {screen?.status === 'ready' && (
-          <p className="mt-1 text-xs text-ink-muted">
-            {screen.sessionDate &&
-              `“Today” is the session of ${nyDay(screen.sessionDate)}; “yesterday” is the one before. `}
-            Prices as of {nyTime(screen.updatedAt)} New York time.
-          </p>
-        )}
-
-        {error && (
-          <div className="mt-3">
-            <Alert>{error}</Alert>
-          </div>
-        )}
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-[1fr_1.5fr_1fr_1fr_1.3fr_1.5fr_auto]">
-          <label className="text-sm font-semibold text-ink-muted">
-            Stock group
-            <select
-              value={want}
-              disabled={!canScreenMarket}
-              title={canScreenMarket ? undefined : 'Add an Alpaca data feed to screen real stocks'}
-              onChange={(e) => {
-                setUniverse(e.target.value as Universe);
-                setPage(0);
-              }}
-              className="mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm disabled:opacity-60"
-            >
-              {canScreenMarket ? (
-                <>
-                  <option value="sp500">S&amp;P 500</option>
-                  <option value="all">All US stocks</option>
-                </>
-              ) : (
-                <option value="all">{demoData ? 'Demo instruments' : 'All US stocks'}</option>
-              )}
-            </select>
-          </label>
-          <label className="text-sm font-semibold text-ink-muted">
-            Symbol or name
-            <input
-              type="search"
-              value={filters.text}
-              onChange={(e) => changeFilters({ text: e.target.value })}
-              placeholder="e.g. NVDA or bank"
-              className="mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="text-sm font-semibold text-ink-muted">
-            Type
-            <select
-              value={filters.type}
-              onChange={(e) => changeFilters({ type: e.target.value as ScreenFilters['type'] })}
-              className="mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm"
-            >
-              <option value="all">Stocks and ETFs</option>
-              <option value="stock">Stocks</option>
-              <option value="etf">ETFs</option>
-            </select>
-          </label>
-          <label className="text-sm font-semibold text-ink-muted">
-            Exchange
-            <select
-              value={filters.exchange}
-              onChange={(e) => changeFilters({ exchange: e.target.value })}
-              className="mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm"
-            >
-              <option value="">All exchanges</option>
-              {exchanges.map((x) => (
-                <option key={x} value={x}>
-                  {x}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm font-semibold text-ink-muted">
-            Sector
-            <select
-              value={filters.sector}
-              onChange={(e) => changeFilters({ sector: e.target.value })}
-              className="mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm"
-            >
-              <option value="">All sectors</option>
-              {SECTORS.map((x) => (
-                <option key={x} value={x}>
-                  {x}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm font-semibold text-ink-muted">
-            Start from a ready-made screen
-            <select
-              value=""
-              onChange={(e) => applyPreset(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm"
-            >
-              <option value="">Choose…</option>
-              {presets.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex items-end gap-2">
-            <ColumnPicker columns={columns} onChange={setColumns} />
-            <Button size="sm" variant="ghost" onClick={clearFilters} disabled={active === 0}>
-              Clear filters{active > 0 ? ` (${active})` : ''}
-            </Button>
-          </div>
-        </div>
-        <p className="mt-2 text-xs text-ink-muted">
-          Narrow any column with its min and max boxes; amounts can be written like 2, -1.5, 250k or
-          1.5M. Percent columns are in percent. Click a heading to sort.
+      {/* Compact filter pills that apply at once (N194); the rest wait in the Filter menu. */}
+      <section aria-label="Screen filters" className="space-y-2">
+        <FilterBar
+          label="Screen filters"
+          leading={[
+            {
+              kind: 'choice',
+              key: 'universe',
+              label: 'Stock group',
+              setting: true,
+              value: want,
+              disabled: !canScreenMarket,
+              title: canScreenMarket ? undefined : 'Add an Alpaca data feed to screen real stocks',
+              options: canScreenMarket
+                ? [
+                    { value: 'sp500', label: 'S&P 500' },
+                    { value: 'all', label: 'All US stocks' },
+                  ]
+                : [{ value: 'all', label: demoData ? 'Demo instruments' : 'All US stocks' }],
+            },
+          ]}
+          search={{
+            label: 'Symbol or name',
+            value: filters.text,
+            placeholder: 'Symbol or name, e.g. NVDA or bank',
+            onChange: (text) => changeFilters({ text }),
+          }}
+          filters={filterDefs}
+          onChoice={(key, value) => {
+            if (key === 'universe') {
+              setUniverse(value as Universe);
+              setPage(0);
+            } else if (key === 'type') changeFilters({ type: value as ScreenFilters['type'] });
+            else if (key === 'exchange') changeFilters({ exchange: value });
+            else if (key === 'sector') changeFilters({ sector: value });
+          }}
+          onRange={(key, end, text) => setRange(key as ScreenNumberColumn, end, text)}
+          onRemove={(key) => {
+            if (key === 'type') changeFilters({ type: 'all' });
+            else if (key === 'exchange' || key === 'sector') changeFilters({ [key]: '' });
+            else clearRange(key as ScreenNumberColumn);
+          }}
+          onClear={clearFilters}
+          actions={
+            <>
+              <PillMenu
+                label="Ready-made screens"
+                menuLabel="Ready-made screens"
+                align="right"
+                items={presets.map((p) => ({ value: p.id, label: p.label }))}
+                onPick={applyPreset}
+              />
+              <ColumnPicker columns={columns} onChange={setColumns} />
+              <Button size="sm" onClick={() => void load(want, true)} disabled={loading}>
+                Refresh prices
+              </Button>
+              <Button size="sm" onClick={exportCsv} disabled={!rows || matched.length === 0}>
+                Download CSV
+              </Button>
+            </>
+          }
+        />
+        <p role="status" aria-live="polite" className="text-sm text-ink-muted">
+          {loading
+            ? want === 'sp500'
+              ? 'Getting prices for the S&P 500…'
+              : canScreenMarket
+                ? 'Getting prices for every US stock and ETF… the first screen of the day takes a minute or two.'
+                : 'Getting prices…'
+            : rows && screen
+              ? `${matched.length.toLocaleString('en-US')} of ${inUniverse.toLocaleString('en-US')} ${universe === 'sp500' ? 'S&P 500 stocks' : inUniverse === 1 ? 'stock' : 'stocks and ETFs'} match`
+              : ''}
+          {!loading && screen?.status === 'ready' && (
+            <span className="text-xs">
+              {' · '}
+              {screen.sessionDate &&
+                `“Today” is the session of ${nyDay(screen.sessionDate)}; “yesterday” is the one before. `}
+              Prices as of {nyTime(screen.updatedAt)} New York time.
+            </span>
+          )}
         </p>
-      </Card>
+        {error && <Alert>{error}</Alert>}
+      </section>
 
       {lookupFailed && <Alert>{lookupFailed}</Alert>}
 
@@ -463,38 +465,6 @@ export function StockScreener({
                   onSort={toggleSort}
                   numeric
                 />
-              ))}
-            </tr>
-            <tr>
-              <th
-                scope="col"
-                className="sticky left-0 z-10 border-b border-line bg-surface-2 px-2 py-1"
-              >
-                <span className="sr-only">Filters</span>
-              </th>
-              <th scope="col" className="border-b border-line bg-surface-2 px-2 py-1" />
-              <th scope="col" className="border-b border-line bg-surface-2 px-2 py-1" />
-              {shownColumns.map((c) => (
-                <th
-                  key={c.key}
-                  scope="col"
-                  className="border-b border-line bg-surface-2 px-2 py-1 font-normal"
-                >
-                  <div className="flex gap-1">
-                    <RangeInput
-                      label={`${c.label}, at least`}
-                      placeholder="min"
-                      value={raw[c.key]?.min ?? ''}
-                      onChange={(v) => setRange(c.key, 'min', v)}
-                    />
-                    <RangeInput
-                      label={`${c.label}, at most`}
-                      placeholder="max"
-                      value={raw[c.key]?.max ?? ''}
-                      onChange={(v) => setRange(c.key, 'max', v)}
-                    />
-                  </div>
-                </th>
               ))}
             </tr>
           </thead>
@@ -695,32 +665,6 @@ function HeaderCell({
   );
 }
 
-function RangeInput({
-  label,
-  placeholder,
-  value,
-  onChange,
-}: {
-  label: string;
-  placeholder: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const bad = value.trim() !== '' && parseAmount(value) === undefined;
-  return (
-    <input
-      type="text"
-      inputMode="decimal"
-      aria-label={label}
-      aria-invalid={bad}
-      placeholder={placeholder}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-16 min-w-0 flex-1 rounded border border-line bg-surface px-1.5 py-1 text-right text-xs tabular-nums placeholder:text-ink-muted aria-[invalid=true]:border-danger"
-    />
-  );
-}
-
 function ColumnPicker({
   columns,
   onChange,
@@ -730,7 +674,7 @@ function ColumnPicker({
 }) {
   return (
     <details className="relative">
-      <summary className="flex h-8 cursor-pointer list-none items-center rounded-md border border-line bg-surface px-3 text-sm font-medium hover:bg-surface-2">
+      <summary className="flex h-8 cursor-pointer list-none items-center rounded-full border border-line bg-surface px-3 text-sm hover:bg-surface-2">
         Columns ({columns.length})
       </summary>
       <fieldset className="absolute right-0 z-20 mt-1 w-72 rounded-md border border-line bg-surface p-3 shadow-lg">

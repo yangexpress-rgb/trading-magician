@@ -40,13 +40,31 @@ test('screens the demo instruments by any column', async ({ page }) => {
     .click();
   await expect(header(/Today’s change %/)).toHaveAttribute('aria-sort', 'ascending');
 
-  // Narrow to ETFs, then to a price range nothing is in.
-  await page.getByLabel('Type').selectOption('etf');
+  // Filters are compact pills (N194): no min and max boxes under the headings.
+  const filters = page.getByRole('toolbar', { name: 'Screen filters' });
+  await expect(page.getByLabel('Last price, at least')).toHaveCount(0);
+
+  // Narrow to ETFs, then to a price range nothing is in; each applies at once.
+  await filters.getByRole('button', { name: /^Type/ }).click();
+  await page.getByRole('dialog', { name: 'Type' }).getByRole('radio', { name: 'ETFs' }).click();
   await expect(body).toHaveCount(2);
   await expect(page.getByText('2 of 7 stocks and ETFs match')).toBeVisible();
+  await expect(filters.getByRole('button', { name: /^Type: ETFs/ })).toBeVisible();
+  await filters.getByRole('button', { name: /^Last price/ }).click();
   await page.getByLabel('Last price, at least').fill('1M');
   await expect(page.getByText('Nothing matches these filters.')).toBeVisible();
   await expect(page).toHaveURL(/f=last%3A1000000%3A/);
+  await page.keyboard.press('Escape');
+  await expect(filters.getByRole('button', { name: /^Last price: ≥ 1M/ })).toBeVisible();
+
+  // The rarer filters wait in the Filter menu until asked for.
+  await expect(filters.getByRole('button', { name: /^Exchange/ })).toHaveCount(0);
+  await filters.getByRole('button', { name: 'Add a filter' }).click();
+  await page.getByRole('menuitem', { name: 'Exchange' }).click();
+  await expect(page.getByRole('dialog', { name: 'Exchange' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  // Left empty, it goes back to the menu.
+  await expect(filters.getByRole('button', { name: /^Exchange/ })).toHaveCount(0);
 
   // Clearing brings everything back; the address forgets the filters.
   await page.getByRole('button', { name: /Clear filters \(2\)/ }).click();
@@ -85,10 +103,11 @@ test('screens every listed US stock through an Alpaca feed', async ({ page }) =>
   await expect(page.getByText('The screener shows the demo instruments.')).toBeHidden();
   const results = page.getByRole('table', { name: 'Screen results' });
   // A real feed opens on the S&P 500, which has none of the fake's made-up symbols.
-  const group = page.getByLabel('Stock group');
-  await expect(group).toHaveValue('sp500');
+  const filters = page.getByRole('toolbar', { name: 'Screen filters' });
+  await expect(filters.getByRole('button', { name: /^Stock group: S&P 500/ })).toBeVisible();
   await expect(page.getByText('0 of 0 S&P 500 stocks match')).toBeVisible({ timeout: 30_000 });
-  await group.selectOption({ label: 'All US stocks' });
+  await filters.getByRole('button', { name: /^Stock group/ }).click();
+  await page.getByRole('radio', { name: 'All US stocks' }).click();
   await expect(page).toHaveURL(/universe=all/);
   await expect(results.locator('tbody tr')).toHaveCount(3);
   await expect(page.getByText('Prices from Alpaca prices')).toBeVisible();

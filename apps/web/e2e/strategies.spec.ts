@@ -139,9 +139,11 @@ test.describe('strategy library', () => {
     // A second strategy that trades DEMO-A, created through the API, and moved to Under testing.
     await page.getByRole('link', { name: '← All strategies' }).click();
     const demoA = await page
-      .getByLabel('Asset')
-      .locator('option', { hasText: 'DEMO-A' })
-      .getAttribute('value');
+      .getByRole('toolbar', { name: 'Filter strategies' })
+      .getByRole('button', { name: /^Asset/ })
+      .click()
+      .then(() => page.getByRole('radio', { name: 'DEMO-A' }).getAttribute('value'));
+    await page.keyboard.press('Escape');
     const a = api(page, baseURL!);
     const withAsset = await (
       await a.post('/strategies', {
@@ -163,15 +165,28 @@ test.describe('strategy library', () => {
     await expect(table.getByRole('row', { name: /Momentum A/ })).toContainText('DEMO-A');
     await expect(table.getByRole('row', { name: /Momentum A/ })).toContainText('Paper');
 
-    // Search, status and asset filters.
+    // Search, status and asset filters: pills that apply at once, no Apply button (N194).
     const filter = async (fields: Record<string, string>) => {
       await page.goto('/strategy-lab');
+      const bar = page.getByRole('toolbar', { name: 'Filter strategies' });
       for (const [label, value] of Object.entries(fields)) {
-        const field = page.getByLabel(label, { exact: true });
-        if (label === 'Search') await field.fill(value);
-        else await field.selectOption({ label: value });
+        if (label === 'Search') {
+          await page.getByLabel('Search', { exact: true }).fill(value);
+          await expect(page).toHaveURL(/[?&]q=/);
+        } else {
+          const pill = bar.getByRole('button', { name: new RegExp(`^${label}`) });
+          // The rarer filters wait in the Filter menu.
+          if ((await pill.count()) === 0) {
+            await bar.getByRole('button', { name: 'Add a filter' }).click();
+            await page.getByRole('menuitem', { name: label }).click();
+          } else await pill.click();
+          await page
+            .getByRole('dialog', { name: label })
+            .getByRole('radio', { name: value })
+            .click();
+          await expect(bar.getByRole('button', { name: `${label}: ${value}` })).toBeVisible();
+        }
       }
-      await page.getByRole('button', { name: 'Apply filters' }).click();
     };
     await filter({ Search: 'MOMENTUM' });
     await expect(rowLinks).toHaveText(['Momentum A']);
@@ -181,7 +196,7 @@ test.describe('strategy library', () => {
     await expect(rowLinks).toHaveText(['Momentum A']);
     await filter({ Search: 'nothing like this' });
     await expect(page.getByRole('heading', { name: 'No strategies match' })).toBeVisible();
-    await filter({ 'Sort by': 'Name' });
+    await filter({ Sort: 'Name' });
     await expect(rowLinks).toHaveText(['Beverage pairs', 'Momentum A']);
 
     // Clicking a column header sorts by it: ascending first, then descending (N167).
@@ -237,7 +252,7 @@ test.describe('strategy library', () => {
     // Archive, then find it under Archived.
     await page.getByRole('button', { name: 'Archive Copy of Beverage spread' }).click();
     await expect(table.getByRole('link', { name: 'Copy of Beverage spread' })).toHaveCount(0);
-    await filter({ Show: 'Archived' });
+    await filter({ Archived: 'Archived only' });
     await expect(rowLinks).toHaveText(['Copy of Beverage spread']);
     await expectAccessible(page);
 
