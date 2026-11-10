@@ -8,6 +8,7 @@ export * from './lifecycle';
 export * from './metrics';
 export * from './migrate-v1';
 export * from './migrate-v2';
+export * from './migrate-v3';
 export * from './risk-exits';
 export * from './expected-move-exit';
 export * from './trailing-stop';

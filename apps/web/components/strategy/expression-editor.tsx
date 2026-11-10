@@ -680,28 +680,33 @@ function PositionFields({
           </option>
         ))}
       </MiniSelect>
-      <MiniSelect
-        id={id('interval')}
-        label="Check every"
-        value={expr.interval}
-        onChange={(e) =>
-          onChange({ ...expr, interval: e.target.value as PositionExpr['interval'] })
-        }
-      >
-        {BAR_INTERVALS.map((b) => (
-          <option key={b} value={b}>
-            {INTERVAL_LABELS[b]}
-          </option>
-        ))}
-      </MiniSelect>
+      {/* Off best close follows Check Exit's bar size, like the stops (N217). */}
+      {expr.field !== 'off_peak_pct' && (
+        <MiniSelect
+          id={id('interval')}
+          label="Check every"
+          value={expr.interval}
+          onChange={(e) =>
+            onChange({ ...expr, interval: e.target.value as PositionExpr['interval'] })
+          }
+        >
+          {BAR_INTERVALS.map((b) => (
+            <option key={b} value={b}>
+              {INTERVAL_LABELS[b]}
+            </option>
+          ))}
+        </MiniSelect>
+      )}
       <p className="col-span-full text-xs text-ink-muted">
-        {expr.field === 'gain_pct'
-          ? 'Percent above your average Entry fill price (below it for a short), at each bar close.'
-          : expr.field === 'entry_price'
-            ? 'Your average Entry fill price in this cycle.'
-            : expr.field === 'pnl'
-              ? 'Unrealized profit or loss in dollars, at each bar close.'
-              : 'Shares held in this cycle; negative when short.'}
+        {expr.field === 'off_peak_pct'
+          ? 'How far the latest close is below the best close since Entry filled (above the lowest, for a short), in percent; the best close starts at the entry price. "Is greater than 5" is a 5% trailing stop. Closes are read at the Check Exit bar size.'
+          : expr.field === 'gain_pct'
+            ? 'Percent above your average Entry fill price (below it for a short), at each bar close.'
+            : expr.field === 'entry_price'
+              ? 'Your average Entry fill price in this cycle.'
+              : expr.field === 'pnl'
+                ? 'Unrealized profit or loss in dollars, at each bar close.'
+                : 'Shares held in this cycle; negative when short.'}
       </p>
     </>
   );

@@ -539,9 +539,9 @@ describe('Strategy Lab simplification: migration report (ADR 0049)', () => {
       .set({ draftDefinition: v1, draftSchemaVersion: 1 })
       .where(eq(strategies.id, s.id));
 
-    // It still reads, and still validates, as schema 3.
+    // It still reads, and still validates, as the current schema.
     const loaded = await asA((tx) => getStrategy(tx, s.id));
-    expect(loaded.definition.schemaVersion).toBe(3);
+    expect(loaded.definition.schemaVersion).toBe(4);
     expect(loaded.definition.exit.orders[0]!.orderType).toBe('stop');
 
     const report = await strategyMigrationReport(t.owner.db);

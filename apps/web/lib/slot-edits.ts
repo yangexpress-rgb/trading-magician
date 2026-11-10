@@ -2,10 +2,13 @@ import {
   CONTEXT_INSTRUMENT_ID,
   DEFAULT_TRIGGER,
   getMetric,
+  offPeakCondition,
+  orInto,
   randomId,
   refillExitOrders,
   resolveMetricParams,
   suggestedExitSchedule,
+  type ConditionGroup,
   type ExitRule,
   type PlannedOrder,
   type StrategyDefinition,
@@ -244,9 +247,20 @@ export function expectedMoveRule(): ExitRule {
   return { kind: 'expectedMove', id: randomId(), horizon: 5, multiple: '1', side: 'either' };
 }
 
-/** A trailing stop 5% below the best close since entry (ADR 0059), until the person changes it. */
-export function trailingStopRule(percent = '5'): ExitRule {
-  return { kind: 'trailingStop', id: randomId(), percent };
+/**
+ * Adds a trailing stop to Exit when (N217, ADR 0074): "Off best close since
+ * entry % > percent" on the first Entry leg's instrument, by OR, so it exits
+ * whatever else Exit when says.
+ */
+export function withTrailingCondition(def: StrategyDefinition, percent = '5'): StrategyDefinition {
+  const id = randomId();
+  const c = offPeakCondition(
+    id,
+    def.entry.orders[0]?.instrumentId ?? CONTEXT_INSTRUMENT_ID,
+    percent,
+  );
+  const condition = orInto(def.exit.condition, c) as unknown as ConditionGroup;
+  return { ...def, exit: { ...def.exit, condition } };
 }
 
 /** The risk distance a new Entry starts with: 2 × ATR(20) (v1.2 item 9). */

@@ -1,7 +1,9 @@
 import {
   migrateV1,
   migrateV2,
+  migrateV3,
   parseDefinition,
+  STRATEGY_SCHEMA_VERSION,
   validateStrategy,
   type MigrationNote,
 } from '@tm/domain';
@@ -11,10 +13,11 @@ import { loadValidationContext } from './strategies';
 import { withTenant } from './tenant';
 
 /**
- * The migration report of the Strategy Lab simplification (ADR 0049) and of
- * What to trade, Entry, Exit (ADR 0073): every stored strategy draft and
- * version older than schema 3, what reading it as schema 3 converts, every
- * form kept as saved (Exit-leg stop orders, per-leg conditions, ranked legs),
+ * The migration report of the Strategy Lab simplification (ADR 0049), What to
+ * trade, Entry, Exit (ADR 0073) and the trailing stop in Exit when (ADR 0074):
+ * every stored strategy draft and version older than the current schema, what
+ * reading it converts, every form kept as saved (Exit-leg stop orders,
+ * per-leg conditions, ranked legs, trailing stop rules under other Fire when),
  * and whether the migrated strategy validates. Read-only: stored versions are
  * never rewritten (they are migrated on every read).
  *
@@ -34,18 +37,32 @@ export const NEW_CHECKS = new Set([
   'left_group_without_group',
 ]);
 
-/** Notes for reading a stored document as schema 3: schema 1 → 2 → 3, or 2 → 3. */
+/** Notes for reading a stored document as the current schema: each step from its version on. */
 export function migrationNotes(doc: Record<string, unknown>): MigrationNote[] {
-  if (doc.schemaVersion === 1) {
-    const v1 = migrateV1(doc);
-    return [...v1.notes, ...migrateV2(v1.doc).notes];
+  const notes: MigrationNote[] = [];
+  let d = doc;
+  if (d.schemaVersion === 1) {
+    const r = migrateV1(d);
+    notes.push(...r.notes);
+    d = r.doc;
   }
-  if (doc.schemaVersion === 2) return migrateV2(doc).notes;
-  return [];
+  if (d.schemaVersion === 2) {
+    const r = migrateV2(d);
+    notes.push(...r.notes);
+    d = r.doc;
+  }
+  // The trailing stop moves into Exit when (ADR 0074).
+  if (d.schemaVersion === 3) notes.push(...migrateV3(d).notes);
+  return notes;
 }
 
 /** Kept-as-saved forms the builder no longer offers. */
-const KEPT = new Set(['exit_leg_stop', 'ranked_legs_kept', 'leg_conditions_kept']);
+const KEPT = new Set([
+  'exit_leg_stop',
+  'ranked_legs_kept',
+  'leg_conditions_kept',
+  'trailing_stop_kept',
+]);
 
 export interface MigrationReportEntry {
   userId: string;
@@ -92,7 +109,7 @@ export async function strategyMigrationReport(db: Database): Promise<MigrationRe
   const contexts = new Map<string, Awaited<ReturnType<typeof loadValidationContext>>>();
   const out: MigrationReportEntry[] = [];
   for (const r of rows) {
-    if (r.schema_version >= 3) continue;
+    if (r.schema_version >= STRATEGY_SCHEMA_VERSION) continue;
     const entry: MigrationReportEntry = {
       userId: r.user_id,
       email: r.email,
@@ -126,7 +143,10 @@ export async function strategyMigrationReport(db: Database): Promise<MigrationRe
 
 /** The report as Markdown: changes and grandfathered forms first, then the rest. */
 export function formatMigrationReport(entries: MigrationReportEntry[]): string {
-  const lines: string[] = ['# Strategy Lab: migration report (schema 3)', ''];
+  const lines: string[] = [
+    `# Strategy Lab: migration report (schema ${STRATEGY_SCHEMA_VERSION})`,
+    '',
+  ];
   const strategies = new Set(entries.map((e) => e.strategyId));
   const stops = entries.flatMap((e) =>
     e.notes.filter((n) => KEPT.has(n.code)).map((n) => ({ e, n })),
@@ -135,7 +155,7 @@ export function formatMigrationReport(entries: MigrationReportEntry[]): string {
   const refused = entries.filter((e) => e.errors?.some((x) => x.added));
   const broken = entries.filter((e) => e.parseError);
   lines.push(
-    `${strategies.size} strategies, ${entries.length} stored drafts and versions read as schema 3.`,
+    `${strategies.size} strategies, ${entries.length} stored drafts and versions read as schema ${STRATEGY_SCHEMA_VERSION}.`,
     `${changes.length} with a behaviour change, ${stops.length} forms kept as saved, ` +
       `${refused.length} refused by a new check, ${broken.length} that do not parse.`,
     '',

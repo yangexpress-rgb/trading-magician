@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import { riskSeries } from './risk-exits';
 import { expectedMoveCloses, expectedMoveExprs } from './expected-move-exit';
-import { trailingStopCloses } from './trailing-stop';
+import { offPeakCloses, trailingStopCloses } from './trailing-stop';
 import {
   CONTEXT_INSTRUMENT_ID,
   evaluateCondition,
@@ -547,6 +547,8 @@ export function definitionSeries(
   for (const e of [...expectedMoveExprs(def), ...expectedMoveCloses(def)]) visit(e, 0);
   // The trailing stop (ADR 0059): closes at the stops' bar size (O144).
   for (const e of trailingStopCloses(def)) visit(e, 0);
+  // Off best close since entry (N217): closes at the Check Exit bar size.
+  for (const e of offPeakCloses(def)) visit(e, 0);
   return out;
 }
 
