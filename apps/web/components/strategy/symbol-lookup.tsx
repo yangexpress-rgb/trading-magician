@@ -9,7 +9,7 @@ import { useEditor, type InstrumentOption } from './editor-context';
 import { useInstrumentLookup } from './use-instrument-lookup';
 
 /**
- * Type any US stock, ETF or index right where it is needed (N190, ADR 0069):
+ * Type any US stock, ETF or index right where it is needed (N193, ADR 0069):
  * no list to maintain first. A symbol the editor already knows is picked at
  * once; anything else is looked up through the person's data feed, registered
  * by the worker (ADR 0017) and added to the editor's instruments.

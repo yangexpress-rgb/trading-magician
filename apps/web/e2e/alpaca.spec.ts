@@ -43,7 +43,7 @@ test('connects an Alpaca feed and finds a US stock for a strategy', async ({ pag
     })
   ).json();
   await page.goto(`/strategy-lab/${created.id}`);
-  // Any symbol can be typed straight into a leg's picker: no list to add to first (N190).
+  // Any symbol can be typed straight into a leg's picker: no list to add to first (N193).
   await page.getByRole('button', { name: '+ Add Entry order' }).click();
   const leg = page.getByRole('region', { name: 'Entry leg 1', exact: true });
   const picker = leg.getByLabel('Instrument', { exact: true });

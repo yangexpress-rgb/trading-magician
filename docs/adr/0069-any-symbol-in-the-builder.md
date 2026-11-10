@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-09
-- **Design refs:** design v1.2 row N190. Amends ADR 0017 (real instruments) for the Strategy Lab
+- **Design refs:** design v1.2 row N193. Amends ADR 0017 (real instruments) for the Strategy Lab
 
 ## Context
 

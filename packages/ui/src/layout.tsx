@@ -3,10 +3,13 @@ import { cx } from './cx';
 
 export function PageHeader({
   title,
+  subtitle,
   description,
   actions,
 }: {
-  title: string;
+  title: ReactNode;
+  /** A line under the title, such as the theory a strategy refers to. */
+  subtitle?: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
 }) {
@@ -14,6 +17,7 @@ export function PageHeader({
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        {subtitle}
         {description && <p className="mt-1 text-sm text-ink-muted">{description}</p>}
       </div>
       {actions && <div className="flex gap-2">{actions}</div>}

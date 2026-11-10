@@ -27,6 +27,7 @@ import {
   ShareSelectedBar,
   ShareSelection,
 } from '@/components/sharing/share-selection';
+import { StrategyNameLink } from '@/components/strategy/strategy-name';
 import { StrategyStatusBadge } from '@/components/strategy-status-badge';
 import { formatPct } from '@/lib/backtest-text';
 import { isAdmin } from '@/lib/server/admin';
@@ -303,9 +304,14 @@ export default async function StrategyLabPage({
                       )}
                     </Td>
                     <Td>
-                      <Link href={`/strategy-lab/${s.id}`} className="font-medium">
-                        {s.name}
-                      </Link>
+                      {/* A click opens it; a double-click renames it (N190). */}
+                      <StrategyNameLink
+                        strategyId={s.id}
+                        name={s.name}
+                        rowVersion={s.rowVersion}
+                        href={`/strategy-lab/${s.id}`}
+                        className="font-medium"
+                      />
                       {s.archivedAt && (
                         <Badge tone="neutral" className="ml-2">
                           Archived

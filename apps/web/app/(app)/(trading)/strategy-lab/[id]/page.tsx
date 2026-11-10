@@ -16,6 +16,9 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { ShareButton } from '@/components/sharing/share-button';
 import { SharedBy } from '@/components/sharing/shared-by';
+import { RowVersionProvider } from '@/components/strategy/row-version';
+import { StrategyNameHeading } from '@/components/strategy/strategy-name';
+import { StrategyTheoryLine } from '@/components/strategy/strategy-theory';
 import { StrategyStatusBadge } from '@/components/strategy-status-badge';
 import { isAdmin } from '@/lib/server/admin';
 import { appDb } from '@/lib/server/db';
@@ -115,30 +118,36 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
   );
 
   return (
-    <>
+    <RowVersionProvider initial={strategy.rowVersion}>
       <p className="mb-2 text-sm">
         <Link href="/strategy-lab">← All strategies</Link>
       </p>
       <PageHeader
-        title={strategy.name}
+        // Double-click the name to rename it (N190).
+        title={
+          <StrategyNameHeading
+            strategyId={strategy.id}
+            name={strategy.name}
+            initialRowVersion={strategy.rowVersion}
+          />
+        }
+        // The theory it refers to, under its name; double-click to change it (N191).
+        subtitle={
+          <StrategyTheoryLine
+            strategyId={strategy.id}
+            library={strategy.library}
+            initialRowVersion={strategy.rowVersion}
+            editable={strategy.status !== 'actively_executing'}
+          />
+        }
         description={strategy.description || undefined}
         actions={
           <>
-            {/* Its own Lab number (ADR 0065) and the theory it builds (ADR 0054), read-only. */}
+            {/* Its own Lab number (ADR 0065), read-only. Its theory is under the name (N191). */}
             {strategy.labNumber && (
               <span className="font-mono text-sm font-semibold" title="Strategy number">
                 {strategy.labNumber}
               </span>
-            )}
-            {/* Shown when it refers to a theory, not one auto-created from it (N187). */}
-            {strategy.library && !strategy.library.autoCreated && (
-              <Link
-                href={`/library/${strategy.library.registrationNumber}`}
-                className="font-mono text-sm"
-                aria-label={`Theory Library entry ${strategy.library.registrationNumber}`}
-              >
-                Theory {strategy.library.registrationNumber}
-              </Link>
             )}
             {strategy.currentVersion && <Badge>Version {strategy.currentVersion.versionNo}</Badge>}
             <StrategyStatusBadge status={strategy.status} />
@@ -169,7 +178,6 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
         strategyId={strategy.id}
         strategyName={strategy.name}
         status={strategy.status}
-        library={strategy.library}
         initialDefinition={strategy.definition}
         initialRowVersion={strategy.rowVersion}
         instruments={instruments}
@@ -183,6 +191,6 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
         baseCurrency={profile.baseCurrency}
         history={versionsCard}
       />
-    </>
+    </RowVersionProvider>
   );
 }

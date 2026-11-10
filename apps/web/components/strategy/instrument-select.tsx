@@ -6,7 +6,7 @@ import { useEditor } from './editor-context';
 import { MiniSelect } from './fields';
 import { SymbolLookup } from './symbol-lookup';
 
-/** The last choice in every picker: type any symbol instead of adding it first (N190). */
+/** The last choice in every picker: type any symbol instead of adding it first (N193). */
 const ANOTHER = '__another_symbol__';
 
 /** What "This instrument" means in the current editor, for labels and help text. */
@@ -22,7 +22,7 @@ export function contextLabel(slotMode: 'none' | 'selection' | 'legs'): string {
  * Indices such as the VIX (v1.2 item 5) are offered to conditions with an
  * "Index — not tradable" badge, and left out of a leg's picker entirely.
  *
- * Any other US stock, ETF or index can be typed right here (N190, ADR 0069):
+ * Any other US stock, ETF or index can be typed right here (N193, ADR 0069):
  * "Another stock, ETF or index…" opens a symbol box, so nothing has to be
  * added to a list first.
  */

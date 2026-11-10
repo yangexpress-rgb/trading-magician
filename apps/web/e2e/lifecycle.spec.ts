@@ -49,9 +49,11 @@ test('define, validate, test, start on paper, stop, revise and review versions',
   const sections = page.getByRole('navigation', { name: 'Sections' }).getByRole('link');
   await expect(sections).toHaveText([/Strategy/, /Back test/, /Execution/]);
   const strategySection = page.getByRole('region', { name: 'Strategy', exact: true });
-  for (const card of ['Library entry', 'Order handling', 'Risk limits', 'Validation']) {
+  for (const card of ['Order handling', 'Risk limits', 'Validation']) {
     await expect(strategySection.getByRole('region', { name: card })).toBeVisible();
   }
+  // The theory is under the name, not in a Library entry card (N192).
+  await expect(page.getByRole('region', { name: 'Library entry' })).toHaveCount(0);
   await expect(
     page
       .getByRole('region', { name: 'Back test', exact: true })
