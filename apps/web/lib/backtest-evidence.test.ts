@@ -15,7 +15,7 @@ const close = (id: string, offset = 0): Expr => ({
 });
 const symbol = () => undefined;
 
-describe('comparisonEvidence (N217)', () => {
+describe('comparisonEvidence (N218)', () => {
   const upDay: Comparison = {
     kind: 'comparison',
     id: 'cmp',
@@ -75,5 +75,40 @@ describe('comparisonEvidence (N217)', () => {
       symbol,
     );
     expect(ev.reason).toBe('Not decided: a value had no data on this bar');
+  });
+
+  it('shows the best close and the close behind a trailing stop in Exit when', () => {
+    const trail: Comparison = {
+      kind: 'comparison',
+      id: 't',
+      left: {
+        kind: 'position',
+        id: 'off',
+        field: 'off_peak_pct',
+        instrumentId: CONTEXT_INSTRUMENT_ID,
+        interval: '1d',
+        adjustment: 'split_and_dividend',
+        session: 'regular',
+      },
+      operator: 'gt',
+      right: { kind: 'constant', id: 'one', value: '1' },
+    };
+    const ev = comparisonEvidence(
+      trail,
+      {
+        id: 't',
+        truth: true,
+        left: '1.07',
+        right: '1',
+        inputs: { 'off:entry': '53.08', 'off:peak': '53.3', 'off:close': '52.73' },
+      },
+      symbol,
+    );
+    expect(ev.elements.slice(1)).toEqual([
+      { label: 'Entry price', value: '53.08', inside: true },
+      { label: 'Best close since entry', value: '53.3', inside: true },
+      { label: 'Close checked', value: '52.73', inside: true },
+    ]);
+    expect(ev.reason).toBe('1.07 > 1');
   });
 });

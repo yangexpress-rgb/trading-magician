@@ -105,7 +105,7 @@ export interface DataElement {
   inside?: boolean;
 }
 
-/** What a comparison read and why it came out as it did (N217). */
+/** What a comparison read and why it came out as it did (N218). */
 export interface ComparisonEvidence {
   /** Each side that isn't a plain number, and each value inside a calculation. */
   elements: DataElement[];
@@ -124,7 +124,7 @@ const NEGATED: Partial<Record<Comparison['operator'], string>> = {
   neq: '=',
 };
 
-/** The data elements and values behind one comparison on one evaluation (N217). */
+/** The data elements and values behind one comparison on one evaluation (N218). */
 export function comparisonEvidence(
   c: Comparison,
   check: ConditionCheck | undefined,
@@ -139,7 +139,7 @@ export function comparisonEvidence(
       label: describeExpr(e, symbol),
       value: prev !== undefined ? `${v(value)} (was ${v(prev)})` : v(value),
     });
-    // The values a calculation was worked out from (N217).
+    // The values a calculation was worked out from (N218).
     const inner = (x: Expr) => {
       if (x.kind === 'calc') x.args.forEach(inner);
       else if (x.kind !== 'constant' && check.inputs && x.id in check.inputs)
@@ -150,6 +150,19 @@ export function comparisonEvidence(
         });
     };
     if (e.kind === 'calc') e.args.forEach(inner);
+    positionInputs(e);
+  };
+  // What a position value was worked out from (ADR 0074).
+  const positionInputs = (e: Expr) => {
+    if (e.kind === 'calc') e.args.forEach(positionInputs);
+    if (e.kind !== 'position' || !check.inputs) return;
+    const add = (key: string, label: string) => {
+      const value = check.inputs?.[`${e.id}:${key}`];
+      if (value !== undefined) elements.push({ label, value: v(value), inside: true });
+    };
+    add('entry', 'Entry price');
+    add('peak', e.field === 'off_peak_pct' ? 'Best close since entry' : 'Best close');
+    add('close', 'Close checked');
   };
   const crosses = c.operator === 'crosses_above' || c.operator === 'crosses_below';
   if (c.operator !== 'is_stale') side(c.left, check.left, crosses ? check.prevLeft : undefined);

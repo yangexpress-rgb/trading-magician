@@ -81,7 +81,7 @@ test('build a group with a time stop, back test it, and read the ranking', async
   await expect(results.getByText(/Rebalance: no longer selected|Time stop/).first()).toBeVisible();
   if (SHOTS) await results.screenshot({ path: `${SHOTS}/selection-results.png` });
 
-  // The cycle card follows the strategy's three parts (N218, N219).
+  // The cycle card follows the strategy's three parts (N219, N220).
   await results
     .getByRole('table', { name: 'Cycles' })
     .getByRole('button', { name: 'Cycle 1', exact: true })
@@ -198,8 +198,14 @@ test('a filtered group explains each pick: filter values, ranking, Enter when fo
         ],
       },
       exit: {
-        condition: { kind: 'group', id: 'xg', op: 'and', negate: false, children: [] },
-        rules: [{ kind: 'trailingStop', id: 'trail', percent: '1' }],
+        // A 1% trailing stop, in Exit when (ADR 0074).
+        condition: group('xg', {
+          kind: 'comparison',
+          id: 'trail',
+          operator: 'gt',
+          left: { kind: 'position', id: 'off', ...series(C), field: 'off_peak_pct' },
+          right: { kind: 'constant', id: 'one', value: '1' },
+        }),
         orders: [leg('close-each', 'Close each pick', C, account, 'close')],
       },
     }),
@@ -218,14 +224,16 @@ test('a filtered group explains each pick: filter values, ranking, Enter when fo
   const cycle = results.getByRole('region', { name: 'Cycle 1', exact: true });
   const trade = cycle.getByRole('group', { name: 'What to trade' });
   await expect(trade.getByText(/^Filter: passed by \d+ of 5$/)).toBeVisible();
-  // The calculated side shows the close it multiplied, and why the filter held (N217).
+  // The calculated side shows the close it multiplied, and why the filter held (N218).
   await expect(trade.getByText(/this instrument close 1 bars? ago$/).first()).toBeVisible();
   await expect(trade.getByText(/^[\d,.]+ ≥ [\d,.]+$/)).toBeVisible();
   await expect(trade.getByText(/ ranked · top 2 kept$/)).toBeVisible();
   const entry = cycle.getByRole('group', { name: 'Entry' });
   await expect(entry.getByText(/^Enter when, for DEMO-/)).toBeVisible();
   await expect(entry.getByText(/^[\d,.]+ > [\d,.]+$/)).toBeVisible();
-  await expect(cycle.getByRole('group', { name: 'Exit' }).getByText('Check Exit:')).toBeVisible();
+  const exit = cycle.getByRole('group', { name: 'Exit' });
+  await expect(exit.getByText('Check Exit:')).toBeVisible();
+  await expect(exit.getByText(/^[\d,.]+ > 1$/)).toBeVisible();
   const a11y = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(a11y.violations).toEqual([]);
   if (SHOTS) await cycle.screenshot({ path: `${SHOTS}/pick-cycle-card.png` });

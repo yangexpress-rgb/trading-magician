@@ -51,7 +51,9 @@ export interface MigrationNote {
     | 'per_pick_amount'
     | 'split_total_kept'
     | 'ranked_legs_kept'
-    | 'leg_conditions_kept';
+    | 'leg_conditions_kept'
+    | 'trailing_stop_in_exit_when'
+    | 'trailing_stop_kept';
   effect: MigrationEffect;
   message: string;
   /** Where in the definition, e.g. "entry.orders[0]" or "groups[0].exit.rules". */

@@ -38,7 +38,7 @@ import {
   toAssets,
   toGroup,
   tradedAssets,
-  trailingStopRule,
+  withTrailingCondition,
 } from '@/lib/slot-edits';
 import { ConditionTreeEditor } from './condition-editor';
 import { useEditor } from './editor-context';
@@ -656,7 +656,7 @@ export function ExitRulesEditor({
                 <>
                   <MiniInput
                     id={`rule-${r.id}-percent`}
-                    label="Trailing stop: % below the highest close since entry"
+                    label="Trailing stop (kept as saved): % below the highest close since entry"
                     inputMode="decimal"
                     disabled={!editable}
                     value={r.percent}
@@ -666,7 +666,8 @@ export function ExitRulesEditor({
                   <p className="flex-1 pb-1 text-xs text-ink-muted">
                     Starts at the entry price and rises with each higher {closes} close (falls with
                     each lower one, for a short). It exits at the next bar after a {closes} close
-                    more than this far from that peak.
+                    more than this far from that peak. Kept as saved because of this Exit&rsquo;s
+                    Fire when; new trailing stops are Exit when conditions.
                   </p>
                 </>
               ) : r.kind === 'expectedMove' ? (
@@ -832,12 +833,13 @@ export function ExitRulesEditor({
               + ATR stop
             </RowButton>
           )}
+          {/* A trailing stop is an Exit when condition (N217, ADR 0074). */}
           {!hasTrailingStop && (
             <RowButton
-              label="Add a trailing stop"
-              onClick={() => setRules([...rules, trailingStopRule()])}
+              label="Add a trailing stop to Exit when"
+              onClick={() => onChange(withTrailingCondition(definition))}
             >
-              + Trailing stop
+              + Trailing stop (in Exit when)
             </RowButton>
           )}
           {!hasMoveExit && (

@@ -11,7 +11,7 @@ import { BAR_INTERVALS, MARKET_FIELDS, PRICE_ADJUSTMENTS, SESSIONS } from './cat
  * rules that need outside context (instruments, accounts, feeds) live in
  * validate.ts. Older documents are migrated on read (migrate-v1.ts, migrate-v2.ts).
  */
-export const STRATEGY_SCHEMA_VERSION = 3 as const;
+export const STRATEGY_SCHEMA_VERSION = 4 as const;
 
 /** Decimal values travel as strings so no precision is lost (§17.1). */
 export const decimalString = z
@@ -71,7 +71,19 @@ export interface IndicatorExpr {
  * and Exit order prices. The mark is the close of the latest completed bar at
  * the expression's interval, which also sets how often the rule is checked.
  */
-export const POSITION_FIELDS = ['entry_price', 'gain_pct', 'pnl', 'quantity'] as const;
+/**
+ * `off_peak_pct` (N217, ADR 0074): how far the latest close is off the best
+ * close since Entry filled, in percent (below it for a long, above it for a
+ * short). It is the trailing stop as an Exit when condition, read at the
+ * Check Exit bar size like the stops (O144).
+ */
+export const POSITION_FIELDS = [
+  'entry_price',
+  'gain_pct',
+  'pnl',
+  'quantity',
+  'off_peak_pct',
+] as const;
 export type PositionField = (typeof POSITION_FIELDS)[number];
 export interface PositionExpr {
   kind: 'position';

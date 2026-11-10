@@ -65,6 +65,7 @@ export const POSITION_FIELD_LABELS = {
   gain_pct: 'Gain %',
   pnl: 'Profit or loss',
   quantity: 'Quantity held',
+  off_peak_pct: 'Off best close since entry %',
 } as const;
 
 export const INTERVAL_LABELS = {

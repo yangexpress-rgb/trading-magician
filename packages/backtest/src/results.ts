@@ -188,7 +188,7 @@ export interface ConditionCheck {
   optionsAsOf?: string[];
   /** The earnings, deal and rate records read, e.g. "earnings 2026-10-30" (ADR 0058). */
   eventsAsOf?: string[];
-  /** The values inside a calculated side, by expression id (N217). */
+  /** The values inside a calculated side, by expression id (N218). */
   inputs?: Record<string, string | null>;
 }
 
@@ -316,7 +316,7 @@ export interface TrailingStopRecord {
 }
 
 /**
- * Why a group picked this cycle's stock (N218): the Check Entry it was picked
+ * Why a group picked this cycle's stock (N219): the Check Entry it was picked
  * at, the filter and Enter when as they read for this stock, and its ranking.
  */
 export interface CyclePick {
@@ -348,7 +348,7 @@ export interface CycleDetail {
 }
 
 /**
- * The run's strategy in its three parts (N219, ADR 0073), so the cycle card
+ * The run's strategy in its three parts (N220, ADR 0073), so the cycle card
  * reads without the version: what it traded, and when Entry and Exit were checked.
  */
 export interface RunPlan {
@@ -403,6 +403,6 @@ export interface BacktestResult {
   selections?: SelectionLog;
   /** Per-cycle detail for the cycle card (N166). Absent on older runs. */
   cycles?: CycleDetail[];
-  /** The strategy's three parts as the run read them (N219). Absent on older runs. */
+  /** The strategy's three parts as the run read them (N220). Absent on older runs. */
   plan?: RunPlan;
 }

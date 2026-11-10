@@ -540,7 +540,7 @@ export function exitKeyData(c: CycleView, fills: readonly BacktestFill[]): Phase
   const upTo = firedAt ? bars.filter((b) => b.time <= firedAt) : bars;
   return {
     conditions:
-      // An empty Exit when has nothing to report: the exit rules decide (N217).
+      // An empty Exit when has nothing to report: the exit rules decide (N218).
       c.exit.report && bars.length > 0 && comparisonsOf(c.exit.report.condition).length > 0
         ? summarize(upTo, c.trade?.entryTime ?? null, firedAt)
         : null,

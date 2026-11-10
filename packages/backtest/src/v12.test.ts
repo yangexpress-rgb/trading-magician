@@ -800,7 +800,24 @@ describe('What to trade, Entry, Exit (ADR 0073)', () => {
   });
 });
 
-describe('why each pick was picked (N217 to N219)', () => {
+describe('a group trailing stop read as Exit when (N217, ADR 0074)', () => {
+  it('exits on exactly the same closes as the rule did', () => {
+    const def = sectorFixture('monthEnd');
+    def.exit.schedule = { frequency: 'daily' };
+    def.exit.rules = [{ kind: 'trailingStop', id: 'ts', percent: '3' }];
+    const doc = { ...JSON.parse(JSON.stringify(def)), schemaVersion: 3 };
+    const asRule = parseDefinition({ ...doc, schemaVersion: 4 });
+    const asCondition = parseDefinition(doc);
+    expect(asCondition.exit.rules ?? []).toEqual([]);
+    const a = runSectors(asRule);
+    const b = runSectors(asCondition);
+    expect(a.trades.filter((t) => t.exitReason === 'trailing_stop').length).toBeGreaterThan(0);
+    const fills = (r: BacktestResult) => r.fills.map((f) => [f.time, f.symbol, f.side, f.quantity]);
+    expect(fills(b)).toEqual(fills(a));
+  });
+});
+
+describe('why each pick was picked (N218 to N220)', () => {
   it("records each new pick's filter values, ranking and the run's three parts", () => {
     const def = sectorFixture('monthEnd');
     // A calculated side: close above 1.0 × its own close one bar ago.

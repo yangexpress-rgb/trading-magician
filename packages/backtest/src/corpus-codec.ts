@@ -49,7 +49,7 @@ export function behaviour(r: BacktestResult): string {
     return rest;
   };
   type Report = NonNullable<BacktestResult['conditions']>['entry'];
-  // A calculation's inputs (N217) explain a check and change none.
+  // A calculation's inputs (N218) explain a check and change none.
   type Bar = Report['bars'][number];
   const stripInputs = (bar: Bar) => ({
     ...bar,

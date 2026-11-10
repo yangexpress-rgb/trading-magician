@@ -46,6 +46,13 @@ export interface PositionSnapshot {
   quantity: Decimal;
   /** Average price of the cycle's Entry fills, before fees. */
   averagePrice: Decimal;
+  /**
+   * The best close since Entry filled (highest for a long, lowest for a
+   * short), from the entry price, and the close it was last checked with
+   * (N217). The engines keep them at the Check Exit bar size.
+   */
+  peak?: Decimal | undefined;
+  peakClose?: Decimal | undefined;
 }
 
 export interface SeriesResolver {
@@ -180,6 +187,12 @@ function positionValue(e: PositionExpr, r: SeriesResolver, barsBack: number): De
   if (e.field === 'quantity') return held ? held.quantity : new Decimal(0);
   if (!held) return undefined;
   if (e.field === 'entry_price') return held.averagePrice;
+  // The trailing stop as a value (N217): percent off the best close since entry.
+  if (e.field === 'off_peak_pct') {
+    if (!held.peak || !held.peakClose || held.peak.isZero()) return undefined;
+    const off = held.peak.minus(held.peakClose).div(held.peak).times(HUNDRED);
+    return held.quantity.isNegative() ? off.negated() : off;
+  }
   const mark = r.value(markExpr(e), barsBack);
   if (!mark) return undefined;
   const move = mark.minus(held.averagePrice);

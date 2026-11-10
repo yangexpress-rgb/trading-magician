@@ -25,6 +25,7 @@ import {
   riskSizingCap,
   stopCloseExpr,
   stopInterval,
+  readsOffPeak,
   stopCloseWord,
   type RiskSizing,
   entryGroups,
@@ -244,7 +245,9 @@ interface Cycle {
   moveAtEntry?: Decimal;
   /** Trailing stop (ADR 0059): the best close since Entry filled, from the entry price. */
   trailPeak?: Decimal;
-  /** Why a group picked this cycle's stock, for the cycle card (N218). */
+  /** Off best close since entry (N217): each holding's best close and the close last checked. */
+  peaks?: Map<string, { peak: Decimal; close: Decimal }>;
+  /** Why a group picked this cycle's stock, for the cycle card (N219). */
   pick?: CyclePick;
   /** The trailing stop's last check, for the cycle card (N166). */
   trail?: {
@@ -330,6 +333,8 @@ export function simulate({
   const exitFrequency = exitScheduleOf(def);
   /** The group What to trade names, as the engine runs it (ADR 0073). */
   const selection = selectionOf(def);
+  /** Whether Exit when reads each holding's best close since entry (N217). */
+  const offPeak = readsOffPeak(def);
   /** A group's Enter when that reads "this stock" is checked per candidate (ADR 0073). */
   const perCandidateEntry = mode === 'selection' && readsThisInstrument(def.entry.condition);
   /** v1.2 features in use: results then say why each cycle exited. */
@@ -485,7 +490,12 @@ export function simulate({
     const r = withPositions(view, (id) => {
       const p = c.positions.get(id);
       if (!p || p.entryQuantity.isZero()) return undefined;
-      return { quantity: p.quantity, averagePrice: p.entryCost.div(p.entryQuantity) };
+      const k = c.peaks?.get(id);
+      return {
+        quantity: p.quantity,
+        averagePrice: p.entryCost.div(p.entryQuantity),
+        ...(k ? { peak: k.peak, peakClose: k.close } : {}),
+      };
     });
     // A slot's rules read "this instrument" as the slot's own (v1.2).
     return c.slot ? withContext(r, c.slot.instrumentId) : r;
@@ -1061,6 +1071,23 @@ export function simulate({
     return hit;
   }
 
+  /**
+   * Each holding's best close since Entry filled, from the entry price, and
+   * the close it was checked with, at the Check Exit bar size (N217). The
+   * same arithmetic as the trailing stop, so the converted rule exits on the
+   * same closes.
+   */
+  function updatePeaks(c: Cycle) {
+    const peaks = (c.peaks ??= new Map());
+    for (const [id, p] of c.positions) {
+      if (p.entryQuantity.isZero() || p.quantity.isZero()) continue;
+      const close = evaluateExpr(stopCloseExpr(id, inputs.adjustment, stopInterval(def)), view);
+      if (close === undefined) continue;
+      const start = peaks.get(id)?.peak ?? p.entryCost.div(p.entryQuantity);
+      peaks.set(id, { peak: trailingPeak(start, close, p.quantity.gt(0)), close });
+    }
+  }
+
   /** Starts a cycle's Exit now, for a reason other than its Exit condition. */
   function forceExit(
     c: Cycle,
@@ -1203,7 +1230,7 @@ export function simulate({
     let pickOf: ((instrumentId: string) => CyclePick) | undefined;
     if (mode === 'selection' && selection && template) {
       const ranking = rankUniverse(selection, members, view, symbol);
-      // Why each new pick was picked: its filter, ranking and Enter when (N218).
+      // Why each new pick was picked: its filter, ranking and Enter when (N219).
       pickOf = (instrumentId) => {
         const r = withContext(view, instrumentId);
         const row = ranking.rows.find((x) => x.instrumentId === instrumentId);
@@ -1471,6 +1498,8 @@ export function simulate({
       if (c.state === 'open' && !evaluateExit && c.exitLegs.length === 0)
         c.exitLegs = exitLegsFor(c);
       if (c.state === 'open' && evaluateExit) {
+        // Exit when may read each holding's best close since entry (N217): keep it first.
+        if (offPeak) updatePeaks(c);
         const exitRec = groupOf(c).exitRec;
         const row = exitRec.record(iso(now), cycleView(c), c.no);
         const truth = row.truth ?? undefined;
@@ -1837,7 +1866,7 @@ export function simulate({
     plan: runPlan(),
   };
 
-  /** The strategy's three parts as the run read them (N219, ADR 0073). */
+  /** The strategy's three parts as the run read them (N220, ADR 0073). */
   function runPlan(): RunPlan {
     const t = def.trade;
     const trade: RunPlan['trade'] =

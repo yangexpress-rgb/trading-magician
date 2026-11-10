@@ -618,7 +618,7 @@ function ScheduleLine({ label, value }: { label: string; value: string | null })
 }
 
 /**
- * A condition as it read on one evaluation (N217): each comparison with the
+ * A condition as it read on one evaluation (N218): each comparison with the
  * data elements it read and their values, why it held or didn't, and the
  * records behind them; groups say whether all or any of their parts had to hold.
  */
@@ -715,7 +715,7 @@ function SubHeading({ kind, children }: { kind: 'cond' | 'order'; children: Reac
   );
 }
 
-/** One bar's checks: each condition with its data, values and why (N217). */
+/** One bar's checks: each condition with its data, values and why (N218). */
 function BarChecks({
   report,
   bar,
@@ -737,7 +737,7 @@ function SignalBox({ children }: { children: ReactNode }) {
 }
 
 /**
- * What to trade for this cycle (N218): the specific assets, or the group with
+ * What to trade for this cycle (N219): the specific assets, or the group with
  * this stock's filter values and its place in the ranking at the Check Entry
  * that picked it.
  */
@@ -1096,7 +1096,7 @@ function WhileOpen({
   interval: Interval;
   symbol: (id: string) => string | undefined;
 }) {
-  // An empty Exit when has no checks to show: only the stops decide (N217).
+  // An empty Exit when has no checks to show: only the stops decide (N218).
   const bars =
     c.exit.report && comparisonsOf(c.exit.report.condition).length > 0 ? c.exit.bars : [];
   const t = c.trade;

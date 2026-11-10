@@ -1,6 +1,7 @@
 import type Decimal from 'decimal.js';
 import { stopCloseExpr, stopInterval } from './risk-exits';
-import type { EntryPhase, ExitPhase, ExitRule, StrategyDefinition } from './schema';
+import type { EntryPhase, ExitPhase, ExitRule, PositionExpr, StrategyDefinition } from './schema';
+import { walkExpressions } from './tree';
 
 /**
  * The trailing stop (ADR 0059). From the entry price, the cycle keeps the
@@ -31,6 +32,29 @@ export function trailingStopCloses(
       out.push(stopCloseExpr(instrument, adjustment, stopInterval(def)));
   }
   return out;
+}
+
+/** The "off best close since entry" values a definition's Exit when reads (N217). */
+function offPeakExprs(def: StrategyDefinition): PositionExpr[] {
+  const out: PositionExpr[] = [];
+  for (const p of [def, ...(def.groups ?? [])])
+    for (const e of walkExpressions(p.exit.condition))
+      if (e.kind === 'position' && e.field === 'off_peak_pct') out.push(e);
+  return out;
+}
+
+/** Whether Exit when reads "off best close since entry", so the engines keep each holding's peak. */
+export function readsOffPeak(def: StrategyDefinition): boolean {
+  return offPeakExprs(def).length > 0;
+}
+
+/** The closes that peak is kept from: at the Check Exit bar size, on the run's price basis. */
+export function offPeakCloses(
+  def: StrategyDefinition,
+  adjustment: Parameters<typeof stopCloseExpr>[1] = 'split_and_dividend',
+) {
+  const ids = new Set(offPeakExprs(def).map((e) => e.instrumentId));
+  return [...ids].map((id) => stopCloseExpr(id, adjustment, stopInterval(def)));
 }
 
 /** The peak after a close: the best of the previous peak and the close. */

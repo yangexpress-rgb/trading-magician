@@ -98,6 +98,7 @@ import {
   riskSizingCap,
   stopCloseExpr,
   stopInterval,
+  readsOffPeak,
   newRuntimeTriggerState,
   slotKey,
   slotModeOf,
@@ -718,7 +719,12 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     const r = withPositions(view, (id) => {
       const e = c.entries.get(id);
       if (!e || e.quantity.isZero()) return undefined;
-      return { quantity: c.positions.get(id) ?? ZERO, averagePrice: e.cost.div(e.quantity) };
+      const k = c.cycle.peaks?.[id];
+      return {
+        quantity: c.positions.get(id) ?? ZERO,
+        averagePrice: e.cost.div(e.quantity),
+        ...(k ? { peak: new Decimal(k.peak), peakClose: new Decimal(k.close) } : {}),
+      };
     });
     // A slot's rules read "this instrument" as the slot's own (v1.2).
     return c.cycle.slot ? withContext(r, c.cycle.slot.instrumentId) : r;
@@ -957,8 +963,26 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   // 4. Plan and act on each active cycle.
   const working = () => work.working.length;
   let placedThisPass = 0;
+  // Exit when may read each holding's best close since entry (N217).
+  const offPeak = readsOffPeak(def);
   for (const c of cycles) {
     const cycleDef = cycleDefinition(c);
+    // Kept before Exit when is checked, with the trailing stop's arithmetic (ADR 0074).
+    if (offPeak && exitDue && c.cycle.status === 'open') {
+      const peaks = { ...(c.cycle.peaks ?? {}) };
+      for (const [id, e] of c.entries) {
+        const held = c.positions.get(id) ?? ZERO;
+        if (e.quantity.isZero() || held.isZero()) continue;
+        const close = evaluateExpr(stopCloseExpr(id, undefined, stopInterval(def)), view);
+        if (!close) continue;
+        const start = peaks[id] ? new Decimal(peaks[id].peak) : e.cost.div(e.quantity);
+        peaks[id] = {
+          peak: trailingPeak(start, close, held.gt(0)).toString(),
+          close: close.toString(),
+        };
+      }
+      c.cycle = { ...c.cycle, peaks };
+    }
     const exitTruth =
       exitDue && c.cycle.status === 'open'
         ? { truth: evaluate('exit', cycleView(c), cycleDef) }
