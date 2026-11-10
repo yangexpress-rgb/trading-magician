@@ -6,19 +6,7 @@ import {
   STATUS_LABELS,
   STRATEGY_STATUSES,
 } from '@tm/domain';
-import {
-  Badge,
-  buttonClasses,
-  EmptyState,
-  LabIcon,
-  ModeBadge,
-  PageHeader,
-  SelectField,
-  Table,
-  Td,
-  TextField,
-  Th,
-} from '@tm/ui';
+import { Badge, EmptyState, LabIcon, ModeBadge, PageHeader, Table, Td, Th } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
@@ -27,6 +15,7 @@ import {
   ShareSelectedBar,
   ShareSelection,
 } from '@/components/sharing/share-selection';
+import { UrlFilterBar } from '@/components/filters/url-filter-bar';
 import { StrategyNameLink } from '@/components/strategy/strategy-name';
 import { StrategyStatusBadge } from '@/components/strategy-status-badge';
 import { formatPct } from '@/lib/backtest-text';
@@ -177,71 +166,79 @@ export default async function StrategyLabPage({
       />
       <TradingStrategyNav />
 
-      <form
-        role="search"
-        aria-label="Filter strategies"
-        className="mb-4 grid-fields items-end gap-3"
-      >
-        <div className="sm:col-span-2">
-          <TextField
-            label="Search"
-            name="q"
-            type="search"
-            defaultValue={q.q ?? ''}
-            placeholder="Name, number, description or tag"
-          />
-        </div>
-        <SelectField label="Status" name="status" defaultValue={q.status?.[0] ?? ''}>
-          <option value="">Any status</option>
-          {STRATEGY_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_LABELS[s]}
-            </option>
-          ))}
-        </SelectField>
-        <SelectField label="Asset" name="asset" defaultValue={q.instrumentId ?? ''}>
-          <option value="">Any asset</option>
-          {instrumentOptions.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.symbol}
-            </option>
-          ))}
-        </SelectField>
-        <SelectField label="Updated" name="updated" defaultValue={days ? updated : ''}>
-          <option value="">Any time</option>
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="90d">Last 90 days</option>
-        </SelectField>
-        <SelectField label="Sort by" name="sort" defaultValue={q.sort}>
-          {Object.entries(SORTS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </SelectField>
-        <div className="flex gap-2">
-          <SelectField label="Show" name="archived" defaultValue={q.archived}>
-            <option value="exclude">Current</option>
-            <option value="only">Archived</option>
-            <option value="include">All</option>
-          </SelectField>
-        </div>
-        <SelectField label="Origin" name="shared" defaultValue={q.shared ? '1' : ''}>
-          <option value="">Any</option>
-          <option value="1">Shared with me</option>
-        </SelectField>
-        <div className="col-span-full flex gap-2">
-          <button type="submit" className={buttonClasses('secondary', 'sm')}>
-            Apply filters
-          </button>
-          {filtered && (
-            <Link href="/strategy-lab" className={buttonClasses('ghost', 'sm')}>
-              Clear
-            </Link>
-          )}
-        </div>
-      </form>
+      {/* Filters apply as they are picked; the rarer ones wait in the Filter menu (N195). */}
+      <div className="mb-4">
+        <UrlFilterBar
+          label="Filter strategies"
+          search={{
+            param: 'q',
+            label: 'Search',
+            placeholder: 'Name, number or tag',
+            value: q.q ?? '',
+          }}
+          filters={[
+            {
+              kind: 'choice',
+              key: 'status',
+              label: 'Status',
+              pinned: true,
+              value: q.status?.[0] ?? '',
+              options: STRATEGY_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] })),
+            },
+            {
+              kind: 'choice',
+              key: 'asset',
+              label: 'Asset',
+              pinned: true,
+              value: q.instrumentId ?? '',
+              options: instrumentOptions.map((i) => ({ value: i.id, label: i.symbol })),
+            },
+            {
+              kind: 'choice',
+              key: 'updated',
+              label: 'Updated',
+              pinned: true,
+              value: days ? (updated ?? '') : '',
+              options: [
+                { value: '7d', label: 'Last 7 days' },
+                { value: '30d', label: 'Last 30 days' },
+                { value: '90d', label: 'Last 90 days' },
+              ],
+            },
+            {
+              kind: 'choice',
+              key: 'archived',
+              label: 'Archived',
+              anyValue: 'exclude',
+              value: q.archived,
+              options: [
+                { value: 'only', label: 'Archived only' },
+                { value: 'include', label: 'Current and archived' },
+              ],
+            },
+            {
+              kind: 'choice',
+              key: 'shared',
+              label: 'Origin',
+              value: q.shared ? '1' : '',
+              options: [{ value: '1', label: 'Shared with me' }],
+            },
+          ]}
+          trailing={[
+            {
+              kind: 'choice',
+              key: 'sort',
+              label: 'Sort',
+              setting: true,
+              anyValue: 'number',
+              value: q.sort,
+              options: Object.entries(SORTS).map(([value, label]) => ({ value, label })),
+            },
+          ]}
+          keepOnClear={['sort', 'dir']}
+          resets={{ sort: ['dir'] }}
+        />
+      </div>
 
       {items.length === 0 ? (
         <EmptyState
