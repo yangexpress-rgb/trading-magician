@@ -72,7 +72,8 @@ describe('Entry schedule (N184)', () => {
     expect(defaultSchedule(reading('4h'))).toBe('bar1h');
     expect(defaultSchedule(reading('1d'))).toBe('daily');
     expect(defaultSchedule(reading('1w'))).toBe('daily');
-    const picked = { ...reading('5m'), schedule: { frequency: 'daily' as const } };
+    const base = reading('5m');
+    const picked = { ...base, entry: { ...base.entry, schedule: { frequency: 'daily' as const } } };
     expect(scheduleOf(picked)).toBe('daily');
   });
 

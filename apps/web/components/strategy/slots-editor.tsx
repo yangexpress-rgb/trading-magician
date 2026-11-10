@@ -3,6 +3,7 @@
 import {
   BUILTIN_UNIVERSES,
   EXCLUSION_LABELS,
+  getMetric,
   isIndicatorOnlyClass,
   PAPER_UNIVERSE_LIMIT,
   randomId,
@@ -10,31 +11,39 @@ import {
   SCHEDULE_LABELS,
   SCHEDULE_BAR_MINUTES,
   defaultSchedule,
+  hasLeftGroupRule,
   isScheduled,
   sizesFromAtr,
   slotModeOf,
   type ConditionGroup,
   type ExitRule,
+  type GroupTrade,
   type RiskDistance,
   type Schedule,
-  type Selection,
   type StrategyDefinition,
 } from '@tm/domain';
+import { Card } from '@tm/ui';
 import {
+  addAsset,
   atrStopRule,
   DEFAULT_RISK_DISTANCE,
+  defaultRanking,
   expectedMoveRule,
-  trailingStopRule,
   fromLegsSelection,
-  toFixedLegs,
-  toLegsSelection,
-  toSelectionGroup,
+  leftGroupRule,
+  removeAsset,
+  replaceAsset,
   timeStopRule,
+  toAssets,
+  toGroup,
+  tradedAssets,
+  trailingStopRule,
 } from '@/lib/slot-edits';
 import { ConditionTreeEditor } from './condition-editor';
 import { useEditor } from './editor-context';
 import { MetricRefFields } from './expression-editor';
 import { MiniInput, MiniSelect, RowButton } from './fields';
+import { InstrumentSelect } from './instrument-select';
 import { SymbolLookup } from './symbol-lookup';
 
 const UNIVERSE_LABELS: Record<(typeof BUILTIN_UNIVERSES)[number], string> = {
@@ -50,45 +59,51 @@ const emptyGroup = (): ConditionGroup => ({
 });
 
 /**
- * How Entry picks what to trade (v1.2 items 1 and 2): fixed legs that each
- * name an instrument, or a Selection group that ranks a universe by a
- * registry metric and holds the top N, equally weighted.
+ * What to trade (ADR 0073), the first part of a strategy: specific assets
+ * (the Entry legs' instruments, picked here and written to the legs), or a
+ * group with an optional filter and an optional ranking.
  */
-export function EntryStructure({
+export function WhatToTrade({
   definition,
   onChange,
 }: {
   definition: StrategyDefinition;
   onChange: (def: StrategyDefinition) => void;
 }) {
-  const { instruments: all, accounts, editable } = useEditor();
-  // Only tradable instruments can be a leg or a universe member (v1.2 item 5).
+  const { instruments: all, accounts, editable, issueAt } = useEditor();
+  // Only tradable instruments can be traded (v1.2 item 5).
   const instruments = all.filter((i) => !isIndicatorOnlyClass(i.assetClass));
-  const legsRanked = definition.entry.selection?.universe.type === 'legs';
-  const selection = definition.entry.kind === 'selection' && !legsRanked;
+  const group = definition.trade.kind === 'group' ? definition.trade : undefined;
   const account = accounts.find((a) => a.isDefault) ?? accounts[0];
+  const assets = tradedAssets(definition);
   return (
-    <div className="mb-4 rounded-md border border-line bg-surface p-3">
+    <Card className="border-l-4 border-l-line-strong">
+      <h2 id="trade-heading" className="text-lg font-semibold">
+        What to trade
+      </h2>
+      <p className="mb-3 text-sm text-ink-muted">
+        Specific stocks or ETFs, or a group to pick from with an optional filter and ranking.
+      </p>
       <fieldset disabled={!editable} className="min-w-0">
-        <legend className="text-sm font-semibold">What Entry trades</legend>
-        <div className="mt-1 flex flex-wrap gap-4 text-sm">
+        <legend className="sr-only">What to trade</legend>
+        <div className="flex flex-wrap gap-4 text-sm">
           <label className="flex items-center gap-1.5">
             <input
               type="radio"
-              name="entry-kind"
-              checked={!selection}
-              onChange={() => onChange(toFixedLegs(definition, instruments[0]?.id ?? ''))}
+              name="trade-kind"
+              checked={!group}
+              onChange={() => onChange(toAssets(definition, assets[0] ?? instruments[0]?.id ?? ''))}
             />
-            Fixed legs: each leg names its instrument
+            Specific assets
           </label>
           <label className="flex items-center gap-1.5">
             <input
               type="radio"
-              name="entry-kind"
-              checked={selection}
+              name="trade-kind"
+              checked={!!group}
               onChange={() =>
                 onChange(
-                  toSelectionGroup(
+                  toGroup(
                     definition,
                     instruments.slice(0, 10).map((i) => i.id),
                     account?.id ?? '',
@@ -96,54 +111,157 @@ export function EntryStructure({
                 )
               }
             />
-            Selection group: rank a universe and hold the top N
+            A group: filter and rank its members
           </label>
         </div>
       </fieldset>
-      {selection && definition.entry.selection ? (
-        <SelectionEditor
-          selection={definition.entry.selection}
-          onChange={(s) =>
-            onChange({ ...definition, entry: { ...definition.entry, selection: s } })
+      {issueAt(['trade']) && (
+        <p className="mt-2 text-xs font-medium text-danger">{issueAt(['trade'])}</p>
+      )}
+      {group ? (
+        <GroupEditor group={group} onChange={(trade) => onChange({ ...definition, trade })} />
+      ) : (
+        <AssetsEditor definition={definition} assets={assets} onChange={onChange} />
+      )}
+    </Card>
+  );
+}
+
+/** Specific assets: one picker per asset; each change is written to every leg and condition. */
+function AssetsEditor({
+  definition,
+  assets,
+  onChange,
+}: {
+  definition: StrategyDefinition;
+  assets: string[];
+  onChange: (def: StrategyDefinition) => void;
+}) {
+  const { accounts, editable } = useEditor();
+  const account = accounts.find((a) => a.isDefault) ?? accounts[0];
+  return (
+    <div className="mt-3 space-y-2">
+      {assets.length === 0 && (
+        <InstrumentSelect
+          id="trade-asset-new"
+          label="Stock or ETF"
+          value=""
+          allowContext={false}
+          tradableOnly
+          onChange={(id) => id && onChange(addAsset(definition, id, account?.id ?? ''))}
+        />
+      )}
+      {assets.map((id, i) => (
+        <div key={id} className="flex flex-wrap items-end gap-2">
+          <InstrumentSelect
+            id={`trade-asset-${i}`}
+            label={assets.length === 1 ? 'Stock or ETF' : `Asset ${i + 1}`}
+            value={id}
+            allowContext={false}
+            tradableOnly
+            onChange={(next) => next && next !== id && onChange(replaceAsset(definition, id, next))}
+          />
+          {editable && assets.length > 1 && (
+            <RowButton
+              label={`Remove asset ${i + 1}`}
+              className="text-danger"
+              onClick={() => onChange(removeAsset(definition, id))}
+            >
+              Remove
+            </RowButton>
+          )}
+        </div>
+      ))}
+      {editable && assets.length > 0 && (
+        <SymbolLookup
+          id="trade-add-asset"
+          label="Trade another asset together with these"
+          actionLabel="Add"
+          tradableOnly
+          onPick={(found) =>
+            !assets.includes(found.id) &&
+            onChange(addAsset(definition, found.id, account?.id ?? ''))
           }
         />
-      ) : (
-        <LegsChoice definition={definition} onChange={onChange} />
+      )}
+      <p className="text-xs text-ink-muted">
+        {assets.length > 1
+          ? 'These are entered and exited together, as one position. Changing an asset here changes it in every leg and condition.'
+          : 'Changing the asset here changes it in every leg and condition that names it.'}
+      </p>
+      {definition.entry.rankedLegs && (
+        <RankedLegsNote definition={definition} onChange={onChange} />
       )}
     </div>
   );
 }
 
-function SelectionEditor({
-  selection,
+/** Schema 2's ranked legs, kept as saved (ADR 0073): shown, and can be turned off. */
+function RankedLegsNote({
+  definition,
   onChange,
 }: {
-  selection: Selection;
-  onChange: (s: Selection) => void;
+  definition: StrategyDefinition;
+  onChange: (def: StrategyDefinition) => void;
+}) {
+  const { editable } = useEditor();
+  const r = definition.entry.rankedLegs;
+  if (!r) return null;
+  const n = r.count.type === 'fixed' ? `top ${r.count.value}` : `top ${r.count.value}%`;
+  return (
+    <div className="rounded-md border border-dashed border-line bg-surface p-2 text-sm" role="note">
+      <p>
+        <span className="font-semibold">Kept as saved:</span> only the {n} qualifying{' '}
+        {definition.entry.orders.length === 1 ? 'leg' : 'legs'} by{' '}
+        {getMetric(r.metric)?.label ?? r.metric} ({r.direction === 'desc' ? 'highest' : 'lowest'}{' '}
+        first) enter. It runs as before; to build this today, use a group of these assets with a
+        ranking.
+      </p>
+      {editable && (
+        <RowButton
+          label="Enter every qualifying leg instead"
+          className="mt-1"
+          onClick={() => onChange(fromLegsSelection(definition))}
+        >
+          Enter every qualifying leg instead
+        </RowButton>
+      )}
+    </div>
+  );
+}
+
+function GroupEditor({
+  group,
+  onChange,
+}: {
+  group: GroupTrade;
+  onChange: (g: GroupTrade) => void;
 }) {
   const { instruments: all, issueAt, editable, universeClasses } = useEditor();
-  // An index can be watched by a pre-filter but never held (v1.2 item 5).
+  // An index can be watched by a filter but never held (v1.2 item 5).
   const instruments = all.filter((i) => !isIndicatorOnlyClass(i.assetClass));
-  const path = ['entry', 'selection'] as const;
-  const err = (...rest: (string | number)[]) => issueAt([...path, ...rest]);
-  const u = selection.universe;
+  const err = (...rest: (string | number)[]) => issueAt(['trade', ...rest]);
+  const u = group.universe;
   const listed = u.type === 'list' ? new Set(u.instrumentIds) : new Set<string>();
-  const set = (patch: Partial<Selection>) => onChange({ ...selection, ...patch });
-  const id = (f: string) => `selection-${f}`;
+  const set = (patch: Partial<GroupTrade>) => onChange({ ...group, ...patch });
+  const id = (f: string) => `trade-${f}`;
+  const ranking = group.ranking;
+  const setRanking = (patch: Partial<NonNullable<GroupTrade['ranking']>>) =>
+    ranking && set({ ranking: { ...ranking, ...patch } });
 
   return (
-    <div className="mt-3 space-y-3">
-      <fieldset disabled={!editable} className="grid-fields-wide gap-2">
-        <legend className="sr-only">Selection group</legend>
-        {u.type === 'legs' ? (
-          <p className="self-end pb-1 text-sm">
-            <span className="font-semibold">Universe:</span> these Entry legs
-          </p>
-        ) : (
+    <div className="mt-3 space-y-4">
+      <section aria-labelledby={id('group-heading')}>
+        <h3 id={id('group-heading')} className="text-sm font-semibold">
+          1. Group
+        </h3>
+        <fieldset disabled={!editable} className="grid-fields-wide mt-1 gap-2">
+          <legend className="sr-only">Group</legend>
           <MiniSelect
             id={id('universe')}
-            label="Universe"
+            label="Members"
             value={u.type === 'builtin' ? u.id : 'list'}
+            error={err('universe')}
             onChange={(e) =>
               set({
                 universe:
@@ -163,227 +281,225 @@ function SelectionEditor({
             ))}
             <option value="list">My list of instruments</option>
           </MiniSelect>
-        )}
-        <MetricRefFields
-          value={selection.ranking}
-          classes={universeClasses}
-          id={id}
-          label="Rank by"
-          error={err('ranking')}
-          onChange={(ranking) => set({ ranking })}
-        />
-        <MiniSelect
-          id={id('direction')}
-          label="Order"
-          value={selection.direction}
-          onChange={(e) => set({ direction: e.target.value as Selection['direction'] })}
-        >
-          <option value="desc">Highest first</option>
-          <option value="asc">Lowest first</option>
-        </MiniSelect>
-        <MiniSelect
-          id={id('count-type')}
-          label="Hold"
-          value={selection.count.type}
-          onChange={(e) =>
-            set({
-              count:
-                e.target.value === 'percent'
-                  ? { type: 'percent', value: 10 }
-                  : { type: 'fixed', value: 3 },
-            })
-          }
-        >
-          <option value="fixed">The top N</option>
-          <option value="percent">The top N percent</option>
-        </MiniSelect>
-        <MiniInput
-          id={id('count')}
-          label={selection.count.type === 'percent' ? 'Percent' : 'N'}
-          type="number"
-          min={selection.count.type === 'percent' ? 0.1 : 1}
-          max={selection.count.type === 'percent' ? 100 : 600}
-          step={selection.count.type === 'percent' ? 'any' : 1}
-          value={Number.isFinite(selection.count.value) ? String(selection.count.value) : ''}
-          error={err('count', 'value')}
-          onChange={(e) =>
-            set({
-              count: {
-                ...selection.count,
-                value: e.target.value === '' ? Number.NaN : Number(e.target.value),
-              },
-            })
-          }
-        />
-      </fieldset>
-
-      {u.type === 'builtin' && (
-        <p className="text-xs text-ink-muted" role="note">
-          Back tests use today&rsquo;s S&amp;P 500 members for the whole period, so companies that
-          left the index are missing (survivorship bias): results look better than history did.
-          Paper runs take list universes of up to {PAPER_UNIVERSE_LIMIT} instruments for now.
-        </p>
-      )}
-      {u.type === 'list' && (
-        <fieldset disabled={!editable} className="min-w-0">
-          <legend className="text-xs font-medium text-ink-muted">
-            Instruments in the list ({u.instrumentIds.length}). Type any other US stock or ETF below
-            to add it.
-          </legend>
-          {err('universe', 'instrumentIds') && (
-            <p className="text-xs font-medium text-danger">{err('universe', 'instrumentIds')}</p>
-          )}
-          <div className="mt-1 grid max-h-48 grid-cols-2 gap-1 overflow-y-auto text-sm sm:grid-cols-4">
-            {instruments.map((i) => (
-              <label key={i.id} className="flex items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  checked={listed.has(i.id)}
-                  onChange={(e) =>
-                    set({
-                      universe: {
-                        type: 'list',
-                        instrumentIds: e.target.checked
-                          ? [...u.instrumentIds, i.id]
-                          : u.instrumentIds.filter((x) => x !== i.id),
-                      },
-                    })
-                  }
-                />
-                {i.symbol}
-              </label>
-            ))}
-          </div>
-          {editable && (
-            <SymbolLookup
-              id={id('add-symbol')}
-              label="Add a stock or ETF to the list"
-              actionLabel="Add"
-              tradableOnly
-              onPick={(found) =>
-                set({
-                  universe: {
-                    type: 'list',
-                    instrumentIds: u.instrumentIds.includes(found.id)
-                      ? u.instrumentIds
-                      : [...u.instrumentIds, found.id],
-                  },
-                })
-              }
-            />
-          )}
         </fieldset>
-      )}
+        {u.type === 'builtin' && (
+          <p className="mt-1 text-xs text-ink-muted" role="note">
+            Back tests use today&rsquo;s S&amp;P 500 members for the whole period, so companies that
+            left the index are missing (survivorship bias): results look better than history did.
+            Paper runs take lists of up to {PAPER_UNIVERSE_LIMIT} instruments for now.
+          </p>
+        )}
+        {u.type === 'list' && (
+          <fieldset disabled={!editable} className="mt-2 min-w-0">
+            <legend className="text-xs font-medium text-ink-muted">
+              Instruments in the list ({u.instrumentIds.length}). Type any other US stock or ETF
+              below to add it.
+            </legend>
+            {err('universe', 'instrumentIds') && (
+              <p className="text-xs font-medium text-danger">{err('universe', 'instrumentIds')}</p>
+            )}
+            <div className="mt-1 grid max-h-48 grid-cols-2 gap-1 overflow-y-auto text-sm sm:grid-cols-4">
+              {instruments.map((i) => (
+                <label key={i.id} className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={listed.has(i.id)}
+                    onChange={(e) =>
+                      set({
+                        universe: {
+                          type: 'list',
+                          instrumentIds: e.target.checked
+                            ? [...u.instrumentIds, i.id]
+                            : u.instrumentIds.filter((x) => x !== i.id),
+                        },
+                      })
+                    }
+                  />
+                  {i.symbol}
+                </label>
+              ))}
+            </div>
+            {editable && (
+              <SymbolLookup
+                id={id('add-symbol')}
+                label="Add a stock or ETF to the list"
+                actionLabel="Add"
+                tradableOnly
+                onPick={(found) =>
+                  set({
+                    universe: {
+                      type: 'list',
+                      instrumentIds: u.instrumentIds.includes(found.id)
+                        ? u.instrumentIds
+                        : [...u.instrumentIds, found.id],
+                    },
+                  })
+                }
+              />
+            )}
+          </fieldset>
+        )}
+      </section>
 
-      <div>
-        <h4 className="text-sm font-semibold text-cond">Pre-filter</h4>
+      <section aria-labelledby={id('filter-heading')}>
+        <h3 id={id('filter-heading')} className="text-sm font-semibold text-cond">
+          2. Filter <span className="font-normal text-ink-muted">(optional)</span>
+        </h3>
         <p className="mb-2 text-xs text-ink-muted">
-          Checked for each member before ranking, with &ldquo;Each selected instrument&rdquo;
-          meaning that member. Members that fail are left out (
+          Checked for each member at every Entry check, before ranking, with &ldquo;this
+          stock&rdquo; meaning that member. Members that fail are left out (
           {EXCLUSION_LABELS.filter_false.toLowerCase()}), and so are members it can&rsquo;t be
           decided for yet.
         </p>
-        {selection.preFilter ? (
+        {group.filter ? (
           <>
             <ConditionTreeEditor
-              root={selection.preFilter}
-              label="Pre-filter"
-              path={[...path, 'preFilter']}
-              onChange={(preFilter) => set({ preFilter })}
+              root={group.filter}
+              label="Filter"
+              path={['trade', 'filter']}
+              onChange={(filter) => set({ filter })}
             />
             {editable && (
               <RowButton
-                label="Remove the pre-filter"
+                label="Remove the filter"
                 className="mt-1 text-danger"
                 onClick={() => {
-                  const { preFilter: _p, ...rest } = selection;
-                  void _p;
+                  const { filter: _f, ...rest } = group;
+                  void _f;
                   onChange(rest);
                 }}
               >
-                Remove pre-filter
+                Remove filter
               </RowButton>
             )}
           </>
         ) : (
           editable && (
-            <RowButton label="Add a pre-filter" onClick={() => set({ preFilter: emptyGroup() })}>
-              + Add pre-filter
+            <RowButton label="Add a filter" onClick={() => set({ filter: emptyGroup() })}>
+              + Add filter
             </RowButton>
           )
         )}
-      </div>
-      <label className="flex items-center gap-1.5 text-sm">
-        <input
-          type="checkbox"
-          disabled={!editable}
-          checked={selection.keepHoldings === true}
-          onChange={(e) => {
-            const { keepHoldings: _k, ...rest } = selection;
-            void _k;
-            onChange(e.target.checked ? { ...rest, keepHoldings: true } : rest);
-          }}
-        />
-        Keep each pick until its own exit (don&rsquo;t sell it when it leaves the top N)
-      </label>
-      <p className="text-xs text-ink-muted">
-        {u.type === 'legs'
-          ? 'Each leg must pass its own conditions and the pre-filter; the qualifying legs are ranked and the top N enter, each with its own quantity.'
-          : selection.keepHoldings
-            ? 'Every selected instrument gets an equal share (1/N) of the template leg’s total amount and is held until the Exit condition or an exit rule fires; new picks still enter at each rebalance, so more than N can be held.'
-            : 'Every selected instrument is held with an equal share of the template leg’s total amount. Instruments that drop out of the top N are sold at the next rebalance.'}
-      </p>
-    </div>
-  );
-}
+      </section>
 
-/**
- * With several fixed legs: enter every leg that qualifies, or only the best
- * ones by a metric (ADR 0049), which is a Selection group of these legs.
- */
-function LegsChoice({
-  definition,
-  onChange,
-}: {
-  definition: StrategyDefinition;
-  onChange: (def: StrategyDefinition) => void;
-}) {
-  const { editable } = useEditor();
-  const legs = definition.entry.orders;
-  const ranked = definition.entry.selection?.universe.type === 'legs';
-  const anyLegCondition = legs.some((o) => o.legCondition);
-  if (legs.length < 2 && !anyLegCondition && !ranked) return null;
-  return (
-    <div className="mt-3 space-y-2">
-      <fieldset disabled={!editable} className="grid-fields-wide gap-2">
-        <legend className="text-xs text-ink-muted">
-          Each Entry leg can have its own conditions (&ldquo;+ Add a condition for this leg&rdquo;
-          below). They are checked together with the regime gate.
-        </legend>
-        <MiniSelect
-          id="legs-choice"
-          label="When several legs qualify"
-          value={ranked ? 'best' : 'all'}
-          onChange={(e) =>
-            onChange(
-              e.target.value === 'best'
-                ? toLegsSelection(definition)
-                : fromLegsSelection(definition),
-            )
-          }
-        >
-          <option value="all">Enter every leg that qualifies</option>
-          <option value="best">Enter only the best ones, ranked by a metric</option>
-        </MiniSelect>
-      </fieldset>
-      {ranked && definition.entry.selection && (
-        <SelectionEditor
-          selection={definition.entry.selection}
-          onChange={(s) =>
-            onChange({ ...definition, entry: { ...definition.entry, selection: s } })
-          }
-        />
-      )}
+      <section aria-labelledby={id('ranking-heading')}>
+        <h3 id={id('ranking-heading')} className="text-sm font-semibold">
+          3. Ranking <span className="font-normal text-ink-muted">(optional)</span>
+        </h3>
+        {ranking ? (
+          <>
+            <fieldset disabled={!editable} className="grid-fields-wide mt-1 gap-2">
+              <legend className="sr-only">Ranking</legend>
+              <MetricRefFields
+                value={{ metric: ranking.metric, params: ranking.params }}
+                classes={universeClasses}
+                id={id}
+                label="Rank by"
+                error={err('ranking')}
+                onChange={(ref) => setRanking({ metric: ref.metric, params: ref.params })}
+              />
+              <MiniSelect
+                id={id('direction')}
+                label="Order"
+                value={ranking.direction}
+                onChange={(e) => setRanking({ direction: e.target.value as 'desc' | 'asc' })}
+              >
+                <option value="desc">Highest first</option>
+                <option value="asc">Lowest first</option>
+              </MiniSelect>
+              <MiniSelect
+                id={id('count-type')}
+                label="Keep"
+                value={ranking.count.type}
+                onChange={(e) =>
+                  setRanking({
+                    count:
+                      e.target.value === 'percent'
+                        ? { type: 'percent', value: 10 }
+                        : { type: 'fixed', value: 3 },
+                  })
+                }
+              >
+                <option value="fixed">The top N</option>
+                <option value="percent">The top N percent</option>
+              </MiniSelect>
+              <MiniInput
+                id={id('count')}
+                label={ranking.count.type === 'percent' ? 'Percent' : 'N'}
+                type="number"
+                min={ranking.count.type === 'percent' ? 0.1 : 1}
+                max={ranking.count.type === 'percent' ? 100 : 600}
+                step={ranking.count.type === 'percent' ? 'any' : 1}
+                value={Number.isFinite(ranking.count.value) ? String(ranking.count.value) : ''}
+                error={err('ranking', 'count', 'value')}
+                onChange={(e) =>
+                  setRanking({
+                    count: {
+                      ...ranking.count,
+                      value: e.target.value === '' ? Number.NaN : Number(e.target.value),
+                    },
+                  })
+                }
+              />
+              {/* Per pick by default; a total split equally stays available (O146). */}
+              <MiniSelect
+                id={id('amount')}
+                label="Entry amount"
+                value={group.splitTotal ? 'split' : 'each'}
+                onChange={(e) => {
+                  if (e.target.value === 'split') set({ splitTotal: true });
+                  else {
+                    const { splitTotal: _s, ...rest } = group;
+                    void _s;
+                    onChange(rest);
+                  }
+                }}
+              >
+                <option value="each">For each pick</option>
+                <option value="split">A total, split equally across the picks</option>
+              </MiniSelect>
+            </fieldset>
+            {editable && (
+              <RowButton
+                label="Remove the ranking"
+                className="mt-1 text-danger"
+                onClick={() => {
+                  // Without a ranking there are no picks to split over.
+                  const { ranking: _r, splitTotal: _s, ...rest } = group;
+                  void _r;
+                  void _s;
+                  onChange(rest);
+                }}
+              >
+                Remove ranking
+              </RowButton>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="mb-1 text-xs text-ink-muted">
+              Without a ranking every member that passes the filter is a candidate, up to &ldquo;Max
+              instruments held&rdquo; in Risk limits.
+            </p>
+            {editable && (
+              <RowButton
+                label="Add a ranking"
+                onClick={() =>
+                  set({
+                    ranking: defaultRanking(u.type === 'list' ? u.instrumentIds.length : 3),
+                  })
+                }
+              >
+                + Add ranking
+              </RowButton>
+            )}
+          </>
+        )}
+      </section>
+      <p className="text-xs text-ink-muted">
+        Each candidate is then traded on its own by the Entry leg: its own Entry check, position and
+        Exit.
+      </p>
     </div>
   );
 }
@@ -451,9 +567,9 @@ export function RiskDistanceEditor({
 
 /**
  * Every way a position exits, in one list (ADR 0049): the Exit condition
- * above, the holding-period exit, the ATR stop, the expected-move exit and, with a Selection group,
- * the rebalance. Whichever comes first exits. They run on every bar,
- * whatever the schedule.
+ * above, the holding-period exit, the ATR stop, the trailing stop, the
+ * expected-move exit and, for a group, "Left the group" (ADR 0073).
+ * Whichever comes first exits, each time Check Exit is due.
  */
 export function ExitRulesEditor({
   definition,
@@ -479,18 +595,20 @@ export function ExitRulesEditor({
   const hasAtrStop = rules.some((r) => r.kind === 'atrStop');
   const hasMoveExit = rules.some((r) => r.kind === 'expectedMove');
   const hasTrailingStop = rules.some((r) => r.kind === 'trailingStop');
+  const isGroup = definition.trade.kind === 'group';
   const replace = (i: number, r: ExitRule) => setRules(rules.map((x, j) => (j === i ? r : x)));
   const remove = (i: number) => setRules(rules.filter((_, j) => j !== i));
   const asInt = (v: string) => (v === '' ? Number.NaN : Number(v));
   const mode = slotModeOf(definition);
-  const rebalances = mode === 'selection' || (mode === 'legs' && isScheduled(definition));
+  // Per-leg conditions kept as saved still rebalance on a calendar Check Entry.
+  const rebalances = mode === 'legs' && isScheduled(definition);
   const distance = definition.entry.risk ?? DEFAULT_RISK_DISTANCE;
   return (
     <div className="mt-4">
       <h3 className="mb-1 text-base font-semibold text-cond">Exits</h3>
       <p className="mb-2 text-sm text-ink-muted">
-        Whichever comes first exits: the Exit condition above or one of these. Checked at every bar
-        close, never held for the schedule.
+        Whichever comes first exits: the Exit condition above or one of these, each time Check Exit
+        is due.
       </p>
       <ul className="space-y-2">
         {rules.map((r, i) => {
@@ -500,7 +618,19 @@ export function ExitRulesEditor({
               key={r.id}
               className="flex flex-wrap items-end gap-2 rounded-md border border-line bg-surface p-2"
             >
-              {r.kind === 'timeStop' ? (
+              {r.kind === 'leftGroup' ? (
+                <div className="flex-1">
+                  <p className="text-sm font-semibold">Left the group</p>
+                  <p className="text-xs text-ink-muted">
+                    At each Entry check, sells a holding that no longer passes the filter or the
+                    ranking
+                    {readsContextEntry(definition)
+                      ? ''
+                      : ', and every holding while Enter when is false'}
+                    . Remove it to keep each pick until one of its own exits fires.
+                  </p>
+                </div>
+              ) : r.kind === 'timeStop' ? (
                 <>
                   <MiniInput
                     id={`rule-${r.id}-bars`}
@@ -644,13 +774,15 @@ export function ExitRulesEditor({
               {editable && (
                 <RowButton
                   label={
-                    r.kind === 'timeStop'
-                      ? 'Remove the holding-period exit'
-                      : r.kind === 'expectedMove'
-                        ? 'Remove the expected-move exit'
-                        : r.kind === 'trailingStop'
-                          ? 'Remove the trailing stop'
-                          : 'Remove the ATR stop'
+                    r.kind === 'leftGroup'
+                      ? 'Remove the Left the group exit'
+                      : r.kind === 'timeStop'
+                        ? 'Remove the holding-period exit'
+                        : r.kind === 'expectedMove'
+                          ? 'Remove the expected-move exit'
+                          : r.kind === 'trailingStop'
+                            ? 'Remove the trailing stop'
+                            : 'Remove the ATR stop'
                   }
                   className="text-danger"
                   onClick={() => remove(i)}
@@ -668,15 +800,22 @@ export function ExitRulesEditor({
           >
             <p className="text-sm font-semibold">Rebalance exits</p>
             <p className="text-xs text-ink-muted">
-              {definition.entry.selection?.keepHoldings
-                ? 'Off: each pick is held until one of its own exits fires (set under Selection group).'
-                : 'Sells whatever leaves the top N at the next rebalance. On with a Selection group unless it keeps its picks.'}
+              Kept as saved: per-leg conditions on a calendar Check Entry sell a leg that no longer
+              qualifies at the next check.
             </p>
           </li>
         )}
       </ul>
       {editable && (
         <div className="mt-1 flex flex-wrap gap-2">
+          {isGroup && !hasLeftGroupRule(definition) && (
+            <RowButton
+              label="Add a Left the group exit"
+              onClick={() => setRules([...rules, leftGroupRule()])}
+            >
+              + Left the group
+            </RowButton>
+          )}
           {!hasTimeStop && (
             <RowButton
               label="Add a holding-period exit"
@@ -712,7 +851,33 @@ export function ExitRulesEditor({
   );
 }
 
-/** When Entry and re-selection are evaluated (v1.2 item 4). */
+function ScheduleOptions() {
+  return (
+    <>
+      <optgroup label="Every bar">
+        {SCHEDULE_FREQUENCIES.filter((f) => SCHEDULE_BAR_MINUTES[f] !== undefined).map((f) => (
+          <option key={f} value={f}>
+            {SCHEDULE_LABELS[f]}
+          </option>
+        ))}
+      </optgroup>
+      <optgroup label="Once per period, after the NYSE close">
+        {SCHEDULE_FREQUENCIES.filter((f) => SCHEDULE_BAR_MINUTES[f] === undefined).map((f) => (
+          <option key={f} value={f}>
+            {SCHEDULE_LABELS[f]}
+          </option>
+        ))}
+      </optgroup>
+    </>
+  );
+}
+
+/** Whether a group's Enter when reads "this stock" (checked per candidate). */
+function readsContextEntry(def: StrategyDefinition): boolean {
+  return JSON.stringify(def.entry.condition).includes('"00000000-0000-0000-0000-000000000000"');
+}
+
+/** Check Entry: when Entry, and a group's filter and ranking, are checked (N184, ADR 0073). */
 export function ScheduleField({
   definition,
   onChange,
@@ -722,42 +887,80 @@ export function ScheduleField({
 }) {
   const { editable } = useEditor();
   // Until a schedule is picked, it follows the bars the rules read (N184).
-  const picked = definition.schedule?.frequency;
+  const picked = definition.entry.schedule?.frequency;
   const value = picked ?? defaultSchedule(definition);
+  const group = definition.trade.kind === 'group';
   return (
     <div className="mb-3">
       <MiniSelect
         id="schedule"
-        label="Evaluate Entry and re-selection"
+        label="Check Entry"
         value={value}
         disabled={!editable}
         aria-describedby="schedule-help"
         onChange={(e) => {
           const frequency = e.target.value as Schedule['frequency'];
-          onChange({ ...definition, schedule: { frequency } });
+          onChange({ ...definition, entry: { ...definition.entry, schedule: { frequency } } });
         }}
       >
-        <optgroup label="Every bar">
-          {SCHEDULE_FREQUENCIES.filter((f) => SCHEDULE_BAR_MINUTES[f] !== undefined).map((f) => (
-            <option key={f} value={f}>
-              {SCHEDULE_LABELS[f]}
-            </option>
-          ))}
-        </optgroup>
-        <optgroup label="Once per period, after the NYSE close">
-          {SCHEDULE_FREQUENCIES.filter((f) => SCHEDULE_BAR_MINUTES[f] === undefined).map((f) => (
-            <option key={f} value={f}>
-              {SCHEDULE_LABELS[f]}
-            </option>
-          ))}
-        </optgroup>
+        <ScheduleOptions />
       </MiniSelect>
       <p id="schedule-help" className="mt-1 text-xs text-ink-muted">
         {picked === undefined && 'Matches the bars your conditions read until you pick one. '}
-        The schedule gates entries and re-selection, never exits: Exit conditions, the
-        holding-period exit and risk limits still run at every bar. An &ldquo;Every bar&rdquo;
-        choice checks Entry when each bar of that size closes; the others check once, after the NYSE
-        close of the scheduled day.
+        {group
+          ? 'Each check filters and ranks the group again, then checks Enter when for each candidate. '
+          : ''}
+        An &ldquo;Every bar&rdquo; choice checks when each bar of that size closes; the others check
+        once, after the NYSE close of the scheduled day. Exit has its own Check Exit.
+      </p>
+    </div>
+  );
+}
+
+/** Check Exit (ADR 0073): when the Exit condition and exit rules are checked. */
+export function ExitScheduleField({
+  definition,
+  onChange,
+}: {
+  definition: StrategyDefinition;
+  onChange: (def: StrategyDefinition) => void;
+}) {
+  const { editable } = useEditor();
+  const picked = definition.exit.schedule?.frequency;
+  return (
+    <div className="mb-3">
+      <MiniSelect
+        id="exit-schedule"
+        label="Check Exit"
+        value={picked ?? 'run'}
+        disabled={!editable}
+        aria-describedby="exit-schedule-help"
+        onChange={(e) => {
+          const { schedule: _s, ...exit } = definition.exit;
+          void _s;
+          onChange({
+            ...definition,
+            exit:
+              e.target.value === 'run'
+                ? exit
+                : { ...exit, schedule: { frequency: e.target.value as Schedule['frequency'] } },
+          });
+        }}
+      >
+        {picked === undefined && <option value="run">Every bar the run steps on</option>}
+        <ScheduleOptions />
+      </MiniSelect>
+      <p id="exit-schedule-help" className="mt-1 text-xs text-ink-muted">
+        {picked === undefined
+          ? 'Until you pick one, Exit is checked on every bar a back test or paper run steps on, as before. '
+          : picked === 'weekly' ||
+              picked === 'monthEnd' ||
+              picked === 'quarterEnd' ||
+              picked === 'yearEnd'
+            ? 'The exit rules wait for this date too, so a stop can be days late. '
+            : ''}
+        The Exit condition and every exit rule are checked on this schedule. The stops read daily
+        closes.
       </p>
     </div>
   );

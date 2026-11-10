@@ -76,7 +76,7 @@ describe('per-leg conditions without a shared Entry condition (v1.2 item 2)', ()
     for (const schedule of [undefined, 'monthEnd'] as const) {
       const { errors } = check((d) => {
         legsOnly(d, true);
-        if (schedule) d.schedule = { frequency: schedule };
+        if (schedule) d.entry.schedule = { frequency: schedule };
       });
       expect(errors).toEqual([]);
     }
@@ -580,12 +580,15 @@ describe('indicator-only instruments (v1.2 item 5)', () => {
 
   it('refuses the VIX in a Selection-group universe', () => {
     const r = check((d) => {
-      d.entry.kind = 'selection';
-      d.entry.selection = {
+      d.trade = {
+        kind: 'group',
         universe: { type: 'list', instrumentIds: [STOCK_A, VIX] },
-        ranking: { metric: 'return', params: {} },
-        direction: 'desc',
-        count: { type: 'fixed', value: 1 },
+        ranking: {
+          metric: 'return',
+          params: {},
+          direction: 'desc',
+          count: { type: 'fixed', value: 1 },
+        },
       };
       d.entry.orders[0]!.instrumentId = CONTEXT_INSTRUMENT_ID;
       for (const o of d.exit.orders) o.instrumentId = CONTEXT_INSTRUMENT_ID;
@@ -621,12 +624,15 @@ describe('indicator-only instruments (v1.2 item 5)', () => {
 
 describe('Strategy Lab simplification checks (ADR 0049)', () => {
   const selection = (d: StrategyDefinition) => {
-    d.entry.kind = 'selection';
-    d.entry.selection = {
+    d.trade = {
+      kind: 'group',
       universe: { type: 'list', instrumentIds: [STOCK_A, STOCK_B] },
-      ranking: { metric: 'return', params: {} },
-      direction: 'desc',
-      count: { type: 'fixed', value: 1 },
+      ranking: {
+        metric: 'return',
+        params: {},
+        direction: 'desc',
+        count: { type: 'fixed', value: 1 },
+      },
     };
     d.entry.orders[0]!.instrumentId = CONTEXT_INSTRUMENT_ID;
     for (const o of d.exit.orders) o.instrumentId = CONTEXT_INSTRUMENT_ID;
@@ -641,10 +647,9 @@ describe('Strategy Lab simplification checks (ADR 0049)', () => {
     expect(check((d) => (d.entry.trigger.confirmationBars = 0)).errors).toEqual([]);
   });
 
-  it('refuses "this instrument" in the regime gate of a Selection group', () => {
+  it('lets a group check "this stock" in Enter when, per candidate (ADR 0073)', () => {
     expect(check(selection).errors).toEqual([]);
-    const r = check((d) => {
-      selection(d);
+    const thisStock = (d: StrategyDefinition) => {
       d.entry.condition.children = [
         comparison(
           'gate',
@@ -653,8 +658,54 @@ describe('Strategy Lab simplification checks (ADR 0049)', () => {
           constant('1'),
         ),
       ];
+    };
+    expect(
+      check((d) => {
+        selection(d);
+        thisStock(d);
+      }).errors,
+    ).toEqual([]);
+    // Per-leg conditions (kept as saved) still check Enter when once for the strategy.
+    const legs = check((d) => {
+      d.entry.orders[0]!.legCondition = {
+        kind: 'group',
+        id: 'lc',
+        op: 'and',
+        negate: false,
+        children: [comparison('lc1', market('lcm'), 'gt', constant('1'))],
+      };
+      delete d.exit.trigger;
+      thisStock(d);
     });
-    expect(r.errors).toEqual(['context_in_gate']);
+    expect(legs.errors).toEqual(['context_in_gate']);
+  });
+
+  it('needs a holding limit for a group without a ranking (O147)', () => {
+    const r = check((d) => {
+      selection(d);
+      if (d.trade.kind === 'group') delete d.trade.ranking;
+    });
+    expect(r.errors).toEqual(['group_needs_max_held']);
+    expect(
+      check((d) => {
+        selection(d);
+        if (d.trade.kind === 'group') delete d.trade.ranking;
+        d.risk.maxInstrumentsHeld = 5;
+      }).errors,
+    ).toEqual([]);
+  });
+
+  it('allows "Left the group" only with a group', () => {
+    const r = check((d) => {
+      d.exit.rules = [{ kind: 'leftGroup', id: 'lg' }];
+    });
+    expect(r.errors).toEqual(['left_group_without_group']);
+    expect(
+      check((d) => {
+        selection(d);
+        d.exit.rules = [{ kind: 'leftGroup', id: 'lg' }];
+      }).errors,
+    ).toEqual([]);
   });
 
   it('refuses timed entries without conditions in a Selection group', () => {
@@ -668,10 +719,9 @@ describe('Strategy Lab simplification checks (ADR 0049)', () => {
 
   it('ranks "these legs", and warns when there is only one leg to choose from', () => {
     const r = check((d) => {
-      d.entry.kind = 'selection';
-      d.entry.selection = {
-        universe: { type: 'legs' },
-        ranking: { metric: 'return', params: {} },
+      d.entry.rankedLegs = {
+        metric: 'return',
+        params: {},
         direction: 'desc',
         count: { type: 'fixed', value: 1 },
       };

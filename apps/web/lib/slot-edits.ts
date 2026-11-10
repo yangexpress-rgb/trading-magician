@@ -5,64 +5,138 @@ import {
   randomId,
   refillExitOrders,
   resolveMetricParams,
+  suggestedExitSchedule,
   type ExitRule,
   type PlannedOrder,
-  type Selection,
   type StrategyDefinition,
+  type Trade,
 } from '@tm/domain';
 
 /**
- * Builder edits that switch a strategy between fixed legs and a Selection
- * group (v1.2 item 1), and the default rules each needs. They only shape the
- * definition; validation explains anything left to fix.
+ * Builder edits for What to trade (ADR 0073): specific assets or a group, and
+ * the defaults each needs. They only shape the definition; validation
+ * explains anything left to fix.
  */
 
-/** Notional dollars the template leg buys, split equally across the selections. */
-export const DEFAULT_SELECTION_NOTIONAL = '9000';
+/** Dollars each pick buys in a new group (the amount is per pick, ADR 0073). */
+export const DEFAULT_PICK_NOTIONAL = '3000';
+/** Dollars a new asset's Entry leg buys. */
+export const DEFAULT_ASSET_NOTIONAL = '1000';
 
-export function defaultSelection(instrumentIds: readonly string[]): Selection {
-  const spec = getMetric('return');
+type GroupTrade = Extract<Trade, { kind: 'group' }>;
+
+export function defaultGroup(instrumentIds: readonly string[]): GroupTrade {
   return {
+    kind: 'group',
     universe:
       instrumentIds.length > 0
         ? { type: 'list', instrumentIds: [...instrumentIds] }
         : { type: 'builtin', id: 'sp500' },
-    ranking: { metric: 'return', params: spec ? resolveMetricParams(spec, {}) : {} },
-    direction: 'desc',
-    count: { type: 'fixed', value: Math.min(3, Math.max(1, instrumentIds.length || 3)) },
+    ranking: defaultRanking(instrumentIds.length || 3),
   };
+}
+
+/** Rank by 1-month return, highest first, top 3 (fewer for a short list). */
+export function defaultRanking(members = 3): NonNullable<GroupTrade['ranking']> {
+  const spec = getMetric('return');
+  return {
+    metric: 'return',
+    params: spec ? resolveMetricParams(spec, {}) : {},
+    direction: 'desc',
+    count: { type: 'fixed', value: Math.min(3, Math.max(1, members)) },
+  };
+}
+
+/** The specific assets a strategy trades: its Entry legs' instruments, in order. */
+export function tradedAssets(def: StrategyDefinition): string[] {
+  const ids: string[] = [];
+  for (const p of [def, ...(def.groups ?? [])])
+    for (const o of p.entry.orders)
+      if (
+        o.instrumentId &&
+        o.instrumentId !== CONTEXT_INSTRUMENT_ID &&
+        !ids.includes(o.instrumentId)
+      )
+        ids.push(o.instrumentId);
+  return ids;
 }
 
 /**
- * Enter only the best of the Entry legs by a metric (ADR 0049): a Selection
- * group whose universe is these legs, top 1. Each leg's own conditions are
- * its pre-filter; the legs, their instruments and their Exit stay as they are.
+ * Swap one asset for another everywhere it is named: legs, conditions and
+ * order prices, so changing the stock in What to trade changes the strategy.
  */
-export function toLegsSelection(def: StrategyDefinition): StrategyDefinition {
-  const spec = getMetric('return');
-  const { trigger: _t, ...exit } = def.exit;
-  void _t;
-  return {
+export function replaceAsset(
+  def: StrategyDefinition,
+  from: string,
+  to: string,
+): StrategyDefinition {
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (!v || typeof v !== 'object') return v;
+    return Object.fromEntries(
+      Object.entries(v as Record<string, unknown>).map(([k, x]) => [
+        k,
+        k === 'instrumentId' && x === from ? to : walk(x),
+      ]),
+    );
+  };
+  return walk(def) as StrategyDefinition;
+}
+
+/** Add an asset: an Entry leg that buys it, like the first leg if there is one. */
+export function addAsset(
+  def: StrategyDefinition,
+  instrumentId: string,
+  accountId = '',
+): StrategyDefinition {
+  const first = def.entry.orders[0];
+  const taken = new Set(def.entry.orders.map((o) => o.legLabel.toLowerCase()));
+  let n = def.entry.orders.length + 1;
+  while (taken.has(`buy ${n}`)) n += 1;
+  const leg: PlannedOrder = {
+    id: randomId(),
+    legLabel: first ? `Buy ${n}` : 'Buy',
+    instrumentId,
+    accountId: first?.accountId ?? accountId,
+    side: first?.side ?? 'buy',
+    quantity: first
+      ? { ...first.quantity }
+      : { type: 'notional', value: DEFAULT_ASSET_NOTIONAL, rounding: 'down' },
+    orderType: 'market',
+    timeInForce: 'day',
+    timing: { mode: 'immediate' },
+  };
+  const next: StrategyDefinition = {
+    ...def,
+    entry: { ...def.entry, orders: [...def.entry.orders, leg] },
+  };
+  return next.exit.mirrorEntry ? refillExitOrders(next) : next;
+}
+
+/** Remove an asset: its Entry legs, and its Exit legs when they mirror Entry. */
+export function removeAsset(def: StrategyDefinition, instrumentId: string): StrategyDefinition {
+  const next: StrategyDefinition = {
     ...def,
     entry: {
       ...def.entry,
-      kind: 'selection',
-      selection: {
-        universe: { type: 'legs' },
-        ranking: { metric: 'return', params: spec ? resolveMetricParams(spec, {}) : {} },
-        direction: 'desc',
-        count: { type: 'fixed', value: 1 },
-      },
+      orders: def.entry.orders.filter((o) => o.instrumentId !== instrumentId),
     },
-    exit,
   };
+  return next.exit.mirrorEntry
+    ? refillExitOrders(next)
+    : {
+        ...next,
+        exit: {
+          ...next.exit,
+          orders: next.exit.orders.filter((o) => o.instrumentId !== instrumentId),
+        },
+      };
 }
 
-/** Enter every leg that qualifies: back to plain fixed legs, keeping each leg's conditions. */
+/** Enter every leg that qualifies: drop schema 2's ranked legs, keeping each leg's conditions. */
 export function fromLegsSelection(def: StrategyDefinition): StrategyDefinition {
-  const { kind: _k, selection: _s, ...entry } = def.entry;
-  void _k;
-  void _s;
+  const { rankedLegs: _r, ...entry } = def.entry;
+  void _r;
   return {
     ...def,
     entry,
@@ -71,11 +145,12 @@ export function fromLegsSelection(def: StrategyDefinition): StrategyDefinition {
 }
 
 /**
- * Turn Entry into a Selection group: one template leg trading "each selected
- * instrument", Exit legs that close it, one cycle per instrument, concurrent
- * submission, and a month-end schedule unless one was already chosen.
+ * What to trade becomes a group: one leg trading "each pick" (an amount per
+ * pick), Exit legs that close it, "Left the group" on, one cycle per pick,
+ * concurrent submission, Check Entry at month end unless one was chosen and
+ * Check Exit once a day (O145).
  */
-export function toSelectionGroup(
+export function toGroup(
   def: StrategyDefinition,
   instrumentIds: readonly string[],
   accountId = '',
@@ -84,16 +159,16 @@ export function toSelectionGroup(
   const quantity: PlannedOrder['quantity'] =
     first && first.quantity.type !== 'units'
       ? first.quantity
-      : { type: 'notional', value: DEFAULT_SELECTION_NOTIONAL, rounding: 'down' };
+      : { type: 'notional', value: DEFAULT_PICK_NOTIONAL, rounding: 'down' };
   const template: PlannedOrder = {
     ...(first ?? {
       id: randomId(),
-      legLabel: 'Buy each selected',
       accountId,
       side: 'buy',
       orderType: 'market',
       timeInForce: 'day',
     }),
+    legLabel: 'Buy each pick',
     instrumentId: CONTEXT_INSTRUMENT_ID,
     quantity,
     timing: { mode: 'immediate' },
@@ -102,40 +177,54 @@ export function toSelectionGroup(
   void _lc;
   const { trigger: _t, ...exit } = def.exit;
   void _t;
-  const kept = def.entry.selection;
+  const { rankedLegs: _r, ...entry } = def.entry;
+  void _r;
+  const schedule = entry.schedule ?? { frequency: 'monthEnd' as const };
+  const rules = exit.rules ?? [];
   const next: StrategyDefinition = {
     ...def,
-    entry: {
-      ...def.entry,
-      kind: 'selection',
-      selection: kept && kept.universe.type !== 'legs' ? kept : defaultSelection(instrumentIds),
-      orders: [leg],
+    trade: defaultGroup(instrumentIds),
+    entry: { ...entry, schedule, orders: [leg] },
+    // A group has no Exit trigger: its Exit condition exits directly (ADR 0049).
+    exit: {
+      ...exit,
+      mirrorEntry: true,
+      schedule: exit.schedule ?? { frequency: suggestedExitSchedule(schedule.frequency) },
+      rules: rules.some((r) => r.kind === 'leftGroup') ? rules : [...rules, leftGroupRule()],
     },
-    // A Selection group has no Exit trigger: its Exit condition exits directly (ADR 0049).
-    exit: { ...exit, mirrorEntry: true },
     execution: {
       ...def.execution,
       multiLegPolicy: 'concurrent',
       reentry: { mode: 'single_cycle' },
       legOrder: undefined,
     },
-    schedule: def.schedule ?? { frequency: 'monthEnd' },
   };
   return refillExitOrders(next);
 }
 
-/** Back to fixed legs: the template leg trades `instrumentId` and Exit follows it. */
-export function toFixedLegs(def: StrategyDefinition, instrumentId: string): StrategyDefinition {
-  const { kind: _k, selection: _s, ...entry } = def.entry;
-  void _k;
-  void _s;
+/** Back to specific assets: the template leg trades `instrumentId` and Exit follows it. */
+export function toAssets(def: StrategyDefinition, instrumentId: string): StrategyDefinition {
   const bind = (o: PlannedOrder): PlannedOrder =>
-    o.instrumentId === CONTEXT_INSTRUMENT_ID ? { ...o, instrumentId } : o;
+    o.instrumentId === CONTEXT_INSTRUMENT_ID ? { ...o, instrumentId, legLabel: 'Buy' } : o;
+  const rules = (def.exit.rules ?? []).filter((r) => r.kind !== 'leftGroup');
+  const { rules: _r, ...exit } = def.exit;
+  void _r;
   return refillExitOrders({
     ...def,
-    entry: { ...entry, orders: def.entry.orders.map(bind) },
-    exit: { ...def.exit, trigger: def.exit.trigger ?? { ...DEFAULT_TRIGGER }, mirrorEntry: true },
+    trade: { kind: 'assets' },
+    entry: { ...def.entry, orders: def.entry.orders.map(bind) },
+    exit: {
+      ...exit,
+      ...(rules.length > 0 ? { rules } : {}),
+      trigger: def.exit.trigger ?? { ...DEFAULT_TRIGGER },
+      mirrorEntry: true,
+    },
   });
+}
+
+/** Sell a holding at an Entry check once it no longer passes the filter or ranking (ADR 0073). */
+export function leftGroupRule(): ExitRule {
+  return { kind: 'leftGroup', id: randomId() };
 }
 
 export function timeStopRule(barsHeld = 5): ExitRule {

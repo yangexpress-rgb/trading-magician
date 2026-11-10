@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { ScheduleFrequency, StrategyDefinition } from '@tm/domain';
 import { coarserThan, matchingBacktestInterval } from './data';
 import { MAX_RANGE_DAYS, backtestInputsSchema, describeAssumptions } from './inputs';
 import { close, compare, constant, inputs, leg, strategy } from './test-utils';
@@ -14,6 +15,10 @@ function readingAt(interval: Parameters<typeof withInterval>[0]) {
 }
 function withInterval(interval: '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d' | '1w') {
   return { ...close(), interval };
+}
+
+function onSchedule(def: StrategyDefinition, frequency: ScheduleFrequency): StrategyDefinition {
+  return { ...def, entry: { ...def.entry, schedule: { frequency } } };
 }
 
 describe('5-minute back tests (N178)', () => {
@@ -66,18 +71,10 @@ describe('the run interval that matches the rules (N179)', () => {
 
   it('runs at least as finely as a picked Entry bar cadence (N184)', () => {
     const daily = readingAt('1d');
-    expect(matchingBacktestInterval({ ...daily, schedule: { frequency: 'bar5m' } }).interval).toBe(
-      '5m',
-    );
-    expect(matchingBacktestInterval({ ...daily, schedule: { frequency: 'bar1m' } }).interval).toBe(
-      '5m',
-    );
-    expect(matchingBacktestInterval({ ...daily, schedule: { frequency: 'bar1h' } }).interval).toBe(
-      '1h',
-    );
-    expect(
-      matchingBacktestInterval({ ...readingAt('5m'), schedule: { frequency: 'daily' } }).interval,
-    ).toBe('5m');
+    expect(matchingBacktestInterval(onSchedule(daily, 'bar5m')).interval).toBe('5m');
+    expect(matchingBacktestInterval(onSchedule(daily, 'bar1m')).interval).toBe('5m');
+    expect(matchingBacktestInterval(onSchedule(daily, 'bar1h')).interval).toBe('1h');
+    expect(matchingBacktestInterval(onSchedule(readingAt('5m'), 'daily')).interval).toBe('5m');
   });
 
   it('says when the run steps more coarsely than the rules', () => {

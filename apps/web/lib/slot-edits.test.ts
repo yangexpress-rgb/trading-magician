@@ -1,17 +1,21 @@
 import {
   CONTEXT_INSTRUMENT_ID,
   createDefinition,
+  refillExitOrders,
   slotModeOf,
   strategyDefinitionSchema,
   type StrategyDefinition,
 } from '@tm/domain';
 import { describe, expect, it } from 'vitest';
 import {
+  addAsset,
   fromLegsSelection,
+  removeAsset,
+  replaceAsset,
   timeStopRule,
-  toFixedLegs,
-  toLegsSelection,
-  toSelectionGroup,
+  toAssets,
+  toGroup,
+  tradedAssets,
 } from './slot-edits';
 
 const A = '11111111-1111-4111-8111-111111111111';
@@ -36,38 +40,49 @@ function fixed(): StrategyDefinition {
   return def;
 }
 
-describe('switching Entry to a Selection group', () => {
-  it('makes one template leg that trades each selected instrument, closed by Exit', () => {
-    const def = toSelectionGroup(fixed(), [A, B]);
+describe('What to trade: a group (ADR 0073)', () => {
+  it('makes one leg that buys each pick, per pick, closed by Exit, with "Left the group"', () => {
+    const def = toGroup(fixed(), [A, B]);
     expect(slotModeOf(def)).toBe('selection');
     expect(def.entry.orders).toHaveLength(1);
     expect(def.entry.orders[0]).toMatchObject({
+      legLabel: 'Buy each pick',
       instrumentId: CONTEXT_INSTRUMENT_ID,
-      quantity: { type: 'notional', value: '9000' },
+      quantity: { type: 'notional', value: '3000' },
     });
     expect(def.exit.orders).toHaveLength(1);
     expect(def.exit.orders[0]).toMatchObject({
       instrumentId: CONTEXT_INSTRUMENT_ID,
       side: 'close',
     });
-    expect(def.entry.selection?.universe).toEqual({ type: 'list', instrumentIds: [A, B] });
+    expect(def.trade).toMatchObject({
+      kind: 'group',
+      universe: { type: 'list', instrumentIds: [A, B] },
+      ranking: { metric: 'return', direction: 'desc', count: { type: 'fixed', value: 2 } },
+    });
+    expect(def.exit.rules?.map((r) => r.kind)).toEqual(['leftGroup']);
     expect(def.execution.reentry).toEqual({ mode: 'single_cycle' });
     expect(def.execution.multiLegPolicy).toBe('concurrent');
-    expect(def.schedule).toEqual({ frequency: 'monthEnd' });
+    // Month-end Entry checks, daily Exit checks (O145).
+    expect(def.entry.schedule).toEqual({ frequency: 'monthEnd' });
+    expect(def.exit.schedule).toEqual({ frequency: 'daily' });
     expect(strategyDefinitionSchema.safeParse(def).success).toBe(true);
   });
 
   it('defaults to the S&P 500 when no instruments are known and keeps a chosen schedule', () => {
-    const start = { ...fixed(), schedule: { frequency: 'weekly' as const } };
-    const def = toSelectionGroup(start, []);
-    expect(def.entry.selection?.universe).toEqual({ type: 'builtin', id: 'sp500' });
-    expect(def.schedule).toEqual({ frequency: 'weekly' });
+    const start = fixed();
+    start.entry.schedule = { frequency: 'bar5m' };
+    const def = toGroup(start, []);
+    expect(def.trade).toMatchObject({ universe: { type: 'builtin', id: 'sp500' } });
+    expect(def.entry.schedule).toEqual({ frequency: 'bar5m' });
+    expect(def.exit.schedule).toEqual({ frequency: 'bar5m' });
   });
 
-  it('goes back to fixed legs on a named instrument', () => {
-    const def = toFixedLegs(toSelectionGroup(fixed(), [A, B]), B);
+  it('goes back to specific assets on a named instrument', () => {
+    const def = toAssets(toGroup(fixed(), [A, B]), B);
     expect(slotModeOf(def)).toBe('none');
-    expect(def.entry.selection).toBeUndefined();
+    expect(def.trade).toEqual({ kind: 'assets' });
+    expect(def.exit.rules).toBeUndefined();
     expect(def.entry.orders[0]?.instrumentId).toBe(B);
     expect(def.exit.orders[0]?.instrumentId).toBe(B);
     expect(strategyDefinitionSchema.safeParse(def).success).toBe(true);
@@ -78,25 +93,56 @@ describe('switching Entry to a Selection group', () => {
     def.exit.rules = [timeStopRule(5)];
     expect(strategyDefinitionSchema.safeParse(def).success).toBe(true);
   });
+});
 
-  it('ranks these legs for "only the best one", and goes back keeping each leg (ADR 0049)', () => {
+describe('What to trade: specific assets (ADR 0073)', () => {
+  it("lists the legs' assets, and swaps one everywhere it is named", () => {
+    const def = fixed();
+    def.entry.condition.children = [
+      {
+        kind: 'comparison',
+        id: 'c',
+        operator: 'gt',
+        left: {
+          kind: 'market',
+          id: 'px',
+          instrumentId: A,
+          field: 'close',
+          interval: '1d',
+          adjustment: 'split_and_dividend',
+          session: 'regular',
+          offset: 0,
+        },
+        right: { kind: 'constant', id: 'k', value: '1' },
+      },
+    ];
+    expect(tradedAssets(def)).toEqual([A]);
+    const swapped = replaceAsset(def, A, B);
+    expect(tradedAssets(swapped)).toEqual([B]);
+    expect(JSON.stringify(swapped)).not.toContain(A);
+  });
+
+  it('adds and removes an asset, with its mirrored Exit leg', () => {
+    const def = refillExitOrders(fixed());
+    const two = addAsset(def, B);
+    expect(tradedAssets(two)).toEqual([A, B]);
+    expect(two.exit.orders.map((o) => o.instrumentId)).toEqual([A, B]);
+    const one = removeAsset(two, A);
+    expect(tradedAssets(one)).toEqual([B]);
+    expect(one.exit.orders.map((o) => o.instrumentId)).toEqual([B]);
+  });
+
+  it('stops ranking legs kept from schema 2, keeping each leg', () => {
     const start = fixed();
-    start.entry.orders.push({
-      ...start.entry.orders[0]!,
-      id: 'leg2',
-      legLabel: 'Buy B',
-      instrumentId: B,
-    });
-    const def = toLegsSelection(start);
-    expect(slotModeOf(def)).toBe('legs');
-    expect(def.entry.orders.map((o) => o.instrumentId)).toEqual([A, B]);
-    expect(def.entry.selection).toMatchObject({
-      universe: { type: 'legs' },
+    start.entry.rankedLegs = {
+      metric: 'return',
+      params: {},
+      direction: 'desc',
       count: { type: 'fixed', value: 1 },
-    });
-    expect(def.exit.trigger).toBeUndefined();
-    expect(strategyDefinitionSchema.safeParse(def).success).toBe(true);
-    const back = fromLegsSelection(def);
+    };
+    delete start.exit.trigger;
+    expect(slotModeOf(start)).toBe('legs');
+    const back = fromLegsSelection(start);
     expect(slotModeOf(back)).toBe('none');
     expect(back.exit.trigger).toBeDefined();
   });

@@ -60,6 +60,10 @@ async function rejects(promise: Promise<unknown>): Promise<LibraryError> {
 }
 
 /** Long `symbols` on daily closes above their 200-day SMA; sell below it. */
+function monthEnd(def: StrategyDefinition): StrategyDefinition {
+  return { ...def, entry: { ...def.entry, schedule: { frequency: 'monthEnd' } } };
+}
+
 function definition(
   symbols: string[],
   account = accountA,
@@ -136,9 +140,7 @@ describe('strategies and theories (ADR 0072)', () => {
     const s = await asA((tx) =>
       createStrategy(tx, userA, {
         name: 'SPY/QQQ monthly rotation',
-        definition: definition(['DEMO-IDX', 'DEMO-BND'], accountA, {
-          schedule: { frequency: 'monthEnd' },
-        }),
+        definition: monthEnd(definition(['DEMO-IDX', 'DEMO-BND'], accountA)),
       }),
     );
     ids.rotation = s.id;

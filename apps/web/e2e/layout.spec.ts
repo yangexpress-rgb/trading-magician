@@ -34,8 +34,8 @@ test('pages fill wide screens and editor dropdowns show their whole value', asyn
   const { id } = (await res.json()) as { id: string };
   await page.goto(`/strategy-lab/${id}`);
 
-  const entry = page.getByRole('region', { name: 'Entry trigger' });
-  await entry.getByRole('button', { name: 'Add condition to Entry trigger' }).click();
+  const entry = page.getByRole('region', { name: 'Enter when' });
+  await entry.getByRole('button', { name: 'Add condition to Enter when' }).click();
   const c1 = entry.getByRole('group', { name: 'Condition 1', exact: true });
   for (const name of ['Left side', 'Right side']) {
     const s = c1.getByRole('group', { name, exact: true });

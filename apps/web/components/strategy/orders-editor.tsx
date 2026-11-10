@@ -8,7 +8,6 @@ import {
   QUANTITY_TYPES,
   randomId,
   refillExitOrders,
-  selectionCount,
   sizesFromAtr,
   syncExitWithEntry,
   TIME_IN_FORCE,
@@ -102,8 +101,8 @@ export function OrdersEditor({
     const exit = { ...definition.exit, mirrorEntry: on };
     onChange(on ? refillExitOrders({ ...definition, exit }) : { ...definition, exit });
   };
-  const template =
-    definition.entry.kind === 'selection' && definition.entry.selection?.universe.type !== 'legs';
+  // A group's first Entry leg is the order each pick gets (ADR 0073).
+  const template = definition.trade.kind === 'group';
   const legOrder = definition.execution.legOrder;
 
   const addLeg = () => {
@@ -227,14 +226,14 @@ export function OrdersEditor({
   );
 }
 
-/** A Selection group's template leg: what each selected instrument gets (ADR 0049). */
+/** A group's template leg: what each pick gets (ADR 0073). */
 function perInstrumentText(
   def: StrategyDefinition,
   order: PlannedOrder,
   currency: string,
 ): string | undefined {
-  const sel = def.entry.selection;
-  if (!sel || def.entry.orders[0]?.id !== order.id) return undefined;
+  const trade = def.trade;
+  if (trade.kind !== 'group' || def.entry.orders[0]?.id !== order.id) return undefined;
   const v = Number(order.quantity.value);
   if (!Number.isFinite(v) || order.quantity.type === 'risk') return undefined;
   const unit =
@@ -243,12 +242,13 @@ function perInstrumentText(
       : order.quantity.type === 'pct_equity'
         ? '% of equity'
         : ` ${currency}`;
-  if (sel.count.type === 'percent')
-    return `Split equally across the top ${sel.count.value}% of the universe`;
-  const n = selectionCount(sel, sel.count.value);
-  const each = v / Math.max(1, n);
+  const count = trade.ranking?.count;
+  if (!trade.splitTotal || !count) return `${v.toLocaleString('en-US')}${unit} for each pick`;
+  if (count.type === 'percent') return `Split equally across the top ${count.value}% of the group`;
+  const n = Math.max(1, count.value);
+  const each = v / n;
   const shown = order.quantity.type === 'units' ? Math.floor(each) : Number(each.toFixed(2));
-  return `${shown.toLocaleString('en-US')}${unit} for each of the ${n} selected`;
+  return `${shown.toLocaleString('en-US')}${unit} for each of the ${n} picks`;
 }
 
 function LegEditor({
@@ -514,57 +514,32 @@ function LegEditor({
           </MiniSelect>
         </div>
 
-        {phase === 'entry' && !selection && (
+        {/* Per-leg conditions left the builder (ADR 0073, O148); saved ones stay editable. */}
+        {phase === 'entry' && !selection && order.legCondition && (
           <div className="mt-2">
-            {order.legCondition ? (
-              <>
-                <h4 className="mb-1 text-sm font-semibold text-cond">
-                  Conditions for this leg only
-                </h4>
-                <p className="mb-1 text-xs text-ink-muted">
-                  This leg enters when these hold and the Entry conditions hold. &ldquo;This
-                  leg&rsquo;s instrument&rdquo; means {order.legLabel || 'this leg'}&rsquo;s
-                  instrument.
-                </p>
-                <ConditionTreeEditor
-                  root={order.legCondition}
-                  label={`${name} conditions`}
-                  path={[...path, 'legCondition']}
-                  onChange={(legCondition) => set({ legCondition })}
-                />
-                {editable && (
-                  <RowButton
-                    label={`Remove the conditions for ${name}`}
-                    className="mt-1 text-danger"
-                    onClick={() => {
-                      const { legCondition: _l, ...rest } = order;
-                      void _l;
-                      onChange(rest);
-                    }}
-                  >
-                    Remove leg conditions
-                  </RowButton>
-                )}
-              </>
-            ) : (
-              editable && (
-                <RowButton
-                  label={`Add a condition for ${name}`}
-                  onClick={() =>
-                    set({
-                      legCondition: {
-                        kind: 'group',
-                        id: randomId(),
-                        op: 'and',
-                        negate: false,
-                        children: [],
-                      },
-                    })
-                  }
-                >
-                  + Add a condition for this leg
-                </RowButton>
-              )
+            <h4 className="mb-1 text-sm font-semibold text-cond">Conditions for this leg only</h4>
+            <p className="mb-1 text-xs text-ink-muted">
+              Kept as saved: this leg enters when these hold and Enter when holds. &ldquo;This
+              leg&rsquo;s instrument&rdquo; means {order.legLabel || 'this leg'}&rsquo;s instrument.
+            </p>
+            <ConditionTreeEditor
+              root={order.legCondition}
+              label={`${name} conditions`}
+              path={[...path, 'legCondition']}
+              onChange={(legCondition) => set({ legCondition })}
+            />
+            {editable && (
+              <RowButton
+                label={`Remove the conditions for ${name}`}
+                className="mt-1 text-danger"
+                onClick={() => {
+                  const { legCondition: _l, ...rest } = order;
+                  void _l;
+                  onChange(rest);
+                }}
+              >
+                Remove leg conditions
+              </RowButton>
             )}
           </div>
         )}

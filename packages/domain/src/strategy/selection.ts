@@ -21,11 +21,12 @@ import {
 import type {
   ConditionGroup,
   Expr,
+  GroupUniverse,
   IndicatorExpr,
   MarketExpr,
   MetricRef,
   PlannedOrder,
-  Selection,
+  SelectionCount,
   StrategyDefinition,
 } from './schema';
 import { isCalendarSchedule, scheduleOf } from './schedule';
@@ -45,21 +46,79 @@ import { markExpr } from './evaluate';
 
 export type SlotMode = 'none' | 'selection' | 'legs';
 
+/** A selection's candidates: a group's universe, or the Entry legs themselves. */
+export type Universe = GroupUniverse | { type: 'legs' };
+
 /**
- * A Selection group of "these legs" (ADR 0049): the Entry legs are the
- * candidates, ranked by the group's metric. It runs as per-leg conditions do,
- * with the ranking picking which qualifying legs fire.
+ * A selection as the engines run it: a group from What to trade (ADR 0073),
+ * or schema 2's ranked legs kept as saved. Not stored in this shape.
+ */
+export interface Selection {
+  universe: Universe;
+  /** Absent: no ranking, every member that passes the filter is a candidate. */
+  ranking?: MetricRef | undefined;
+  direction: 'desc' | 'asc';
+  count: SelectionCount;
+  preFilter?: ConditionGroup | undefined;
+  /** No "Left the group" exit rule: a rebalance never sells a holding (ADR 0059). */
+  keepHoldings?: boolean | undefined;
+}
+
+/** How many an unranked group may hold when no risk limit says (the largest list). */
+export const UNRANKED_GROUP_LIMIT = 600;
+
+/** Whether Exit has the "Left the group" rule (ADR 0073). */
+export const hasLeftGroupRule = (def: Pick<StrategyDefinition, 'exit'>) =>
+  (def.exit.rules ?? []).some((r) => r.kind === 'leftGroup');
+
+/** The group What to trade names, as a selection the engines run, or undefined. */
+export function selectionOf(
+  def: Pick<StrategyDefinition, 'trade' | 'exit' | 'risk'>,
+): Selection | undefined {
+  const t = def.trade;
+  if (t.kind !== 'group') return undefined;
+  return {
+    universe: t.universe,
+    ranking: t.ranking ? { metric: t.ranking.metric, params: t.ranking.params } : undefined,
+    direction: t.ranking?.direction ?? 'desc',
+    count: t.ranking?.count ?? {
+      type: 'fixed',
+      value: def.risk.maxInstrumentsHeld ?? UNRANKED_GROUP_LIMIT,
+    },
+    preFilter: t.filter,
+    keepHoldings: !hasLeftGroupRule(def),
+  };
+}
+
+/**
+ * Schema 2's Selection group of "these legs" (ADR 0049), kept as saved
+ * (ADR 0073): the Entry legs are the candidates, ranked by the metric. It
+ * runs as per-leg conditions do, with the ranking picking which qualifying
+ * legs fire.
  */
 export function rankedLegs(def: Pick<StrategyDefinition, 'entry'>): Selection | undefined {
-  const sel = def.entry.kind === 'selection' ? def.entry.selection : undefined;
-  return sel?.universe.type === 'legs' ? sel : undefined;
+  const r = def.entry.rankedLegs;
+  if (!r) return undefined;
+  return {
+    universe: { type: 'legs' },
+    ranking: { metric: r.metric, params: r.params },
+    direction: r.direction,
+    count: r.count,
+    preFilter: r.preFilter,
+  };
 }
 
 export function slotModeOf(def: StrategyDefinition): SlotMode {
-  if (def.entry.kind === 'selection' && !rankedLegs(def)) return 'selection';
+  if (def.trade.kind === 'group') return 'selection';
   if (rankedLegs(def) || def.entry.orders.some((o) => o.legCondition)) return 'legs';
   return 'none';
 }
+
+/** The metric a group ranks by, if any. */
+export const groupRanking = (def: Pick<StrategyDefinition, 'trade'>): MetricRef | undefined =>
+  def.trade.kind === 'group' && def.trade.ranking
+    ? { metric: def.trade.ranking.metric, params: def.trade.ranking.params }
+    : undefined;
 
 export interface Slot {
   /** The Entry leg, or the Selection group's template leg. */
@@ -137,13 +196,13 @@ export function rankUniverse(
       selection.preFilter && hasComparisons(selection.preFilter)
         ? evaluateCondition(selection.preFilter, r)
         : true;
-    const value = computeMetric(selection.ranking, instrumentId, r);
+    const value = selection.ranking ? computeMetric(selection.ranking, instrumentId, r) : undefined;
     const excluded: ExclusionReason | null =
       filter === false
         ? 'filter_false'
         : filter === undefined
           ? 'filter_unknown'
-          : value === undefined
+          : selection.ranking && value === undefined
             ? 'no_value'
             : null;
     return { instrumentId, symbol: symbolOf(instrumentId), value, filter, excluded };
@@ -151,8 +210,10 @@ export function rankUniverse(
   const ranked = scored
     .filter((s) => s.excluded === null)
     .sort((a, b) => {
-      const byValue =
-        selection.direction === 'desc'
+      // Without a ranking, members keep alphabetical order (ADR 0073).
+      const byValue = !selection.ranking
+        ? 0
+        : selection.direction === 'desc'
           ? (b.value as Decimal).comparedTo(a.value as Decimal)
           : (a.value as Decimal).comparedTo(b.value as Decimal);
       return byValue || (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0);
@@ -187,6 +248,13 @@ const and = (a: Truth, b: Truth): Truth =>
 
 export function hasComparisons(g: ConditionGroup): boolean {
   for (const _ of walkComparisons(g)) return true;
+  return false;
+}
+
+/** Whether a condition reads "this instrument" anywhere (ADR 0073: per candidate). */
+export function readsThisInstrument(g: ConditionGroup): boolean {
+  for (const e of walkExpressions(g))
+    if ('instrumentId' in e && e.instrumentId === CONTEXT_INSTRUMENT_ID) return true;
   return false;
 }
 
@@ -229,7 +297,7 @@ export function selectLegs(
         : true,
     );
     const passed: Truth = and(phase, own);
-    const value = ranked ? computeMetric(ranked.ranking, o.instrumentId, r) : undefined;
+    const value = ranked?.ranking ? computeMetric(ranked.ranking, o.instrumentId, r) : undefined;
     return {
       legId: o.id,
       instrumentId: o.instrumentId,
@@ -295,8 +363,14 @@ export function planSlots(input: {
   halted: boolean;
   /** A Selection group that keeps each pick until its own Exit (ADR 0059). */
   keepHoldings?: boolean;
+  /**
+   * The members still in the group, when Entry conditions are checked per
+   * candidate (ADR 0073): a holding that stays in the group is kept even if
+   * its Entry conditions are false now. Absent: the candidates.
+   */
+  inGroup?: readonly Slot[];
 }): SlotPlan {
-  const wanted = new Set(input.candidates.map(slotKey));
+  const wanted = new Set((input.inGroup ?? input.candidates).map(slotKey));
   const heldKeys = new Set(input.held.map((h) => h.key));
   const rebalance = input.mode === 'selection' || input.scheduled;
   const exit =
@@ -329,8 +403,9 @@ export function slotDefinition(def: StrategyDefinition, slot: Slot, count = 1): 
   if (!template) throw new Error(`No Entry leg ${slot.legId}`);
   const { legCondition: _drop, ...leg } = bindOrder(template, slot.instrumentId);
   void _drop;
+  // A group's leg amount is per pick, unless it is a total split equally (ADR 0073).
   const entry: PlannedOrder =
-    def.entry.kind === 'selection' && !rankedLegs(def) && count > 1
+    def.trade.kind === 'group' && def.trade.splitTotal === true && count > 1
       ? {
           ...leg,
           quantity: {
@@ -367,8 +442,10 @@ export function conditionTrees(def: StrategyDefinition): { tree: ConditionGroup;
   ];
   for (const o of def.entry.orders)
     if (o.legCondition) out.push({ tree: o.legCondition, where: `leg:${o.id}` });
-  if (def.entry.selection?.preFilter)
-    out.push({ tree: def.entry.selection.preFilter, where: 'preFilter' });
+  if (def.trade.kind === 'group' && def.trade.filter)
+    out.push({ tree: def.trade.filter, where: 'preFilter' });
+  if (def.entry.rankedLegs?.preFilter)
+    out.push({ tree: def.entry.rankedLegs.preFilter, where: 'preFilter' });
   // Entry groups (v1.2 item 8).
   for (const g of def.groups ?? []) {
     out.push({ tree: g.entry.condition, where: `group:${g.id}:entry` });
@@ -397,7 +474,7 @@ export function definitionExpressions(def: StrategyDefinition): Expr[] {
 
 /** Instruments a slot can stand for: universe members, or the Entry legs' instruments. */
 export function contextInstruments(def: StrategyDefinition, members: readonly string[]): string[] {
-  if (def.entry.kind === 'selection' && !rankedLegs(def)) return [...members];
+  if (def.trade.kind === 'group') return [...members];
   return [...new Set(def.entry.orders.map((o) => o.instrumentId))].filter(
     (id) => id !== CONTEXT_INSTRUMENT_ID,
   );
@@ -406,7 +483,8 @@ export function contextInstruments(def: StrategyDefinition, members: readonly st
 /** Metric references a definition ranks or fires by. */
 function definitionMetrics(def: StrategyDefinition): MetricRef[] {
   const refs: MetricRef[] = [];
-  if (def.entry.kind === 'selection' && def.entry.selection) refs.push(def.entry.selection.ranking);
+  const ranking = groupRanking(def);
+  if (ranking) refs.push(ranking);
   return refs;
 }
 
@@ -571,7 +649,7 @@ export function referencedInstruments(def: StrategyDefinition): string[] {
 
 /** A list universe's members; a built-in one is resolved by the caller. */
 export function listMembers(def: StrategyDefinition): string[] {
-  const u = def.entry.kind === 'selection' ? def.entry.selection?.universe : undefined;
+  const u = def.trade.kind === 'group' ? def.trade.universe : undefined;
   return u?.type === 'list' ? [...new Set(u.instrumentIds)] : [];
 }
 
@@ -584,8 +662,8 @@ export const PAPER_UNIVERSE_LIMIT = 50;
  * and run on paper once the worker caches bars (Design v1.2 N11).
  */
 export function paperRunBlocker(def: StrategyDefinition): string | undefined {
-  if (def.entry.kind !== 'selection' || rankedLegs(def)) return undefined;
-  const u = def.entry.selection?.universe;
+  if (def.trade.kind !== 'group') return undefined;
+  const u = def.trade.universe;
   if (u?.type === 'builtin')
     return 'S&P 500 Selection groups can be back tested, but not run on paper yet: the paper runtime would reload 500 stocks’ bars on every pass. Use a list of up to 50 instruments to run on paper.';
   if (u?.type === 'list' && new Set(u.instrumentIds).size > PAPER_UNIVERSE_LIMIT)

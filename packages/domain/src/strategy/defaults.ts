@@ -40,6 +40,8 @@ export function emptyGroup(ids: IdFactory = randomId): ConditionGroup {
 export function createDefinition(ids: IdFactory = randomId): StrategyDefinition {
   return {
     schemaVersion: STRATEGY_SCHEMA_VERSION,
+    // What to trade starts as specific assets, none chosen yet (ADR 0073).
+    trade: { kind: 'assets' },
     entry: {
       condition: emptyGroup(ids),
       trigger: { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 },

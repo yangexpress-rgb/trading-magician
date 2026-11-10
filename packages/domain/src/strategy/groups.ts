@@ -45,8 +45,9 @@ export function groupDefinition(def: StrategyDefinition, key: GroupKey): Strateg
   void _drop;
   return {
     ...rest,
-    entry: g.entry,
-    exit: g.exit,
+    // A group shares the strategy's Check Entry and Check Exit (ADR 0073).
+    entry: { ...g.entry, schedule: def.entry.schedule },
+    exit: { ...g.exit, schedule: def.exit.schedule },
     // Leg order lists the strategy's own legs; a group's legs go in the order listed.
     execution: { ...def.execution, legOrder: undefined },
   };

@@ -122,8 +122,8 @@ async function numberingSource(tx: Transaction, draft: unknown) {
   const ids = [
     ...new Set([
       ...collectInstrumentUses(definition).map((u) => u.instrumentId),
-      ...(definition.entry.selection?.universe.type === 'list'
-        ? definition.entry.selection.universe.instrumentIds
+      ...(definition.trade.kind === 'group' && definition.trade.universe.type === 'list'
+        ? definition.trade.universe.instrumentIds
         : []),
     ]),
   ];

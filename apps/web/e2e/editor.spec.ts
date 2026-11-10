@@ -54,9 +54,9 @@ test('SMA(30, DEMO-A) < SMA(30, DEMO-B) saves, reloads and validates identically
   await signUpAndVerify(page, uniqueEmail('editor'));
   const id = await newStrategy(page, baseURL!, 'Beverage spread');
 
-  const entry = page.getByRole('region', { name: 'Entry trigger' });
+  const entry = page.getByRole('region', { name: 'Enter when' });
   await expect(entry.getByText('No conditions yet')).toBeVisible();
-  await entry.getByRole('button', { name: 'Add condition to Entry trigger' }).click();
+  await entry.getByRole('button', { name: 'Add condition to Enter when' }).click();
   const c1 = entry.getByRole('group', { name: 'Condition 1', exact: true });
 
   const a = await instrumentOption(page, 'DEMO-A');
@@ -137,8 +137,8 @@ test('builds nested AND/OR/NOT groups with add, reorder, duplicate and remove', 
 }) => {
   await signUpAndVerify(page, uniqueEmail('groups'));
   await newStrategy(page, baseURL!, 'Grouping');
-  const exit = page.getByRole('region', { name: 'Exit condition' });
-  const add = exit.getByRole('button', { name: 'Add condition to Exit condition' });
+  const exit = page.getByRole('region', { name: 'Exit when' });
+  const add = exit.getByRole('button', { name: 'Add condition to Exit when' });
 
   await add.click();
   await add.click();
@@ -157,7 +157,7 @@ test('builds nested AND/OR/NOT groups with add, reorder, duplicate and remove', 
   await expect(readsAs).toContainText('> 20 AND');
 
   // A nested OR group, negated, with a duplicated condition.
-  await exit.getByRole('button', { name: 'Add group to Exit condition' }).click();
+  await exit.getByRole('button', { name: 'Add group to Exit when' }).click();
   const group = exit.getByRole('region', { name: 'Group 3' });
   await group.getByLabel('NOT: qualify when this group is false').check();
   await expect(group.getByLabel('Group 3 qualifies when')).toHaveValue('or');
@@ -192,8 +192,8 @@ test('builds nested AND/OR/NOT groups with add, reorder, duplicate and remove', 
 test('shows field problems and blocks saving until they are fixed', async ({ page, baseURL }) => {
   await signUpAndVerify(page, uniqueEmail('invalid'));
   await newStrategy(page, baseURL!, 'Typos');
-  const entry = page.getByRole('region', { name: 'Entry trigger' });
-  await entry.getByRole('button', { name: 'Add condition to Entry trigger' }).click();
+  const entry = page.getByRole('region', { name: 'Enter when' });
+  await entry.getByRole('button', { name: 'Add condition to Enter when' }).click();
   const value = side(
     entry.getByRole('group', { name: 'Condition 1', exact: true }),
     'Right side',
@@ -221,8 +221,8 @@ test('detects edits made in another tab and warns before leaving unsaved work', 
 
   for (const p of [page, other]) {
     await p
-      .getByRole('region', { name: 'Entry trigger' })
-      .getByRole('button', { name: 'Add condition to Entry trigger' })
+      .getByRole('region', { name: 'Enter when' })
+      .getByRole('button', { name: 'Add condition to Enter when' })
       .click();
   }
   await page.getByRole('button', { name: 'Save draft' }).click();

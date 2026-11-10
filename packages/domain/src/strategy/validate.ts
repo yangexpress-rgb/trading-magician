@@ -32,7 +32,6 @@ import { atrStopDistance, sizesFromAtr } from './risk-exits';
 import {
   hasComparisons,
   listMembers,
-  rankedLegs,
   optionInstruments,
   paperRunBlocker,
   slotModeOf,
@@ -148,6 +147,7 @@ export function validateStrategy(
     checkCondition(def, phase, ctx, add);
     checkOrders(def, phase, ctx, add);
   }
+  checkTrade(def, add);
   checkSlots(def, ctx, add);
   checkExitExposure(def, add);
   checkPositionValues(def, add);
@@ -210,7 +210,8 @@ function checkUniqueIds(def: StrategyDefinition, add: Add) {
     if (n.kind === 'group') n.children.forEach(visitNode);
   };
   for (const o of def.entry.orders) if (o.legCondition) visitNode(o.legCondition);
-  if (def.entry.selection?.preFilter) visitNode(def.entry.selection.preFilter);
+  if (def.trade.kind === 'group' && def.trade.filter) visitNode(def.trade.filter);
+  if (def.entry.rankedLegs?.preFilter) visitNode(def.entry.rankedLegs.preFilter);
   for (const r of def.exit.rules ?? []) {
     if (seen.has(r.id)) add('error', 'duplicate_id', 'The definition has duplicate ids', [], r.id);
     seen.add(r.id);
@@ -285,8 +286,8 @@ function checkCondition(
         : (def.exit.rules?.length ?? 0) > 0 ||
           mode === 'selection' ||
           (mode === 'legs' &&
-            def.schedule !== undefined &&
-            isCalendarSchedule(def.schedule.frequency));
+            def.entry.schedule !== undefined &&
+            isCalendarSchedule(def.entry.schedule.frequency));
     if (!allTimingOnly && !decidedElsewhere) {
       add(
         'error',
@@ -321,15 +322,16 @@ function checkCondition(
   const context = mode !== 'none';
   checkTree(root, [phase, 'condition'], ctx, add, context);
 
-  // The shared regime gate is evaluated once for the whole strategy, never for a
-  // member, so "this instrument" there would always be unknown (ADR 0049).
-  if (phase === 'entry' && mode !== 'none')
+  // With per-leg conditions the shared regime gate is evaluated once for the
+  // whole strategy, never for a leg, so "this instrument" there would always be
+  // unknown (ADR 0049). A group checks Enter when per candidate (ADR 0073).
+  if (phase === 'entry' && mode === 'legs')
     for (const e of walkExpressions(root))
       if ('instrumentId' in e && e.instrumentId === CONTEXT_INSTRUMENT_ID) {
         add(
           'error',
           'context_in_gate',
-          'The regime gate is checked once for the whole strategy, not per instrument, so it can\'t use "this instrument": move that condition into the pre-filter or a leg condition',
+          'With per-leg conditions, Enter when is checked once for the whole strategy, not per leg, so it can\'t use "this instrument": move that condition into a leg condition',
           [phase, 'condition'],
           e.id,
         );
@@ -475,6 +477,33 @@ function checkExpectedMoveExits(def: StrategyDefinition, add: Add) {
         "The expected-move exit watches the first Entry leg's instrument and closes every leg when it fires",
         [...at, 'exit', 'rules'],
       );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// What to trade (ADR 0073)
+
+function checkTrade(def: StrategyDefinition, add: Add) {
+  const t = def.trade;
+  const parts = [
+    { p: def as Pick<StrategyDefinition, 'entry' | 'exit'>, at: [] as (string | number)[] },
+    ...(def.groups ?? []).map((g, i) => ({ p: g, at: ['groups', i] })),
+  ];
+  for (const { p, at } of parts) {
+    const left = (p.exit.rules ?? []).filter((r) => r.kind === 'leftGroup');
+    if (left.length > 0 && t.kind !== 'group')
+      add(
+        'error',
+        'left_group_without_group',
+        '"Left the group" applies only when What to trade is a group',
+        [...at, 'exit', 'rules'],
+      );
+    if (left.length > 1)
+      add('error', 'duplicate_left_group', 'Use one "Left the group" exit', [
+        ...at,
+        'exit',
+        'rules',
+      ]);
   }
 }
 
@@ -955,19 +984,21 @@ function checkSlots(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
   if (mode === 'selection') checkSelection(def, ctx, add);
   else checkLegConditions(def, ctx, add);
   const blocker = paperRunBlocker(def);
-  if (blocker)
-    add('warning', 'selection_backtest_only', blocker, ['entry', 'selection', 'universe']);
+  if (blocker) add('warning', 'selection_backtest_only', blocker, ['trade', 'universe']);
 }
 
 function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
-  const sel = def.entry.selection;
-  if (!sel) {
-    add('error', 'selection_missing', 'Set up the Selection group: universe, metric and count', [
-      'entry',
-      'selection',
-    ]);
-    return;
-  }
+  const sel = def.trade.kind === 'group' ? def.trade : undefined;
+  if (!sel) return;
+  // Without a ranking every member that passes is a candidate, so the number
+  // held needs a limit of its own (O147).
+  if (!sel.ranking && def.risk.maxInstrumentsHeld === undefined)
+    add(
+      'error',
+      'group_needs_max_held',
+      'A group without a ranking holds every member that passes the filter: set "Max instruments held" in Risk limits',
+      ['risk', 'maxInstrumentsHeld'],
+    );
   const template = def.entry.orders[0];
   if (def.entry.orders.length !== 1 || !template) {
     add(
@@ -1001,30 +1032,26 @@ function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Ad
     sel.universe.type === 'list'
       ? sel.universe.instrumentIds.map((id) => ({ id, info: ctx.instruments.get(id) }))
       : [];
-  const ranking = getMetric(sel.ranking.metric);
-  for (const problem of checkMetricRef(sel.ranking))
-    add('error', 'invalid_metric', problem, ['entry', 'selection', 'ranking']);
-  for (const id of metricReferences(sel.ranking)) {
-    if (!ctx.instruments.has(id))
-      add('error', 'unknown_instrument', 'Choose a valid benchmark', [
-        'entry',
-        'selection',
-        'ranking',
-      ]);
+  const ranking = sel.ranking ? getMetric(sel.ranking.metric) : undefined;
+  if (sel.ranking) {
+    for (const problem of checkMetricRef(sel.ranking))
+      add('error', 'invalid_metric', problem, ['trade', 'ranking']);
+    for (const id of metricReferences(sel.ranking)) {
+      if (!ctx.instruments.has(id))
+        add('error', 'unknown_instrument', 'Choose a valid benchmark', ['trade', 'ranking']);
+    }
   }
   const account = template ? ctx.accounts.get(template.accountId) : undefined;
   if (sel.universe.type === 'builtin') {
     if (ranking && !ranking.assetClasses.includes('stock')) {
       add('error', 'metric_unsupported', `${ranking.label} can't be computed for S&P 500 stocks`, [
-        'entry',
-        'selection',
+        'trade',
         'ranking',
       ]);
     }
     if (!ctx.hasFeed('stock', 'bars')) {
       add('error', 'missing_feed', 'No active data feed covers US stock bars for the S&P 500', [
-        'entry',
-        'selection',
+        'trade',
         'universe',
       ]);
     }
@@ -1033,13 +1060,13 @@ function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Ad
         'error',
         'unsupported_asset_class',
         `"${account.nickname}" can't trade stocks, so it can't hold S&P 500 members`,
-        ['entry', 'selection', 'universe'],
+        ['trade', 'universe'],
       );
     }
   }
   const seen = new Set<string>();
   members.forEach(({ id, info }, i) => {
-    const path = ['entry', 'selection', 'universe', 'instrumentIds', i];
+    const path = ['trade', 'universe', 'instrumentIds', i];
     if (seen.has(id)) add('warning', 'universe_duplicate', 'This instrument is listed twice', path);
     seen.add(id);
     if (!info) {
@@ -1068,19 +1095,16 @@ function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Ad
     }
     if (account) checkTradable(info, account, path, `${info.symbol} in the universe`, add);
   });
-  if (
-    sel.count.type === 'fixed' &&
-    sel.universe.type === 'list' &&
-    sel.count.value > members.length
-  ) {
+  const count = sel.ranking?.count;
+  if (count?.type === 'fixed' && sel.universe.type === 'list' && count.value > members.length) {
     add(
       'warning',
       'selection_count_above_universe',
-      `The universe has ${members.length} instruments, fewer than the ${sel.count.value} to hold`,
-      ['entry', 'selection', 'count', 'value'],
+      `The universe has ${members.length} instruments, fewer than the ${count.value} to hold`,
+      ['trade', 'ranking', 'count', 'value'],
     );
   }
-  if (sel.preFilter) checkTree(sel.preFilter, ['entry', 'selection', 'preFilter'], ctx, add, true);
+  if (sel.filter) checkTree(sel.filter, ['trade', 'filter'], ctx, add, true);
 }
 
 /** Whether an account can trade an instrument, in the words of the leg checks. */
@@ -1110,19 +1134,15 @@ function checkTradable(
 
 function checkLegConditions(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
   // A Selection group of these legs (ADR 0049): the legs are ranked by the metric.
-  const ranked = rankedLegs(def);
+  const ranked = def.entry.rankedLegs;
   if (ranked) {
-    for (const problem of checkMetricRef(ranked.ranking))
-      add('error', 'invalid_metric', problem, ['entry', 'selection', 'ranking']);
-    for (const id of metricReferences(ranked.ranking))
+    for (const problem of checkMetricRef(ranked))
+      add('error', 'invalid_metric', problem, ['entry', 'rankedLegs']);
+    for (const id of metricReferences(ranked))
       if (!ctx.instruments.has(id))
-        add('error', 'unknown_instrument', 'Choose a valid benchmark', [
-          'entry',
-          'selection',
-          'ranking',
-        ]);
+        add('error', 'unknown_instrument', 'Choose a valid benchmark', ['entry', 'rankedLegs']);
     if (ranked.preFilter)
-      checkTree(ranked.preFilter, ['entry', 'selection', 'preFilter'], ctx, add, true);
+      checkTree(ranked.preFilter, ['entry', 'rankedLegs', 'preFilter'], ctx, add, true);
     if (def.entry.orders.length < 2)
       add(
         'warning',
@@ -1130,7 +1150,7 @@ function checkLegConditions(def: StrategyDefinition, ctx: ValidationContext, add
         'A Selection group of these legs ranks the Entry legs: add another leg to choose between',
         ['entry', 'orders'],
       );
-    const spec = getMetric(ranked.ranking.metric);
+    const spec = getMetric(ranked.metric);
     def.entry.orders.forEach((o, i) => {
       const info = ctx.instruments.get(o.instrumentId);
       if (spec && info && !spec.assetClasses.includes(info.assetClass))

@@ -119,8 +119,8 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
     let members = listMembers(work.definition);
     const universeWarnings: string[] = [];
     const instruments = new Map<string, InstrumentRef>(work.instruments);
-    const universe = work.definition.entry.selection?.universe;
-    if (work.definition.entry.kind === 'selection' && universe?.type === 'builtin') {
+    const trade = work.definition.trade;
+    if (trade.kind === 'group' && trade.universe.type === 'builtin') {
       if (!options.resolveUniverse)
         throw new UnsupportedBarRequestError('This worker cannot resolve the S&P 500 universe');
       const resolved = await options.resolveUniverse(userId);

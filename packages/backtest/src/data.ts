@@ -296,8 +296,15 @@ export function matchingBacktestInterval(def: StrategyDefinition): {
   }
   let minutes = finest ? INTERVAL_MINUTES[finest] : INTERVAL_MINUTES['1d'];
   // A picked bar cadence for Entry asks for bars at least that fine (N184).
-  const cadence = def.schedule ? SCHEDULE_BAR_MINUTES[def.schedule.frequency] : undefined;
+  const cadence = def.entry.schedule
+    ? SCHEDULE_BAR_MINUTES[def.entry.schedule.frequency]
+    : undefined;
   if (cadence !== undefined) minutes = Math.min(minutes, cadence);
+  // So does a picked bar cadence for Exit (ADR 0073).
+  const exitCadence = def.exit.schedule
+    ? SCHEDULE_BAR_MINUTES[def.exit.schedule.frequency]
+    : undefined;
+  if (exitCadence !== undefined) minutes = Math.min(minutes, exitCadence);
   return { interval: minutes < 60 ? '5m' : minutes < 1440 ? '1h' : '1d', finest };
 }
 

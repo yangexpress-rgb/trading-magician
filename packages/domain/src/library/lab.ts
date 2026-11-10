@@ -59,7 +59,8 @@ export function tradedInstruments(def: StrategyDefinition): {
   const ids = new Set<string>();
   for (const o of entryLegs(def))
     if (o.instrumentId !== CONTEXT_INSTRUMENT_ID) ids.add(o.instrumentId);
-  const universe = def.entry.kind === 'selection' ? def.entry.selection?.universe : undefined;
+  // What to trade (ADR 0073): the legs' assets, or a group's universe.
+  const universe = def.trade.kind === 'group' ? def.trade.universe : undefined;
   if (universe?.type === 'list') for (const id of universe.instrumentIds) ids.add(id);
   return { instrumentIds: [...ids], builtin: universe?.type === 'builtin' ? universe.id : null };
 }
@@ -103,7 +104,7 @@ const INTERVAL_CODE: Record<BarInterval, 'N' | 'H' | 'D' | 'W'> = {
  * minute bars N, all hourly H, all weekly W, all daily D. Mixed or none: D.
  */
 export function deriveTimeframeCode(def: StrategyDefinition): string {
-  switch (def.schedule?.frequency) {
+  switch (def.entry.schedule?.frequency) {
     case 'monthEnd':
       return 'M';
     case 'quarterEnd':

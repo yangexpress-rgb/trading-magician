@@ -1,15 +1,22 @@
-import { migrateV1, parseDefinition, validateStrategy, type MigrationNote } from '@tm/domain';
+import {
+  migrateV1,
+  migrateV2,
+  parseDefinition,
+  validateStrategy,
+  type MigrationNote,
+} from '@tm/domain';
 import { sql } from 'drizzle-orm';
 import type { Database } from './client';
 import { loadValidationContext } from './strategies';
 import { withTenant } from './tenant';
 
 /**
- * The migration report of the Strategy Lab simplification (ADR 0049): every
- * stored strategy draft and version that is still schema 1, what reading it
- * as schema 2 converts, every grandfathered Exit-leg stop order, and whether
- * the migrated strategy validates. Read-only: stored versions are never
- * rewritten (they are migrated on every read).
+ * The migration report of the Strategy Lab simplification (ADR 0049) and of
+ * What to trade, Entry, Exit (ADR 0073): every stored strategy draft and
+ * version older than schema 3, what reading it as schema 3 converts, every
+ * form kept as saved (Exit-leg stop orders, per-leg conditions, ranked legs),
+ * and whether the migrated strategy validates. Read-only: stored versions are
+ * never rewritten (they are migrated on every read).
  *
  *   pnpm --filter @tm/db strategies:migration-report
  */
@@ -22,7 +29,23 @@ export const NEW_CHECKS = new Set([
   'risk_needs_distance',
   'atr_stop_no_distance',
   'risk_incomplete',
+  // What to trade, Entry, Exit (ADR 0073).
+  'group_needs_max_held',
+  'left_group_without_group',
 ]);
+
+/** Notes for reading a stored document as schema 3: schema 1 → 2 → 3, or 2 → 3. */
+export function migrationNotes(doc: Record<string, unknown>): MigrationNote[] {
+  if (doc.schemaVersion === 1) {
+    const v1 = migrateV1(doc);
+    return [...v1.notes, ...migrateV2(v1.doc).notes];
+  }
+  if (doc.schemaVersion === 2) return migrateV2(doc).notes;
+  return [];
+}
+
+/** Kept-as-saved forms the builder no longer offers. */
+const KEPT = new Set(['exit_leg_stop', 'ranked_legs_kept', 'leg_conditions_kept']);
 
 export interface MigrationReportEntry {
   userId: string;
@@ -69,14 +92,14 @@ export async function strategyMigrationReport(db: Database): Promise<MigrationRe
   const contexts = new Map<string, Awaited<ReturnType<typeof loadValidationContext>>>();
   const out: MigrationReportEntry[] = [];
   for (const r of rows) {
-    if (r.schema_version !== 1) continue;
+    if (r.schema_version >= 3) continue;
     const entry: MigrationReportEntry = {
       userId: r.user_id,
       email: r.email,
       strategyId: r.strategy_id,
       strategyName: r.name,
       what: r.what === 'draft' ? 'draft' : Number(r.what),
-      notes: migrateV1(r.definition).notes,
+      notes: migrationNotes(r.definition),
       errors: undefined,
     };
     try {
@@ -103,17 +126,17 @@ export async function strategyMigrationReport(db: Database): Promise<MigrationRe
 
 /** The report as Markdown: changes and grandfathered forms first, then the rest. */
 export function formatMigrationReport(entries: MigrationReportEntry[]): string {
-  const lines: string[] = ['# Strategy Lab simplification: migration report', ''];
+  const lines: string[] = ['# Strategy Lab: migration report (schema 3)', ''];
   const strategies = new Set(entries.map((e) => e.strategyId));
   const stops = entries.flatMap((e) =>
-    e.notes.filter((n) => n.code === 'exit_leg_stop').map((n) => ({ e, n })),
+    e.notes.filter((n) => KEPT.has(n.code)).map((n) => ({ e, n })),
   );
   const changes = entries.filter((e) => e.notes.some((n) => n.effect === 'changes'));
   const refused = entries.filter((e) => e.errors?.some((x) => x.added));
   const broken = entries.filter((e) => e.parseError);
   lines.push(
-    `${strategies.size} strategies, ${entries.length} stored drafts and versions read as schema 2.`,
-    `${changes.length} with a behaviour change, ${stops.length} grandfathered Exit-leg stop orders, ` +
+    `${strategies.size} strategies, ${entries.length} stored drafts and versions read as schema 3.`,
+    `${changes.length} with a behaviour change, ${stops.length} forms kept as saved, ` +
       `${refused.length} refused by a new check, ${broken.length} that do not parse.`,
     '',
   );
@@ -124,7 +147,7 @@ export function formatMigrationReport(entries: MigrationReportEntry[]): string {
     for (const e of broken) lines.push(`- ${label(e)}: ${e.parseError}`);
     lines.push('');
   }
-  lines.push('## Grandfathered Exit-leg stop orders', '');
+  lines.push('## Kept as saved (Exit-leg stop orders, per-leg conditions, ranked legs)', '');
   if (stops.length === 0) lines.push('None.');
   for (const { e, n } of stops) lines.push(`- ${label(e)} · ${n.where}: ${n.message}`);
   lines.push('', '## Refused by a new check', '');

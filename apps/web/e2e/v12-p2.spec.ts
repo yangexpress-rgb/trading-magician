@@ -64,7 +64,7 @@ test('Highest starts one bar back, with help on which bars count', async ({ page
     longBreakout(ids['DEMO-A']!, account),
   );
   await page.goto(`/strategy-lab/${s.id}`);
-  const entry = page.getByRole('region', { name: 'Entry trigger' });
+  const entry = page.getByRole('region', { name: 'Enter when' });
   // The saved rule reads one bar back, and says why, with its own period.
   await expect(
     entry.getByText(/Highest value\(20\) of high" means a close above the previous 20 bars'/),

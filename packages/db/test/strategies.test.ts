@@ -520,6 +520,7 @@ describe('Strategy Lab simplification: migration report (ADR 0049)', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a raw schema 1 document
     const v1 = JSON.parse(JSON.stringify(readyDefinition())) as Record<string, any>;
     v1.schemaVersion = 1;
+    delete v1.trade;
     delete v1.exit.mirrorEntry;
     for (const o of [...v1.entry.orders, ...v1.exit.orders])
       Object.assign(o, { extendedHours: false, timingOnly: false });
@@ -538,9 +539,9 @@ describe('Strategy Lab simplification: migration report (ADR 0049)', () => {
       .set({ draftDefinition: v1, draftSchemaVersion: 1 })
       .where(eq(strategies.id, s.id));
 
-    // It still reads, and still validates, as schema 2.
+    // It still reads, and still validates, as schema 3.
     const loaded = await asA((tx) => getStrategy(tx, s.id));
-    expect(loaded.definition.schemaVersion).toBe(2);
+    expect(loaded.definition.schemaVersion).toBe(3);
     expect(loaded.definition.exit.orders[0]!.orderType).toBe('stop');
 
     const report = await strategyMigrationReport(t.owner.db);
@@ -548,10 +549,10 @@ describe('Strategy Lab simplification: migration report (ADR 0049)', () => {
     expect(mine).toHaveLength(1);
     expect(mine[0]!.errors).toEqual([]);
     expect(mine[0]!.notes.map((n) => n.code)).toEqual(
-      expect.arrayContaining(['exit_leg_stop', 'mirror_off']),
+      expect.arrayContaining(['exit_leg_stop', 'mirror_off', 'trade_assets']),
     );
     const text = formatMigrationReport(report);
-    expect(text).toContain('## Grandfathered Exit-leg stop orders');
+    expect(text).toContain('## Kept as saved');
     expect(text).toMatch(/Saved before \(draft\) · a@example\.test · exit\.orders\[0\]/);
   });
 });

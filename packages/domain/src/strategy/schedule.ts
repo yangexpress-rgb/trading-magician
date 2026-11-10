@@ -9,9 +9,9 @@ import { definitionExpressions } from './selection';
  * evaluating, so a schedule means the same thing in both. Days are NYSE
  * trading days from the exchange calendar the rest of the app uses.
  *
- * The schedule gates Entry and re-selection only. Exit conditions and exit
- * rules (the time stop, later the ATR stop) run on every bar, because a risk
- * exit must not wait for the next rebalance date.
+ * Check Entry gates Entry and re-selection. Check Exit (ADR 0073) gates the
+ * Exit condition and exit rules; a strategy without one checks them on every
+ * bar, as before schema 3.
  *
  * N184 (ADR 0067): the bar cadences name their bar size (every 1-minute,
  * 5-minute or hourly bar), and "daily" means once a day after the close,
@@ -72,8 +72,26 @@ export function defaultSchedule(def: StrategyDefinition): ScheduleFrequency {
   return finest < 5 ? 'bar1m' : finest < 60 ? 'bar5m' : finest < 1440 ? 'bar1h' : 'daily';
 }
 
+/** When Entry (and a group's filter and ranking) is checked: Check Entry. */
 export function scheduleOf(def: StrategyDefinition): ScheduleFrequency {
-  return def.schedule?.frequency ?? defaultSchedule(def);
+  return def.entry.schedule?.frequency ?? defaultSchedule(def);
+}
+
+/**
+ * When the Exit condition and exit rules are checked: Check Exit (ADR 0073).
+ * Undefined means on every bar the run steps on, as before schema 3.
+ */
+export function exitScheduleOf(def: StrategyDefinition): ScheduleFrequency | undefined {
+  return def.exit.schedule?.frequency;
+}
+
+/**
+ * The Check Exit a new choice of Check Entry suggests (O145): the same, except
+ * that a calendar Entry checks Exit once a day, so a rebalance on month end
+ * still has daily risk exits.
+ */
+export function suggestedExitSchedule(entry: ScheduleFrequency): ScheduleFrequency {
+  return isCalendarSchedule(entry) ? 'daily' : entry;
 }
 
 /** Monday of the ISO week a date falls in. */

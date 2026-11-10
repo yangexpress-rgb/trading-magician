@@ -22,6 +22,8 @@ function dualMomentum(ids: Record<string, string>, accountId: string) {
   const trigger = { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 };
   return {
     entry: {
+      // Check Entry (ADR 0073).
+      schedule: { frequency: 'monthEnd' },
       condition: empty('eg'),
       trigger,
       orders: legs.map(([s, id], i) => ({
@@ -60,7 +62,6 @@ function dualMomentum(ids: Record<string, string>, accountId: string) {
       trigger,
       orders: legs.map(([s, id], i) => leg(`sell-${i}`, `Sell ${s}`, id, accountId, 'close')),
     },
-    schedule: { frequency: 'monthEnd' },
   };
 }
 

@@ -199,7 +199,13 @@ export interface InstrumentUse {
 export function collectInstrumentUses(def: StrategyDefinition): InstrumentUse[] {
   // Entry groups (v1.2 item 8) use instruments as the strategy's own Entry and Exit do.
   const more = (def.groups ?? []).flatMap((g) =>
-    collectInstrumentUses({ ...def, entry: g.entry, exit: g.exit, groups: undefined }),
+    collectInstrumentUses({
+      ...def,
+      trade: { kind: 'assets' },
+      entry: g.entry,
+      exit: g.exit,
+      groups: undefined,
+    }),
   );
   const uses: InstrumentUse[] = [...more];
   const context = '00000000-0000-0000-0000-000000000000';
@@ -214,7 +220,8 @@ export function collectInstrumentUses(def: StrategyDefinition): InstrumentUse[] 
   const trees: [ConditionGroup | undefined, PhaseName][] = [
     [def.entry.condition, 'entry'],
     [def.exit.condition, 'exit'],
-    [def.entry.selection?.preFilter, 'entry'],
+    [def.trade.kind === 'group' ? def.trade.filter : undefined, 'entry'],
+    [def.entry.rankedLegs?.preFilter, 'entry'],
     ...def.entry.orders.map((o): [ConditionGroup | undefined, PhaseName] => [
       o.legCondition,
       'entry',
@@ -234,12 +241,12 @@ export function collectInstrumentUses(def: StrategyDefinition): InstrumentUse[] 
       }
     }
   }
-  const selection = def.entry.kind === 'selection' ? def.entry.selection : undefined;
-  if (selection?.universe.type === 'list') {
-    for (const id of selection.universe.instrumentIds)
+  // What to trade (ADR 0073): a list group's members are traded.
+  const t = def.trade;
+  if (t.kind === 'group' && t.universe.type === 'list')
+    for (const id of t.universe.instrumentIds)
       uses.push({ instrumentId: id, phase: 'entry', role: 'order' });
-  }
-  const metricRefs = [selection?.ranking];
+  const metricRefs = [t.kind === 'group' ? t.ranking : undefined, def.entry.rankedLegs];
   for (const ref of metricRefs) {
     if (!ref) continue;
     for (const v of Object.values(ref.params))

@@ -42,7 +42,16 @@ export interface MigrationNote {
     | 'slot_exit_trigger_changed'
     | 'exit_leg_stop'
     | 'mirror_on'
-    | 'mirror_off';
+    | 'mirror_off'
+    // Schema 2 → 3 (migrate-v2.ts, ADR 0073).
+    | 'trade_assets'
+    | 'trade_group'
+    | 'schedule_moved'
+    | 'left_group_rule'
+    | 'per_pick_amount'
+    | 'split_total_kept'
+    | 'ranked_legs_kept'
+    | 'leg_conditions_kept';
   effect: MigrationEffect;
   message: string;
   /** Where in the definition, e.g. "entry.orders[0]" or "groups[0].exit.rules". */

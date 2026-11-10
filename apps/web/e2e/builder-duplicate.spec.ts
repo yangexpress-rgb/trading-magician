@@ -18,20 +18,13 @@ test('duplicates every builder entity once and saves with 0 problems', async ({
   });
   await page.goto(`/strategy-lab/${strategy.id}`);
 
-  // A condition and a group (with a condition inside) in the Entry trigger.
-  const entry = page.getByRole('region', { name: 'Entry trigger' });
-  await entry.getByRole('button', { name: 'Add group to Entry trigger' }).click();
+  // A condition and a group (with a condition inside) in the Enter when.
+  const entry = page.getByRole('region', { name: 'Enter when' });
+  await entry.getByRole('button', { name: 'Add group to Enter when' }).click();
   await entry.getByRole('button', { name: 'Duplicate condition 1', exact: true }).click();
   await entry.getByRole('button', { name: 'Duplicate group 3', exact: true }).click();
 
-  // A leg with its own conditions, including a nested group, then the leg duplicated.
-  const leg1 = page.getByRole('region', { name: /^Entry leg 1/ });
-  await leg1.getByRole('button', { name: 'Add a condition for Entry leg 1' }).click();
-  const legConditions = leg1.getByRole('region', { name: 'Entry leg 1 conditions' });
-  await legConditions
-    .getByRole('button', { name: 'Add condition to Entry leg 1 conditions' })
-    .click();
-  await legConditions.getByRole('button', { name: 'Add group to Entry leg 1 conditions' }).click();
+  // An Entry leg duplicated (leg conditions left the builder, ADR 0073; cloneOrder covers them).
   await page.getByRole('button', { name: 'Duplicate Entry leg 1', exact: true }).click();
   // An Exit order duplicated too.
   const exitDuplicate = page.getByRole('button', { name: 'Duplicate Exit leg 1', exact: true });
