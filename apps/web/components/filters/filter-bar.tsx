@@ -4,7 +4,7 @@ import { cx } from '@tm/ui';
 import { type ReactNode, type RefObject, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 /**
- * A compact row of filter pills (N194). Each filter is a small pill that opens
+ * A compact row of filter pills (N195). Each filter is a small pill that opens
  * a popover; a choice applies the moment it is picked, so there is no Apply
  * button. A few filters are pinned as pills; the rest wait in the "Filter"
  * menu until asked for. Set filters show their value and an × to remove them.

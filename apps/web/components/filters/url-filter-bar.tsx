@@ -7,7 +7,7 @@ import { type ChoiceFilter, FilterBar } from './filter-bar';
 const SEARCH_WAIT_MS = 300;
 
 /**
- * The filter pills for a server-rendered list (N194): every change goes
+ * The filter pills for a server-rendered list (N195): every change goes
  * straight into the address, so the list updates at once with no Apply button.
  */
 export function UrlFilterBar({

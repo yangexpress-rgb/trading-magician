@@ -40,7 +40,7 @@ test('screens the demo instruments by any column', async ({ page }) => {
     .click();
   await expect(header(/Today’s change %/)).toHaveAttribute('aria-sort', 'ascending');
 
-  // Filters are compact pills (N194): no min and max boxes under the headings.
+  // Filters are compact pills (N195): no min and max boxes under the headings.
   const filters = page.getByRole('toolbar', { name: 'Screen filters' });
   await expect(page.getByLabel('Last price, at least')).toHaveCount(0);
 

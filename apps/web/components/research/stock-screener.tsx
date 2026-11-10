@@ -241,7 +241,7 @@ export function StockScreener({
   };
 
   // Type and sector, and the main price columns, are pinned as pills; every
-  // other column waits in the Filter menu (N194).
+  // other column waits in the Filter menu (N195).
   const filterDefs: FilterDef[] = [
     {
       kind: 'choice',
@@ -351,7 +351,7 @@ export function StockScreener({
         </Alert>
       )}
 
-      {/* Compact filter pills that apply at once (N194); the rest wait in the Filter menu. */}
+      {/* Compact filter pills that apply at once (N195); the rest wait in the Filter menu. */}
       <section aria-label="Screen filters" className="space-y-2">
         <FilterBar
           label="Screen filters"

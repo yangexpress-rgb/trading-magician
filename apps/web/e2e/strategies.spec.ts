@@ -165,7 +165,7 @@ test.describe('strategy library', () => {
     await expect(table.getByRole('row', { name: /Momentum A/ })).toContainText('DEMO-A');
     await expect(table.getByRole('row', { name: /Momentum A/ })).toContainText('Paper');
 
-    // Search, status and asset filters: pills that apply at once, no Apply button (N194).
+    // Search, status and asset filters: pills that apply at once, no Apply button (N195).
     const filter = async (fields: Record<string, string>) => {
       await page.goto('/strategy-lab');
       const bar = page.getByRole('toolbar', { name: 'Filter strategies' });

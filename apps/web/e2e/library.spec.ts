@@ -41,7 +41,7 @@ test('lists the seed, registers with a previewed number, edits and retires', asy
   await page.goto('/library');
 
   // Library v2 filters (ADR 0055): one entry needs earnings consensus.
-  // Filters are pills that apply at once (N194); Data needs waits in the Filter menu.
+  // Filters are pills that apply at once (N195); Data needs waits in the Filter menu.
   const filters = page.getByRole('toolbar', { name: 'Filter the library' });
   await expect(page.getByRole('button', { name: 'Apply filters' })).toHaveCount(0);
   await filters.getByRole('button', { name: 'Add a filter' }).click();
