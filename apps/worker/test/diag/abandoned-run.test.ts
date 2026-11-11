@@ -32,7 +32,6 @@ import {
   CONTEXT_INSTRUMENT_ID as C,
   addDays,
   createDefinition,
-  nyDate,
   parseDefinition,
   regularSession,
   type Bar,
@@ -290,6 +289,7 @@ describe.runIf(on)('abandoned back test reproduction', () => {
     const run = await asUser((tx) =>
       startBacktest(tx, userId, s.id, { ...DEFAULT_BACKTEST_INPUTS, from: FROM, to: TO }),
     ).catch((e: { details?: unknown }) => {
+      // eslint-disable-next-line no-console -- diagnosis harness: show why validation refused
       console.error(JSON.stringify(e.details, null, 1).slice(0, 3000));
       throw e;
     });
