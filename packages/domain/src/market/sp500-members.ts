@@ -4,7 +4,7 @@
  * dataset at github.com/datasets/s-and-p-500-companies; do not edit by hand.
  */
 
-export const SP500_AS_OF = '2026-11-03';
+export const SP500_AS_OF = '2026-11-11';
 
 /** `[symbol, sector]`, symbols as Alpaca writes them (BRK.B). */
 export const SP500_MEMBERS: readonly (readonly [string, string])[] = [
@@ -281,7 +281,6 @@ export const SP500_MEMBERS: readonly (readonly [string, string])[] = [
   ['KMI', 'Energy'],
   ['KO', 'Consumer Staples'],
   ['KR', 'Consumer Staples'],
-  ['KVUE', 'Consumer Staples'],
   ['L', 'Financials'],
   ['LDOS', 'Industrials'],
   ['LEN', 'Consumer Discretionary'],
@@ -355,6 +354,7 @@ export const SP500_MEMBERS: readonly (readonly [string, string])[] = [
   ['O', 'Real Estate'],
   ['ODFL', 'Industrials'],
   ['OKE', 'Energy'],
+  ['OKTA', 'Information Technology'],
   ['OMC', 'Communication Services'],
   ['ON', 'Information Technology'],
   ['ORCL', 'Information Technology'],
