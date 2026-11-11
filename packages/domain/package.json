@@ -12,7 +12,8 @@
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "sp500:update": "node scripts/update-sp500.mjs && prettier --write src/market/sp500-members.ts"
+    "sp500:update": "node scripts/update-sp500.mjs && prettier --write src/market/sp500-members.ts",
+    "groups:update": "node scripts/update-stock-groups.mjs; s=$?; prettier --write src/market/groups; exit $s"
   },
   "dependencies": {
     "decimal.js": "^10.6.0",
