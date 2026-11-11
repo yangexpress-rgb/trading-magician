@@ -19,7 +19,7 @@ const GROUPS = [
   {
     id: 'ndx',
     name: 'Nasdaq 100',
-    wiki: 'Nasdaq-100',
+    wiki: ['Nasdaq-100', 'List of Nasdaq-100 companies', 'List of Nasdaq-100 components'],
     min: 95,
     max: 110,
     source: 'Wikipedia, "Nasdaq-100"',
@@ -27,7 +27,11 @@ const GROUPS = [
   {
     id: 'dji',
     name: 'Dow Jones Industrial Average',
-    wiki: 'Dow Jones Industrial Average',
+    wiki: [
+      'Dow Jones Industrial Average',
+      'List of Dow Jones Industrial Average components',
+      'Historical components of the Dow Jones Industrial Average',
+    ],
     min: 30,
     max: 30,
     source: 'Wikipedia, "Dow Jones Industrial Average"',
@@ -35,7 +39,7 @@ const GROUPS = [
   {
     id: 'sp400',
     name: 'S&P MidCap 400',
-    wiki: 'List of S&P 400 companies',
+    wiki: ['List of S&P 400 companies'],
     min: 380,
     max: 420,
     source: 'Wikipedia, "List of S&P 400 companies"',
@@ -43,7 +47,7 @@ const GROUPS = [
   {
     id: 'sp600',
     name: 'S&P SmallCap 600',
-    wiki: 'List of S&P 600 companies',
+    wiki: ['List of S&P 600 companies'],
     min: 570,
     max: 630,
     source: 'Wikipedia, "List of S&P 600 companies"',
@@ -114,9 +118,23 @@ function rows(table) {
  * column when the table has one.
  */
 async function fromWikipedia(group) {
-  const url = `https://en.wikipedia.org/w/api.php?action=parse&format=json&prop=text&formatversion=2&redirects=1&page=${encodeURIComponent(group.wiki)}`;
-  const html = JSON.parse(await get(url)).parse.text;
-  const tables = html.match(/<table[^>]*class="[^"]*wikitable[^"]*"[\s\S]*?<\/table>/gi) ?? [];
+  const problems = [];
+  for (const page of group.wiki) {
+    try {
+      return await fromWikipediaPage(page);
+    } catch (err) {
+      problems.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+  throw new Error(problems.join('\n'));
+}
+
+async function fromWikipediaPage(page) {
+  const url = `https://en.wikipedia.org/w/api.php?action=parse&format=json&prop=text&formatversion=2&redirects=1&page=${encodeURIComponent(page)}`;
+  const body = JSON.parse(await get(url));
+  if (!body.parse) throw new Error(`"${page}": ${body.error?.info ?? 'no page'}`);
+  const html = body.parse.text;
+  const tables = html.match(/<table[\s\S]*?<\/table>/gi) ?? [];
   for (const table of tables) {
     const all = rows(table);
     const headerAt = all.findIndex((r) => r.length > 0 && r.every((c) => c.header));
@@ -145,7 +163,7 @@ async function fromWikipedia(group) {
         .join(' // ')}]`;
     })
     .join('\n  ');
-  throw new Error(`no members table found on Wikipedia's "${group.wiki}"; tables:\n  ${seen}`);
+  throw new Error(`no members table found on Wikipedia's "${page}"; tables:\n  ${seen}`);
 }
 
 /** One CSV line into fields, honouring double quotes. */
