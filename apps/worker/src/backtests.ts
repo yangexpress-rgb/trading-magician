@@ -1,5 +1,7 @@
 import {
   BarLoadError,
+  estimateWorkload,
+  workloadProblem,
   loadData,
   dealsBeforeFirstDate,
   earningsBeforeFirstDate,
@@ -34,7 +36,7 @@ import {
   type HistoricalDataProvider,
 } from '@tm/domain';
 import type { Logger } from 'pino';
-import { BacktestTrace, describePlan } from './backtest-trace';
+import { BacktestTrace } from './backtest-trace';
 import { NO_COMPANY_FEED, type FundamentalsLoader } from './fundamentals';
 
 /**
@@ -66,6 +68,14 @@ export interface BacktestWorkerOptions {
   ) => Promise<{ ids: string[]; warnings: string[] }>;
   /** Point-in-time company filings, for strategies with fundamental metrics (v1.2 item 6). */
   fundamentals?: FundamentalsLoader;
+  /**
+   * Lease taken just before the simulation, which runs without yielding and so
+   * can't renew (ADR 0081). Defaults to 10 minutes; the workload limit keeps
+   * simulations far shorter.
+   */
+  simulateLeaseSeconds?: number;
+  /** Most estimated bars a run may hold (tests lower it; ADR 0081). */
+  maxBars?: number;
   /** How often a running attempt logs its stage and memory (0 turns it off). */
   heartbeatMs?: number;
 }
@@ -117,8 +127,8 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
     { runId, workerId, leaseSeconds, maxAttempts },
     options.heartbeatMs,
   );
-  const renew = async () => {
-    const lease = await inTenant((tx) => renewLease(tx, runId, workerId, leaseSeconds));
+  const renew = async (seconds = leaseSeconds) => {
+    const lease = await inTenant((tx) => renewLease(tx, runId, workerId, seconds));
     trace.renewed(lease !== null);
     return lease;
   };
@@ -168,7 +178,11 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
         members,
         watchOnlyInstruments(instruments),
       );
-      done(describePlan(plans));
+      const workload = estimateWorkload(plans);
+      done({ ...workload });
+      // Too much price data crashes the worker part way through loading (ADR 0081).
+      const tooBig = workloadProblem(plans, options.maxBars);
+      if (tooBig) throw new UnsupportedBarRequestError(tooBig);
       // Hundreds of members take a while to load; keep the lease while they do.
       let lastRenew = Date.now();
       done = trace.stage('load_bars');
@@ -258,9 +272,12 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
         earningsReleases: data.events ? count(data.events.earnings) : 0,
         calendarRows: data.events ? count(data.events.calendar) : 0,
       });
+      // The simulation can't renew while it runs, so it starts on a longer lease
+      // and no other worker can claim the run under it (ADR 0081).
       done = trace.stage('renew_before_simulate');
-      const lease = await renew();
-      done();
+      const simulateLease = Math.max(leaseSeconds, options.simulateLeaseSeconds ?? 600);
+      const lease = await renew(simulateLease);
+      done({ leaseSeconds: simulateLease });
       if (!lease) return 'lost';
       if (lease.cancelRequested) {
         return (await inTenant((tx) => finishCanceled(tx, runId, workerId))) ?? 'lost';

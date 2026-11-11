@@ -1,4 +1,3 @@
-import type { SeriesPlan } from '@tm/backtest';
 import type { BarRequest, BarSeries, HistoricalDataProvider } from '@tm/domain';
 import type { Logger } from 'pino';
 
@@ -24,40 +23,6 @@ export function memory(): { rssMb: number; heapUsedMb: number; heapTotalMb: numb
     heapUsedMb: Math.round(m.heapUsed / MB),
     heapTotalMb: Math.round(m.heapTotal / MB),
   };
-}
-
-/** Bars a day holds at each interval in the regular session (for estimates only). */
-const BARS_PER_DAY: Record<string, number> = {
-  '1m': 390,
-  '5m': 78,
-  '15m': 26,
-  '30m': 13,
-  '1h': 7,
-  '4h': 2,
-  '1d': 1,
-  '1w': 0.2,
-};
-
-/** About 252 trading days in 365 calendar days. */
-const tradingDays = (from: string, to: string) =>
-  Math.max(0, Math.round(((Date.parse(to) - Date.parse(from)) / 86_400_000 + 1) * (252 / 365)));
-
-/** Series counts, date ranges and estimated bars per interval of a run's plan. */
-export function describePlan(plans: readonly SeriesPlan[]) {
-  const byInterval: Record<
-    string,
-    { series: number; from: string; to: string; estimatedBars: number }
-  > = {};
-  for (const p of plans) {
-    const k = p.spec.interval;
-    const e = (byInterval[k] ??= { series: 0, from: p.from, to: p.to, estimatedBars: 0 });
-    e.series++;
-    if (p.from < e.from) e.from = p.from;
-    if (p.to > e.to) e.to = p.to;
-    e.estimatedBars += Math.round(tradingDays(p.from, p.to) * (BARS_PER_DAY[k] ?? 1));
-  }
-  const estimatedBars = Object.values(byInterval).reduce((n, e) => n + e.estimatedBars, 0);
-  return { series: plans.length, estimatedBars, byInterval };
 }
 
 interface IntervalLoad {
@@ -143,14 +108,17 @@ export class BacktestTrace {
     this.renewals++;
     // Every renewal during a load would flood the log: write the first, the
     // lost ones, and any that came after more than half the lease.
+    // A gap longer than the lease means another worker could have claimed the run.
+    const lapsed = gap > this.base.leaseSeconds * 1000;
     if (!ok || this.renewals === 1 || gap > (this.base.leaseSeconds * 1000) / 2) {
-      this.logger[ok ? 'info' : 'warn'](
+      this.logger[ok && !lapsed ? 'info' : 'warn'](
         {
           event: 'backtest.lease',
           ...this.base,
           attempt: this.attempt,
           stage: this.stageName,
           ok,
+          lapsed,
           gapMs: gap,
           renewals: this.renewals,
         },
