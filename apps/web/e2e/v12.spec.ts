@@ -30,6 +30,8 @@ test('build a group with a holding period, back test it, and read the ranking', 
     '00000000-0000-0000-0000-000000000000',
   );
   await expect(page.getByLabel('Check Entry')).toHaveValue('monthEnd');
+  // A period can be checked after the close or after the open (N226).
+  await expect(page.getByLabel('Entry check time')).toHaveValue('close');
   // A month-end Entry checks Exit once a day (O145).
   await expect(page.getByLabel('Check Exit')).toHaveValue('daily');
   await expect(page.getByText(/each instrument is evaluated on its own/).first()).toBeVisible();

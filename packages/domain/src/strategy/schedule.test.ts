@@ -3,11 +3,13 @@ import type { BarInterval } from './catalog';
 import {
   defaultSchedule,
   isCalendarSchedule,
+  scheduleBarMinutes,
   scheduledPeriod,
+  scheduleLabel,
   scheduleOf,
   SCHEDULE_LABELS,
 } from './schedule';
-import { SCHEDULE_FREQUENCIES } from './schema';
+import { SCHEDULE_FREQUENCIES, type ScheduleTime } from './schema';
 import { comparison, indicator, market, validDefinition } from './test-fixtures';
 
 const at = (iso: string) => Date.parse(iso);
@@ -121,5 +123,68 @@ describe('Entry schedule (N184)', () => {
     expect(first).toBeDefined();
     expect(scheduledPeriod('bar5m', bar + 40_000, first, bar)).toBeUndefined();
     expect(scheduledPeriod('bar5m', bar + 300_000, first, bar + 300_000)).toBeDefined();
+  });
+});
+
+describe('Checks after the open (N226)', () => {
+  const open = at('2026-03-10T13:30:00Z');
+  const opens = (
+    frequency: Parameters<typeof scheduledPeriod>[0],
+    when: ScheduleTime,
+    times: number[],
+  ): number[] => {
+    let last: string | undefined;
+    const out: number[] = [];
+    for (const t of times) {
+      const p = scheduledPeriod(frequency, t, last, t, when);
+      if (p !== undefined) {
+        last = p;
+        out.push(t);
+      }
+    }
+    return out;
+  };
+
+  it('checks once a day, at the first bar ending at least N minutes after the open', () => {
+    const bars = Array.from({ length: 78 }, (_, i) => open + (i + 1) * 5 * 60_000);
+    expect(opens('daily', 'open5m', bars)).toEqual([open + 5 * 60_000]);
+    expect(opens('daily', 'open1h', bars)).toEqual([open + 60 * 60_000]);
+    // 1-minute: the first 5-minute bar is the first bar in after one minute.
+    expect(opens('daily', 'open1m', bars)).toEqual([open + 5 * 60_000]);
+  });
+
+  it('does not check before the open, nor on a day without a session', () => {
+    expect(opens('daily', 'open5m', [open - 60_000, open])).toEqual([]);
+    expect(opens('daily', 'open5m', [at('2026-03-14T15:00:00Z')])).toEqual([]); // Saturday
+  });
+
+  it('checks a calendar period only on its last trading day', () => {
+    // 2026-03-31 is the last trading day of March.
+    const days = ['2026-03-30', '2026-03-31', '2026-04-01'].map((d) => at(`${d}T14:00:00Z`));
+    expect(opens('monthEnd', 'open5m', days)).toEqual([days[1]]);
+  });
+
+  it('counts a daily bar ending at the close, so daily runs check at the close', () => {
+    const closes = [at('2026-03-10T20:00:00Z'), at('2026-03-11T20:00:00Z')];
+    expect(opens('daily', 'open5m', closes)).toEqual(closes);
+  });
+
+  it('keys apart from the after-the-close check and ignores the time on bar cadences', () => {
+    const t = open + 10 * 60_000;
+    expect(scheduledPeriod('daily', t, undefined, t, 'open5m')).toMatch(/^O/);
+    expect(scheduledPeriod('bar5m', t, undefined, t, 'open1h')).toBe(
+      scheduledPeriod('bar5m', t, undefined, t),
+    );
+  });
+
+  it('labels and bar minutes', () => {
+    expect(scheduleLabel('daily', 'open5m')).toBe('Once a day, after the first 5-minute bar');
+    expect(scheduleLabel('monthEnd', 'open1h')).toBe(
+      'Last trading day of each month, after the first hour',
+    );
+    expect(scheduleLabel('monthEnd', 'close')).toBe(SCHEDULE_LABELS.monthEnd);
+    expect(scheduleBarMinutes({ frequency: 'weekly', at: 'open5m' })).toBe(5);
+    expect(scheduleBarMinutes({ frequency: 'weekly' })).toBeUndefined();
+    expect(scheduleBarMinutes({ frequency: 'bar1h', at: 'open5m' })).toBe(60);
   });
 });

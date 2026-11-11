@@ -1,6 +1,12 @@
 import { addDays, isTradingDay, nextTradingDay, nyDate, regularSession } from '../market/calendar';
 import type { BarInterval } from './catalog';
-import type { ExitRule, ScheduleFrequency, StrategyDefinition } from './schema';
+import type {
+  ExitRule,
+  Schedule,
+  ScheduleFrequency,
+  ScheduleTime,
+  StrategyDefinition,
+} from './schema';
 import { definitionExpressions } from './selection';
 
 /**
@@ -28,6 +34,46 @@ export const SCHEDULE_LABELS: Record<ScheduleFrequency, string> = {
   quarterEnd: 'Last trading day of each quarter',
   yearEnd: 'Last trading day of each year',
 };
+
+/** When in the day a period is checked (N226), for "Last trading day of each month, after the first hour". */
+export const SCHEDULE_TIME_LABELS: Record<ScheduleTime, string> = {
+  close: 'after the close',
+  open1m: 'after the first 1-minute bar',
+  open5m: 'after the first 5-minute bar',
+  open1h: 'after the first hour',
+};
+
+/** Minutes after the open of the checks that come after the open (N226). */
+export const SCHEDULE_TIME_MINUTES: Partial<Record<ScheduleTime, number>> = {
+  open1m: 1,
+  open5m: 5,
+  open1h: 60,
+};
+
+/** A schedule in words, e.g. "Once a day, after the first 5-minute bar". */
+export function scheduleLabel(frequency: ScheduleFrequency, at?: ScheduleTime): string {
+  if (!at || SCHEDULE_TIME_MINUTES[at] === undefined) return SCHEDULE_LABELS[frequency];
+  if (SCHEDULE_BAR_MINUTES[frequency] !== undefined) return SCHEDULE_LABELS[frequency];
+  const when = SCHEDULE_TIME_LABELS[at];
+  return frequency === 'daily' ? `Once a day, ${when}` : `${SCHEDULE_LABELS[frequency]}, ${when}`;
+}
+
+/** When in the day a schedule checks, when it is after the open; undefined after the close. */
+export function openTimeOf(schedule: Schedule | undefined): ScheduleTime | undefined {
+  if (!schedule?.at || SCHEDULE_BAR_MINUTES[schedule.frequency] !== undefined) return undefined;
+  return SCHEDULE_TIME_MINUTES[schedule.at] === undefined ? undefined : schedule.at;
+}
+
+/**
+ * The bar size a schedule needs to be checked on time, in minutes: a bar
+ * cadence's own, or the first bar after the open (N226). Undefined for checks
+ * after the close.
+ */
+export function scheduleBarMinutes(schedule: Schedule | undefined): number | undefined {
+  if (!schedule) return undefined;
+  const at = openTimeOf(schedule);
+  return at ? SCHEDULE_TIME_MINUTES[at] : SCHEDULE_BAR_MINUTES[schedule.frequency];
+}
 
 /** Minutes per bar of the bar cadences. */
 export const SCHEDULE_BAR_MINUTES: Partial<Record<ScheduleFrequency, number>> = {
@@ -134,6 +180,24 @@ export function lastClosedDay(t: number): string {
 }
 
 /**
+ * After the open (N226): due on the period's trading day once a bar ending at
+ * least `minutes` after the session opened is in, at `barTime`. Keyed apart
+ * from the after-the-close key, so switching between them checks once more.
+ */
+function openPeriod(
+  frequency: ScheduleFrequency,
+  minutes: number,
+  barTime: number,
+): string | undefined {
+  // The trading day the newest bar belongs to: a bar ending at midnight is the day before's.
+  const day = nyDate(new Date(barTime - 1));
+  const session = regularSession(day);
+  if (!session || !isPeriodEnd(frequency, day)) return undefined;
+  if (barTime < Date.parse(session.open) + minutes * 60_000) return undefined;
+  return `O${periodKey(frequency, day)}`;
+}
+
+/**
  * Whether Entry and re-selection are evaluated at time `t`, and the period to
  * remember when they are (undefined when not). `lastPeriod` is the period last
  * evaluated, so each period is evaluated once however often the caller asks.
@@ -144,16 +208,25 @@ export function lastClosedDay(t: number): string {
  * - Once a day: at the first evaluation after a session's close.
  * - Calendar periods: at the first evaluation after the close of the period's
  *   last trading day.
+ * - `at` after the open (N226): once a day or period, on its trading day, at
+ *   the first evaluation whose newest bar ends at least 1, 5 or 60 minutes
+ *   after the open.
  */
 export function scheduledPeriod(
   frequency: ScheduleFrequency,
   t: number,
   lastPeriod: string | undefined,
   barTime: number = t,
+  at?: ScheduleTime,
 ): string | undefined {
   const minutes = SCHEDULE_BAR_MINUTES[frequency];
+  const afterOpen = at ? SCHEDULE_TIME_MINUTES[at] : undefined;
   let key: string;
-  if (minutes !== undefined) {
+  if (minutes === undefined && afterOpen !== undefined) {
+    const k = openPeriod(frequency, afterOpen, barTime);
+    if (k === undefined) return undefined;
+    key = k;
+  } else if (minutes !== undefined) {
     key = `B${minutes}:${Math.floor(barTime / (minutes * 60_000))}`;
   } else {
     const day = lastClosedDay(t);

@@ -465,12 +465,23 @@ export const SCHEDULE_FREQUENCIES = [
 ] as const;
 export type ScheduleFrequency = (typeof SCHEDULE_FREQUENCIES)[number];
 /**
+ * When in the day a period is checked (N226): after the NYSE close (the
+ * default, as before), or after the first 1-minute, 5-minute or hourly bar of
+ * the session. Bar cadences ignore it.
+ */
+export const SCHEDULE_TIMES = ['close', 'open1m', 'open5m', 'open1h'] as const;
+export type ScheduleTime = (typeof SCHEDULE_TIMES)[number];
+/**
  * When a part is checked: `entry.schedule` (Entry and a group's filter and
  * ranking) and `exit.schedule` (ADR 0073). bar1m/bar5m/bar1h: every bar of
  * that size (N184); daily: once a day after the NYSE close; the rest: once a
- * calendar period.
+ * calendar period. `at`: when in the day a
+ * period is checked (N226).
  */
-export const scheduleSchema = z.object({ frequency: z.enum(SCHEDULE_FREQUENCIES) });
+export const scheduleSchema = z.object({
+  frequency: z.enum(SCHEDULE_FREQUENCIES),
+  at: z.enum(SCHEDULE_TIMES).optional(),
+});
 export type Schedule = z.infer<typeof scheduleSchema>;
 
 /** A metric from the registry with its parameters (see metrics.ts). */

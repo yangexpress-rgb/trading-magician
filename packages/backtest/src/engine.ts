@@ -43,8 +43,9 @@ import {
   readsThisInstrument,
   selectionOf,
   isCalendarSchedule,
-  SCHEDULE_BAR_MINUTES,
-  SCHEDULE_LABELS,
+  openTimeOf,
+  scheduleBarMinutes,
+  scheduleLabel,
   selectLegs,
   slotDefinition,
   slotKey,
@@ -338,6 +339,9 @@ export function simulate({
   const calendar = isCalendarSchedule(frequency);
   /** Check Exit (ADR 0073); undefined checks Exit on every run bar, as before schema 3. */
   const exitFrequency = exitScheduleOf(def);
+  /** After the open (N226): checked once the period day's first 1m/5m/1h bar is in. */
+  const entryAt = openTimeOf(def.entry.schedule);
+  const exitAt = exitFrequency ? openTimeOf(def.exit.schedule) : undefined;
   /** The group What to trade names, as the engine runs it (ADR 0073). */
   const selection = selectionOf(def);
   /** Whether Exit when reads each holding's best close since entry (N217). */
@@ -390,26 +394,33 @@ export function simulate({
   }
   const steps = [...stepSet].sort((a, b) => a - b);
   if (steps.length === 0) warnings.add('no_bars', 'There are no bars in the selected dates');
-  // A bar cadence finer than the run's bars can only check Entry once a run bar (N184).
-  const cadence = SCHEDULE_BAR_MINUTES[frequency];
+  // A bar cadence finer than the run's bars can only check Entry once a run bar
+  // (N184); a check after the open waits for the first run bar ending after it (N226).
   const runMinutes = BACKTEST_INTERVAL_MINUTES[inputs.interval];
+  const finerWarning = (phase: 'Entry' | 'Exit', label: string, at: boolean): string =>
+    at
+      ? `${phase} is set to "${label}", but this run steps on ${BAR_SIZE_TEXT[inputs.interval]} bars, so ${phase} was checked at the end of the day's first ${BAR_SIZE_TEXT[inputs.interval]} bar`
+      : `${phase} is set to "${label}", but this run steps on ${BAR_SIZE_TEXT[inputs.interval]} bars, so ${phase} was checked once a ${BAR_SIZE_TEXT[inputs.interval]} bar`;
+  const cadence = scheduleBarMinutes({ frequency, at: entryAt });
   if (cadence !== undefined && cadence < runMinutes) {
     warnings.add(
       'schedule_finer_than_bars',
-      `Entry is set to "${SCHEDULE_LABELS[frequency]}", but this run steps on ${BAR_SIZE_TEXT[inputs.interval]} bars, so Entry was checked once a ${BAR_SIZE_TEXT[inputs.interval]} bar`,
+      finerWarning('Entry', scheduleLabel(frequency, entryAt), entryAt !== undefined),
     );
   }
-  const exitCadence = exitFrequency ? SCHEDULE_BAR_MINUTES[exitFrequency] : undefined;
+  const exitCadence = exitFrequency
+    ? scheduleBarMinutes({ frequency: exitFrequency, at: exitAt })
+    : undefined;
   if (exitFrequency && exitCadence !== undefined && exitCadence < runMinutes) {
     warnings.add(
       'exit_schedule_finer_than_bars',
-      `Exit is set to "${SCHEDULE_LABELS[exitFrequency]}", but this run steps on ${BAR_SIZE_TEXT[inputs.interval]} bars, so Exit was checked once a ${BAR_SIZE_TEXT[inputs.interval]} bar`,
+      finerWarning('Exit', scheduleLabel(exitFrequency, exitAt), exitAt !== undefined),
     );
   }
   if (exitFrequency && isCalendarSchedule(exitFrequency) && (def.exit.rules?.length ?? 0) > 0)
     warnings.add(
       'exit_schedule_calendar',
-      `Exit is checked only on "${SCHEDULE_LABELS[exitFrequency]}", so the exit rules wait for that date too`,
+      `Exit is checked only on "${scheduleLabel(exitFrequency, exitAt)}", so the exit rules wait for that date too`,
     );
   // Options metrics read end-of-day signals: say how many bars had one (options brief v2 §5.3).
   if (data.options && steps.length > 0)
@@ -1479,7 +1490,7 @@ export function simulate({
       staleSteps += 1;
     }
     // The schedule gates Entry and re-selection; Exit rules run on every bar (v1.2 item 4).
-    const period = scheduledPeriod(frequency, now, lastPeriod);
+    const period = scheduledPeriod(frequency, now, lastPeriod, now, entryAt);
     const evaluateEntry = period !== undefined;
     if (evaluateEntry) lastPeriod = period;
     if (evaluateEntry) entryEvaluations += 1;
@@ -1540,7 +1551,7 @@ export function simulate({
     // one they run on every bar, as before.
     let evaluateExit = true;
     if (exitFrequency) {
-      const p = scheduledPeriod(exitFrequency, now, lastExitPeriod);
+      const p = scheduledPeriod(exitFrequency, now, lastExitPeriod, now, exitAt);
       evaluateExit = p !== undefined;
       if (p !== undefined) lastExitPeriod = p;
     }
@@ -1949,6 +1960,8 @@ export function simulate({
       trade,
       entrySchedule: frequency,
       exitSchedule: exitFrequency ?? null,
+      ...(entryAt ? { entryScheduleAt: entryAt } : {}),
+      ...(exitAt ? { exitScheduleAt: exitAt } : {}),
       perCandidate: perCandidateEntry,
     };
   }
@@ -2036,6 +2049,7 @@ export function simulate({
       metric: ref ? { metric: ref.metric, params: ref.params } : null,
       direction: mode === 'selection' ? (selection?.direction ?? 'desc') : 'desc',
       schedule: frequency,
+      ...(entryAt ? { scheduleAt: entryAt } : {}),
       exclusionLabels: EXCLUSION_LABELS,
       rounds: selectionRounds,
     };

@@ -56,7 +56,13 @@ import {
   sizingText,
 } from '@/lib/backtest-text';
 import { bare } from '@/lib/units';
-import { SCHEDULE_LABELS, type ConditionNode, type ScheduleFrequency } from '@tm/domain';
+import {
+  SCHEDULE_LABELS,
+  scheduleLabel,
+  type ConditionNode,
+  type ScheduleFrequency,
+  type ScheduleTime,
+} from '@tm/domain';
 
 /**
  * Back test results by cycle (N157–N165, ADR 0061): one row per cycle, and
@@ -479,7 +485,11 @@ function CycleCard({
         <Side phase="entry" title={sideTitle('Entry', c.entry.decidedAt, interval)}>
           <ScheduleLine
             label="Check Entry"
-            value={result.plan ? scheduleText(result.plan.entrySchedule) : null}
+            value={
+              result.plan
+                ? scheduleText(result.plan.entrySchedule, result.plan.entryScheduleAt)
+                : null
+            }
           />
           <EntrySignal c={c} result={result} interval={interval} symbol={symbol} />
           <KeyData
@@ -512,7 +522,7 @@ function CycleCard({
             value={
               result.plan
                 ? result.plan.exitSchedule
-                  ? scheduleText(result.plan.exitSchedule)
+                  ? scheduleText(result.plan.exitSchedule, result.plan.exitScheduleAt)
                   : 'Every bar the run stepped on'
                 : null
             }
@@ -606,7 +616,8 @@ function Side({
   );
 }
 
-const scheduleText = (f: string) => SCHEDULE_LABELS[f as ScheduleFrequency] ?? f;
+const scheduleText = (f: string, at?: string) =>
+  f in SCHEDULE_LABELS ? scheduleLabel(f as ScheduleFrequency, at as ScheduleTime | undefined) : f;
 
 /** When a part was checked (Check Entry, Check Exit; ADR 0073). */
 function ScheduleLine({ label, value }: { label: string; value: string | null }) {
