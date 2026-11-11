@@ -1,8 +1,8 @@
-# ADR 0079: Built-in stock groups beyond the S&P 500
+# ADR 0080: Built-in stock groups beyond the S&P 500
 
 - **Status:** accepted
 - **Date:** 2026-11-11
-- **Design refs:** design v1.2 row N228. Extends ADR 0030 (the screener's S&P 500 list), Design
+- **Design refs:** design v1.2 row N231. Extends ADR 0030 (the screener's S&P 500 list), Design
   v1.2 item 1 (Selection groups over a built-in universe) and ADR 0073 (What to trade)
 
 ## Context

@@ -318,7 +318,7 @@ export const COLUMN_BY_KEY = new Map(NUMBER_COLUMNS.map((c) => [c.key, c]));
 
 export type SortKey = ScreenNumberColumn | 'symbol' | 'name' | 'sector';
 
-/** Which stocks a screen starts from: a built-in stock group (ADR 0079), or everything the feed covers. */
+/** Which stocks a screen starts from: a built-in stock group (ADR 0080), or everything the feed covers. */
 export type Universe = StockGroupId | 'all';
 
 export const isUniverse = (value: unknown): value is Universe =>
@@ -338,7 +338,7 @@ export function universeCovers(loaded: Universe | null, want: Universe): boolean
 export const inUniverse = (row: Pick<ScreenRow, 'symbol'>, universe: Universe): boolean =>
   universe === 'all' || stockGroup(universe).members.has(row.symbol);
 
-/** A stock's sector: GICS for S&P 500/400/600 members, else the Nasdaq 100's or Russell ETFs' (ADR 0079). */
+/** A stock's sector: GICS for S&P 500/400/600 members, else the Nasdaq 100's or Russell ETFs' (ADR 0080). */
 export const sectorOf = (row: Pick<ScreenRow, 'symbol'>): string | null =>
   STOCK_SECTORS.get(row.symbol) ?? null;
 

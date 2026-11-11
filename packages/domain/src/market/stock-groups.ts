@@ -7,7 +7,7 @@ import { SP600_AS_OF, SP600_MEMBERS, SP600_SOURCE } from './groups/sp600-members
 import { SP500_AS_OF, SP500_MEMBERS } from './sp500-members';
 
 /**
- * The built-in stock groups (ADR 0079): the screener's "Stock group" choices
+ * The built-in stock groups (ADR 0080): the screener's "Stock group" choices
  * and a strategy group's built-in universes. Alpaca does not say which index
  * a stock is in, so each member list ships with the app and is refreshed
  * with `pnpm --filter @tm/domain sp500:update` / `groups:update` (a GitHub

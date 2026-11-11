@@ -17,7 +17,7 @@ import {
 import type { ProviderRegistry } from './providers';
 
 /**
- * Resolves a built-in stock group (ADR 0079) to instruments for a back test
+ * Resolves a built-in stock group (ADR 0080) to instruments for a back test
  * (Design v1.2 item 1). Each group is today's member list that ships with
  * the app (the screener's), so a back test over past years carries survivorship bias;
  * the result says so. Members not yet registered are confirmed with the

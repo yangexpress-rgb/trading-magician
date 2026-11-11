@@ -51,7 +51,7 @@ export interface PriceChartDto {
 // Quantitative Research: the stock screener (Design v1.0 §11; ADR 0030)
 
 export const createStockScreenRequest = z.object({
-  /** A built-in stock group's members (quick; ADR 0079), or every listing the feed covers. */
+  /** A built-in stock group's members (quick; ADR 0080), or every listing the feed covers. */
   universe: z.enum([...STOCK_GROUP_IDS, 'all']).optional(),
   /** Skip the screen from the last minute and ask the feed again. */
   fresh: z.boolean().optional(),

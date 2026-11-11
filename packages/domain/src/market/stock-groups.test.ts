@@ -11,7 +11,7 @@ import {
   stockGroupSymbols,
 } from './stock-groups';
 
-describe('built-in stock groups (ADR 0079)', () => {
+describe('built-in stock groups (ADR 0080)', () => {
   it('lists every id once, in picker order, as the strategy builder’s built-in universes', () => {
     expect(new Set(STOCK_GROUP_IDS).size).toBe(STOCK_GROUP_IDS.length);
     expect(STOCK_GROUPS.map((g) => g.id)).toEqual([...STOCK_GROUP_IDS]);

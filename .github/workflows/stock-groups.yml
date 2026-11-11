@@ -1,6 +1,6 @@
 name: Refresh stock groups
 
-# The built-in stock groups' member lists ship with the app (ADR 0030, ADR 0079).
+# The built-in stock groups' member lists ship with the app (ADR 0030, ADR 0080).
 # Once a month this refreshes them from their public sources and opens a pull
 # request with the changes; it can also be run by hand from the Actions tab.
 on:

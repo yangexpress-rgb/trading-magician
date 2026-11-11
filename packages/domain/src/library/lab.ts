@@ -56,7 +56,7 @@ function entryLegs(def: StrategyDefinition): PlannedOrder[] {
 
 /**
  * What the strategy trades: its Entry legs' instruments and a Selection
- * group's universe. `builtin` is a built-in stock group (ADR 0079: stocks).
+ * group's universe. `builtin` is a built-in stock group (ADR 0080: stocks).
  */
 export function tradedInstruments(def: StrategyDefinition): {
   instrumentIds: string[];

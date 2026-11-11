@@ -539,7 +539,7 @@ export const metricRefSchema = z.object({
 });
 export type MetricRef = z.infer<typeof metricRefSchema>;
 
-/** The built-in stock groups (ADR 0079): S&P 500, Nasdaq 100, Dow 30, … and the S&P 500 sectors. */
+/** The built-in stock groups (ADR 0080): S&P 500, Nasdaq 100, Dow 30, … and the S&P 500 sectors. */
 export const BUILTIN_UNIVERSES = STOCK_GROUP_IDS;
 export type BuiltinUniverse = (typeof BUILTIN_UNIVERSES)[number];
 

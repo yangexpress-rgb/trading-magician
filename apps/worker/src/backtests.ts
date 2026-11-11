@@ -58,7 +58,7 @@ export interface BacktestWorkerOptions {
   logger: Pick<Logger, 'info' | 'warn' | 'error'>;
   leaseSeconds?: number;
   maxAttempts?: number;
-  /** Resolves a built-in stock group for a tenant (Design v1.2 item 1, ADR 0079). */
+  /** Resolves a built-in stock group for a tenant (Design v1.2 item 1, ADR 0080). */
   resolveUniverse?: (
     userId: string,
     group: BuiltinUniverse,

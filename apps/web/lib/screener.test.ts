@@ -223,7 +223,7 @@ describe('options columns', () => {
   });
 });
 
-describe('stock group universes (ADR 0079)', () => {
+describe('stock group universes (ADR 0080)', () => {
   it('needs no new load when the loaded rows already hold the group', () => {
     expect(universeCovers(null, 'sp500')).toBe(false);
     expect(universeCovers('all', 'ndx')).toBe(true);
