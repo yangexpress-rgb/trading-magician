@@ -136,7 +136,16 @@ async function fromWikipedia(group) {
     }
     if (members.length > 0) return members;
   }
-  throw new Error(`${group.name}: no members table found on Wikipedia's "${group.wiki}"`);
+  const seen = tables
+    .map((t) => {
+      const all = rows(t);
+      return `[${all
+        .slice(0, 3)
+        .map((r) => r.map((c) => (c.header ? 'H:' : '') + c.text.slice(0, 20)).join(' | '))
+        .join(' // ')}]`;
+    })
+    .join('\n  ');
+  throw new Error(`no members table found on Wikipedia's "${group.wiki}"; tables:\n  ${seen}`);
 }
 
 /** One CSV line into fields, honouring double quotes. */
@@ -174,12 +183,15 @@ async function fromIshares(group, dotted) {
   const csv = (await get(group.ishares)).replace(/^\uFEFF/, '');
   const lines = csv.split(/\r?\n/);
   const headerAt = lines.findIndex((l) => /^"?Ticker"?,/.test(l));
-  if (headerAt < 0) throw new Error(`${group.name}: the iShares holdings file has changed shape`);
+  if (headerAt < 0)
+    throw new Error(
+      `the iShares holdings file has changed shape; it starts:\n${lines.slice(0, 12).join('\n').slice(0, 1500)}`,
+    );
   const cols = fields(lines[headerAt]).map((c) => c.trim());
   const symbolAt = cols.indexOf('Ticker');
   const sectorAt = cols.indexOf('Sector');
   const classAt = cols.indexOf('Asset Class');
-  if (sectorAt < 0 || classAt < 0) throw new Error(`${group.name}: missing iShares columns`);
+  if (sectorAt < 0 || classAt < 0) throw new Error(`missing iShares columns: ${cols.join(', ')}`);
   const members = [];
   for (const line of lines.slice(headerAt + 1)) {
     const f = fields(line);
