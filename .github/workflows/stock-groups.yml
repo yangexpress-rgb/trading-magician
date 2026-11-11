@@ -29,25 +29,6 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Probe Russell sources (temporary)
-        continue-on-error: true
-        run: |
-          exec > >(tee -a "$RUNNER_TEMP/diag.txt") 2>&1
-          UA="trading-magician-stock-groups/1.0 (member list refresh)"
-          for u in \
-            "https://api.nasdaq.com/api/quote/list-type/nasdaq100" \
-            "https://en.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=8&srsearch=Nasdaq-100%20components%20ticker" \
-            "https://en.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=8&srsearch=Dow%20Jones%20Industrial%20Average%20components%20symbol" \
-            "https://en.wikipedia.org/w/api.php?action=parse&format=json&prop=sections&page=Nasdaq-100" \
-            "https://en.wikipedia.org/w/api.php?action=parse&format=json&prop=sections&page=Dow%20Jones%20Industrial%20Average" \
-            "https://www.ssga.com/us/en/intermediary/library-content/products/fund-data/etfs/us/holdings-daily-us-en-spmd.xlsx" \
-            "https://www.ishares.com/us/products/239710/ishares-russell-2000-etf/1467271812596.ajax?fileType=csv&fileName=IWM_holdings&dataType=fund" \
-            ; do
-            echo "=== $u"
-            curl -sS -L -A "$UA" -m 30 -o /tmp/probe -w "status %{http_code} type %{content_type} bytes %{size_download}\n" "$u" || true
-            head -c 1500 /tmp/probe | tr -c '[:print:]\n' '?' ; echo
-            grep -a -n -m5 -i "ticker\|symbol" /tmp/probe | cut -c1-300 || true
-          done
       - name: Refresh the S&P 500
         run: pnpm --filter @tm/domain sp500:update
       - name: Refresh the other groups
