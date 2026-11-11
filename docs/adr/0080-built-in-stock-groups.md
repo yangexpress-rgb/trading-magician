@@ -40,10 +40,13 @@ all of: Nasdaq 100, Dow 30, the eleven S&P 500 sectors, S&P MidCap 400, S&P Smal
   carry survivorship bias, as before. Built-in groups still back test only; paper runs take lists
   of up to 50 instruments.
 
+- **Earnings releases for every group member.** The earnings scan (ADR 0058) covers every
+  member of the built-in index groups plus stocks saved strategies use, not just the S&P 500. A
+  daily backfill (`earnings_backfill`, after the one-off rebuild) reads the history back to
+  February 2024 for any stock in that universe with no release older than 120 days: a new group's
+  members, or a strategy's new stock. Migration 0084 adds the job to `event_scan_state`.
+
 ## Consequences
 
 - New groups are a list file plus a registry entry, with no migration.
-- The earnings scan still covers the S&P 500 plus stocks saved strategies use; a strategy over a
-  wider group (such as the Russell 2000) using the earnings window has earnings data for those
-  members only.
 - The web bundle carries every list (a few thousand symbols).

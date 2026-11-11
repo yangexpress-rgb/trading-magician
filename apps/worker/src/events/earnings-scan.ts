@@ -7,6 +7,7 @@ import {
   setScanState,
   storedReleaseAccessions,
   strategyStockSymbols,
+  symbolsWithReleasesBefore,
   updateReleaseEps,
   type Database,
   type EventJob,
@@ -15,7 +16,7 @@ import {
   addDays,
   nyDate,
   releaseQuarterEnd,
-  SP500_SECTORS,
+  STOCK_GROUPS,
   surprisePct,
   type EarningsSource,
 } from '@tm/domain';
@@ -35,7 +36,7 @@ import type { Logger } from 'pino';
 
 /**
  * The earnings release scan (free data feeds brief v1 §5.2, ADR 0058): for
- * the S&P 500 and every stock a saved strategy uses, the 8-Ks with Item 2.02
+ * every stock in a built-in stock group (ADR 0080) and every stock a saved strategy uses, the 8-Ks with Item 2.02
  * since `fromDate` become release rows, each with its time-series SUE from
  * the company's point-in-time quarterly EPS. The same scan from February
  * 2024 is the one-off history rebuild (`source = 'rebuilt'`).
@@ -54,11 +55,59 @@ export interface EarningsScanOptions {
 /** Releases this recent whose EPS isn't on EDGAR yet are looked at again each day. */
 const PENDING_DAYS = 120;
 
-/** The scan's universe: S&P 500 members plus stocks saved strategies use. */
+/**
+ * The scan's universe: every member of the built-in stock groups (ADR 0080;
+ * the sector groups are inside the S&P 500) plus stocks saved strategies use.
+ */
 export async function earningsUniverse(o: EarningsScanOptions): Promise<string[]> {
   if (o.symbols) return [...o.symbols];
   const fromStrategies = await strategyStockSymbols(o.db);
-  return [...new Set([...SP500_SECTORS.keys(), ...fromStrategies])].sort();
+  const fromGroups = STOCK_GROUPS.filter((g) => g.kind === 'index').flatMap((g) => [...g.members]);
+  return [...new Set([...fromGroups, ...fromStrategies])].sort();
+}
+
+/**
+ * Stocks that joined the scan after the history rebuild (a new built-in group,
+ * a strategy's new stock) have only their newest releases. Once a day, every
+ * stock in the universe with no release older than PENDING_DAYS has its
+ * history read from `fromDate`, as the rebuild did (ADR 0080).
+ */
+export async function runEarningsBackfill(
+  o: EarningsScanOptions,
+  fromDate: string,
+): Promise<{ companies: number; added: number; failed: number }> {
+  const now = (o.now ?? (() => new Date()))();
+  const today = nyDate(now);
+  await setScanState(o.db, 'earnings_backfill', { status: 'running', lastRunAt: now });
+  let tickers: Map<string, SecListing>;
+  try {
+    tickers = await o.tickers();
+  } catch (e) {
+    await setScanState(o.db, 'earnings_backfill', { status: 'failed', lastError: shortError(e) });
+    throw e;
+  }
+  const covered = await symbolsWithReleasesBefore(o.db, addDays(today, -PENDING_DAYS));
+  const todo = (await earningsUniverse(o)).filter((s) => !covered.has(s) && tickers.has(s));
+  let added = 0;
+  let failed = 0;
+  for (const symbol of todo) {
+    try {
+      added += await scanCompany(o, tickers.get(symbol) as SecListing, fromDate, 'rebuilt');
+    } catch (e) {
+      failed++;
+      o.logger.warn({ symbol, err: shortError(e) }, 'earnings backfill failed for a company');
+    }
+  }
+  await setScanState(o.db, 'earnings_backfill', {
+    status: failed === todo.length && todo.length > 0 ? 'failed' : 'done',
+    coveredFrom: fromDate,
+    coveredTo: today,
+    lastOkAt: new Date(),
+    lastError: failed > 0 ? `${failed} of ${todo.length} companies could not be read` : null,
+    note: `${todo.length} companies without history; ${added} releases added`,
+  });
+  o.logger.info({ companies: todo.length, added, failed }, 'earnings backfill finished');
+  return { companies: todo.length, added, failed };
 }
 
 const shortError = (e: unknown) =>

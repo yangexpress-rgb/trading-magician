@@ -2641,7 +2641,7 @@ export const eventScanState = pgTable(
   (t) => [
     check(
       'event_scan_state_job',
-      sql`${t.job} in ('earnings_scan', 'earnings_rebuild', 'deals_scan', 'deals_rebuild', 'calendar', 'deal_closes')`,
+      sql`${t.job} in ('earnings_scan', 'earnings_rebuild', 'earnings_backfill', 'deals_scan', 'deals_rebuild', 'calendar', 'deal_closes')`,
     ),
     check(
       'event_scan_state_status',

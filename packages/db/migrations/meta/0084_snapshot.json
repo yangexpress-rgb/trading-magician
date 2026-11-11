@@ -1,5 +1,5 @@
 {
-  "id": "37a512d8-a25d-42cd-9446-98e79e82592a",
+  "id": "84961026-cff0-444a-b61f-606a853a3bf7",
   "prevId": "3c458abd-793d-479f-88a2-408829bd0771",
   "version": "7",
   "dialect": "postgresql",
@@ -3240,7 +3240,7 @@
       "checkConstraints": {
         "event_scan_state_job": {
           "name": "event_scan_state_job",
-          "value": "\"event_scan_state\".\"job\" in ('earnings_scan', 'earnings_rebuild', 'deals_scan', 'deals_rebuild', 'calendar', 'deal_closes')"
+          "value": "\"event_scan_state\".\"job\" in ('earnings_scan', 'earnings_rebuild', 'earnings_backfill', 'deals_scan', 'deals_rebuild', 'calendar', 'deal_closes')"
         },
         "event_scan_state_status": {
           "name": "event_scan_state_status",
