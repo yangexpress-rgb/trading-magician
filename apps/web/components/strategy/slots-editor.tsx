@@ -914,8 +914,24 @@ function ScheduleTimeSelect({
   onPick: (at: ScheduleTime) => void;
 }) {
   const { editable } = useEditor();
-  if (!(SCHEDULE_FREQUENCIES as readonly string[]).includes(frequency)) return null;
-  if (SCHEDULE_BAR_MINUTES[frequency as ScheduleFrequency] !== undefined) return null;
+  // Every-bar choices check at each bar's close; the box stays visible so the
+  // choice is easy to find, and opens once a once-per-period Check is picked.
+  const everyBar =
+    !(SCHEDULE_FREQUENCIES as readonly string[]).includes(frequency) ||
+    SCHEDULE_BAR_MINUTES[frequency as ScheduleFrequency] !== undefined;
+  if (everyBar)
+    return (
+      <MiniSelect
+        id={id}
+        label={label}
+        value="bar"
+        disabled
+        title="Pick a once-per-period choice (such as Once a day) to check after the open"
+        onChange={() => undefined}
+      >
+        <option value="bar">At each bar&rsquo;s close</option>
+      </MiniSelect>
+    );
   return (
     <MiniSelect
       id={id}
@@ -1023,20 +1039,19 @@ export function ExitScheduleField({
           {picked === undefined && <option value="run">Every bar the run steps on</option>}
           <ScheduleOptions />
         </MiniSelect>
-        {picked !== undefined && (
-          <ScheduleTimeSelect
-            id="exit-schedule-at"
-            label="Exit check time"
-            frequency={picked}
-            at={at}
-            onPick={(t) =>
-              onChange({
-                ...definition,
-                exit: { ...definition.exit, schedule: withTime(picked, t) },
-              })
-            }
-          />
-        )}
+        <ScheduleTimeSelect
+          id="exit-schedule-at"
+          label="Exit check time"
+          frequency={picked ?? 'run'}
+          at={at}
+          onPick={(t) =>
+            picked &&
+            onChange({
+              ...definition,
+              exit: { ...definition.exit, schedule: withTime(picked, t) },
+            })
+          }
+        />
       </div>
       <p id="exit-schedule-help" className="mt-1 text-xs text-ink-muted">
         {picked === undefined
