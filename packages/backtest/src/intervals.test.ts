@@ -77,6 +77,18 @@ describe('the run interval that matches the rules (N179)', () => {
     expect(matchingBacktestInterval(onSchedule(readingAt('5m'), 'daily')).interval).toBe('5m');
   });
 
+  it('runs finely enough for a check after the open (N226)', () => {
+    const daily = readingAt('1d');
+    const at = (time: 'open1m' | 'open5m' | 'open1h') => ({
+      ...daily,
+      entry: { ...daily.entry, schedule: { frequency: 'monthEnd' as const, at: time } },
+    });
+    expect(matchingBacktestInterval(at('open1m')).interval).toBe('5m');
+    expect(matchingBacktestInterval(at('open5m')).interval).toBe('5m');
+    expect(matchingBacktestInterval(at('open1h')).interval).toBe('1h');
+    expect(matchingBacktestInterval(onSchedule(daily, 'monthEnd')).interval).toBe('1d');
+  });
+
   it('says when the run steps more coarsely than the rules', () => {
     expect(coarserThan('1h', '5m')).toBe(true);
     expect(coarserThan('5m', '1m')).toBe(true);

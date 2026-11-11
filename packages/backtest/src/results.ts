@@ -117,6 +117,8 @@ export interface SelectionLog {
   metric: { metric: string; params: Record<string, number | string> } | null;
   direction: 'asc' | 'desc';
   schedule: string;
+  /** When in the day, when after the open (N226). */
+  scheduleAt?: string;
   exclusionLabels: Record<string, string>;
   rounds: SelectionRound[];
 }
@@ -368,6 +370,9 @@ export interface RunPlan {
   entrySchedule: string;
   /** Null: Exit was checked on every bar the run stepped on. */
   exitSchedule: string | null;
+  /** When in the day each was checked, when after the open (N226); absent: after the close. */
+  entryScheduleAt?: string;
+  exitScheduleAt?: string;
   /** Enter when reads "this stock", so it was checked for each candidate. */
   perCandidate: boolean;
 }

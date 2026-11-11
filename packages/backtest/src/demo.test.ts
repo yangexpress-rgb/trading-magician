@@ -112,6 +112,41 @@ describe('simulate over demo history', () => {
     );
   });
 
+  it('checks Entry after the open on the picked bar (N226)', async () => {
+    const run = backtestInputsSchema.parse(inputs('2024-03-01', '2024-03-29', { interval: '5m' }));
+    const def: StrategyDefinition = {
+      ...pair(),
+      entry: { ...pair().entry, schedule: { frequency: 'daily', at: 'open1h' } },
+    };
+    const data = await loadData(provider, planSeries(def, run), INSTRUMENTS);
+    const r = simulate({ definition: def, instruments: INSTRUMENTS, inputs: run, data });
+    // Decided at 10:30 New York, so buys fill on the bar that starts then.
+    const buys = r.fills.filter((f) => f.side === 'buy');
+    expect(buys.length).toBeGreaterThan(0);
+    for (const f of buys)
+      expect(new Date(f.time).toISOString().slice(11, 16)).toMatch(/^(14|15):30$/);
+    expect(r.plan?.entryScheduleAt).toBe('open1h');
+    expect(r.warnings.some((w) => w.code === 'schedule_finer_than_bars')).toBe(false);
+
+    const hourly = backtestInputsSchema.parse(
+      inputs('2024-03-01', '2024-03-29', { interval: '1h' }),
+    );
+    const firstBar: StrategyDefinition = {
+      ...def,
+      entry: { ...def.entry, schedule: { frequency: 'daily', at: 'open5m' } },
+    };
+    const hourlyData = await loadData(provider, planSeries(firstBar, hourly), INSTRUMENTS);
+    const h = simulate({
+      definition: firstBar,
+      instruments: INSTRUMENTS,
+      inputs: hourly,
+      data: hourlyData,
+    });
+    expect(h.warnings.find((w) => w.code === 'schedule_finer_than_bars')?.message).toBe(
+      'Entry is set to "Once a day, after the first 5-minute bar", but this run steps on hourly bars, so Entry was checked at the end of the day\'s first hourly bar',
+    );
+  });
+
   it('runs on 5-minute bars (N178)', async () => {
     const def = pair();
     const run = backtestInputsSchema.parse(inputs('2024-03-01', '2024-03-29', { interval: '5m' }));

@@ -9,7 +9,7 @@ import {
   isIndicatorOnlyClass,
   referencedInstruments,
   resolveIndicatorParams,
-  SCHEDULE_BAR_MINUTES,
+  scheduleBarMinutes,
   riskSeries,
   type Bar,
   type BarInterval,
@@ -296,14 +296,11 @@ export function matchingBacktestInterval(def: StrategyDefinition): {
   }
   let minutes = finest ? INTERVAL_MINUTES[finest] : INTERVAL_MINUTES['1d'];
   // A picked bar cadence for Entry asks for bars at least that fine (N184).
-  const cadence = def.entry.schedule
-    ? SCHEDULE_BAR_MINUTES[def.entry.schedule.frequency]
-    : undefined;
+  // Checks after the open (N226) ask for bars as fine as that first bar.
+  const cadence = scheduleBarMinutes(def.entry.schedule);
   if (cadence !== undefined) minutes = Math.min(minutes, cadence);
   // So does a picked bar cadence for Exit (ADR 0073).
-  const exitCadence = def.exit.schedule
-    ? SCHEDULE_BAR_MINUTES[def.exit.schedule.frequency]
-    : undefined;
+  const exitCadence = scheduleBarMinutes(def.exit.schedule);
   if (exitCadence !== undefined) minutes = Math.min(minutes, exitCadence);
   return { interval: minutes < 60 ? '5m' : minutes < 1440 ? '1h' : '1d', finest };
 }

@@ -158,7 +158,11 @@ jobs:
           DEMO_DATA: 'on'
       - run: pnpm --filter @tm/db db:setup-logins
       - run: pnpm --filter @tm/web build
-      - run: pnpm --filter @tm/web exec playwright install --with-deps chromium
+      # The runner image already has Chromium's system libraries; when the Ubuntu
+      # package mirrors can't be reached, install the browser alone.
+      - run: >-
+          pnpm --filter @tm/web exec playwright install --with-deps chromium ||
+          pnpm --filter @tm/web exec playwright install chromium
       - run: pnpm --filter @tm/web test:e2e
       - if: failure()
         uses: actions/upload-artifact@v4

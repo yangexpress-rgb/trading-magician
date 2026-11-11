@@ -72,6 +72,7 @@ import {
   rankUniverse,
   scheduledPeriod,
   scheduleOf,
+  openTimeOf,
   exitScheduleOf,
   readsThisInstrument,
   selectionOf,
@@ -105,6 +106,8 @@ import {
   slotModeOf,
   withContext,
   type Slot,
+  type Schedule,
+  type ScheduleFrequency,
   type StrategyDefinition,
   newCycleState,
   nyDate,
@@ -697,17 +700,33 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   if (newData) state.lastDataTime = dataTime;
   // Check Entry gates Entry and re-selection; Check Exit gates Exit (ADR 0073).
   // Bar cadences count the newest bar's end; once a day and calendar periods count closes (N184).
+  // After the open (N226): checked on the period's trading day once its first
+  // 1-minute, 5-minute or hourly bar is in. Rules on intraday bars wait for
+  // that bar; rules on daily bars only have yesterday's close, so the clock decides.
+  const intraday = seriesExprs(def, members).some(
+    (e) => e.interval !== '1d' && e.interval !== '1w',
+  );
+  const due = (
+    schedule: Schedule | undefined,
+    frequency: ScheduleFrequency,
+    last: string | undefined,
+  ): string | undefined => {
+    const at = openTimeOf(schedule);
+    if (at) {
+      if (dataTime <= 0 || (intraday && !newData)) return undefined;
+      return scheduledPeriod(frequency, t, last, intraday ? dataTime : t, at);
+    }
+    return newData ? scheduledPeriod(frequency, t, last, dataTime) : undefined;
+  };
   const frequency = scheduleOf(def);
-  const period = newData
-    ? scheduledPeriod(frequency, t, state.lastSchedulePeriod, dataTime)
-    : undefined;
+  const period = due(def.entry.schedule, frequency, state.lastSchedulePeriod);
   const entryDue = period !== undefined;
   if (entryDue) state.lastSchedulePeriod = period;
   // Check Exit (ADR 0073): without one, Exit is checked on every new bar, as before.
   const exitFrequency = exitScheduleOf(def);
   let exitDue = newData;
-  if (newData && exitFrequency) {
-    const exitPeriod = scheduledPeriod(exitFrequency, t, state.lastExitSchedulePeriod, dataTime);
+  if (exitFrequency) {
+    const exitPeriod = due(def.exit.schedule, exitFrequency, state.lastExitSchedulePeriod);
     exitDue = exitPeriod !== undefined;
     if (exitPeriod !== undefined) state.lastExitSchedulePeriod = exitPeriod;
   }
@@ -819,7 +838,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   let qualified = false;
   if (mode === 'none') {
     // Entry: a new cycle, another batch, or nothing (§6.9).
-    entryTruth = newData && entryDue ? { truth: evaluate('entry') } : undefined;
+    entryTruth = entryDue ? { truth: evaluate('entry') } : undefined;
     const severalGroups = (def.groups?.length ?? 0) > 0;
     const entry = planEntry({
       definition: def,
@@ -856,7 +875,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     // cycle of any group is open, so a position is never flipped.
     for (const g of def.groups ?? []) {
       const gdef = groupDefinition(def, g.id);
-      const truth = newData && entryDue ? { truth: evaluate('entry', view, gdef) } : undefined;
+      const truth = entryDue ? { truth: evaluate('entry', view, gdef) } : undefined;
       const planned = planEntry({
         definition: gdef,
         state: state.groupTriggers?.[g.id] ?? newRuntimeTriggerState(),
