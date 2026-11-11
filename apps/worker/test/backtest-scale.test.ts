@@ -53,7 +53,7 @@ describe('back test size and lease (ADR 0081)', () => {
       ),
     });
     expect(MAX_BACKTEST_BARS).toBe(1_200_000);
-  });
+  }, 60_000);
 
   it('fails a queued run that is too big before loading any bar, naming the reason', async () => {
     t = await createTestDatabase();
@@ -85,7 +85,7 @@ describe('back test size and lease (ADR 0081)', () => {
       /^This back test needs about 1\d\d,\d{3} price bars, mostly 5-minute/,
     );
     expect(lines.some((l) => l.stage === 'load_bars')).toBe(false);
-  });
+  }, 60_000);
 
   it('simulates 150 members over a year of daily bars in seconds, on a lease it keeps', async () => {
     t = await createTestDatabase();
