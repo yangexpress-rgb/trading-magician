@@ -453,6 +453,12 @@ export type Phase = z.infer<typeof phaseSchema>;
 // hash and run exactly as before (design principle 5).
 // ---------------------------------------------------------------------------
 
+/**
+ * The schedules before N227, as saved: bar cadences (every 1-minute, 5-minute
+ * or hourly bar), once a day after the close, and calendar periods, with
+ * `at` for a check after the open (N226). Still read; converted by
+ * `scheduleFrom` when parsed.
+ */
 export const SCHEDULE_FREQUENCIES = [
   'bar1m',
   'bar5m',
@@ -464,25 +470,66 @@ export const SCHEDULE_FREQUENCIES = [
   'yearEnd',
 ] as const;
 export type ScheduleFrequency = (typeof SCHEDULE_FREQUENCIES)[number];
-/**
- * When in the day a period is checked (N226): after the NYSE close (the
- * default, as before), or after the first 1-minute, 5-minute or hourly bar of
- * the session. Bar cadences ignore it.
- */
 export const SCHEDULE_TIMES = ['close', 'open1m', 'open5m', 'open1h'] as const;
 export type ScheduleTime = (typeof SCHEDULE_TIMES)[number];
+
 /**
- * When a part is checked: `entry.schedule` (Entry and a group's filter and
- * ranking) and `exit.schedule` (ADR 0073). bar1m/bar5m/bar1h: every bar of
- * that size (N184); daily: once a day after the NYSE close; the rest: once a
- * calendar period. `at`: when in the day a
- * period is checked (N226).
+ * When a part is checked (N227, ADR 0078), in three choices: which bar, its
+ * size, and on which days. `entry.schedule` gates Entry and a group's filter
+ * and ranking; `exit.schedule` gates Exit (ADR 0073).
+ *
+ * - which: every bar of that size, the 1st or 2nd of the session, the last
+ *   (ending at the close), or before the open.
+ * - bar: 1-minute, 5-minute, 30-minute, hourly or daily. Every 1-day bar is
+ *   once a day after the close.
+ * - days: every trading day, or the last trading day of each week, month,
+ *   quarter or year.
  */
-export const scheduleSchema = z.object({
+export const SCHEDULE_WHICH = ['every', 'first', 'second', 'last', 'beforeOpen'] as const;
+export type ScheduleWhich = (typeof SCHEDULE_WHICH)[number];
+export const SCHEDULE_BARS = ['1m', '5m', '30m', '1h', '1d'] as const;
+export type ScheduleBar = (typeof SCHEDULE_BARS)[number];
+export const SCHEDULE_DAYS = ['daily', 'weekly', 'monthEnd', 'quarterEnd', 'yearEnd'] as const;
+export type ScheduleDays = (typeof SCHEDULE_DAYS)[number];
+
+export interface Schedule {
+  which: ScheduleWhich;
+  bar: ScheduleBar;
+  days: ScheduleDays;
+}
+
+/** A schedule saved before N227 (`{ frequency, at }`) in the three choices; same checks. */
+export function scheduleFrom(frequency: ScheduleFrequency, at?: ScheduleTime): Schedule {
+  switch (frequency) {
+    case 'bar1m':
+      return { which: 'every', bar: '1m', days: 'daily' };
+    case 'bar5m':
+      return { which: 'every', bar: '5m', days: 'daily' };
+    case 'bar1h':
+      return { which: 'every', bar: '1h', days: 'daily' };
+    default:
+      if (at === 'open1m') return { which: 'first', bar: '1m', days: frequency };
+      if (at === 'open5m') return { which: 'first', bar: '5m', days: frequency };
+      if (at === 'open1h') return { which: 'first', bar: '1h', days: frequency };
+      return { which: 'every', bar: '1d', days: frequency };
+  }
+}
+
+const newScheduleSchema = z.object({
+  which: z.enum(SCHEDULE_WHICH),
+  bar: z.enum(SCHEDULE_BARS),
+  days: z.enum(SCHEDULE_DAYS),
+});
+const legacyScheduleSchema = z.object({
   frequency: z.enum(SCHEDULE_FREQUENCIES),
   at: z.enum(SCHEDULE_TIMES).optional(),
 });
-export type Schedule = z.infer<typeof scheduleSchema>;
+
+/** Reads both shapes; saved strategies are not rewritten, so their hashes stay. */
+export const scheduleSchema: z.ZodType<Schedule> = z.union([
+  newScheduleSchema,
+  legacyScheduleSchema.transform((s) => scheduleFrom(s.frequency, s.at)),
+]);
 
 /** A metric from the registry with its parameters (see metrics.ts). */
 export const metricRefSchema = z.object({

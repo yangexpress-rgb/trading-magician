@@ -7,10 +7,14 @@ import {
   isIndicatorOnlyClass,
   PAPER_UNIVERSE_LIMIT,
   randomId,
-  SCHEDULE_FREQUENCIES,
-  SCHEDULE_TIMES,
-  SCHEDULE_LABELS,
-  SCHEDULE_BAR_MINUTES,
+  SCHEDULE_BARS,
+  SCHEDULE_BAR_LABELS,
+  SCHEDULE_DAYS,
+  SCHEDULE_DAYS_LABELS,
+  SCHEDULE_WHICH,
+  SCHEDULE_WHICH_LABELS,
+  isCalendarSchedule,
+  scheduleLabel,
   defaultSchedule,
   hasLeftGroupRule,
   stopCloseWord,
@@ -22,8 +26,9 @@ import {
   type GroupTrade,
   type RiskDistance,
   type Schedule,
-  type ScheduleFrequency,
-  type ScheduleTime,
+  type ScheduleBar,
+  type ScheduleDays,
+  type ScheduleWhich,
   type StrategyDefinition,
 } from '@tm/domain';
 import { Card } from '@tm/ui';
@@ -865,71 +870,87 @@ export function ExitRulesEditor({
   );
 }
 
-function ScheduleOptions() {
-  return (
-    <>
-      <optgroup label="Every bar">
-        {SCHEDULE_FREQUENCIES.filter((f) => SCHEDULE_BAR_MINUTES[f] !== undefined).map((f) => (
-          <option key={f} value={f}>
-            {SCHEDULE_LABELS[f]}
-          </option>
-        ))}
-      </optgroup>
-      <optgroup label="Once per period">
-        {SCHEDULE_FREQUENCIES.filter((f) => SCHEDULE_BAR_MINUTES[f] === undefined).map((f) => (
-          <option key={f} value={f}>
-            {SCHEDULE_LABELS[f]}
-          </option>
-        ))}
-      </optgroup>
-    </>
-  );
-}
-
-/** Option text for when in the day a period is checked (N226). */
-const TIME_OPTIONS: Record<ScheduleTime, string> = {
-  close: 'After the NYSE close',
-  open1m: 'After the first 1-minute bar',
-  open5m: 'After the first 5-minute bar',
-  open1h: 'After the first hour',
-};
-
-/** A schedule with its time of day; after the close is stored as no time, as before N226. */
-function withTime(frequency: ScheduleFrequency, at: ScheduleTime | undefined): Schedule {
-  return at && at !== 'close' ? { frequency, at } : { frequency };
-}
-
-/** When in the day a once-per-period check runs (N226); hidden for bar cadences. */
-function ScheduleTimeSelect({
-  id,
-  label,
-  frequency,
-  at,
+/** The three Check Entry / Check Exit boxes (N227): which bar, its size, and the days. */
+function ScheduleBoxes({
+  prefix,
+  phase,
+  value,
+  runOption,
+  describedBy,
   onPick,
 }: {
-  id: string;
-  label: string;
-  frequency: string;
-  at: ScheduleTime | undefined;
-  onPick: (at: ScheduleTime) => void;
+  prefix: string;
+  phase: 'Entry' | 'Exit';
+  /** Undefined: Check Exit on every bar the run steps on. */
+  value: Schedule | undefined;
+  runOption?: boolean;
+  describedBy: string;
+  onPick: (schedule: Schedule | undefined) => void;
 }) {
   const { editable } = useEditor();
-  if (!(SCHEDULE_FREQUENCIES as readonly string[]).includes(frequency)) return null;
-  if (SCHEDULE_BAR_MINUTES[frequency as ScheduleFrequency] !== undefined) return null;
+  const s = value ?? { which: 'every' as const, bar: '1d' as const, days: 'daily' as const };
+  const daily = s.bar === '1d';
+  // On daily bars, 1st, 2nd and last are all "after the close": shown as Every.
+  const which = value === undefined ? 'run' : daily && s.which !== 'beforeOpen' ? 'every' : s.which;
   return (
-    <MiniSelect
-      id={id}
-      label={label}
-      value={at ?? 'close'}
-      disabled={!editable}
-      onChange={(e) => onPick(e.target.value as ScheduleTime)}
-    >
-      {SCHEDULE_TIMES.map((t) => (
-        <option key={t} value={t}>
-          {TIME_OPTIONS[t]}
-        </option>
-      ))}
-    </MiniSelect>
+    <div className="flex flex-wrap items-end gap-2">
+      <MiniSelect
+        id={prefix}
+        label={`Check ${phase}`}
+        value={which}
+        disabled={!editable}
+        aria-describedby={describedBy}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === 'run') return onPick(undefined);
+          const w = v as ScheduleWhich;
+          // 1st, 2nd and last need an intraday bar: keep the size, else 5 minutes.
+          const bar = daily && w !== 'every' && w !== 'beforeOpen' ? '5m' : s.bar;
+          onPick({ ...s, which: w, bar });
+        }}
+      >
+        {runOption && <option value="run">Every bar the run steps on</option>}
+        {SCHEDULE_WHICH.map((w) => (
+          <option key={w} value={w} disabled={daily && w !== 'every' && w !== 'beforeOpen'}>
+            {SCHEDULE_WHICH_LABELS[w]}
+          </option>
+        ))}
+      </MiniSelect>
+      {value !== undefined && (
+        <>
+          <MiniSelect
+            id={`${prefix}-bar`}
+            label={`${phase} bar size`}
+            value={s.bar}
+            disabled={!editable}
+            onChange={(e) => {
+              const bar = e.target.value as ScheduleBar;
+              const w = bar === '1d' && s.which !== 'beforeOpen' ? 'every' : s.which;
+              onPick({ ...s, bar, which: w });
+            }}
+          >
+            {SCHEDULE_BARS.map((b) => (
+              <option key={b} value={b}>
+                {SCHEDULE_BAR_LABELS[b]}
+              </option>
+            ))}
+          </MiniSelect>
+          <MiniSelect
+            id={`${prefix}-days`}
+            label={`${phase} days`}
+            value={s.days}
+            disabled={!editable}
+            onChange={(e) => onPick({ ...s, days: e.target.value as ScheduleDays })}
+          >
+            {SCHEDULE_DAYS.map((d) => (
+              <option key={d} value={d}>
+                {SCHEDULE_DAYS_LABELS[d].replace(/^./, (c) => c.toUpperCase())}
+              </option>
+            ))}
+          </MiniSelect>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -938,7 +959,7 @@ function readsContextEntry(def: StrategyDefinition): boolean {
   return JSON.stringify(def.entry.condition).includes('"00000000-0000-0000-0000-000000000000"');
 }
 
-/** Check Entry: when Entry, and a group's filter and ranking, are checked (N184, ADR 0073). */
+/** Check Entry: when Entry, and a group's filter and ranking, are checked (N184, ADR 0073, N227). */
 export function ScheduleField({
   definition,
   onChange,
@@ -946,49 +967,36 @@ export function ScheduleField({
   definition: StrategyDefinition;
   onChange: (def: StrategyDefinition) => void;
 }) {
-  const { editable } = useEditor();
   // Until a schedule is picked, it follows the bars the rules read (N184).
-  const picked = definition.entry.schedule?.frequency;
+  const picked = definition.entry.schedule;
   const value = picked ?? defaultSchedule(definition);
-  const at = definition.entry.schedule?.at;
   const group = definition.trade.kind === 'group';
-  const setSchedule = (schedule: Schedule) =>
-    onChange({ ...definition, entry: { ...definition.entry, schedule } });
   return (
     <div className="mb-3">
-      <div className="flex flex-wrap items-end gap-2">
-        <MiniSelect
-          id="schedule"
-          label="Check Entry"
-          value={value}
-          disabled={!editable}
-          aria-describedby="schedule-help"
-          onChange={(e) => setSchedule(withTime(e.target.value as ScheduleFrequency, at))}
-        >
-          <ScheduleOptions />
-        </MiniSelect>
-        <ScheduleTimeSelect
-          id="schedule-at"
-          label="Entry check time"
-          frequency={value}
-          at={at}
-          onPick={(t) => setSchedule(withTime(value, t))}
-        />
-      </div>
+      <ScheduleBoxes
+        prefix="schedule"
+        phase="Entry"
+        value={value}
+        describedBy="schedule-help"
+        onPick={(schedule) =>
+          schedule && onChange({ ...definition, entry: { ...definition.entry, schedule } })
+        }
+      />
       <p id="schedule-help" className="mt-1 text-xs text-ink-muted">
+        Checks: {scheduleLabel(value)}.{' '}
         {picked === undefined && 'Matches the bars your conditions read until you pick one. '}
         {group
           ? 'Each check filters and ranks the group again, then checks Enter when for each candidate. '
           : ''}
-        An &ldquo;Every bar&rdquo; choice checks when each bar of that size closes; the others check
-        once on the scheduled day, after the NYSE close or after the first 1-minute, 5-minute or
-        hourly bar of that day. Exit has its own Check Exit.
+        &ldquo;Every&rdquo; checks as each bar of that size closes; 1st and 2nd check once that bar
+        after the open is in; Last checks at the close; Before the open checks one bar (at most an
+        hour) before 9:30, so orders go in at the open. Exit has its own Check Exit.
       </p>
     </div>
   );
 }
 
-/** Check Exit (ADR 0073): when the Exit condition and exit rules are checked. */
+/** Check Exit (ADR 0073, N227): when the Exit condition and exit rules are checked. */
 export function ExitScheduleField({
   definition,
   onChange,
@@ -996,61 +1004,34 @@ export function ExitScheduleField({
   definition: StrategyDefinition;
   onChange: (def: StrategyDefinition) => void;
 }) {
-  const { editable } = useEditor();
-  const picked = definition.exit.schedule?.frequency;
-  const at = definition.exit.schedule?.at;
+  const picked = definition.exit.schedule;
   return (
     <div className="mb-3">
-      <div className="flex flex-wrap items-end gap-2">
-        <MiniSelect
-          id="exit-schedule"
-          label="Check Exit"
-          value={picked ?? 'run'}
-          disabled={!editable}
-          aria-describedby="exit-schedule-help"
-          onChange={(e) => {
-            const { schedule: _s, ...exit } = definition.exit;
-            void _s;
-            onChange({
-              ...definition,
-              exit:
-                e.target.value === 'run'
-                  ? exit
-                  : { ...exit, schedule: withTime(e.target.value as ScheduleFrequency, at) },
-            });
-          }}
-        >
-          {picked === undefined && <option value="run">Every bar the run steps on</option>}
-          <ScheduleOptions />
-        </MiniSelect>
-        {picked !== undefined && (
-          <ScheduleTimeSelect
-            id="exit-schedule-at"
-            label="Exit check time"
-            frequency={picked}
-            at={at}
-            onPick={(t) =>
-              onChange({
-                ...definition,
-                exit: { ...definition.exit, schedule: withTime(picked, t) },
-              })
-            }
-          />
-        )}
-      </div>
+      <ScheduleBoxes
+        prefix="exit-schedule"
+        phase="Exit"
+        value={picked}
+        runOption
+        describedBy="exit-schedule-help"
+        onPick={(schedule) => {
+          const { schedule: _s, ...exit } = definition.exit;
+          void _s;
+          onChange({ ...definition, exit: schedule ? { ...exit, schedule } : exit });
+        }}
+      />
       <p id="exit-schedule-help" className="mt-1 text-xs text-ink-muted">
         {picked === undefined
           ? 'Until you pick one, Exit is checked on every bar a back test or paper run steps on, as before. '
-          : picked === 'weekly' ||
-              picked === 'monthEnd' ||
-              picked === 'quarterEnd' ||
-              picked === 'yearEnd'
-            ? 'The exit rules wait for this date too, so a stop can be days late. '
-            : ''}
+          : `Checks: ${scheduleLabel(picked)}. ` +
+            (isCalendarSchedule(picked)
+              ? 'The exit rules wait for these days too, so a stop can be days late. '
+              : '')}
         Exit when and every exit rule are checked on this schedule. The trailing, ATR and
         expected-move stops read {stopCloseWord(definition)} closes
-        {picked === 'bar1m' ? ' (5-minute until a 1-minute feed exists)' : ''}; the ATR itself stays
-        daily.
+        {picked && (picked.bar === '1m' || picked.bar === '30m') && picked.which !== 'beforeOpen'
+          ? ' (no feed serves 1- or 30-minute bars yet)'
+          : ''}
+        ; the ATR itself stays daily.
       </p>
     </div>
   );

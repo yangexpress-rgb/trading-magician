@@ -1,3 +1,4 @@
+import { scheduleFrom } from '@tm/domain';
 import { describe, expect, it } from 'vitest';
 import type { ScheduleFrequency, StrategyDefinition } from '@tm/domain';
 import { coarserThan, matchingBacktestInterval } from './data';
@@ -18,7 +19,7 @@ function withInterval(interval: '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d'
 }
 
 function onSchedule(def: StrategyDefinition, frequency: ScheduleFrequency): StrategyDefinition {
-  return { ...def, entry: { ...def.entry, schedule: { frequency } } };
+  return { ...def, entry: { ...def.entry, schedule: scheduleFrom(frequency) } };
 }
 
 describe('5-minute back tests (N178)', () => {
@@ -81,7 +82,7 @@ describe('the run interval that matches the rules (N179)', () => {
     const daily = readingAt('1d');
     const at = (time: 'open1m' | 'open5m' | 'open1h') => ({
       ...daily,
-      entry: { ...daily.entry, schedule: { frequency: 'monthEnd' as const, at: time } },
+      entry: { ...daily.entry, schedule: scheduleFrom('monthEnd', time) },
     });
     expect(matchingBacktestInterval(at('open1m')).interval).toBe('5m');
     expect(matchingBacktestInterval(at('open5m')).interval).toBe('5m');

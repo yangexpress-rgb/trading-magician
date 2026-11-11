@@ -1,3 +1,4 @@
+import { scheduleFrom } from '@tm/domain';
 import {
   CONTEXT_INSTRUMENT_ID,
   createDefinition,
@@ -65,18 +66,18 @@ describe('What to trade: a group (ADR 0073)', () => {
     expect(def.execution.reentry).toEqual({ mode: 'single_cycle' });
     expect(def.execution.multiLegPolicy).toBe('concurrent');
     // Month-end Entry checks, daily Exit checks (O145).
-    expect(def.entry.schedule).toEqual({ frequency: 'monthEnd' });
-    expect(def.exit.schedule).toEqual({ frequency: 'daily' });
+    expect(def.entry.schedule).toEqual(scheduleFrom('monthEnd'));
+    expect(def.exit.schedule).toEqual(scheduleFrom('daily'));
     expect(strategyDefinitionSchema.safeParse(def).success).toBe(true);
   });
 
   it('defaults to the S&P 500 when no instruments are known and keeps a chosen schedule', () => {
     const start = fixed();
-    start.entry.schedule = { frequency: 'bar5m' };
+    start.entry.schedule = scheduleFrom('bar5m');
     const def = toGroup(start, []);
     expect(def.trade).toMatchObject({ universe: { type: 'builtin', id: 'sp500' } });
-    expect(def.entry.schedule).toEqual({ frequency: 'bar5m' });
-    expect(def.exit.schedule).toEqual({ frequency: 'bar5m' });
+    expect(def.entry.schedule).toEqual(scheduleFrom('bar5m'));
+    expect(def.exit.schedule).toEqual(scheduleFrom('bar5m'));
   });
 
   it('goes back to specific assets on a named instrument', () => {

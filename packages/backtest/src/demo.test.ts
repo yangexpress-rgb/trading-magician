@@ -1,3 +1,4 @@
+import { scheduleFrom } from '@tm/domain';
 import type { IndicatorExpr, ScheduleFrequency, StrategyDefinition } from '@tm/domain';
 import { createDemoHistoryProvider, DEMO_HISTORY_VERSION } from '@tm/market-data';
 import { describe, expect, it } from 'vitest';
@@ -41,7 +42,7 @@ const pair = () => {
 };
 
 function onSchedule(def: StrategyDefinition, frequency: ScheduleFrequency): StrategyDefinition {
-  return { ...def, entry: { ...def.entry, schedule: { frequency } } };
+  return { ...def, entry: { ...def.entry, schedule: scheduleFrom(frequency) } };
 }
 
 describe('simulate over demo history', () => {
@@ -108,7 +109,7 @@ describe('simulate over demo history', () => {
     const oneMinute = onSchedule(pair(), 'bar1m');
     const c = simulate({ definition: oneMinute, instruments: INSTRUMENTS, inputs: run, data });
     expect(c.warnings.find((w) => w.code === 'schedule_finer_than_bars')?.message).toBe(
-      'Entry is set to "Every 1-minute bar", but this run steps on 5-minute bars, so Entry was checked once a 5-minute bar',
+      'Entry is set to "Every 1-minute bar, every trading day", but this run steps on 5-minute bars, so Entry was checked once a 5-minute bar',
     );
   });
 
@@ -116,7 +117,7 @@ describe('simulate over demo history', () => {
     const run = backtestInputsSchema.parse(inputs('2024-03-01', '2024-03-29', { interval: '5m' }));
     const def: StrategyDefinition = {
       ...pair(),
-      entry: { ...pair().entry, schedule: { frequency: 'daily', at: 'open1h' } },
+      entry: { ...pair().entry, schedule: scheduleFrom('daily', 'open1h') },
     };
     const data = await loadData(provider, planSeries(def, run), INSTRUMENTS);
     const r = simulate({ definition: def, instruments: INSTRUMENTS, inputs: run, data });
@@ -125,7 +126,7 @@ describe('simulate over demo history', () => {
     expect(buys.length).toBeGreaterThan(0);
     for (const f of buys)
       expect(new Date(f.time).toISOString().slice(11, 16)).toMatch(/^(14|15):30$/);
-    expect(r.plan?.entryScheduleAt).toBe('open1h');
+    expect(r.plan?.entrySchedule).toBe('1st 1-hour bar, every trading day');
     expect(r.warnings.some((w) => w.code === 'schedule_finer_than_bars')).toBe(false);
 
     const hourly = backtestInputsSchema.parse(
@@ -133,7 +134,7 @@ describe('simulate over demo history', () => {
     );
     const firstBar: StrategyDefinition = {
       ...def,
-      entry: { ...def.entry, schedule: { frequency: 'daily', at: 'open5m' } },
+      entry: { ...def.entry, schedule: scheduleFrom('daily', 'open5m') },
     };
     const hourlyData = await loadData(provider, planSeries(firstBar, hourly), INSTRUMENTS);
     const h = simulate({
@@ -143,8 +144,27 @@ describe('simulate over demo history', () => {
       data: hourlyData,
     });
     expect(h.warnings.find((w) => w.code === 'schedule_finer_than_bars')?.message).toBe(
-      'Entry is set to "Once a day, after the first 5-minute bar", but this run steps on hourly bars, so Entry was checked at the end of the day\'s first hourly bar',
+      'Entry is set to "1st 5-minute bar, every trading day", but this run steps on hourly bars, so Entry was checked at the end of the first hourly bar ending after that',
     );
+  });
+
+  it('checks before the open at the prior close, filling at the same open (N227)', async () => {
+    const run = backtestInputsSchema.parse(inputs('2024-03-01', '2024-03-29', { interval: '5m' }));
+    const before: StrategyDefinition = {
+      ...pair(),
+      entry: { ...pair().entry, schedule: { which: 'beforeOpen', bar: '5m', days: 'daily' } },
+    };
+    const data = await loadData(provider, planSeries(before, run), INSTRUMENTS);
+    const r = simulate({ definition: before, instruments: INSTRUMENTS, inputs: run, data });
+    const closes = simulate({
+      definition: onSchedule(pair(), 'daily'),
+      instruments: INSTRUMENTS,
+      inputs: run,
+      data,
+    });
+    expect(r.fills.length).toBeGreaterThan(0);
+    expect(r.fills).toEqual(closes.fills);
+    expect(r.plan?.entrySchedule).toBe('Before the open, every trading day');
   });
 
   it('runs on 5-minute bars (N178)', async () => {
@@ -167,7 +187,7 @@ describe('simulate over demo history', () => {
       def.exit = {
         ...def.exit,
         condition: { ...def.exit.condition, children: [] },
-        schedule: { frequency: exit },
+        schedule: scheduleFrom(exit),
         rules: [{ kind: 'trailingStop', id: 'ts', percent: '0.5' }],
       };
       return def;

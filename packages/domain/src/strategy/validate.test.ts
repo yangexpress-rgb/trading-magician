@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { StrategyDefinition } from './schema';
+import { scheduleFrom, type StrategyDefinition } from './schema';
 import {
   CAPS,
   comparison,
@@ -76,7 +76,7 @@ describe('per-leg conditions without a shared Entry condition (v1.2 item 2)', ()
     for (const schedule of [undefined, 'monthEnd'] as const) {
       const { errors } = check((d) => {
         legsOnly(d, true);
-        if (schedule) d.entry.schedule = { frequency: schedule };
+        if (schedule) d.entry.schedule = scheduleFrom(schedule);
       });
       expect(errors).toEqual([]);
     }

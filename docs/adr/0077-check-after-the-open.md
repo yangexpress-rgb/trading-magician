@@ -1,6 +1,6 @@
 # ADR 0077: Check Entry and Check Exit after the open
 
-- **Status:** accepted
+- **Status:** superseded by ADR 0078 (the same checks, as "1st bar" in three boxes)
 - **Date:** 2026-11-11
 - **Design refs:** design v1.2 row N226. Extends N184 (Check Entry bar sizes) and ADR 0073 (Check
   Exit)

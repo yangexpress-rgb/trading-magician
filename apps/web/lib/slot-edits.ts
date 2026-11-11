@@ -9,6 +9,7 @@ import {
   refillExitOrders,
   resolveMetricParams,
   suggestedExitSchedule,
+  type Schedule,
   type ConditionGroup,
   type ExitRule,
   type PlannedOrder,
@@ -183,7 +184,7 @@ export function toGroup(
   void _t;
   const { rankedLegs: _r, ...entry } = def.entry;
   void _r;
-  const schedule = entry.schedule ?? { frequency: 'monthEnd' as const };
+  const schedule: Schedule = entry.schedule ?? { which: 'every', bar: '1d', days: 'monthEnd' };
   const rules = exit.rules ?? [];
   const next: StrategyDefinition = {
     ...def,
@@ -193,7 +194,7 @@ export function toGroup(
     exit: {
       ...exit,
       mirrorEntry: true,
-      schedule: exit.schedule ?? { frequency: suggestedExitSchedule(schedule.frequency) },
+      schedule: exit.schedule ?? suggestedExitSchedule(schedule),
       rules: rules.some((r) => r.kind === 'leftGroup') ? rules : [...rules, leftGroupRule()],
     },
     execution: {

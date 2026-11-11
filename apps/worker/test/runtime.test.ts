@@ -915,7 +915,7 @@ describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, ti
       { ...above('in', demoA, '1'), left: daily(demoA, 'in-px') },
     ]);
     def.exit.condition = never();
-    def.entry.schedule = { frequency: 'monthEnd' };
+    def.entry.schedule = { which: 'every', bar: '1d', days: 'monthEnd' };
     const { runtimeId } = await startPaper('Month end', def);
     await pass();
     clock = Date.parse('2026-10-30T15:31:00Z'); // the 29th's daily bar is in, but not a month end

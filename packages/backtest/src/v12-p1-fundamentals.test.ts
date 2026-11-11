@@ -1,3 +1,4 @@
+import { scheduleFrom } from '@tm/domain';
 import {
   CONTEXT_INSTRUMENT_ID,
   createDefinition,
@@ -176,7 +177,7 @@ function fixture(): StrategyDefinition {
   def.entry.orders = [leg('buy-each')];
   def.exit.orders = [leg('close-each', { side: 'close' })];
   def.exit.rules = [{ kind: 'leftGroup', id: 'left' }];
-  def.entry.schedule = { frequency: 'yearEnd' };
+  def.entry.schedule = scheduleFrom('yearEnd');
   return def;
 }
 

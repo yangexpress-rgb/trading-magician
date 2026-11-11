@@ -1,86 +1,112 @@
 import { addDays, isTradingDay, nextTradingDay, nyDate, regularSession } from '../market/calendar';
 import type { BarInterval } from './catalog';
-import type {
-  ExitRule,
-  Schedule,
-  ScheduleFrequency,
-  ScheduleTime,
-  StrategyDefinition,
+import {
+  SCHEDULE_FREQUENCIES,
+  SCHEDULE_TIMES,
+  scheduleFrom,
+  type ExitRule,
+  type Schedule,
+  type ScheduleBar,
+  type ScheduleDays,
+  type ScheduleFrequency,
+  type ScheduleTime,
+  type ScheduleWhich,
+  type StrategyDefinition,
 } from './schema';
 import { definitionExpressions } from './selection';
 
 /**
- * Calendar scheduling and holding-period exits (Design v1.2 item 4). Both the
- * back tester and the paper runtime call these with the bar time they are
+ * Check Entry and Check Exit (N184, ADR 0073, N227 / ADR 0078). Both the back
+ * tester and the paper runtime call these with the bar time they are
  * evaluating, so a schedule means the same thing in both. Days are NYSE
  * trading days from the exchange calendar the rest of the app uses.
  *
- * Check Entry gates Entry and re-selection. Check Exit (ADR 0073) gates the
- * Exit condition and exit rules; a strategy without one checks them on every
- * bar, as before schema 3.
- *
- * N184 (ADR 0067): the bar cadences name their bar size (every 1-minute,
- * 5-minute or hourly bar), and "daily" means once a day after the close,
- * whatever bars the run steps on.
+ * A schedule is three choices: which bar (every, 1st, 2nd, last, before the
+ * open), its size (1, 5, 30 minutes, an hour, a day) and the days (every
+ * trading day, or the last of each week, month, quarter or year). A strategy
+ * without a Check Exit checks Exit on every bar, as before schema 3.
  */
 
-export const SCHEDULE_LABELS: Record<ScheduleFrequency, string> = {
-  bar1m: 'Every 1-minute bar',
-  bar5m: 'Every 5-minute bar',
-  bar1h: 'Every hourly bar',
-  daily: 'Once a day, after the close',
-  weekly: 'Last trading day of each week',
-  monthEnd: 'Last trading day of each month',
-  quarterEnd: 'Last trading day of each quarter',
-  yearEnd: 'Last trading day of each year',
+export const SCHEDULE_WHICH_LABELS: Record<ScheduleWhich, string> = {
+  every: 'Every',
+  first: '1st',
+  second: '2nd',
+  last: 'Last',
+  beforeOpen: 'Before the open',
 };
 
-/** When in the day a period is checked (N226), for "Last trading day of each month, after the first hour". */
-export const SCHEDULE_TIME_LABELS: Record<ScheduleTime, string> = {
-  close: 'after the close',
-  open1m: 'after the first 1-minute bar',
-  open5m: 'after the first 5-minute bar',
-  open1h: 'after the first hour',
+export const SCHEDULE_BAR_LABELS: Record<ScheduleBar, string> = {
+  '1m': '1-minute bar',
+  '5m': '5-minute bar',
+  '30m': '30-minute bar',
+  '1h': '1-hour bar',
+  '1d': '1-day bar',
 };
 
-/** Minutes after the open of the checks that come after the open (N226). */
-export const SCHEDULE_TIME_MINUTES: Partial<Record<ScheduleTime, number>> = {
-  open1m: 1,
-  open5m: 5,
-  open1h: 60,
+export const SCHEDULE_DAYS_LABELS: Record<ScheduleDays, string> = {
+  daily: 'every trading day',
+  weekly: 'last trading day of each week',
+  monthEnd: 'last trading day of each month',
+  quarterEnd: 'last trading day of each quarter',
+  yearEnd: 'last trading day of each year',
 };
 
-/** A schedule in words, e.g. "Once a day, after the first 5-minute bar". */
-export function scheduleLabel(frequency: ScheduleFrequency, at?: ScheduleTime): string {
-  if (!at || SCHEDULE_TIME_MINUTES[at] === undefined) return SCHEDULE_LABELS[frequency];
-  if (SCHEDULE_BAR_MINUTES[frequency] !== undefined) return SCHEDULE_LABELS[frequency];
-  const when = SCHEDULE_TIME_LABELS[at];
-  return frequency === 'daily' ? `Once a day, ${when}` : `${SCHEDULE_LABELS[frequency]}, ${when}`;
-}
+/** Minutes per bar of each bar size. */
+export const SCHEDULE_BAR_MINUTES: Record<ScheduleBar, number> = {
+  '1m': 1,
+  '5m': 5,
+  '30m': 30,
+  '1h': 60,
+  '1d': 1440,
+};
 
-/** When in the day a schedule checks, when it is after the open; undefined after the close. */
-export function openTimeOf(schedule: Schedule | undefined): ScheduleTime | undefined {
-  if (!schedule?.at || SCHEDULE_BAR_MINUTES[schedule.frequency] !== undefined) return undefined;
-  return SCHEDULE_TIME_MINUTES[schedule.at] === undefined ? undefined : schedule.at;
+const intraday = (s: Schedule) => s.bar !== '1d';
+
+/**
+ * The same schedule in its plainest form, so equal checks compare equal:
+ * on daily bars, every, 1st, 2nd and last are all "after the close".
+ */
+export function normalSchedule(s: Schedule): Schedule {
+  if (!intraday(s) && s.which !== 'beforeOpen') return { ...s, which: 'every' };
+  return s;
 }
 
 /**
- * The bar size a schedule needs to be checked on time, in minutes: a bar
- * cadence's own, or the first bar after the open (N226). Undefined for checks
- * after the close.
+ * A schedule in words: "Every 5-minute bar, every trading day", "1st 5-minute
+ * bar, last trading day of each month", "After the close, every trading day",
+ * "Before the open, last trading day of each week".
  */
-export function scheduleBarMinutes(schedule: Schedule | undefined): number | undefined {
-  if (!schedule) return undefined;
-  const at = openTimeOf(schedule);
-  return at ? SCHEDULE_TIME_MINUTES[at] : SCHEDULE_BAR_MINUTES[schedule.frequency];
+export function scheduleLabel(schedule: Schedule): string {
+  const s = normalSchedule(schedule);
+  const days = SCHEDULE_DAYS_LABELS[s.days];
+  if (s.which === 'beforeOpen') return `Before the open, ${days}`;
+  if (!intraday(s)) return `After the close, ${days}`;
+  return `${SCHEDULE_WHICH_LABELS[s.which]} ${SCHEDULE_BAR_LABELS[s.bar]}, ${days}`;
 }
 
-/** Minutes per bar of the bar cadences. */
-export const SCHEDULE_BAR_MINUTES: Partial<Record<ScheduleFrequency, number>> = {
-  bar1m: 1,
-  bar5m: 5,
-  bar1h: 60,
-};
+/**
+ * The bar size, in minutes, a run must step on for a schedule to be checked
+ * on time: an intraday "every" bar's own, or the end of the 1st or 2nd bar
+ * after the open. Undefined for checks at the close or before the open.
+ */
+export function scheduleBarMinutes(schedule: Schedule | undefined): number | undefined {
+  if (!schedule || !intraday(schedule)) return undefined;
+  const m = SCHEDULE_BAR_MINUTES[schedule.bar];
+  if (schedule.which === 'every') return m;
+  if (schedule.which === 'first') return m;
+  if (schedule.which === 'second') return 2 * m;
+  return undefined;
+}
+
+/** Whether checks are limited to the last trading day of a week, month, quarter or year (a rebalance date). */
+export function isCalendarSchedule(schedule: Schedule): boolean {
+  return schedule.days !== 'daily';
+}
+
+/** Whether the schedule checks every bar of an intraday size. */
+export function isBarCadence(schedule: Schedule): boolean {
+  return schedule.which === 'every' && intraday(schedule);
+}
 
 const INTERVAL_MINUTES: Record<BarInterval, number> = {
   '1m': 1,
@@ -93,51 +119,42 @@ const INTERVAL_MINUTES: Record<BarInterval, number> = {
   '1w': 10_080,
 };
 
-/** Whether the schedule is a calendar period (a rebalance date) rather than a bar cadence. */
-export function isCalendarSchedule(frequency: ScheduleFrequency): boolean {
-  return (
-    frequency === 'weekly' ||
-    frequency === 'monthEnd' ||
-    frequency === 'quarterEnd' ||
-    frequency === 'yearEnd'
-  );
-}
-
 /**
- * The schedule of a strategy that never picked one (N184): the cadence of the
+ * The schedule of a strategy that never picked one (N184): every bar of the
  * finest bars its rules read, so a stored strategy keeps checking Entry as
- * often as before. Minute bars under 5 minutes: every 1-minute bar; under an
- * hour: every 5-minute bar; under a day: every hourly bar; else once a day.
+ * often as before. Under 5 minutes: every 1-minute bar; under an hour: every
+ * 5-minute bar; under a day: every hourly bar; else once a day after the close.
  */
-export function defaultSchedule(def: StrategyDefinition): ScheduleFrequency {
+export function defaultSchedule(def: StrategyDefinition): Schedule {
   let finest = INTERVAL_MINUTES['1d'];
   for (const e of definitionExpressions(def)) {
     if (e.kind === 'market' || e.kind === 'indicator')
       finest = Math.min(finest, INTERVAL_MINUTES[e.interval]);
   }
-  return finest < 5 ? 'bar1m' : finest < 60 ? 'bar5m' : finest < 1440 ? 'bar1h' : 'daily';
+  const bar: ScheduleBar = finest < 5 ? '1m' : finest < 60 ? '5m' : finest < 1440 ? '1h' : '1d';
+  return { which: 'every', bar, days: 'daily' };
 }
 
 /** When Entry (and a group's filter and ranking) is checked: Check Entry. */
-export function scheduleOf(def: StrategyDefinition): ScheduleFrequency {
-  return def.entry.schedule?.frequency ?? defaultSchedule(def);
+export function scheduleOf(def: StrategyDefinition): Schedule {
+  return def.entry.schedule ?? defaultSchedule(def);
 }
 
 /**
  * When the Exit condition and exit rules are checked: Check Exit (ADR 0073).
  * Undefined means on every bar the run steps on, as before schema 3.
  */
-export function exitScheduleOf(def: StrategyDefinition): ScheduleFrequency | undefined {
-  return def.exit.schedule?.frequency;
+export function exitScheduleOf(def: StrategyDefinition): Schedule | undefined {
+  return def.exit.schedule;
 }
 
 /**
  * The Check Exit a new choice of Check Entry suggests (O145): the same, except
- * that a calendar Entry checks Exit once a day, so a rebalance on month end
- * still has daily risk exits.
+ * that an Entry on calendar days checks Exit once a day after the close, so a
+ * month-end rebalance still has daily risk exits.
  */
-export function suggestedExitSchedule(entry: ScheduleFrequency): ScheduleFrequency {
-  return isCalendarSchedule(entry) ? 'daily' : entry;
+export function suggestedExitSchedule(entry: Schedule): Schedule {
+  return isCalendarSchedule(entry) ? { which: 'every', bar: '1d', days: 'daily' } : entry;
 }
 
 /** Monday of the ISO week a date falls in. */
@@ -147,8 +164,8 @@ function weekStart(day: string): string {
 }
 
 /** The calendar period a trading day belongs to, e.g. "2026-03" for month end. */
-export function periodKey(frequency: ScheduleFrequency, day: string): string {
-  switch (frequency) {
+export function periodKey(days: ScheduleDays, day: string): string {
+  switch (days) {
     case 'weekly':
       return `W${weekStart(day)}`;
     case 'monthEnd':
@@ -162,11 +179,11 @@ export function periodKey(frequency: ScheduleFrequency, day: string): string {
   }
 }
 
-/** Whether a day is the last trading day of its period. */
-export function isPeriodEnd(frequency: ScheduleFrequency, day: string): boolean {
+/** Whether a day is one the schedule checks on: a trading day, the last of its period. */
+export function isPeriodEnd(days: ScheduleDays, day: string): boolean {
   if (!isTradingDay(day)) return false;
-  if (!isCalendarSchedule(frequency)) return true;
-  return periodKey(frequency, nextTradingDay(day)) !== periodKey(frequency, day);
+  if (days === 'daily') return true;
+  return periodKey(days, nextTradingDay(day)) !== periodKey(days, day);
 }
 
 /** The latest trading day whose regular session had closed by `t` (epoch ms). */
@@ -179,59 +196,67 @@ export function lastClosedDay(t: number): string {
   return day;
 }
 
-/**
- * After the open (N226): due on the period's trading day once a bar ending at
- * least `minutes` after the session opened is in, at `barTime`. Keyed apart
- * from the after-the-close key, so switching between them checks once more.
- */
-function openPeriod(
-  frequency: ScheduleFrequency,
-  minutes: number,
-  barTime: number,
-): string | undefined {
-  // The trading day the newest bar belongs to: a bar ending at midnight is the day before's.
-  const day = nyDate(new Date(barTime - 1));
-  const session = regularSession(day);
-  if (!session || !isPeriodEnd(frequency, day)) return undefined;
-  if (barTime < Date.parse(session.open) + minutes * 60_000) return undefined;
-  return `O${periodKey(frequency, day)}`;
+/** The trading day a bar ending at `barTime` belongs to: a bar ending at midnight is the day before's. */
+const barDay = (barTime: number) => nyDate(new Date(barTime - 1));
+
+export interface ScheduleOptions {
+  /**
+   * Before the open: check at the prior session's close instead of `bar`
+   * minutes before the open. Back tests step only on regular-session bar ends,
+   * so they check here; the data and the next fill (the open) are the same.
+   */
+  beforeOpenAtClose?: boolean;
 }
 
 /**
- * Whether Entry and re-selection are evaluated at time `t`, and the period to
- * remember when they are (undefined when not). `lastPeriod` is the period last
- * evaluated, so each period is evaluated once however often the caller asks.
+ * Whether the scheduled part is checked at time `t`, and the period to
+ * remember when it is (undefined when not). `lastPeriod` is the period last
+ * checked, so each is checked once however often the caller asks. `barTime`
+ * is the end of the newest bar (`t` by default).
  *
- * - Bar cadences: once per bar slot of that size, keyed by `barTime` (the end
- *   of the newest bar, `t` by default). On coarser bars that is every bar; on
- *   finer bars, the first bar of each slot (the one ending on its boundary).
- * - Once a day: at the first evaluation after a session's close.
- * - Calendar periods: at the first evaluation after the close of the period's
- *   last trading day.
- * - `at` after the open (N226): once a day or period, on its trading day, at
- *   the first evaluation whose newest bar ends at least 1, 5 or 60 minutes
- *   after the open.
+ * - Every intraday bar: once per bar slot of that size, keyed by `barTime`, on
+ *   the schedule's days. On coarser run bars that is every run bar.
+ * - 1st / 2nd intraday bar: on each scheduled day, at the first check whose
+ *   newest bar ends at least one or two bars after the open.
+ * - Every 1-day bar, or the last bar: at the first check after the close of
+ *   each scheduled day.
+ * - Before the open: on each scheduled day, from one bar before its open (or
+ *   at the prior close, see `beforeOpenAtClose`).
  */
 export function scheduledPeriod(
-  frequency: ScheduleFrequency,
+  schedule: Schedule,
   t: number,
   lastPeriod: string | undefined,
   barTime: number = t,
-  at?: ScheduleTime,
+  options: ScheduleOptions = {},
 ): string | undefined {
-  const minutes = SCHEDULE_BAR_MINUTES[frequency];
-  const afterOpen = at ? SCHEDULE_TIME_MINUTES[at] : undefined;
+  const s = normalSchedule(schedule);
+  const minutes = SCHEDULE_BAR_MINUTES[s.bar];
   let key: string;
-  if (minutes === undefined && afterOpen !== undefined) {
-    const k = openPeriod(frequency, afterOpen, barTime);
-    if (k === undefined) return undefined;
-    key = k;
-  } else if (minutes !== undefined) {
+  if (s.which === 'beforeOpen') {
+    // The session about to open, or open now: the day after the last close.
+    const day = nextTradingDay(lastClosedDay(t));
+    const session = regularSession(day);
+    if (!session || !isPeriodEnd(s.days, day)) return undefined;
+    if (!options.beforeOpenAtClose) {
+      const lead = Math.min(minutes, 60) * 60_000;
+      if (t < Date.parse(session.open) - lead) return undefined;
+    }
+    key = `P${periodKey(s.days, day)}`;
+  } else if (s.which === 'every' && intraday(s)) {
+    if (s.days !== 'daily' && !isPeriodEnd(s.days, barDay(barTime))) return undefined;
     key = `B${minutes}:${Math.floor(barTime / (minutes * 60_000))}`;
+  } else if ((s.which === 'first' || s.which === 'second') && intraday(s)) {
+    const day = barDay(barTime);
+    const session = regularSession(day);
+    if (!session || !isPeriodEnd(s.days, day)) return undefined;
+    const after = (s.which === 'second' ? 2 : 1) * minutes * 60_000;
+    if (barTime < Date.parse(session.open) + after) return undefined;
+    key = `O${periodKey(s.days, day)}`;
   } else {
     const day = lastClosedDay(t);
-    if (!isPeriodEnd(frequency, day)) return undefined;
-    key = periodKey(frequency, day);
+    if (!isPeriodEnd(s.days, day)) return undefined;
+    key = periodKey(s.days, day);
   }
   return key === lastPeriod ? undefined : key;
 }
@@ -269,4 +294,17 @@ export function timeStopReached(
   const rule = timeStopOf(def);
   if (!rule || openedAt === undefined) return false;
   return tradingDaysHeld(openedAt, t) >= rule.barsHeld;
+}
+
+/**
+ * A back test's logged Check Entry or Check Exit in words. Runs since N227
+ * log the words; earlier runs logged the saved code ("monthEnd") and, for a
+ * check after the open, its time ("open5m").
+ */
+export function loggedScheduleText(logged: string, at?: string): string {
+  if (!(SCHEDULE_FREQUENCIES as readonly string[]).includes(logged)) return logged;
+  const time = (SCHEDULE_TIMES as readonly string[]).includes(at ?? '')
+    ? (at as ScheduleTime)
+    : undefined;
+  return scheduleLabel(scheduleFrom(logged as ScheduleFrequency, time));
 }

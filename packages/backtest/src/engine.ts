@@ -43,7 +43,6 @@ import {
   readsThisInstrument,
   selectionOf,
   isCalendarSchedule,
-  openTimeOf,
   scheduleBarMinutes,
   scheduleLabel,
   selectLegs,
@@ -72,6 +71,7 @@ import {
   type SeriesResolver,
   type StrategyDefinition,
   withPositions,
+  type Schedule,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import {
@@ -335,13 +335,12 @@ export function simulate({
 }: SimulationInput): BacktestResult {
   const warnings = new Warnings();
   const mode = slotModeOf(def);
-  const frequency = scheduleOf(def);
-  const calendar = isCalendarSchedule(frequency);
+  const schedule = scheduleOf(def);
+  const calendar = isCalendarSchedule(schedule);
   /** Check Exit (ADR 0073); undefined checks Exit on every run bar, as before schema 3. */
-  const exitFrequency = exitScheduleOf(def);
-  /** After the open (N226): checked once the period day's first 1m/5m/1h bar is in. */
-  const entryAt = openTimeOf(def.entry.schedule);
-  const exitAt = exitFrequency ? openTimeOf(def.exit.schedule) : undefined;
+  const exitSchedule = exitScheduleOf(def);
+  /** Back tests step on regular-session bar ends: before the open is checked at the prior close (N227). */
+  const scheduleOptions = { beforeOpenAtClose: true };
   /** The group What to trade names, as the engine runs it (ADR 0073). */
   const selection = selectionOf(def);
   /** Whether Exit when reads each holding's best close since entry (N217). */
@@ -397,30 +396,24 @@ export function simulate({
   // A bar cadence finer than the run's bars can only check Entry once a run bar
   // (N184); a check after the open waits for the first run bar ending after it (N226).
   const runMinutes = BACKTEST_INTERVAL_MINUTES[inputs.interval];
-  const finerWarning = (phase: 'Entry' | 'Exit', label: string, at: boolean): string =>
-    at
-      ? `${phase} is set to "${label}", but this run steps on ${BAR_SIZE_TEXT[inputs.interval]} bars, so ${phase} was checked at the end of the day's first ${BAR_SIZE_TEXT[inputs.interval]} bar`
-      : `${phase} is set to "${label}", but this run steps on ${BAR_SIZE_TEXT[inputs.interval]} bars, so ${phase} was checked once a ${BAR_SIZE_TEXT[inputs.interval]} bar`;
-  const cadence = scheduleBarMinutes({ frequency, at: entryAt });
-  if (cadence !== undefined && cadence < runMinutes) {
-    warnings.add(
-      'schedule_finer_than_bars',
-      finerWarning('Entry', scheduleLabel(frequency, entryAt), entryAt !== undefined),
-    );
-  }
-  const exitCadence = exitFrequency
-    ? scheduleBarMinutes({ frequency: exitFrequency, at: exitAt })
-    : undefined;
-  if (exitFrequency && exitCadence !== undefined && exitCadence < runMinutes) {
-    warnings.add(
-      'exit_schedule_finer_than_bars',
-      finerWarning('Exit', scheduleLabel(exitFrequency, exitAt), exitAt !== undefined),
-    );
-  }
-  if (exitFrequency && isCalendarSchedule(exitFrequency) && (def.exit.rules?.length ?? 0) > 0)
+  const finerWarning = (phase: 'Entry' | 'Exit', sched: Schedule): string => {
+    const bars = BAR_SIZE_TEXT[inputs.interval];
+    const when =
+      sched.which === 'every'
+        ? `once a ${bars} bar`
+        : `at the end of the first ${bars} bar ending after that`;
+    return `${phase} is set to "${scheduleLabel(sched)}", but this run steps on ${bars} bars, so ${phase} was checked ${when}`;
+  };
+  const cadence = scheduleBarMinutes(schedule);
+  if (cadence !== undefined && cadence < runMinutes)
+    warnings.add('schedule_finer_than_bars', finerWarning('Entry', schedule));
+  const exitCadence = scheduleBarMinutes(exitSchedule);
+  if (exitSchedule && exitCadence !== undefined && exitCadence < runMinutes)
+    warnings.add('exit_schedule_finer_than_bars', finerWarning('Exit', exitSchedule));
+  if (exitSchedule && isCalendarSchedule(exitSchedule) && (def.exit.rules?.length ?? 0) > 0)
     warnings.add(
       'exit_schedule_calendar',
-      `Exit is checked only on "${scheduleLabel(exitFrequency, exitAt)}", so the exit rules wait for that date too`,
+      `Exit is checked only on "${scheduleLabel(exitSchedule)}", so the exit rules wait for that date too`,
     );
   // Options metrics read end-of-day signals: say how many bars had one (options brief v2 §5.3).
   if (data.options && steps.length > 0)
@@ -1490,7 +1483,7 @@ export function simulate({
       staleSteps += 1;
     }
     // The schedule gates Entry and re-selection; Exit rules run on every bar (v1.2 item 4).
-    const period = scheduledPeriod(frequency, now, lastPeriod, now, entryAt);
+    const period = scheduledPeriod(schedule, now, lastPeriod, now, scheduleOptions);
     const evaluateEntry = period !== undefined;
     if (evaluateEntry) lastPeriod = period;
     if (evaluateEntry) entryEvaluations += 1;
@@ -1550,8 +1543,8 @@ export function simulate({
     // Check Exit gates the Exit condition and exit rules (ADR 0073); without
     // one they run on every bar, as before.
     let evaluateExit = true;
-    if (exitFrequency) {
-      const p = scheduledPeriod(exitFrequency, now, lastExitPeriod, now, exitAt);
+    if (exitSchedule) {
+      const p = scheduledPeriod(exitSchedule, now, lastExitPeriod, now, scheduleOptions);
       evaluateExit = p !== undefined;
       if (p !== undefined) lastExitPeriod = p;
     }
@@ -1958,10 +1951,8 @@ export function simulate({
           };
     return {
       trade,
-      entrySchedule: frequency,
-      exitSchedule: exitFrequency ?? null,
-      ...(entryAt ? { entryScheduleAt: entryAt } : {}),
-      ...(exitAt ? { exitScheduleAt: exitAt } : {}),
+      entrySchedule: scheduleLabel(schedule),
+      exitSchedule: exitSchedule ? scheduleLabel(exitSchedule) : null,
       perCandidate: perCandidateEntry,
     };
   }
@@ -2048,8 +2039,7 @@ export function simulate({
       kind: mode === 'selection' ? 'ranking' : 'legs',
       metric: ref ? { metric: ref.metric, params: ref.params } : null,
       direction: mode === 'selection' ? (selection?.direction ?? 'desc') : 'desc',
-      schedule: frequency,
-      ...(entryAt ? { scheduleAt: entryAt } : {}),
+      schedule: scheduleLabel(schedule),
       exclusionLabels: EXCLUSION_LABELS,
       rounds: selectionRounds,
     };
