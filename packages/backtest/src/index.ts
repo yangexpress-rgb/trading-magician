@@ -7,3 +7,4 @@ export * from './metrics';
 export * from './results';
 export * from './options-coverage';
 export * from './events-coverage';
+export * from './workload';

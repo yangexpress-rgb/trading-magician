@@ -1475,10 +1475,13 @@ export function simulate({
     for (const c of activeCycles()) settle(c, now);
 
     // 4. Conditions on closed bars, then due legs.
+    // A step counts as stale when any instrument has a bar and any rule series is
+    // stale. The series check doesn't depend on the instrument, so it runs once
+    // per step, not once per member (members x series made S&P 500 runs take
+    // minutes; ADR 0081).
     if (
-      [...usedInstruments].some(
-        (id) => view.latest(execKey(id)) && allSeries.some((e) => view.isStale(e)),
-      )
+      [...usedInstruments].some((id) => view.latest(execKey(id))) &&
+      allSeries.some((e) => view.isStale(e))
     ) {
       staleSteps += 1;
     }

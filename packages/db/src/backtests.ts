@@ -1,5 +1,7 @@
 import {
+  planSeries,
   strategyInstruments,
+  workloadProblem,
   type BacktestInputs,
   type BacktestMetrics,
   type BacktestResult,
@@ -8,6 +10,7 @@ import {
 import {
   listMembers,
   parseDefinition,
+  stockGroup,
   validateStrategy,
   type StrategyDefinition,
 } from '@tm/domain';
@@ -147,6 +150,12 @@ export async function startBacktest(
     );
   }
 
+  // Refuse a run too big for the worker before it is queued (ADR 0081).
+  const tooBig = workloadProblem(
+    planSeries(pinned.definition, inputs, plannedMembers(pinned.definition)),
+  );
+  if (tooBig) throw new StrategyError('invalid_state', tooBig);
+
   await assertWithinLimit(tx, userId, 'concurrentBacktests');
   await assertWithinLimit(tx, userId, 'backtestRunsPerDay');
 
@@ -173,6 +182,17 @@ export async function startBacktest(
     context: { strategyId, versionId: pinned.versionId, versionNo: pinned.versionNo },
   });
   return getBacktest(tx, run.id);
+}
+
+/**
+ * The members a run will test, for estimating its size before it is queued: a
+ * list as stored, or one stand-in per stock of a built-in group (the worker
+ * resolves the real ids, which can only be fewer).
+ */
+export function plannedMembers(def: StrategyDefinition): string[] {
+  const u = def.trade.kind === 'group' ? def.trade.universe : undefined;
+  if (u?.type === 'builtin') return [...stockGroup(u.id).members].map((s) => `planned:${s}`);
+  return listMembers(def);
 }
 
 export async function getBacktest(tx: Transaction, runId: string): Promise<BacktestRunDetail> {
@@ -324,6 +344,8 @@ export interface RunWork {
   definition: StrategyDefinition;
   instruments: Map<string, InstrumentRef>;
   cancelRequested: boolean;
+  /** Which attempt this is (1 for the first claim), for the worker's stage log. */
+  attempts: number;
 }
 
 /** Everything a claimed run needs, or null if this worker no longer holds it. */
@@ -337,6 +359,7 @@ export async function loadRunWork(
       inputs: backtestRuns.inputs,
       definition: strategyVersions.definition,
       cancelRequested: backtestRuns.cancelRequested,
+      attempts: backtestRuns.attempts,
     })
     .from(backtestRuns)
     .innerJoin(strategyVersions, eq(strategyVersions.id, backtestRuns.versionId))
@@ -363,6 +386,7 @@ export async function loadRunWork(
     definition: definition,
     instruments: new Map(rows.map((r) => [r.id, instrumentRef(r)])),
     cancelRequested: row.cancelRequested,
+    attempts: row.attempts,
   };
 }
 
