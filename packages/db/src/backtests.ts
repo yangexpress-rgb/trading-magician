@@ -1,4 +1,7 @@
 import {
+  BACKTEST_INTERVAL_NAMES,
+  MAX_RANGE_DAYS,
+  matchingBacktestInterval,
   planSeries,
   strategyInstruments,
   workloadProblem,
@@ -150,9 +153,10 @@ export async function startBacktest(
     );
   }
 
+  const runInputs = await fitInputs(tx, pinned.definition, inputs);
   // Refuse a run too big for the worker before it is queued (ADR 0081).
   const tooBig = workloadProblem(
-    planSeries(pinned.definition, inputs, plannedMembers(pinned.definition)),
+    planSeries(pinned.definition, runInputs, plannedMembers(pinned.definition, runInputs)),
   );
   if (tooBig) throw new StrategyError('invalid_state', tooBig);
 
@@ -166,7 +170,7 @@ export async function startBacktest(
       strategyId,
       versionId: pinned.versionId,
       definitionHash: pinned.row.draftHash,
-      inputs,
+      inputs: runInputs,
       dataSource: BACKTEST_DATA_SOURCE,
       createdBy: userId,
     })
@@ -184,12 +188,70 @@ export async function startBacktest(
   return getBacktest(tx, run.id);
 }
 
+/** A field problem in a back test request, shaped like the request's own checks. */
+function inputsError(path: string, message: string): StrategyError {
+  return new StrategyError('invalid_definition', 'Some back test inputs need attention', [
+    { code: 'custom', path: [path], message, input: undefined },
+  ]);
+}
+
+/**
+ * The inputs a run keeps (ADR 0082): bars at the strategy's own size (N233),
+ * whatever the request sent, within that size's longest range; and, for a
+ * group, only members of it (N235).
+ */
+export async function fitInputs(
+  tx: Transaction,
+  definition: StrategyDefinition,
+  inputs: BacktestInputs,
+): Promise<BacktestInputs> {
+  const { interval } = matchingBacktestInterval(definition);
+  const days = (Date.parse(inputs.to) - Date.parse(inputs.from)) / 86_400_000;
+  if (days > MAX_RANGE_DAYS[interval]) {
+    const most = interval === '1d' ? '5 years' : interval === '1h' ? '1 year' : '31 days';
+    throw inputsError(
+      'lookback',
+      `This strategy checks ${BACKTEST_INTERVAL_NAMES[interval].toLowerCase()} bars, so a back test can cover at most ${most}`,
+    );
+  }
+  const { symbols, ...rest } = inputs;
+  if (!symbols) return { ...rest, interval };
+  const trade = definition.trade;
+  if (trade.kind !== 'group') {
+    throw inputsError(
+      'symbols',
+      'Only a strategy that trades a group can test some of its members',
+    );
+  }
+  const picked = [...new Set(symbols.map((s) => s.toUpperCase()))];
+  let inGroup: (symbol: string) => boolean;
+  if (trade.universe.type === 'builtin') {
+    const group = stockGroup(trade.universe.id).members;
+    inGroup = (s) => group.has(s);
+  } else {
+    const refs = await instrumentRefs(tx, listMembers(definition));
+    const members = new Set([...refs.values()].map((r) => r.symbol.toUpperCase()));
+    inGroup = (s) => members.has(s);
+  }
+  const outside = picked.filter((s) => !inGroup(s));
+  if (outside.length > 0) {
+    throw inputsError(
+      'symbols',
+      `Not in this strategy's group: ${outside.slice(0, 10).join(', ')}${outside.length > 10 ? '…' : ''}`,
+    );
+  }
+  return { ...rest, interval, symbols: picked };
+}
+
 /**
  * The members a run will test, for estimating its size before it is queued: a
  * list as stored, or one stand-in per stock of a built-in group (the worker
  * resolves the real ids, which can only be fewer).
  */
-export function plannedMembers(def: StrategyDefinition): string[] {
+export function plannedMembers(def: StrategyDefinition, inputs?: BacktestInputs): string[] {
+  // Only the picked members when the run tests some of the group (ADR 0082).
+  if (inputs?.symbols && def.trade.kind === 'group')
+    return inputs.symbols.map((s) => `planned:${s}`);
   const u = def.trade.kind === 'group' ? def.trade.universe : undefined;
   if (u?.type === 'builtin') return [...stockGroup(u.id).members].map((s) => `planned:${s}`);
   return listMembers(def);

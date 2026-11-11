@@ -429,14 +429,17 @@ export function BackTestSection({
   latestText,
   draftTested,
   definition,
+  instruments,
 }: {
   backtests: BacktestsState;
   dirty: boolean;
   validation: ValidationState;
   latestText: string;
   draftTested: DraftTested;
-  /** The rules: the Bars choice starts at the interval they read (N179). */
+  /** The rules: they set the bars (N233) and the group to narrow (N235). */
   definition: StrategyDefinition;
+  /** Instruments the editor knows, to name a list group's members. */
+  instruments?: readonly { id: string; symbol: string }[];
 }) {
   return (
     <>
@@ -451,6 +454,7 @@ export function BackTestSection({
           state={backtests}
           blocked={blockedByChecks(dirty, validation, 'running a back test')}
           definition={definition}
+          instruments={instruments}
         />
         <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt className="text-ink-muted">Latest back test</dt>

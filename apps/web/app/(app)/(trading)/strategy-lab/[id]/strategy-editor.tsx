@@ -377,6 +377,7 @@ export function StrategyEditor({
             latestText={latestText}
             draftTested={draftTested}
             definition={definition}
+            instruments={instruments}
           />
         </PageSection>
         <PageSection

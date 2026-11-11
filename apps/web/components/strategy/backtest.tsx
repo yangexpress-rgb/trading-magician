@@ -1,11 +1,15 @@
 'use client';
 
 import {
+  BACKTEST_LOOKBACK_NAMES,
+  BACKTEST_LOOKBACKS,
   DEFAULT_BACKTEST_INPUTS,
-  MAX_RANGE_DAYS,
+  lookbackFits,
+  lookbackStart,
   matchingBacktestInterval,
   type BacktestInputs,
   type BacktestInterval,
+  type BacktestLookback,
 } from '@tm/backtest';
 import type { StrategyDefinition } from '@tm/domain';
 import {
@@ -14,17 +18,30 @@ import {
   type BacktestRunSummaryDto,
   type BacktestTradeDto,
 } from '@tm/contracts';
-import { addDays, nyDate } from '@tm/domain';
-import { Alert, Badge, Button, Card, SelectField, Table, Td, TextField, Th, Stat } from '@tm/ui';
+import { addDays, nyDate, stockGroup } from '@tm/domain';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  cx,
+  SelectField,
+  Table,
+  Td,
+  TextField,
+  Th,
+  Stat,
+} from '@tm/ui';
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { LineChart } from '@/components/line-chart';
 import { BacktestCycles } from '@/components/strategy/backtest-cycles';
 import { PhaseReports, SelectionRounds } from '@/components/strategy/backtest-detail';
 import { apiClient } from '@/lib/api-client';
 import {
+  barsFromStrategy,
   describeRun,
+  formatDay,
   formatMarketTime,
-  intervalHint,
   formatMoney,
   formatPct,
   formatSignedMoney,
@@ -143,55 +160,138 @@ export function useBacktests(strategyId: string): BacktestsState {
 // ---------------------------------------------------------------------------
 // Inputs
 
-type FormValues = Record<keyof BacktestInputs, string>;
-type FieldErrors = Partial<Record<keyof BacktestInputs, string>>;
+type MoneyKey =
+  | 'initialCapital'
+  | 'adjustment'
+  | 'slippageBps'
+  | 'commissionPerShare'
+  | 'commissionMin'
+  | 'maxVolumePct'
+  | 'borrowRatePct';
+type FormValues = Record<MoneyKey, string> & {
+  /** The day the run counts back from (N234): today unless picked. */
+  endDate: string;
+  lookback: BacktestLookback;
+  /** Whole group, or only the symbols typed (N235). */
+  scope: 'all' | 'some';
+  symbols: string;
+};
+type FieldErrors = Partial<Record<keyof BacktestInputs | keyof FormValues, string>>;
 
-/** Days a run covers by default: a year, or as much as the interval allows. */
-const defaultSpan = (interval: BacktestInterval) => Math.min(365, MAX_RANGE_DAYS[interval]);
-
-/** Bars that match the rules (N179), over a year or the interval's longest range, ending yesterday. */
-function defaultValues(interval: BacktestInterval): FormValues {
-  const to = addDays(nyDate(new Date().toISOString()), -1);
-  return { ...DEFAULT_BACKTEST_INPUTS, interval, from: addDays(to, 1 - defaultSpan(interval)), to };
+/** The longest look-back up to a year that the strategy's bars allow (N234). */
+function defaultLookback(to: string, interval: BacktestInterval): BacktestLookback {
+  const fits = BACKTEST_LOOKBACKS.filter((l) => lookbackFits(to, l, interval));
+  const upToYear = fits.filter(
+    (l) => BACKTEST_LOOKBACKS.indexOf(l) <= BACKTEST_LOOKBACKS.indexOf('1y'),
+  );
+  return upToYear[upToYear.length - 1] ?? '1w';
 }
 
-/** Moves the start up when the range is longer than the interval allows. */
-function fitRange(v: FormValues, interval: BacktestInterval): FormValues {
-  const max = MAX_RANGE_DAYS[interval];
-  const days = (Date.parse(v.to) - Date.parse(v.from)) / 86_400_000;
-  if (!(days > max)) return { ...v, interval };
-  return { ...v, interval, from: addDays(v.to, 1 - defaultSpan(interval)) };
+function defaultValues(interval: BacktestInterval): FormValues {
+  const { interval: _bars, ...rest } = DEFAULT_BACKTEST_INPUTS;
+  void _bars;
+  const today = nyDate(new Date().toISOString());
+  return {
+    ...rest,
+    endDate: today,
+    lookback: defaultLookback(today, interval),
+    scope: 'all',
+    symbols: '',
+  };
+}
+
+/** Symbols typed for a run, upper case, in order, once each. */
+export function parseSymbols(text: string): string[] {
+  return [
+    ...new Set(
+      text
+        .split(/[\s,;]+/)
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+/**
+ * The run's dates (N234): the period before the end date. Today's bars are
+ * still forming, so a run that ends today reads up to yesterday's close.
+ */
+export function runDates(
+  endDate: string,
+  lookback: BacktestLookback,
+  today: string,
+): { from: string; to: string; endsToday: boolean } {
+  const endsToday = endDate >= today;
+  const to = endsToday ? addDays(today, -1) : endDate;
+  const from = lookbackStart(endsToday ? today : endDate, lookback);
+  return { from: from > to ? to : from, to, endsToday };
 }
 
 function fieldErrorsFrom(e: unknown): FieldErrors {
   if (!(e instanceof ApiError) || !e.body.issues) return {};
   const out: FieldErrors = {};
   for (const issue of e.body.issues) {
-    const key = issue.path[0];
-    if (typeof key === 'string' && !(key in out)) out[key as keyof BacktestInputs] = issue.message;
+    const raw = issue.path[0];
+    // The dates are worked out from End date and Look back.
+    const key = raw === 'from' ? 'lookback' : raw === 'to' ? 'endDate' : raw;
+    if (typeof key === 'string' && !(key in out)) out[key as keyof FieldErrors] = issue.message;
   }
   return out;
+}
+
+/** What to trade as the run's instrument choice sees it (N235). */
+interface GroupInfo {
+  label: string;
+  size: number;
+  /** Members by symbol, for a list group; absent for a built-in stock group. */
+  symbols?: string[];
+  has: (symbol: string) => boolean;
+}
+
+function groupInfo(
+  definition: StrategyDefinition | undefined,
+  instruments: readonly { id: string; symbol: string }[],
+): GroupInfo | undefined {
+  const trade = definition?.trade;
+  if (trade?.kind !== 'group') return undefined;
+  if (trade.universe.type === 'builtin') {
+    const group = stockGroup(trade.universe.id);
+    return { label: group.label, size: group.members.size, has: (s) => group.members.has(s) };
+  }
+  const symbols = trade.universe.instrumentIds.flatMap((id) => {
+    const s = instruments.find((i) => i.id === id)?.symbol;
+    return s ? [s.toUpperCase()] : [];
+  });
+  const set = new Set(symbols);
+  return { label: 'the list', size: set.size, symbols: [...set], has: (s) => set.has(s) };
 }
 
 export function BacktestInputsForm({
   state,
   blocked,
   definition,
+  instruments = [],
 }: {
   state: BacktestsState;
   /** Why a run can't start now, or null. */
   blocked: string | null;
-  /** The rules being tested: the Bars choice starts at the interval they read (N179). */
+  /** The rules being tested: they set the bars (N233) and the group (N235). */
   definition?: StrategyDefinition | undefined;
+  /** Instruments the editor knows, to name a list group's members. */
+  instruments?: readonly { id: string; symbol: string }[] | undefined;
 }) {
   const matching = definition ? matchingBacktestInterval(definition) : undefined;
-  const matchingInterval = matching?.interval ?? DEFAULT_BACKTEST_INPUTS.interval;
-  const [values, setValues] = useState<FormValues>(() => defaultValues(matchingInterval));
-  // Until the person picks Bars, the choice follows the rules as they are edited.
-  const [intervalPicked, setIntervalPicked] = useState(false);
+  const interval = matching?.interval ?? DEFAULT_BACKTEST_INPUTS.interval;
+  const [values, setValues] = useState<FormValues>(() => defaultValues(interval));
+  const today = nyDate(new Date().toISOString());
+  // A look-back the strategy's bars can't cover moves to the longest they can.
   useEffect(() => {
-    if (!intervalPicked) setValues((v) => fitRange(v, matchingInterval));
-  }, [matchingInterval, intervalPicked]);
+    setValues((v) =>
+      lookbackFits(v.endDate, v.lookback, interval)
+        ? v
+        : { ...v, lookback: defaultLookback(v.endDate, interval) },
+    );
+  }, [interval]);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -199,7 +299,23 @@ export function BacktestInputsForm({
   const set = (key: keyof FormValues) => (e: { target: { value: string } }) =>
     setValues((v) => ({ ...v, [key]: e.target.value }));
 
-  const runBlocked = blocked ?? (state.active ? 'A back test of this strategy is running.' : null);
+  const group = groupInfo(definition, instruments);
+  const picked = group && values.scope === 'some' ? parseSymbols(values.symbols) : [];
+  const outside = group ? picked.filter((s) => !group.has(s)) : [];
+  const symbolsProblem =
+    group && values.scope === 'some'
+      ? picked.length === 0
+        ? 'Type at least one symbol, or test the whole group'
+        : outside.length > 0
+          ? `Not in ${group.label}: ${outside.slice(0, 10).join(', ')}`
+          : null
+      : null;
+  const dates = runDates(values.endDate, values.lookback, today);
+
+  const runBlocked =
+    blocked ??
+    (state.active ? 'A back test of this strategy is running.' : null) ??
+    (symbolsProblem ? 'Fix the instruments to test first.' : null);
 
   async function run() {
     setBusy(true);
@@ -207,9 +323,18 @@ export function BacktestInputsForm({
     setErrors({});
     try {
       await state.start({
-        ...values,
-        interval: values.interval as BacktestInputs['interval'],
+        from: dates.from,
+        to: dates.to,
+        lookback: values.lookback,
+        interval,
+        initialCapital: values.initialCapital,
         adjustment: values.adjustment as BacktestInputs['adjustment'],
+        slippageBps: values.slippageBps,
+        commissionPerShare: values.commissionPerShare,
+        commissionMin: values.commissionMin,
+        maxVolumePct: values.maxVolumePct,
+        borrowRatePct: values.borrowRatePct,
+        ...(group && values.scope === 'some' ? { symbols: picked } : {}),
       });
     } catch (e) {
       const fields = fieldErrorsFrom(e);
@@ -226,7 +351,7 @@ export function BacktestInputsForm({
     }
   }
 
-  const field = (key: keyof FormValues, label: string, props: Record<string, string> = {}) => (
+  const field = (key: MoneyKey, label: string, props: Record<string, string> = {}) => (
     <TextField
       name={`bt-${key}`}
       label={label}
@@ -237,6 +362,13 @@ export function BacktestInputsForm({
     />
   );
 
+  const toggleSymbol = (symbol: string) =>
+    setValues((v) => {
+      const list = parseSymbols(v.symbols);
+      const next = list.includes(symbol) ? list.filter((s) => s !== symbol) : [...list, symbol];
+      return { ...v, symbols: next.join(', ') };
+    });
+
   return (
     <form
       onSubmit={(e) => {
@@ -246,22 +378,28 @@ export function BacktestInputsForm({
     >
       <fieldset className="grid-fields-wide gap-3" disabled={busy}>
         <legend className="sr-only">Back test inputs</legend>
-        {field('from', 'From', { type: 'date' })}
-        {field('to', 'To', { type: 'date' })}
+        <TextField
+          name="bt-endDate"
+          label="End date"
+          type="date"
+          value={values.endDate}
+          max={today}
+          onChange={set('endDate')}
+          error={errors.endDate}
+          hint="The back test counts back from this day. Today unless you pick another."
+        />
         <SelectField
-          name="bt-interval"
-          label="Bars"
-          value={values.interval}
-          onChange={(e: { target: { value: string } }) => {
-            setIntervalPicked(true);
-            setValues((v) => fitRange(v, e.target.value as BacktestInterval));
-          }}
-          error={errors.interval}
-          hint={intervalHint(values.interval as BacktestInterval, matching?.finest)}
+          name="bt-lookback"
+          label="Look back"
+          value={values.lookback}
+          onChange={set('lookback')}
+          error={errors.lookback}
         >
-          <option value="1d">Daily</option>
-          <option value="1h">Hourly</option>
-          <option value="5m">5 minutes</option>
+          {BACKTEST_LOOKBACKS.map((l) => (
+            <option key={l} value={l} disabled={!lookbackFits(values.endDate, l, interval)}>
+              {BACKTEST_LOOKBACK_NAMES[l]}
+            </option>
+          ))}
         </SelectField>
         {field('initialCapital', 'Initial capital (USD)', { inputMode: 'decimal' })}
         <SelectField
@@ -277,8 +415,95 @@ export function BacktestInputsForm({
             </option>
           ))}
         </SelectField>
-        <div className="flex items-end text-sm text-ink-muted">Data: bars from your data feed</div>
       </fieldset>
+      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm" data-testid="bt-plan">
+        <dt className="text-ink-muted">Dates</dt>
+        <dd className="text-content">
+          {formatDay(dates.from)} to {formatDay(dates.to)}
+          {dates.endsToday && (
+            <span className="text-ink-muted">
+              {' '}
+              (today&apos;s bars are still forming, so data ends at the last close)
+            </span>
+          )}
+        </dd>
+        <dt className="text-ink-muted">Bars</dt>
+        <dd className="text-content">{barsFromStrategy(interval, matching?.finest)}</dd>
+        <dt className="text-ink-muted">Data</dt>
+        <dd className="text-content">Bars from your data feed</dd>
+      </dl>
+      {group && (
+        <fieldset className="mt-3 rounded-md border border-line p-3" disabled={busy}>
+          <legend className="px-1 text-sm font-medium">Instruments to test</legend>
+          <div className="flex flex-wrap gap-4 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="bt-scope"
+                value="all"
+                checked={values.scope === 'all'}
+                onChange={() => setValues((v) => ({ ...v, scope: 'all' }))}
+              />
+              Whole group ({group.label}, {group.size}{' '}
+              {group.size === 1 ? 'instrument' : 'instruments'})
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="bt-scope"
+                value="some"
+                checked={values.scope === 'some'}
+                onChange={() => setValues((v) => ({ ...v, scope: 'some' }))}
+              />
+              Only some of them
+            </label>
+          </div>
+          {values.scope === 'some' && (
+            <div className="mt-3">
+              <TextField
+                name="bt-symbols"
+                label="Symbols"
+                value={values.symbols}
+                onChange={set('symbols')}
+                placeholder="AAPL, MSFT, NVDA"
+                error={errors.symbols ?? symbolsProblem ?? undefined}
+                hint={`Separate symbols with commas or spaces. ${
+                  picked.length > 0 && !symbolsProblem
+                    ? `Tests ${picked.length} of ${group.size}; filters and rankings pick among these only.`
+                    : `Any member of ${group.label}.`
+                }`}
+              />
+              {group.symbols && group.symbols.length <= 60 && (
+                <div
+                  role="group"
+                  className="mt-2 flex flex-wrap gap-1"
+                  aria-label="Members of the group"
+                >
+                  {group.symbols.map((s) => {
+                    const on = picked.includes(s);
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => toggleSymbol(s)}
+                        className={cx(
+                          'rounded-full border px-2 py-0.5 text-xs',
+                          on
+                            ? 'border-info bg-info-soft text-info'
+                            : 'border-line text-content hover:bg-surface-2',
+                        )}
+                      >
+                        {s}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </fieldset>
+      )}
       <details className="mt-3 rounded-md border border-line p-3">
         <summary className="cursor-pointer text-sm font-medium">Costs and fills</summary>
         <fieldset className="mt-3 grid-fields-wide gap-3" disabled={busy}>

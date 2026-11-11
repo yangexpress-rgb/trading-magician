@@ -26,12 +26,12 @@ const provider = createDemoHistoryProvider({ now: () => new Date('2026-10-02T21:
 const inputs = { ...DEFAULT_BACKTEST_INPUTS, from: '2023-01-03', to: '2023-12-29' };
 
 /** Long DEMO-A while its close is above its 20-day average. */
-function crossover(): StrategyDefinition {
+function crossover(interval: '1d' | '5m' = '1d'): StrategyDefinition {
   const def = createDefinition();
   const px = {
     instrumentId: demoA,
     field: 'close' as const,
-    interval: '1d' as const,
+    interval,
     adjustment: 'split_and_dividend' as const,
     session: 'regular' as const,
     offset: 0,
@@ -68,10 +68,8 @@ function crossover(): StrategyDefinition {
   return def;
 }
 
-async function queueRun(patch: Partial<typeof inputs> = {}) {
-  const s = await asUser((tx) =>
-    createStrategy(tx, userId, { name: 'Crossover', definition: crossover() }),
-  );
+async function queueRun(patch: Partial<typeof inputs> = {}, definition = crossover()) {
+  const s = await asUser((tx) => createStrategy(tx, userId, { name: 'Crossover', definition }));
   return asUser((tx) => startBacktest(tx, userId, s.id, { ...inputs, ...patch }));
 }
 
@@ -125,7 +123,8 @@ describe('back-test worker', () => {
       asked.push({ userId: id, background: run.background });
       return provider;
     };
-    const run = await queueRun({ interval: '5m', from: '2023-03-01', to: '2023-03-31' });
+    // The strategy's 5-minute conditions set the bars (N233).
+    const run = await queueRun({ from: '2023-03-01', to: '2023-03-31' }, crossover('5m'));
     expect(
       await processNextRun({ db: t.app.db, provider: factory, workerId: 'w1', logger: quiet }),
     ).toBe('completed');

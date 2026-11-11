@@ -23,17 +23,12 @@ function onSchedule(def: StrategyDefinition, frequency: ScheduleFrequency): Stra
 }
 
 describe('5-minute back tests (N178)', () => {
-  it('accepts 5-minute runs of up to 31 days', () => {
+  it('caps 5-minute runs at 31 days (checked by the server once the strategy sets the bars, N233)', () => {
     expect(MAX_RANGE_DAYS['5m']).toBe(31);
     const ok = backtestInputsSchema.safeParse(
       inputs('2025-03-01', '2025-03-31', { interval: '5m' }),
     );
     expect(ok.success).toBe(true);
-    const long = backtestInputsSchema.safeParse(
-      inputs('2025-03-01', '2025-04-15', { interval: '5m' }),
-    );
-    expect(long.success).toBe(false);
-    expect(long.error?.issues[0]?.message).toBe('5-minute back tests can cover at most 31 days');
   });
 
   it('names 5-minute bars in the assumptions', () => {

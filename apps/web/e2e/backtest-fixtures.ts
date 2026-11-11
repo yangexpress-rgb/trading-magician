@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 /** Instrument ids as the editor lists them, read from a leg's Instrument picker. */
 export async function instrumentIds(page: Page, strategyId: string) {
@@ -150,4 +150,21 @@ export async function createStrategyWithRules(
   });
   expect(saved.status()).toBe(200);
   return (await saved.json()) as { id: string; rowVersion: number };
+}
+
+/**
+ * Picks a back test's end date and look-back (N234), retrying until the form
+ * shows the dates: a fill before the page hydrates is otherwise lost.
+ */
+export async function pickRunDates(
+  panel: Locator,
+  endDate: string,
+  lookback: string,
+  shown: string,
+) {
+  await expect(async () => {
+    await panel.getByLabel('End date').fill(endDate);
+    await panel.getByLabel('Look back').selectOption(lookback);
+    await expect(panel.getByText(shown, { exact: true })).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
 }

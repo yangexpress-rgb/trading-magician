@@ -288,8 +288,12 @@ export async function createScenario(t: TestDatabase, cfg: ScenarioConfig) {
         return { runId: run.id };
       } catch (e) {
         const err = e as { details?: unknown; message?: string };
-        if (err.details !== undefined) throw e;
-        return { refused: err.message ?? '' };
+        if (err.details === undefined) return { refused: err.message ?? '' };
+        // A refused input (the range for the strategy's bars, ADR 0082) names its field.
+        const issues = err.details as { code?: string; message?: string }[];
+        if (Array.isArray(issues) && issues[0]?.code === 'custom')
+          return { refused: issues[0].message ?? '' };
+        throw e;
       }
     },
   };

@@ -37,9 +37,17 @@ test('queue a back test, let the worker run it, and read the results', async ({
   });
   expect(future.status()).toBe(400);
   expect((await future.json()).error.issues[0].path).toEqual(['to']);
+  // A group's members only for a strategy that trades a group (N235).
+  const notGroup = await page.request.post(`/api/v1/strategies/${created.id}/backtests`, {
+    data: { from: '2023-01-03', to: '2023-12-29', symbols: ['DEMO-A'] },
+    headers,
+  });
+  expect(notGroup.status()).toBe(422);
+  expect((await notGroup.json()).error.issues[0].path).toEqual(['symbols']);
 
   const queued = await page.request.post(`/api/v1/strategies/${created.id}/backtests`, {
-    data: { from: '2023-01-03', to: '2023-12-29' },
+    // The strategy sets the bars (N233): a request's own bar size is replaced.
+    data: { from: '2023-01-03', to: '2023-12-29', interval: '5m' },
     headers,
   });
   expect(queued.status()).toBe(202);

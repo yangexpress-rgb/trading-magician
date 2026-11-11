@@ -46,11 +46,9 @@ describe('back test size and lease (ADR 0081)', () => {
       earnings: true,
       ranking: true,
     });
-    const started = await scenario.start();
-    expect(started).toEqual({
-      refused: expect.stringMatching(
-        /^This back test needs about 10\.\d million price bars, mostly 5-minute bars for 502 instruments over about 12 months\. A back test can hold up to 1\.2 million\./,
-      ),
+    // The strategy's 5-minute rules set its bars (ADR 0082), which cover at most 31 days.
+    expect(await scenario.start()).toEqual({
+      refused: expect.stringMatching(/5-minute bars, so a back test can cover at most 31 days/),
     });
     expect(MAX_BACKTEST_BARS).toBe(1_200_000);
   }, 60_000);
@@ -59,7 +57,8 @@ describe('back test size and lease (ADR 0081)', () => {
     t = await createTestDatabase();
     const scenario = await createScenario(t, {
       members: 5,
-      ...YEAR,
+      from: '2026-10-08',
+      to: '2026-11-06',
       price: '5m',
       earnings: true,
       ranking: true,
@@ -74,16 +73,14 @@ describe('back test size and lease (ADR 0081)', () => {
       workerId: 'w1',
       logger,
       heartbeatMs: 0,
-      // Five members' year of 5-minute bars is about 100,000: over this test limit.
-      maxBars: 50_000,
+      // Five members' month of 5-minute bars is about 8,000: over this test limit.
+      maxBars: 5_000,
       resolveUniverse: async () => ({ ids: scenario.ids, warnings: [] }),
     });
     expect(outcome).toBe('failed');
     expect(feed.calls.count).toBe(0);
     const run = await scenario.asUser((tx) => getBacktest(tx, started.runId));
-    expect(run.error).toMatch(
-      /^This back test needs about 1\d\d,\d{3} price bars, mostly 5-minute/,
-    );
+    expect(run.error).toMatch(/^This back test needs about \d+,\d{3} price bars, mostly 5-minute/);
     expect(lines.some((l) => l.stage === 'load_bars')).toBe(false);
   }, 60_000);
 
