@@ -1,0 +1,48 @@
+name: Refresh stock groups
+
+# The built-in stock groups' member lists ship with the app (ADR 0030, ADR 0080).
+# Once a month this refreshes them from their public sources and opens a pull
+# request with the changes; it can also be run by hand from the Actions tab.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 12 2 * *'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: stock-groups-${{ github.ref }}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Refresh the S&P 500
+        run: pnpm --filter @tm/domain sp500:update
+      - name: Refresh the other groups
+        continue-on-error: true
+        # A source that fails leaves its list as it was; the others still refresh.
+        run: pnpm --filter @tm/domain groups:update
+      - name: Propose the changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet; then echo "No member changes"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="stock-groups/refresh-$(date -u +%Y-%m-%d)"
+          git checkout -b "$branch"
+          git commit -am "Refresh stock group member lists ($(date -u +%Y-%m-%d))"
+          git push -u origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "Refresh stock group member lists ($(date -u +%Y-%m-%d))" \
+            --body "Monthly refresh of the built-in stock groups' members (S&P 500, Nasdaq 100, Dow 30, S&P 400/600, Russell 1000/2000). Review the diff for index changes."

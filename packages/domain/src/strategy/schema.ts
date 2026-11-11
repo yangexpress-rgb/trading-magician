@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { STOCK_GROUP_IDS } from '../market/stock-groups';
 import { BAR_INTERVALS, MARKET_FIELDS, PRICE_ADJUSTMENTS, SESSIONS } from './catalog';
 
 /**
@@ -538,7 +539,8 @@ export const metricRefSchema = z.object({
 });
 export type MetricRef = z.infer<typeof metricRefSchema>;
 
-export const BUILTIN_UNIVERSES = ['sp500'] as const;
+/** The built-in stock groups (ADR 0080): S&P 500, Nasdaq 100, Dow 30, … and the S&P 500 sectors. */
+export const BUILTIN_UNIVERSES = STOCK_GROUP_IDS;
 export type BuiltinUniverse = (typeof BUILTIN_UNIVERSES)[number];
 
 /** A group's members (ADR 0073): a built-in universe or the person's own list. */
