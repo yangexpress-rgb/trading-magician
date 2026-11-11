@@ -28,12 +28,14 @@ import {
   OPTION_SIGNAL_FIELDS,
   type OptionSignalValues,
   type PlannedOrder,
+  type SeriesResolver,
   type StrategyDefinition,
 } from '@tm/domain';
 import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
 
+import Decimal from 'decimal.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { runRuntimePass, SAFETY, type RuntimeWorkerOptions } from '../src/runtime';
+import { closeSinceFill, runRuntimePass, SAFETY, type RuntimeWorkerOptions } from '../src/runtime';
 
 let t: TestDatabase;
 let userId: string;
@@ -50,10 +52,29 @@ let clock = T0;
 /** Test hooks: stale prices and a broker that stops answering. */
 let quoteDelayMs = 0;
 let brokerDown = false;
+/** Test hook: DEMO-A daily closes replaced by the date the bar ended, for the N225 stop checks. */
+const dailyCloses = new Map<string, string>();
 const options = (workerId: string): RuntimeWorkerOptions => ({
   db: t.app.db,
   workerId,
-  history: (now) => createDemoHistoryProvider({ now }),
+  history: (now) => {
+    const demo = createDemoHistoryProvider({ now });
+    return {
+      ...demo,
+      getBars: async (req) => {
+        const series = await demo.getBars(req);
+        if (req.interval !== '1d' || req.instrumentId !== demoA || dailyCloses.size === 0)
+          return series;
+        return {
+          ...series,
+          bars: series.bars.map((b) => {
+            const close = dailyCloses.get(b.end.slice(0, 10));
+            return close === undefined ? b : { ...b, close: new Decimal(close) };
+          }),
+        };
+      },
+    };
+  },
   quotes: (now) => {
     const feed = createDemoLiveFeed({ now });
     return {
@@ -221,6 +242,7 @@ async function stopAll() {
   await t.ownerSql`update execution_incident set resolved_at = now(), resolved_by = 'system' where resolved_at is null`;
   quoteDelayMs = 0;
   brokerDown = false;
+  dailyCloses.clear();
 }
 
 const incidents = () =>
@@ -1133,8 +1155,9 @@ describe('paper runtime: the trailing stop (ADR 0059)', () => {
     await pass();
     clock += 10_000;
     await pass();
-    // A later bar: the stop is checked on new data once the position is open.
-    clock += 3_600_000;
+    // The next day: the stop is checked on new data once the position is open, and
+    // reads the first daily close that ended after Entry filled (N225).
+    clock = Date.parse('2026-11-05T15:31:00Z');
     await pass();
     expect((await orders(runtimeId)).map((o) => [o.legLabel, o.state])[0]).toEqual([
       'Buy A',
@@ -1143,5 +1166,176 @@ describe('paper runtime: the trailing stop (ADR 0059)', () => {
     const [c] = await cycles(runtimeId);
     expect(Number((c!.state as { trailPeak?: string }).trailPeak)).toBeGreaterThan(0);
     await stopAll();
+  });
+});
+
+describe('paper runtime: kept-as-saved stops skip closes from before Entry filled (N225)', () => {
+  // BLK pattern: Entry fills mid-morning on Wednesday 2026-11-04; the latest daily
+  // bar then is Tuesday's, which ended at 21:00Z the day before the fill.
+  const ENTRY = Date.parse('2026-11-04T15:31:00Z');
+  const PRE = '2026-11-03'; // ended before the fill
+  const POST1 = '2026-11-04'; // first daily bar ending after the fill
+  const POST2 = '2026-11-05';
+
+  /** Opens DEMO-A long and runs one Exit check while only the pre-Entry daily bar exists. */
+  async function openLong(name: string, def: StrategyDefinition) {
+    clock = ENTRY;
+    const { runtimeId } = await startPaper(name, def);
+    await pass(); // Entry decided and placed
+    clock += 10_000;
+    await pass(); // filled
+    const [p] = await asUser((tx) => listPositions(tx, { runtimeId }));
+    expect(p?.averageCost).toBeTruthy();
+    return { runtimeId, entry: Number(p!.averageCost) };
+  }
+  /** An Exit check on the next hourly bar, after the fill, the same day. */
+  async function checkSameDay() {
+    clock = ENTRY + 10_000 + 3_600_000;
+    await pass();
+  }
+  async function checkOn(day: string) {
+    clock = Date.parse(`${day}T15:31:10Z`);
+    await pass();
+  }
+  const labels = async (runtimeId: string) => (await orders(runtimeId)).map((o) => o.legLabel);
+  const state = async (runtimeId: string) =>
+    (await cycles(runtimeId))[0]!.state as {
+      atrAtEntry?: string;
+      moveAtEntry?: string;
+      trailPeak?: string;
+      status?: string;
+    };
+  const exitOnly = (def: StrategyDefinition) => {
+    def.entry.orders = [leg('buy', { legLabel: 'Buy A' })];
+    def.exit.orders = [leg('sell', { legLabel: 'Sell A', side: 'close' })];
+    def.exit.condition = never();
+    return def;
+  };
+
+  it('ATR stop: a pre-Entry close beyond the stop does not exit; the first post-Entry one does', async () => {
+    const def = exitOnly(pairDefinition());
+    def.entry.risk = { atrPeriod: 5, atrMultiple: '2' };
+    def.exit.rules = [{ kind: 'atrStop', id: 'atr' }];
+    const { runtimeId, entry } = await openLong('N225 ATR stop', def);
+    const atr = Number((await state(runtimeId)).atrAtEntry);
+    expect(atr).toBeGreaterThan(0);
+    const level = entry - 2 * atr;
+    // Tuesday's close sits far below the stop level: it would fire without the guard.
+    dailyCloses.set(PRE, (level - atr).toFixed(4));
+    await checkSameDay();
+    expect(await labels(runtimeId)).toEqual(['Buy A']);
+    expect((await cycles(runtimeId))[0]!.status).toBe('open');
+    // Wednesday's close, the first after the fill, is genuinely through the stop.
+    dailyCloses.set(POST1, (level - atr / 2).toFixed(4));
+    await checkOn(POST2);
+    expect(await labels(runtimeId)).toEqual(['Buy A', 'Sell A']);
+    await stopAll();
+  });
+
+  it('expected-move exit: a pre-Entry close outside the band does not exit; the first post-Entry one does', async () => {
+    await addSeedUnderlyings(t.worker.db, [demoA]);
+    const nulls = Object.fromEntries(
+      OPTION_SIGNAL_FIELDS.map((f) => [f, null]),
+    ) as OptionSignalValues;
+    await saveOptionSignal(t.worker.db, {
+      underlyingId: demoA,
+      asOfDate: '2026-11-03',
+      values: { ...nulls, expected_move_5d_pct: 0.031 },
+      ivHistoryDays: 0,
+      expiries: [],
+      underlyingClose: 100,
+      riskFreeRate: 0.04,
+      dividendYield: 0,
+      source: 'recorded',
+      feed: 'cboe',
+      computedAt: new Date(),
+    });
+    const feeds = await asUser((tx) => tx.select().from(schema.dataFeedConnections));
+    if (!feeds.some((f) => f.provider === 'cboe_options'))
+      await asUser((tx) =>
+        createFeed(tx, {
+          userId,
+          name: 'CBOE delayed options (daily)',
+          provider: 'cboe_options',
+          assetClasses: ['stock', 'etf'],
+        }),
+      );
+    const def = exitOnly(pairDefinition());
+    def.exit.rules = [
+      { kind: 'expectedMove', id: 'em', horizon: 5, multiple: '1', side: 'either' },
+    ];
+    const { runtimeId, entry } = await openLong('N225 expected move', def);
+    expect((await state(runtimeId)).moveAtEntry).toBe('0.031');
+    // Band is entry × (1 ± 3.1%). Tuesday's close is 10% under: outside the band.
+    dailyCloses.set(PRE, (entry * 0.9).toFixed(4));
+    await checkSameDay();
+    expect(await labels(runtimeId)).toEqual(['Buy A']);
+    expect((await cycles(runtimeId))[0]!.status).toBe('open');
+    // Wednesday's close is 5% under: genuinely outside the band.
+    dailyCloses.set(POST1, (entry * 0.95).toFixed(4));
+    await checkOn(POST2);
+    expect(await labels(runtimeId)).toEqual(['Buy A', 'Sell A']);
+    await stopAll();
+  });
+
+  it('trailing stop: a pre-Entry close below the stop does not exit', async () => {
+    const def = exitOnly(pairDefinition());
+    def.exit.rules = [{ kind: 'trailingStop', id: 'ts', percent: '1' }];
+    const { runtimeId, entry } = await openLong('N225 trailing stop, false exit', def);
+    dailyCloses.set(PRE, (entry * 0.9).toFixed(4));
+    await checkSameDay();
+    expect(await labels(runtimeId)).toEqual(['Buy A']);
+    expect((await cycles(runtimeId))[0]!.status).toBe('open');
+    expect((await state(runtimeId)).trailPeak).toBeUndefined();
+    await stopAll();
+  });
+
+  it('trailing stop: a pre-Entry close above Entry never becomes the peak', async () => {
+    const def = exitOnly(pairDefinition());
+    def.exit.rules = [{ kind: 'trailingStop', id: 'ts', percent: '1' }];
+    const { runtimeId, entry } = await openLong('N225 trailing stop, peak', def);
+    // Tuesday closed 10% above Entry: as a peak it would put the stop at entry × 1.089.
+    dailyCloses.set(PRE, (entry * 1.1).toFixed(4));
+    await checkSameDay();
+    expect((await state(runtimeId)).trailPeak).toBeUndefined();
+    expect(await labels(runtimeId)).toEqual(['Buy A']);
+    // Wednesday closes 0.5% under Entry: through a stop from the false peak, not
+    // through the real one (entry × 0.99).
+    dailyCloses.set(POST1, (entry * 0.995).toFixed(4));
+    await checkOn(POST2);
+    expect(await labels(runtimeId)).toEqual(['Buy A']);
+    expect((await cycles(runtimeId))[0]!.status).toBe('open');
+    expect(Number((await state(runtimeId)).trailPeak)).toBeCloseTo(entry, 6);
+    // Thursday closes 2% under the real peak: the stop fires.
+    dailyCloses.set(POST2, (entry * 0.98).toFixed(4));
+    await checkOn('2026-11-06');
+    expect(await labels(runtimeId)).toEqual(['Buy A', 'Sell A']);
+    await stopAll();
+  });
+
+  it('a bar ending exactly when Entry first filled is read; one ending earlier is not', () => {
+    const expr = {
+      kind: 'market' as const,
+      id: 'c',
+      instrumentId: 'x',
+      field: 'close' as const,
+      interval: '1d' as const,
+      adjustment: 'split_and_dividend' as const,
+      session: 'regular' as const,
+      offset: 0,
+    };
+    const end = Date.parse('2026-11-04T21:00:00Z');
+    const resolver = (close: Decimal | undefined, barEnd: number | undefined): SeriesResolver => ({
+      value: () => close,
+      isStale: () => false,
+      barEnd: () => barEnd,
+    });
+    const read = resolver(new Decimal(50), end);
+    expect(closeSinceFill(read, expr, end)?.toString()).toBe('50');
+    expect(closeSinceFill(read, expr, end - 1)?.toString()).toBe('50');
+    expect(closeSinceFill(read, expr, end + 1)).toBeUndefined();
+    expect(closeSinceFill(read, expr, undefined)).toBeUndefined();
+    expect(closeSinceFill(resolver(undefined, end), expr, end)).toBeUndefined();
+    expect(closeSinceFill(resolver(new Decimal(50), undefined), expr, end)).toBeUndefined();
   });
 });

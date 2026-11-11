@@ -18,7 +18,7 @@ describe('back-test requests', () => {
     });
   });
 
-  it("checks the dates; the range limit waits for the strategy's bars (N228)", () => {
+  it("checks the dates; the range limit waits for the strategy's bars (N233)", () => {
     expect(
       startBacktestRequest.safeParse({ from: '2022-01-03', to: '2024-01-03', interval: '1h' })
         .success,

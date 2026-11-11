@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseSymbols, runDates } from './backtest';
 
-describe('back test inputs (N229, N230)', () => {
+describe('back test inputs (N234, N235)', () => {
   it('reads typed symbols once each, upper case', () => {
     expect(parseSymbols(' aapl, MSFT  nvda;aapl ')).toEqual(['AAPL', 'MSFT', 'NVDA']);
     expect(parseSymbols('')).toEqual([]);

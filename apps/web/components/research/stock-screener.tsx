@@ -3,8 +3,8 @@
 import { ApiError, type StockScreenDto } from '@tm/contracts';
 import {
   fromScreenTuple,
-  SP500_AS_OF,
-  SP500_SECTORS,
+  AVAILABLE_STOCK_GROUPS,
+  stockGroup,
   type ScreenNumberColumn,
   type ScreenRow,
 } from '@tm/domain';
@@ -19,6 +19,8 @@ import {
   EMPTY_FILTERS,
   encodeScreenState,
   filterRows,
+  inUniverse as rowInUniverse,
+  universeCovers,
   columnHeader,
   formatCell,
   isSigned,
@@ -109,7 +111,7 @@ export function StockScreener({
   );
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(100);
-  /** Which stocks the rows on screen cover: the S&P 500 only, or the whole market. */
+  /** Which stocks the rows on screen cover: one stock group, or the whole market. */
   const loaded = useRef<Universe | null>(null);
   const request = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -159,13 +161,14 @@ export function StockScreener({
     }
   }, []);
 
-  // The S&P 500 loads on its own, in seconds; the whole market only when asked for.
-  // Rows of the whole market already cover the S&P 500, so going back needs no load.
+  // A stock group loads on its own, in seconds; the whole market only when asked for.
+  // Rows of the whole market (or of the S&P 500, for a sector) already cover the group,
+  // so going back needs no load.
   const want: Universe = canScreenMarket ? universe : 'all';
   // With no feed at all there is nothing to screen; the notice above says what to add.
   const screenable = canScreenMarket || demoData;
   useEffect(() => {
-    if (!screenable || loaded.current === 'all' || loaded.current === want) return;
+    if (!screenable || universeCovers(loaded.current, want)) return;
     void load(want, false);
   }, [want, load, screenable]);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -188,14 +191,11 @@ export function StockScreener({
     () => (rows ? sortRows(filterRows(rows, filters, universe), sort) : []),
     [rows, filters, sort, universe],
   );
-  const counts = useMemo(
-    () => ({
-      all: rows?.length ?? 0,
-      sp500: rows?.filter((r) => SP500_SECTORS.has(r.symbol)).length ?? 0,
-    }),
-    [rows],
+  const inUniverse = useMemo(
+    () => rows?.filter((r) => rowInUniverse(r, want)).length ?? 0,
+    [rows, want],
   );
-  const inUniverse = counts[want];
+  const group = want === 'all' ? null : stockGroup(want);
   const exchanges = useMemo(() => [...new Set((rows ?? []).map((r) => r.exchange))].sort(), [rows]);
   const pages = Math.max(1, Math.ceil(matched.length / pageSize));
   const shownPage = Math.min(page, pages - 1);
@@ -261,7 +261,7 @@ export function StockScreener({
       label: 'Sector',
       pinned: true,
       value: filters.sector,
-      hint: 'GICS sector, for S&P 500 members',
+      hint: 'Sector, for members of the built-in stock groups',
       options: SECTORS.map((x) => ({ value: x, label: x })),
     },
     {
@@ -366,7 +366,7 @@ export function StockScreener({
               title: canScreenMarket ? undefined : 'Add an Alpaca data feed to screen real stocks',
               options: canScreenMarket
                 ? [
-                    { value: 'sp500', label: 'S&P 500' },
+                    ...AVAILABLE_STOCK_GROUPS.map((g) => ({ value: g.id, label: g.label })),
                     { value: 'all', label: 'All US stocks' },
                   ]
                 : [{ value: 'all', label: demoData ? 'Demo instruments' : 'All US stocks' }],
@@ -398,13 +398,13 @@ export function StockScreener({
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <p role="status" aria-live="polite" className="min-w-0 flex-1 text-sm text-ink-muted">
             {loading
-              ? want === 'sp500'
-                ? 'Getting prices for the S&P 500…'
+              ? group
+                ? `Getting prices for the ${group.label}…`
                 : canScreenMarket
                   ? 'Getting prices for every US stock and ETF… the first screen of the day takes a minute or two.'
                   : 'Getting prices…'
               : rows && screen
-                ? `${matched.length.toLocaleString('en-US')} of ${inUniverse.toLocaleString('en-US')} ${universe === 'sp500' ? 'S&P 500 stocks' : inUniverse === 1 ? 'stock' : 'stocks and ETFs'} match`
+                ? `${matched.length.toLocaleString('en-US')} of ${inUniverse.toLocaleString('en-US')} ${group ? `${group.label} stocks` : inUniverse === 1 ? 'stock' : 'stocks and ETFs'} match`
                 : ''}
             {!loading && screen?.status === 'ready' && (
               <span className="text-xs">
@@ -450,7 +450,7 @@ export function StockScreener({
               <HeaderCell label="Name" sortKey="name" sort={sort} onSort={toggleSort} />
               <HeaderCell
                 label="Sector"
-                title="GICS sector, for S&P 500 members"
+                title="Sector, for members of the built-in stock groups"
                 sortKey="sector"
                 sort={sort}
                 onSort={toggleSort}
@@ -608,8 +608,10 @@ export function StockScreener({
           )}
           <span>
             Daily prices are split-adjusted. Today’s values grow through the session; a dash means
-            the stock has not traded today or lacks the history. S&P 500 members and sectors as of{' '}
-            {SP500_AS_OF}.
+            the stock has not traded today or lacks the history.{' '}
+            {group
+              ? `${group.label} members as of ${group.asOf}, from ${group.source}; today’s members, so stocks that left the group are not in past results.`
+              : 'Sectors come from the S&P 500, 400 and 600 lists, the Nasdaq 100 and the Russell ETFs’ holdings.'}
           </span>
           {screen.warnings.map((w) => (
             <span key={w} className="basis-full">

@@ -18,7 +18,7 @@ import {
   type BacktestRunSummaryDto,
   type BacktestTradeDto,
 } from '@tm/contracts';
-import { addDays, isSp500, nyDate, SP500_SECTORS } from '@tm/domain';
+import { addDays, nyDate, stockGroup } from '@tm/domain';
 import {
   Alert,
   Badge,
@@ -169,16 +169,16 @@ type MoneyKey =
   | 'maxVolumePct'
   | 'borrowRatePct';
 type FormValues = Record<MoneyKey, string> & {
-  /** The day the run counts back from (N229): today unless picked. */
+  /** The day the run counts back from (N234): today unless picked. */
   endDate: string;
   lookback: BacktestLookback;
-  /** Whole group, or only the symbols typed (N230). */
+  /** Whole group, or only the symbols typed (N235). */
   scope: 'all' | 'some';
   symbols: string;
 };
 type FieldErrors = Partial<Record<keyof BacktestInputs | keyof FormValues, string>>;
 
-/** The longest look-back up to a year that the strategy's bars allow (N229). */
+/** The longest look-back up to a year that the strategy's bars allow (N234). */
 function defaultLookback(to: string, interval: BacktestInterval): BacktestLookback {
   const fits = BACKTEST_LOOKBACKS.filter((l) => lookbackFits(to, l, interval));
   const upToYear = fits.filter(
@@ -213,7 +213,7 @@ export function parseSymbols(text: string): string[] {
 }
 
 /**
- * The run's dates (N229): the period before the end date. Today's bars are
+ * The run's dates (N234): the period before the end date. Today's bars are
  * still forming, so a run that ends today reads up to yesterday's close.
  */
 export function runDates(
@@ -239,11 +239,11 @@ function fieldErrorsFrom(e: unknown): FieldErrors {
   return out;
 }
 
-/** What to trade as the run's instrument choice sees it (N230). */
+/** What to trade as the run's instrument choice sees it (N235). */
 interface GroupInfo {
   label: string;
   size: number;
-  /** Members by symbol, for a list group; absent for the S&P 500. */
+  /** Members by symbol, for a list group; absent for a built-in stock group. */
   symbols?: string[];
   has: (symbol: string) => boolean;
 }
@@ -255,7 +255,8 @@ function groupInfo(
   const trade = definition?.trade;
   if (trade?.kind !== 'group') return undefined;
   if (trade.universe.type === 'builtin') {
-    return { label: 'S&P 500', size: SP500_SECTORS.size, has: isSp500 };
+    const group = stockGroup(trade.universe.id);
+    return { label: group.label, size: group.members.size, has: (s) => group.members.has(s) };
   }
   const symbols = trade.universe.instrumentIds.flatMap((id) => {
     const s = instruments.find((i) => i.id === id)?.symbol;
@@ -274,7 +275,7 @@ export function BacktestInputsForm({
   state: BacktestsState;
   /** Why a run can't start now, or null. */
   blocked: string | null;
-  /** The rules being tested: they set the bars (N228) and the group (N230). */
+  /** The rules being tested: they set the bars (N233) and the group (N235). */
   definition?: StrategyDefinition | undefined;
   /** Instruments the editor knows, to name a list group's members. */
   instruments?: readonly { id: string; symbol: string }[] | undefined;

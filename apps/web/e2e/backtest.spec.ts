@@ -15,7 +15,7 @@ test('back test a pair strategy, read the results beside their assumptions, and 
 
   const panel = page.getByRole('region', { name: 'Run a back test', exact: true });
   await expect(panel.getByText('None yet')).toBeVisible();
-  // An end date and a period back from it (N229); the strategy sets the bars (N228).
+  // An end date and a period back from it (N234); the strategy sets the bars (N233).
   await expect(panel.getByLabel('End date')).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
   await expect(panel.getByLabel('Look back')).toHaveValue('1y');
   await pickRunDates(panel, '2023-12-29', '1y', 'Dec 29, 2022 to Dec 29, 2023');
@@ -23,7 +23,7 @@ test('back test a pair strategy, read the results beside their assumptions, and 
   await expect(
     panel.getByText(/^Daily bars, set by the strategy's Check Entry, Check Exit and conditions\./),
   ).toBeVisible();
-  // A pair is not a group: no instruments to narrow (N230).
+  // A pair is not a group: no instruments to narrow (N235).
   await expect(panel.getByRole('group', { name: 'Instruments to test' })).toHaveCount(0);
   await panel.getByText('Costs and fills').click();
   await expect(panel.getByLabel('Slippage (basis points)')).toHaveValue('5');
@@ -135,7 +135,7 @@ test('back test a pair strategy, read the results beside their assumptions, and 
       .map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`),
   ).toEqual([]);
 
-  // Every period fits daily bars (N229).
+  // Every period fits daily bars (N234).
   await expect(panel.getByRole('option', { name: '5 years' })).toBeEnabled();
 
   // Validation picked up the finished run: no back-test warning remains.

@@ -123,7 +123,7 @@ describe('back-test worker', () => {
       asked.push({ userId: id, background: run.background });
       return provider;
     };
-    // The strategy's 5-minute conditions set the bars (N228).
+    // The strategy's 5-minute conditions set the bars (N233).
     const run = await queueRun({ from: '2023-03-01', to: '2023-03-31' }, crossover('5m'));
     expect(
       await processNextRun({ db: t.app.db, provider: factory, workerId: 'w1', logger: quiet }),

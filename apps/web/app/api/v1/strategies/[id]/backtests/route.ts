@@ -27,7 +27,7 @@ export const POST = api<Params>(async (request, { tx, userId }, { id }) => {
       { path: ['to'], message: 'Choose today or an earlier date' },
     ]);
   }
-  // Today's bars are still forming (N229): a run that ends today reads up to yesterday's close.
+  // Today's bars are still forming (N234): a run that ends today reads up to yesterday's close.
   const inputs =
     asked.to === today
       ? {

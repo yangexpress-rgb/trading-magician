@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { lookbackFits, lookbackStart } from './inputs';
 
-describe('look-back periods (N229)', () => {
+describe('look-back periods (N234)', () => {
   it('counts calendar weeks, months and years back from the end date', () => {
     expect(lookbackStart('2026-11-11', '1w')).toBe('2026-11-04');
     expect(lookbackStart('2026-11-11', '2w')).toBe('2026-10-28');

@@ -31,7 +31,7 @@ export const BACKTEST_INTERVAL_NAMES: Record<BacktestInterval, string> = {
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 
 /**
- * How far a run looks back from its end date (N229): the form picks an end
+ * How far a run looks back from its end date (N234): the form picks an end
  * date (today by default) and one of these, and the run covers the period
  * before it. Months and years are calendar ones.
  */
@@ -79,9 +79,9 @@ export function lookbackFits(
   return days <= MAX_RANGE_DAYS[interval];
 }
 
-/** A stock or ETF symbol as typed for a run's instruments (N230). */
+/** A stock or ETF symbol as typed for a run's instruments (N235). */
 export const BACKTEST_SYMBOL = /^[A-Z][A-Z0-9.-]{0,9}$/;
-/** Most instruments a run can be narrowed to (N230): the whole S&P 500 fits. */
+/** Most instruments a run can be narrowed to (N235): the whole S&P 500 fits. */
 export const MAX_BACKTEST_SYMBOLS = 600;
 const nonNegative = decimalString.refine((v) => Number(v) >= 0, 'Must be zero or more');
 
@@ -89,15 +89,15 @@ export const backtestInputsSchema = z
   .object({
     from: date,
     to: date,
-    /** The period the form picked, kept to describe the run (N229); from/to are what run. */
+    /** The period the form picked, kept to describe the run (N234); from/to are what run. */
     lookback: z.enum(BACKTEST_LOOKBACKS).optional(),
     /**
-     * The strategy's own bar size (N228, ADR 0079): the server sets it from
+     * The strategy's own bar size (N233, ADR 0082): the server sets it from
      * the rules, whatever a request sends.
      */
     interval: z.enum(BACKTEST_INTERVALS),
     /**
-     * Only these members of a group are tested (N230); absent tests the whole
+     * Only these members of a group are tested (N235); absent tests the whole
      * group. Symbols, upper case.
      */
     symbols: z
@@ -120,8 +120,8 @@ export const backtestInputsSchema = z
     if (v.from > v.to) {
       ctx.addIssue({ code: 'custom', path: ['to'], message: 'End date must be after the start' });
     }
-    // The longest range depends on the strategy's own bars (N228), so the
-    // server checks it once it has set them (`fitInputs`, ADR 0079).
+    // The longest range depends on the strategy's own bars (N233), so the
+    // server checks it once it has set them (`fitInputs`, ADR 0082).
   });
 export type BacktestInputs = z.infer<typeof backtestInputsSchema>;
 

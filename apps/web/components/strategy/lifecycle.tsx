@@ -436,7 +436,7 @@ export function BackTestSection({
   validation: ValidationState;
   latestText: string;
   draftTested: DraftTested;
-  /** The rules: they set the bars (N228) and the group to narrow (N230). */
+  /** The rules: they set the bars (N233) and the group to narrow (N235). */
   definition: StrategyDefinition;
   /** Instruments the editor knows, to name a list group's members. */
   instruments?: readonly { id: string; symbol: string }[];

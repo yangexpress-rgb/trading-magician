@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { stockGroup } from '../market/stock-groups';
 import { assertAllowedTradingMode } from '../trading-mode';
 import { DEMO_VENUE_CODE } from '../integrations/providers';
 import { isIndicatorOnlyClass } from '../market/indices';
@@ -898,7 +899,7 @@ function checkOptions(def: StrategyDefinition, ctx: ValidationContext, add: Add)
   }
   const universe = ctx.options.universe;
   // A list universe ranked by an options metric needs each member recorded; the
-  // built-in S&P 500 is ranked over the members that are, the rest as unknown.
+  // built-in stock group is ranked over the members that are, the rest as unknown.
   for (const id of optionInstruments(def, listMembers(def))) {
     if (id === CONTEXT_INSTRUMENT_ID || universe.has(id)) continue;
     const info = ctx.instruments.get(id);
@@ -1053,22 +1054,26 @@ function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Ad
   const account = template ? ctx.accounts.get(template.accountId) : undefined;
   if (sel.universe.type === 'builtin') {
     if (ranking && !ranking.assetClasses.includes('stock')) {
-      add('error', 'metric_unsupported', `${ranking.label} can't be computed for S&P 500 stocks`, [
-        'trade',
-        'ranking',
-      ]);
+      add(
+        'error',
+        'metric_unsupported',
+        `${ranking.label} can't be computed for ${stockGroup(sel.universe.id).label} stocks`,
+        ['trade', 'ranking'],
+      );
     }
     if (!ctx.hasFeed('stock', 'bars')) {
-      add('error', 'missing_feed', 'No active data feed covers US stock bars for the S&P 500', [
-        'trade',
-        'universe',
-      ]);
+      add(
+        'error',
+        'missing_feed',
+        `No active data feed covers US stock bars for the ${stockGroup(sel.universe.id).label}`,
+        ['trade', 'universe'],
+      );
     }
     if (account && !account.capabilities.assetClasses.includes('stock')) {
       add(
         'error',
         'unsupported_asset_class',
-        `"${account.nickname}" can't trade stocks, so it can't hold S&P 500 members`,
+        `"${account.nickname}" can't trade stocks, so it can't hold ${stockGroup(sel.universe.id).label} members`,
         ['trade', 'universe'],
       );
     }

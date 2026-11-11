@@ -4,7 +4,7 @@ import { pickMembers } from './backtests';
 const symbols: Record<string, string> = { a: 'AAPL', m: 'MSFT', n: 'NVDA' };
 const symbolOf = (id: string) => symbols[id];
 
-describe('pickMembers (N230)', () => {
+describe('pickMembers (N235)', () => {
   it("keeps the picked members in the group's order", () => {
     expect(pickMembers(['a', 'm', 'n'], ['nvda', 'AAPL'], symbolOf)).toEqual({
       members: ['a', 'n'],

@@ -153,7 +153,7 @@ export async function createStrategyWithRules(
 }
 
 /**
- * Picks a back test's end date and look-back (N229), retrying until the form
+ * Picks a back test's end date and look-back (N234), retrying until the form
  * shows the dates: a fill before the page hydrates is otherwise lost.
  */
 export async function pickRunDates(

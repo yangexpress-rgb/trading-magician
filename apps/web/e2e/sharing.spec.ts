@@ -211,3 +211,76 @@ test('accepts several shares at once, then all the rest', async ({ page, newPage
   await expect(ben.getByRole('row', { name: /T00010/ })).toContainText('Accepted');
   await expect(ben.getByRole('button', { name: /^Accept all/ })).toHaveCount(0);
 });
+
+test('shares a strategy from its own page under its S number, with or without a theory', async ({
+  page,
+  newPage,
+  baseURL,
+}) => {
+  const ben = await newPage();
+  await signUpAndVerify(ben, uniqueEmail('page-share-ben'), 'Page Recipient');
+  const benCode = await memberId(ben);
+  await signUpAndVerify(page, uniqueEmail('page-share-ann'), 'Page Sender');
+
+  const labNumberOf = async (id: string) =>
+    (await (await page.request.get(`/api/v1/strategies/${id}`)).json()).labNumber as string;
+
+  // No theory: the page still offers Share, labelled by the strategy's own S number.
+  const plain = await createStrategyWithRules(page, baseURL!, 'Page share plain', oneLeg);
+  const plainNumber = await labNumberOf(plain.id);
+  expect(plainNumber).toMatch(/^S\d{5}-[A-Z]{2}$/);
+  await page.goto(`/strategy-lab/${plain.id}`);
+  await expect(page.getByTitle('Double-click to change the theory').first()).toContainText(
+    'Theory none referred',
+  );
+  await page
+    .getByRole('button', { name: `Share ${plainNumber} Page share plain`, exact: true })
+    .click();
+  await shareWith(page, benCode);
+
+  // With a theory: still the strategy's S number, never the theory's T number.
+  const linked = await createStrategyWithRules(page, baseURL!, 'Page share linked', oneLeg);
+  const linkedNumber = await labNumberOf(linked.id);
+  await page.goto(`/strategy-lab/${linked.id}`);
+  await page.getByTitle('Double-click to change the theory').first().dblclick();
+  await page.getByLabel('Search the Library by number or name').fill('T000');
+  const choice = page.getByRole('button', { name: /^T\d{5}-[A-Z]{2} / }).first();
+  const theoryNumber = ((await choice.textContent()) ?? '').match(/T\d{5}-[A-Z]{2}/)![0];
+  await choice.click();
+  await expect(
+    page.getByRole('link', { name: `Theory Library entry ${theoryNumber}` }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('button', { name: /^Share T\d{5}/ })).toHaveCount(0);
+  await page
+    .getByRole('button', { name: `Share ${linkedNumber} Page share linked`, exact: true })
+    .click();
+  await shareWith(page, benCode);
+
+  // Ben accepts both: each copy gets a new S number and keeps the source's theory (or none).
+  const accept = async (number: string) => {
+    await ben.goto('/sharing');
+    await ben
+      .getByRole('row', { name: new RegExp(number) })
+      .getByRole('link')
+      .first()
+      .click();
+    await ben.getByRole('button', { name: 'Accept and make my copy' }).click();
+    await expect(ben).toHaveURL(/\/strategy-lab\/[0-9a-f-]{36}$/);
+    const id = /[0-9a-f-]{36}$/.exec(ben.url())![0];
+    const copy = await (await ben.request.get(`/api/v1/strategies/${id}`)).json();
+    expect(copy.labNumber).toMatch(/^S\d{5}-[A-Z]{2}$/);
+    expect(copy.labNumber).not.toBe(number);
+    return copy as { labNumber: string; library: { registrationNumber: string } | null };
+  };
+  const plainCopy = await accept(plainNumber);
+  expect(plainCopy.library).toBeNull();
+  await expect(ben.getByTitle('Double-click to change the theory').first()).toContainText(
+    'Theory none referred',
+  );
+  const linkedCopy = await accept(linkedNumber);
+  expect(linkedCopy.library?.registrationNumber).toBe(theoryNumber);
+  await expect(
+    ben.getByRole('link', { name: `Theory Library entry ${theoryNumber}` }),
+  ).toBeVisible();
+});

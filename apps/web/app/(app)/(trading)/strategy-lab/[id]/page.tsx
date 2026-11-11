@@ -158,10 +158,11 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
             >
               Make a copy
             </Link>
-            {strategy.library && (
+            {/* Sharing shares the strategy, never its optional theory (ADR 0056, 0072). */}
+            {strategy.labNumber && (
               <ShareButton
                 source={{ kind: 'lab', strategyId: strategy.id }}
-                label={`${strategy.library.registrationNumber} ${strategy.name}`}
+                label={`${strategy.labNumber} ${strategy.name}`}
                 isAdmin={await isAdmin()}
                 size="sm"
               />

@@ -249,7 +249,7 @@ export const RANGE_LIMIT_WORDS: Record<BacktestInterval, string> = {
 };
 
 /**
- * Where a run's bars come from (N228, ADR 0079): the strategy's own checks and
+ * Where a run's bars come from (N233, ADR 0082): the strategy's own checks and
  * conditions set them, so the form shows them instead of offering a choice.
  */
 export function barsFromStrategy(

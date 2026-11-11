@@ -2,16 +2,18 @@ import {
   BACKTEST_INTERVAL_NAMES,
   MAX_RANGE_DAYS,
   matchingBacktestInterval,
+  planSeries,
   strategyInstruments,
+  workloadProblem,
   type BacktestInputs,
   type BacktestMetrics,
   type BacktestResult,
   type InstrumentRef,
 } from '@tm/backtest';
 import {
-  isSp500,
   listMembers,
   parseDefinition,
+  stockGroup,
   validateStrategy,
   type StrategyDefinition,
 } from '@tm/domain';
@@ -152,6 +154,11 @@ export async function startBacktest(
   }
 
   const runInputs = await fitInputs(tx, pinned.definition, inputs);
+  // Refuse a run too big for the worker before it is queued (ADR 0081).
+  const tooBig = workloadProblem(
+    planSeries(pinned.definition, runInputs, plannedMembers(pinned.definition, runInputs)),
+  );
+  if (tooBig) throw new StrategyError('invalid_state', tooBig);
 
   await assertWithinLimit(tx, userId, 'concurrentBacktests');
   await assertWithinLimit(tx, userId, 'backtestRunsPerDay');
@@ -189,9 +196,9 @@ function inputsError(path: string, message: string): StrategyError {
 }
 
 /**
- * The inputs a run keeps (ADR 0079): bars at the strategy's own size (N228),
+ * The inputs a run keeps (ADR 0082): bars at the strategy's own size (N233),
  * whatever the request sent, within that size's longest range; and, for a
- * group, only members of it (N230).
+ * group, only members of it (N235).
  */
 export async function fitInputs(
   tx: Transaction,
@@ -219,7 +226,8 @@ export async function fitInputs(
   const picked = [...new Set(symbols.map((s) => s.toUpperCase()))];
   let inGroup: (symbol: string) => boolean;
   if (trade.universe.type === 'builtin') {
-    inGroup = isSp500;
+    const group = stockGroup(trade.universe.id).members;
+    inGroup = (s) => group.has(s);
   } else {
     const refs = await instrumentRefs(tx, listMembers(definition));
     const members = new Set([...refs.values()].map((r) => r.symbol.toUpperCase()));
@@ -233,6 +241,20 @@ export async function fitInputs(
     );
   }
   return { ...rest, interval, symbols: picked };
+}
+
+/**
+ * The members a run will test, for estimating its size before it is queued: a
+ * list as stored, or one stand-in per stock of a built-in group (the worker
+ * resolves the real ids, which can only be fewer).
+ */
+export function plannedMembers(def: StrategyDefinition, inputs?: BacktestInputs): string[] {
+  // Only the picked members when the run tests some of the group (ADR 0082).
+  if (inputs?.symbols && def.trade.kind === 'group')
+    return inputs.symbols.map((s) => `planned:${s}`);
+  const u = def.trade.kind === 'group' ? def.trade.universe : undefined;
+  if (u?.type === 'builtin') return [...stockGroup(u.id).members].map((s) => `planned:${s}`);
+  return listMembers(def);
 }
 
 export async function getBacktest(tx: Transaction, runId: string): Promise<BacktestRunDetail> {
@@ -384,6 +406,8 @@ export interface RunWork {
   definition: StrategyDefinition;
   instruments: Map<string, InstrumentRef>;
   cancelRequested: boolean;
+  /** Which attempt this is (1 for the first claim), for the worker's stage log. */
+  attempts: number;
 }
 
 /** Everything a claimed run needs, or null if this worker no longer holds it. */
@@ -397,6 +421,7 @@ export async function loadRunWork(
       inputs: backtestRuns.inputs,
       definition: strategyVersions.definition,
       cancelRequested: backtestRuns.cancelRequested,
+      attempts: backtestRuns.attempts,
     })
     .from(backtestRuns)
     .innerJoin(strategyVersions, eq(strategyVersions.id, backtestRuns.versionId))
@@ -423,6 +448,7 @@ export async function loadRunWork(
     definition: definition,
     instruments: new Map(rows.map((r) => [r.id, instrumentRef(r)])),
     cancelRequested: row.cancelRequested,
+    attempts: row.attempts,
   };
 }
 

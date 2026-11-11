@@ -265,8 +265,8 @@ describe('queuing a back test', () => {
   });
 });
 
-describe('run inputs the strategy sets (ADR 0079)', () => {
-  it('uses the bars the rules read, whatever the request asked (N228)', async () => {
+describe('run inputs the strategy sets (ADR 0082)', () => {
+  it('uses the bars the rules read, whatever the request asked (N233)', async () => {
     const fitted = await asA((tx) =>
       fitInputs(tx, readyDefinition(), { ...inputs, interval: '5m' }),
     );
@@ -284,7 +284,7 @@ describe('run inputs the strategy sets (ADR 0079)', () => {
     expect(error.details).toMatchObject([{ path: ['lookback'] }]);
   });
 
-  it('keeps only members of the group, and only for a group (N230)', async () => {
+  it('keeps only members of the group, and only for a group (N235)', async () => {
     const def = readyDefinition();
     await expectStrategyError(
       asA((tx) => fitInputs(tx, def, { ...inputs, symbols: ['DEMO-A'] })),

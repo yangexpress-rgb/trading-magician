@@ -145,7 +145,7 @@ describe('tradeDirection', () => {
   });
 });
 
-describe('barsFromStrategy (N228)', () => {
+describe('barsFromStrategy (N233)', () => {
   it('names the bars the strategy sets and their longest range', () => {
     expect(barsFromStrategy('5m', '5m')).toBe(
       "5-minute bars, set by the strategy's Check Entry, Check Exit and conditions. A 5-minute back test covers at most 31 days.",

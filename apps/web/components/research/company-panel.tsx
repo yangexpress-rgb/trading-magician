@@ -1,7 +1,7 @@
 'use client';
 
 import { ApiError, type CompanyReportDto, type InstrumentOptionDto } from '@tm/contracts';
-import { companyMetrics, SP500_SECTORS, type CompanyReport } from '@tm/domain';
+import { companyMetrics, STOCK_GROUPS, STOCK_SECTORS, type CompanyReport } from '@tm/domain';
 import { Alert, Badge, Table, Td, Th } from '@tm/ui';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -129,11 +129,15 @@ export function CompanyPanel({
 function CompanyReportView({ report, price }: { report: CompanyReport; price: number | null }) {
   const metrics = useMemo(() => companyMetrics(report, price), [report, price]);
   const p = report.profile;
-  const sector = SP500_SECTORS.get(report.symbol) ?? null;
+  const sector = STOCK_SECTORS.get(report.symbol) ?? null;
+  const groups = STOCK_GROUPS.filter((g) => g.kind === 'index' && g.members.has(report.symbol))
+    .map((g) => g.label)
+    .join(', ');
   const latest = report.years.at(-1);
   const facts: [string, React.ReactNode][] = [
     ['Industry', p.industry],
-    ['Sector', sector ? `${sector} (S&P 500)` : null],
+    ['Sector', sector],
+    ['Stock groups', groups || null],
     ['Headquarters', p.headquarters],
     ['Incorporated in', p.incorporatedIn],
     ['Fiscal year ends', formatMonthDay(p.fiscalYearEnd)],

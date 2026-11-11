@@ -1,4 +1,4 @@
-import type { ScreenRowTuple } from '@tm/domain';
+import { isStockGroupId, type ScreenRowTuple, type StockGroupId } from '@tm/domain';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Database, Transaction } from './client';
 import { IntegrationError } from './feeds';
@@ -12,7 +12,7 @@ import { stockScreens } from './schema';
  */
 
 export type StockScreenStatus = 'pending' | 'ready' | 'failed';
-export type StockScreenUniverse = 'sp500' | 'all';
+export type StockScreenUniverse = StockGroupId | 'all';
 
 export interface StockScreenSummary {
   id: string;
@@ -94,7 +94,7 @@ function toSummary(row: {
 }): StockScreenSummary {
   return {
     ...row,
-    universe: row.universe === 'sp500' ? 'sp500' : 'all',
+    universe: isStockGroupId(row.universe) ? row.universe : 'all',
     warnings: (row.warnings as string[] | null) ?? [],
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

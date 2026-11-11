@@ -249,7 +249,7 @@ test('a filtered group explains each pick: filter values, ranking, Enter when fo
   expect(a11y.violations).toEqual([]);
   if (SHOTS) await cycle.screenshot({ path: `${SHOTS}/pick-cycle-card.png` });
 
-  // Test only some of the group (N230): the filter then reads just those members.
+  // Test only some of the group (N235): the filter then reads just those members.
   const only = panel.getByRole('group', { name: 'Instruments to test' });
   await expect(only.getByLabel(/^Whole group \(the list, 5 instruments\)$/)).toBeChecked();
   await only.getByLabel('Only some of them').check();

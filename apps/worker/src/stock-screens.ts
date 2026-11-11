@@ -23,7 +23,8 @@ import {
   screenFundamentals,
   screenRow,
   screenSession,
-  SP500_SECTORS,
+  isStockGroupId,
+  stockGroup,
   toScreenTuple,
   type FundamentalObservation,
   type ScreenFilingMetrics,
@@ -46,8 +47,6 @@ import {
  * With no feed at all the screen fails and says to add one. A feed that
  * cannot be reached is retried a few times, then reported.
  */
-
-const SP500_MEMBERS: ReadonlySet<string> = new Set(SP500_SECTORS.keys());
 
 export const SCREENS = { leaseSeconds: 240, batch: 2, maxAttempts: 3, timeoutMs: 180_000 } as const;
 
@@ -150,7 +149,7 @@ export async function runStockScreens(options: StockScreenOptions): Promise<numb
       const result = await withTimeout(
         provider.screen(
           { now, credential },
-          pending.universe === 'sp500' ? { symbols: SP500_MEMBERS } : {},
+          isStockGroupId(pending.universe) ? { symbols: stockGroup(pending.universe).members } : {},
         ),
         SCREENS.timeoutMs,
         'The screen',
