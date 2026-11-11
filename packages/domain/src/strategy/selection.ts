@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { stockGroup } from '../market/stock-groups';
 import { riskSeries } from './risk-exits';
 import { expectedMoveCloses, expectedMoveExprs } from './expected-move-exit';
 import { holdingMoveExprs, holdingSeries } from './holding-values';
@@ -20,6 +21,7 @@ import {
   metricRequirements,
 } from './metrics';
 import type {
+  BuiltinUniverse,
   ConditionGroup,
   Expr,
   GroupUniverse,
@@ -138,11 +140,13 @@ export function selectionCount(selection: Selection, universeSize: number): numb
 /** A universe's instruments: a list as given, or a built-in one resolved by the caller. */
 export function universeMembers(
   selection: Selection,
-  builtin: (id: 'sp500') => readonly string[],
+  builtin: (id: BuiltinUniverse) => readonly string[],
 ): string[] {
   if (selection.universe.type === 'legs') return [];
   const ids =
-    selection.universe.type === 'list' ? selection.universe.instrumentIds : builtin('sp500');
+    selection.universe.type === 'list'
+      ? selection.universe.instrumentIds
+      : builtin(selection.universe.id);
   return [...new Set(ids)];
 }
 
@@ -671,7 +675,7 @@ export function paperRunBlocker(def: StrategyDefinition): string | undefined {
   if (def.trade.kind !== 'group') return undefined;
   const u = def.trade.universe;
   if (u?.type === 'builtin')
-    return 'S&P 500 Selection groups can be back tested, but not run on paper yet: the paper runtime would reload 500 stocks’ bars on every pass. Use a list of up to 50 instruments to run on paper.';
+    return `${stockGroup(u.id).label} groups can be back tested, but not run on paper yet: the paper runtime would reload every member’s bars on every pass. Use a list of up to ${PAPER_UNIVERSE_LIMIT} instruments to run on paper.`;
   if (u?.type === 'list' && new Set(u.instrumentIds).size > PAPER_UNIVERSE_LIMIT)
     return `Paper runs take list universes of up to ${PAPER_UNIVERSE_LIMIT} instruments; this one has ${new Set(u.instrumentIds).size}. It can still be back tested.`;
   return undefined;

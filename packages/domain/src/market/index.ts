@@ -8,3 +8,4 @@ export * from './sp500';
 export * from './fundamentals';
 export * from './indices';
 export * from './point-in-time';
+export * from './stock-groups';

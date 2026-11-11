@@ -172,10 +172,11 @@ if (databaseUrl) {
         patient: true,
         background: run.background,
       }),
-    resolveUniverse: (userId) =>
+    resolveUniverse: (userId, group) =>
       resolveBuiltinUniverse({
         db,
         userId,
+        group,
         providers,
         privateKey: credentialKey,
         now: () => new Date(),

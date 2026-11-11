@@ -1,7 +1,13 @@
 import { CONTEXT_INSTRUMENT_ID } from '../strategy/evaluate';
+import { stockGroup } from '../market/stock-groups';
 import { definitionExpressions } from '../strategy/selection';
 import type { BarInterval } from '../strategy/catalog';
-import type { ConditionGroup, PlannedOrder, StrategyDefinition } from '../strategy/schema';
+import type {
+  BuiltinUniverse,
+  ConditionGroup,
+  PlannedOrder,
+  StrategyDefinition,
+} from '../strategy/schema';
 import { describeCondition, type SymbolLookup } from '../strategy/text';
 import type { MeasuredDuration } from './duration';
 import { SHORT_DESCRIPTION_MAX, type RegisterLibraryEntryInput } from './entry';
@@ -50,11 +56,11 @@ function entryLegs(def: StrategyDefinition): PlannedOrder[] {
 
 /**
  * What the strategy trades: its Entry legs' instruments and a Selection
- * group's universe. `builtin` is a built-in universe (the S&P 500: stocks).
+ * group's universe. `builtin` is a built-in stock group (ADR 0080: stocks).
  */
 export function tradedInstruments(def: StrategyDefinition): {
   instrumentIds: string[];
-  builtin: 'sp500' | null;
+  builtin: BuiltinUniverse | null;
 } {
   const ids = new Set<string>();
   for (const o of entryLegs(def))
@@ -240,7 +246,9 @@ export function autoCreatedRecord(src: AutoCreateSource): RegisterLibraryEntryIn
     .map((id) => src.symbol(id))
     .filter((s): s is string => !!s)
     .sort();
-  const assets = [builtin ? 'S&P 500 members' : null, ...symbols].filter(Boolean).join(', ');
+  const assets = [builtin ? `${stockGroup(builtin).label} members` : null, ...symbols]
+    .filter(Boolean)
+    .join(', ');
   const description = src.description.trim();
   const stub = `Auto-created from the Strategy Lab strategy “${src.name}”.`;
 

@@ -11,7 +11,7 @@ import type { Logger } from 'pino';
 import { fetchCalendar, type CalendarSource } from './calendar';
 import { refreshDealCloses, type DailyBars } from './deal-closes';
 import { scanDeals, updateDealStatuses } from './deals-tracker';
-import { runEarningsScan } from './earnings-scan';
+import { runEarningsBackfill, runEarningsScan } from './earnings-scan';
 
 /**
  * The event jobs (free data feeds brief v1 §5, ADR 0058), one worker loop:
@@ -114,6 +114,10 @@ export async function runEventsPass(o: EventsLoopOptions): Promise<void> {
       await step('earnings_rebuild', () =>
         runEarningsScan(opts, 'earnings_rebuild', EVENT_HISTORY_FROM),
       );
+    // Stocks that joined the scan since then get their history, once a day.
+    const eb = await getScanState(o.db, 'earnings_backfill');
+    if (er?.status === 'done' && eb?.coveredTo !== today)
+      await step('earnings_backfill', () => runEarningsBackfill(opts, EVENT_HISTORY_FROM));
     const dr = await getScanState(o.db, 'deals_rebuild');
     if (dr?.status !== 'done') {
       // A rebuild stopped part-way resumes after the last month it finished.

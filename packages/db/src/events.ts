@@ -14,7 +14,7 @@ import {
   type RatePoint,
   type ScheduledEarnings,
 } from '@tm/domain';
-import { and, asc, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import type { Database, Transaction } from './client';
 import { withTenant } from './tenant';
 import {
@@ -85,6 +85,19 @@ export async function storedReleaseAccessions(db: Db, symbol: string): Promise<S
     .from(earningsReleases)
     .where(eq(earningsReleases.symbol, symbol));
   return new Set(rows.map((r) => r.a));
+}
+
+/**
+ * Symbols with a stored release announced before `date`: those whose history
+ * is in. A stock that joins the scan later has only its newest releases
+ * (ADR 0080), so the backfill looks for stocks missing from this set.
+ */
+export async function symbolsWithReleasesBefore(db: Db, date: string): Promise<Set<string>> {
+  const rows = await db
+    .selectDistinct({ symbol: earningsReleases.symbol })
+    .from(earningsReleases)
+    .where(lt(earningsReleases.announcedDate, date));
+  return new Set(rows.map((r) => r.symbol));
 }
 
 export interface StoredRelease {
@@ -870,6 +883,7 @@ export async function loadRates(db: Db, fromDate?: string): Promise<RatePoint[]>
 export type EventJob =
   | 'earnings_scan'
   | 'earnings_rebuild'
+  | 'earnings_backfill'
   | 'deals_scan'
   | 'deals_rebuild'
   | 'calendar'

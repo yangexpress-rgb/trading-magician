@@ -24,6 +24,7 @@ import { createTestDatabase, type TestDatabase } from '@tm/db/testing';
 import {
   createDefinition,
   dealSpread,
+  EVENT_HISTORY_FROM,
   regularSession,
   tradingDays,
   type Bar,
@@ -47,6 +48,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { processNextRun } from '../src/backtests';
 import { refreshDealCloses } from '../src/events/deal-closes';
 import { scanDeals } from '../src/events/deals-tracker';
+import { runEarningsBackfill } from '../src/events/earnings-scan';
 import { dealClosesDue, runEventsPass } from '../src/events/loop';
 
 /**
@@ -268,6 +270,28 @@ describe('the earnings scan (§5.2, §10 item 1)', () => {
       coveredFrom: '2024-02-01',
     });
     expect(states.find((s) => s.job === 'calendar')?.status).toBe('skipped');
+  });
+
+  it('backfills the history of a stock that joined the scan after the rebuild (ADR 0080)', async () => {
+    // XYZ as if it joined late: only its newest release is stored.
+    await t.ownerSql`delete from earnings_release where symbol = 'XYZ' and announced_date < '2026-10-01'`;
+    expect(await recentReleases(t.app.db, 'XYZ', 100)).toHaveLength(1);
+    const opts = {
+      db: t.worker.db,
+      client,
+      tickers: () => fetchTickers(client),
+      logger: quiet,
+      now: () => NOW,
+      symbols: ['XYZ', 'TGT', 'LOWC'],
+    };
+    const first = await runEarningsBackfill(opts, EVENT_HISTORY_FROM);
+    expect(first.added).toBe(11);
+    expect(await recentReleases(t.app.db, 'XYZ', 100)).toHaveLength(12);
+    // With its history in, XYZ is not read again.
+    const again = await runEarningsBackfill(opts, EVENT_HISTORY_FROM);
+    expect(again.added).toBe(0);
+    const states = await listScanStates(t.app.db);
+    expect(states.find((s) => s.job === 'earnings_backfill')?.status).toBe('done');
   });
 });
 
