@@ -226,6 +226,22 @@ function leafValues(
   return out;
 }
 
+/**
+ * The close a kept-as-saved stop may read (N225): the latest close of `expr`,
+ * or undefined when there is no close, no bar end, no Entry fill yet, or the
+ * bar ended before Entry first filled. A bar ending exactly at the fill counts.
+ */
+export function closeSinceFill(
+  view: SeriesResolver,
+  expr: ReturnType<typeof stopCloseExpr>,
+  firstFill: number | undefined,
+): Decimal | undefined {
+  const close = evaluateExpr(expr, view);
+  const at = view.barEnd?.(expr, 0);
+  if (!close || at === undefined || firstFill === undefined || at < firstFill) return undefined;
+  return close;
+}
+
 export type PassOutcome = 'lost' | 'done';
 
 export async function runRuntimePass(
@@ -1041,6 +1057,15 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       }
       c.cycle = { ...c.cycle, peaks };
     }
+    // The kept-as-saved stops below read only a close whose bar ended at or after
+    // Entry first filled (N225), like the converted path above and the back test's
+    // closeSinceEntry: no close, no bar end or no fill yet means no check this time.
+    const entryFills = c.legs
+      .filter((l) => l.phase === 'entry' && l.firstFillAt !== undefined)
+      .map((l) => l.firstFillAt as number);
+    const cycleFirstFill = entryFills.length > 0 ? Math.min(...entryFills) : undefined;
+    const stopCloseSinceEntry = (instrument: string): Decimal | undefined =>
+      closeSinceFill(view, stopCloseExpr(instrument, undefined, stopInterval(def)), cycleFirstFill);
     const exitTruth =
       exitDue && c.cycle.status === 'open'
         ? { truth: evaluate('exit', cycleView(c), cycleDef) }
@@ -1058,7 +1083,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     if (exitDue && atrRule && atrInstrument && c.cycle.atrAtEntry && c.cycle.status === 'open') {
       const entry = c.entries.get(atrInstrument);
       const held = c.positions.get(atrInstrument) ?? ZERO;
-      const close = evaluateExpr(stopCloseExpr(atrInstrument, undefined, stopInterval(def)), view);
+      const close = stopCloseSinceEntry(atrInstrument);
       if (entry && !entry.quantity.isZero() && !held.isZero() && close) {
         const long = held.gt(0);
         const level = atrStopLevel(
@@ -1081,7 +1106,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     if (exitDue && moveRule && atrInstrument && c.cycle.moveAtEntry && c.cycle.status === 'open') {
       const entry = c.entries.get(atrInstrument);
       const held = c.positions.get(atrInstrument) ?? ZERO;
-      const close = evaluateExpr(stopCloseExpr(atrInstrument, undefined, stopInterval(def)), view);
+      const close = stopCloseSinceEntry(atrInstrument);
       if (entry && !entry.quantity.isZero() && !held.isZero() && close) {
         const band = expectedMoveBand(
           entry.cost.div(entry.quantity),
@@ -1098,7 +1123,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     if (exitDue && trailRule && atrInstrument && c.cycle.status === 'open') {
       const entry = c.entries.get(atrInstrument);
       const held = c.positions.get(atrInstrument) ?? ZERO;
-      const close = evaluateExpr(stopCloseExpr(atrInstrument, undefined, stopInterval(def)), view);
+      const close = stopCloseSinceEntry(atrInstrument);
       if (entry && !entry.quantity.isZero() && !held.isZero() && close) {
         const long = held.gt(0);
         const start = c.cycle.trailPeak
