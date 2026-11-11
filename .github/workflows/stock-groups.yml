@@ -9,7 +9,7 @@ on:
     - cron: '17 12 2 * *'
   push:
     branches: [claude/project-thread-ouoquv]
-    paths: [packages/domain/scripts/update-stock-groups.mjs]
+    paths: [packages/domain/scripts/update-stock-groups.mjs, .github/workflows/stock-groups.yml]
 
 permissions:
   contents: write
@@ -29,6 +29,23 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Probe Russell sources (temporary)
+        continue-on-error: true
+        run: |
+          UA="trading-magician-stock-groups/1.0 (member list refresh)"
+          for u in \
+            "https://investor.vanguard.com/investment-products/etfs/profile/api/VTWO/portfolio-holding/stock?start=1&count=5" \
+            "https://investor.vanguard.com/investment-products/etfs/profile/api/VONE/portfolio-holding/stock?start=1&count=5" \
+            "https://www.ishares.com/us/products/239710/ishares-russell-2000-etf/1467271812596.ajax?fileType=csv&fileName=IWM_holdings&dataType=fund" \
+            "https://www.lseg.com/content/dam/ftse-russell/en_us/documents/membership/russell-2000-membership-list.pdf" \
+            "https://www.ssga.com/us/en/intermediary/library-content/products/fund-data/etfs/us/holdings-daily-us-en-twok.xlsx" \
+            "https://www.ssga.com/us/en/intermediary/library-content/products/fund-data/etfs/us/holdings-daily-us-en-dia.xlsx" \
+            "https://www.invesco.com/us/financial-products/etfs/holdings/main/holdings/0?audienceType=Investor&action=download&ticker=QQQ" \
+            ; do
+            echo "=== $u"
+            curl -sS -L -A "$UA" -m 30 -o /tmp/probe -w "status %{http_code} type %{content_type} bytes %{size_download} final %{url_effective}\n" "$u" || true
+            head -c 400 /tmp/probe | tr -c '[:print:]\n' '?' ; echo
+          done
       - name: Refresh the S&P 500
         run: pnpm --filter @tm/domain sp500:update
       - name: Refresh the other groups
