@@ -1,0 +1,220 @@
+=== https://investor.vanguard.com/investment-products/etfs/profile/api/VTWO/portfolio-holding/stock?start=1&count=5
+status 404 type text/html;charset=utf-8 bytes 72232 final https://investor.vanguard.com/investment-products/etfs/profile/api/VTWO/portfolio-holding/stock?start=1&count=5
+<!DOCTYPE HTML>
+<html lang="en">
+    <head>
+    <meta charset="UTF-8"/>
+
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+
+    
+
+        
+    <meta name="robots" content="noindex"/>
+    
+    
+    
+     
+   
+   
+
+
+    
+
+    
+
+
+
+
+
+    
+
+    
+<meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <style>      
+      [organism]:not(:defined),
+      pips-v1-actioncard:no
+=== https://investor.vanguard.com/investment-products/etfs/profile/api/VONE/portfolio-holding/stock?start=1&count=5
+status 404 type text/html;charset=utf-8 bytes 72232 final https://investor.vanguard.com/investment-products/etfs/profile/api/VONE/portfolio-holding/stock?start=1&count=5
+<!DOCTYPE HTML>
+<html lang="en">
+    <head>
+    <meta charset="UTF-8"/>
+
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+
+    
+
+        
+    <meta name="robots" content="noindex"/>
+    
+    
+    
+     
+   
+   
+
+
+    
+
+    
+
+
+
+
+
+    
+
+    
+<meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <style>      
+      [organism]:not(:defined),
+      pips-v1-actioncard:no
+=== https://www.ishares.com/us/products/239710/ishares-russell-2000-etf/1467271812596.ajax?fileType=csv&fileName=IWM_holdings&dataType=fund
+status 200 type text/csv;charset=UTF-8 bytes 1566102 final https://www.ishares.com/us/products/239710/ishares-russell-2000-etf/1467271812596.ajax?fileType=csv&fileName=IWM_holdings&dataType=fund
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" prefix="og: http://ogp.me/ns#" lang="en-US" xml:lang="en-US">
+<head>
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-db24cb52045c84bd615e0e7852e6eee4.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-76e7e346179e654e66dfd92e5d6f0171.css" as="style" />
+<link rel="preload" href="
+=== https://www.lseg.com/content/dam/ftse-russell/en_us/documents/membership/russell-2000-membership-list.pdf
+status 404 type text/html;charset=utf-8 bytes 55307 final https://www.lseg.com/content/dam/ftse-russell/en_us/documents/membership/russell-2000-membership-list.pdf
+
+<!DOCTYPE HTML>
+<html lang="en-US">
+
+?
+?
+?
+?
+
+    <head>
+
+?<!-- added custom redirection start -->
+? 
+?? 
+? 
+? <!-- added custom redirection end -->
+?
+?
+?
+    
+?
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1" name="viewport"/>
+    
+    
+?
+?
+?
+?<title>404 error page | LSEG</title>
+
+
+    
+
+    
+    <meta name="content-page-ref" content="IB9qInGTF3uz1Ifr34xXY5qYQ
+=== https://www.ssga.com/us/en/intermediary/library-content/products/fund-data/etfs/us/holdings-daily-us-en-twok.xlsx
+status 404 type text/html;charset=utf-8 bytes 42302 final https://www.ssga.com/library-content/products/fund-data/etfs/us/holdings-daily-us-en-twok.xlsx
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE HTML>
+<html lang="en" dir="ltr">
+
+   
+   <head>
+    <meta charset="UTF-8"/>
+    <title>404 Error Page</title>
+    
+    
+    <meta name="template" content="404-page"/>
+    
+
+    
+
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+
+
+    
+<script defer="defer" type="text/javascript" src="/.rum/@adobe/helix-rum-js@%5E2/dist/micro.js" data-status="404"></script>
+
+=== https://www.ssga.com/us/en/intermediary/library-content/products/fund-data/etfs/us/holdings-daily-us-en-dia.xlsx
+status 200 type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet bytes 19261 final https://www.ssga.com/library-content/products/fund-data/etfs/us/holdings-daily-us-en-dia.xlsx
+PK?????????Yk]????????????????[Content_Types].xml???n?0??_????+??P?qz??0`?
+?{?F?c!:Ad???G9??ti?n??e????????6?7?X?????v???&Y????y?ur??b??|???-??????????H????G???????1J?O%???,u???%?????mRd?<?ZC?g????????{-?)??;?,??C???NR?;?6?u???rA?4 r?m.N*?;d?6H5_6Rx???E?????D[????\?w"??H??"<O?{??!?Q??????????????????????7?$[????????^%?b??7?_???}X??\DX??A???%-????t?&?<
+X??????S8?=JO????i????K??????zOpF?????P???S?Y?
+=== https://www.invesco.com/us/financial-products/etfs/holdings/main/holdings/0?audienceType=Investor&action=download&ticker=QQQ
+status 200 type text/html;charset=utf-8 bytes 426301 final https://www.invesco.com/us/en/financial-products/etfs.html
+<!--
+* This file is created specifically to update
+* lang attribute in html tag and
+* data-language attribute body tag
+* based on the country and language
+* in SPA pages
+-->
+<!DOCTYPE html>
+<html lang="en">
+  <head><script>
+;window.NREUM||(NREUM={});NREUM.init={session_replay:{enabled:true,block_selector:'',mask_text_selector:'*',sampling_rate:10.0,error_sampling_rate:100.0,mask_all_inputs:true,co
+
+> @tm/domain@0.0.0 groups:update /home/runner/work/trading-magician/trading-magician/packages/domain
+> node scripts/update-stock-groups.mjs; s=$?; prettier --write src/market/groups; exit $s
+
+Wrote 400 S&P MidCap 400 members as of 2026-11-11
+Wrote 603 S&P SmallCap 600 members as of 2026-11-11
+Nasdaq 100: no members table found on Wikipedia's "Nasdaq-100"; tables:
+  [42 rows: (4) H:Year | H:Closing level | H:Change in Index in Point | H:Change in Index in % // (4) 1985 | 132.29 |  |  // (4) 1986 | 141.41 | 9.12 | 6.89]
+  [32 rows: (3) H:Milestone (closing) | H:Date of Record (closing) | H:Trading Days // (3) 1,000 | July 8, 1997 | 3,143 // (3) 2,000 | January 11, 1999 | 381]
+"List of Nasdaq-100 companies": The page you specified doesn't exist.
+"List of Nasdaq-100 components": The page you specified doesn't exist.
+Dow Jones Industrial Average: no members table found on Wikipedia's "Dow Jones Industrial Average"; tables:
+  [131 rows: (4) H:Year | H:Closing value | H:Net change | H:Percentage change // (4) H:1896 | 40.45 | −0.49 | −1.20 // (4) H:1897 | 49.41 | +8.96 | +22.15]
+"List of Dow Jones Industrial Average components": The page you specified doesn't exist.
+no members table found on Wikipedia's "Historical components of the Dow Jones Industrial Average"; tables:
+  
+Russell 1000: the iShares holdings file has changed shape; it starts:
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" prefix="og: http://ogp.me/ns#" lang="en-US" xml:lang="en-US">
+<head>
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-db24cb52045c84bd615e0e7852e6eee4.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-76e7e346179e654e66dfd92e5d6f0171.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-7c6aa69a64b07c4ed764a95e0d95fa71.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-99931c49eb56ac885ba739802396f395.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-c0b4f7f31b672bcc58ff8bbb6a33764.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-e230e5b6f6cce2c782ae2fe3a51c0328.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-fe7eefd8676f1dc6b1f37c1b772a20d8.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-bcc17d66ca66b2742f8c240497925528.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-fc65eef68d26b9f38c056e6d7aee1fad.css" as="style" />
+Russell 2000: the iShares holdings file has changed shape; it starts:
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" prefix="og: http://ogp.me/ns#" lang="en-US" xml:lang="en-US">
+<head>
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-db24cb52045c84bd615e0e7852e6eee4.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-76e7e346179e654e66dfd92e5d6f0171.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-7c6aa69a64b07c4ed764a95e0d95fa71.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-99931c49eb56ac885ba739802396f395.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-c0b4f7f31b672bcc58ff8bbb6a33764.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-e230e5b6f6cce2c782ae2fe3a51c0328.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-fe7eefd8676f1dc6b1f37c1b772a20d8.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-bcc17d66ca66b2742f8c240497925528.css" as="style" />
+<link rel="preload" href="/blk-one02-c-assets/include/bundles/minified-fc65eef68d26b9f38c056e6d7aee1fad.css" as="style" />
+[90msrc/market/groups/dji-members.ts[39m 44ms (unchanged)
+[90msrc/market/groups/ndx-members.ts[39m 3ms (unchanged)
+[90msrc/market/groups/r1000-members.ts[39m 3ms (unchanged)
+[90msrc/market/groups/r2000-members.ts[39m 2ms (unchanged)
+src/market/groups/sp400-members.ts 62ms
+src/market/groups/sp600-members.ts 91ms
+/home/runner/work/trading-magician/trading-magician/packages/domain:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @tm/domain@0.0.0 groups:update: `node scripts/update-stock-groups.mjs; s=$?; prettier --write src/market/groups; exit $s`
+Exit status 1
