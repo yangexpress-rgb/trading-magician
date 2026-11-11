@@ -32,6 +32,7 @@ jobs:
       - name: Probe Russell sources (temporary)
         continue-on-error: true
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/diag.txt") 2>&1
           UA="trading-magician-stock-groups/1.0 (member list refresh)"
           for u in \
             "https://investor.vanguard.com/investment-products/etfs/profile/api/VTWO/portfolio-holding/stock?start=1&count=5" \
@@ -50,12 +51,15 @@ jobs:
         run: pnpm --filter @tm/domain sp500:update
       - name: Refresh the other groups
         continue-on-error: true
-        run: pnpm --filter @tm/domain groups:update
+        run: pnpm --filter @tm/domain groups:update 2>&1 | tee -a "$RUNNER_TEMP/diag.txt"; exit ${PIPESTATUS[0]}
       - name: Propose the changes
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet; then echo "No member changes"; exit 0; fi
+          if [ "${{ github.ref_name }}" != "main" ] && [ -f "$RUNNER_TEMP/diag.txt" ]; then
+            cp "$RUNNER_TEMP/diag.txt" stock-groups-diagnostics.txt && git add stock-groups-diagnostics.txt
+          fi
+          if git diff --quiet HEAD; then echo "No member changes"; exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [ "${{ github.ref_name }}" != "main" ]; then

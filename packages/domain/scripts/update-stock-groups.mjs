@@ -155,13 +155,19 @@ async function fromWikipediaPage(page) {
     if (members.length > 0) return members;
   }
   const seen = tables
-    .map((t) => {
-      const all = rows(t);
-      return `[${all
-        .slice(0, 3)
-        .map((r) => r.map((c) => (c.header ? 'H:' : '') + c.text.slice(0, 20)).join(' | '))
-        .join(' // ')}]`;
-    })
+    .map(rows)
+    .filter((all) => all.length >= 20)
+    .map(
+      (all) =>
+        `[${all.length} rows: ${all
+          .slice(0, 3)
+          .map(
+            (r) =>
+              `(${r.length}) ` +
+              r.map((c) => (c.header ? 'H:' : '') + c.text.slice(0, 24)).join(' | '),
+          )
+          .join(' // ')}]`,
+    )
     .join('\n  ');
   throw new Error(`no members table found on Wikipedia's "${page}"; tables:\n  ${seen}`);
 }
