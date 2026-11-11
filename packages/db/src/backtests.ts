@@ -324,6 +324,8 @@ export interface RunWork {
   definition: StrategyDefinition;
   instruments: Map<string, InstrumentRef>;
   cancelRequested: boolean;
+  /** Which attempt this is (1 for the first claim), for the worker's stage log. */
+  attempts: number;
 }
 
 /** Everything a claimed run needs, or null if this worker no longer holds it. */
@@ -337,6 +339,7 @@ export async function loadRunWork(
       inputs: backtestRuns.inputs,
       definition: strategyVersions.definition,
       cancelRequested: backtestRuns.cancelRequested,
+      attempts: backtestRuns.attempts,
     })
     .from(backtestRuns)
     .innerJoin(strategyVersions, eq(strategyVersions.id, backtestRuns.versionId))
@@ -363,6 +366,7 @@ export async function loadRunWork(
     definition: definition,
     instruments: new Map(rows.map((r) => [r.id, instrumentRef(r)])),
     cancelRequested: row.cancelRequested,
+    attempts: row.attempts,
   };
 }
 
