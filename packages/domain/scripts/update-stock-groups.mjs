@@ -9,7 +9,7 @@
 //   pnpm --filter @tm/domain groups:update            (every group)
 //   pnpm --filter @tm/domain groups:update ndx dji    (only these)
 // The GitHub workflow "Refresh stock groups" runs it once a month.
-/* global URL, fetch, console, process */
+/* global URL, fetch, console, process, setTimeout */
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const USER_AGENT = 'trading-magician-stock-groups/1.0 (member list refresh)';
@@ -19,7 +19,9 @@ const GROUPS = [
   {
     id: 'ndx',
     name: 'Nasdaq 100',
-    wiki: ['Nasdaq-100', 'List of Nasdaq-100 companies', 'List of Nasdaq-100 components'],
+    wiki: ['List of NASDAQ-100 companies', 'Nasdaq-100'],
+    // Nasdaq's own list, when Wikipedia's table can't be read (no sectors).
+    nasdaq: 'https://api.nasdaq.com/api/quote/list-type/nasdaq100',
     min: 95,
     max: 110,
     source: 'Wikipedia, "Nasdaq-100"',
@@ -27,11 +29,7 @@ const GROUPS = [
   {
     id: 'dji',
     name: 'Dow Jones Industrial Average',
-    wiki: [
-      'Dow Jones Industrial Average',
-      'List of Dow Jones Industrial Average components',
-      'Historical components of the Dow Jones Industrial Average',
-    ],
+    wiki: ['List of Dow Jones Industrial Average companies', 'Dow Jones Industrial Average'],
     min: 30,
     max: 30,
     source: 'Wikipedia, "Dow Jones Industrial Average"',
@@ -74,12 +72,22 @@ const GROUPS = [
 
 const SYMBOL = /^[A-Z][A-Z0-9.]{0,9}$/;
 
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** A page's text; a busy answer (429/503) is retried after the wait it asks for. */
 async function get(url) {
-  const response = await fetch(url, {
-    headers: { 'User-Agent': USER_AGENT, Accept: '*/*' },
-  });
-  if (!response.ok) throw new Error(`${url} answered ${response.status}`);
-  return response.text();
+  for (let attempt = 1; ; attempt++) {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT, Accept: '*/*' },
+    });
+    if (response.ok) return response.text();
+    if ((response.status === 429 || response.status === 503) && attempt < 4) {
+      const wait = Number(response.headers.get('retry-after')) || 10 * attempt;
+      await pause(Math.min(wait, 60) * 1000);
+      continue;
+    }
+    throw new Error(`${url} answered ${response.status}`);
+  }
 }
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" };
@@ -125,8 +133,26 @@ async function fromWikipedia(group) {
     } catch (err) {
       problems.push(err instanceof Error ? err.message : String(err));
     }
+    await pause(1000);
+  }
+  if (group.nasdaq) {
+    try {
+      return await fromNasdaq(group);
+    } catch (err) {
+      problems.push(err instanceof Error ? err.message : String(err));
+    }
   }
   throw new Error(problems.join('\n'));
+}
+
+/** Nasdaq's published member list (symbols only). */
+async function fromNasdaq(group) {
+  const rows = JSON.parse(await get(group.nasdaq))?.data?.data?.rows;
+  if (!Array.isArray(rows)) throw new Error('Nasdaq’s member list has changed shape');
+  return rows.map((r) => [
+    String(r.symbol).toUpperCase().replace(/\//g, '.'),
+    String(r.sector ?? ''),
+  ]);
 }
 
 async function fromWikipediaPage(page) {
@@ -204,7 +230,8 @@ function classShares(known) {
 
 /** An ETF's stock holdings, from the CSV iShares publishes, with their sectors. */
 async function fromIshares(group, dotted) {
-  const csv = (await get(group.ishares)).replace(/^\uFEFF/, '');
+  const file = fileFor(group.id);
+  const csv = (file ? readFileSync(file, 'utf8') : await get(group.ishares)).replace(/^\uFEFF/, '');
   const lines = csv.split(/\r?\n/);
   const headerAt = lines.findIndex((l) => /^"?Ticker"?,/.test(l));
   if (headerAt < 0)
@@ -259,7 +286,22 @@ ${members.map(([s, sector]) => `  [${JSON.stringify(s)}, ${JSON.stringify(sector
 const sp500 = readFileSync(new URL('../src/market/sp500-members.ts', import.meta.url), 'utf8');
 const known = new Set([...sp500.matchAll(/\['([A-Z0-9.]+)',/g)].map((m) => m[1]));
 
-const wanted = process.argv.slice(2);
+// `--file r2000=IWM_holdings.csv`: a holdings file saved from iShares' fund page, which
+// does not hand its files to scripts.
+const args = process.argv.slice(2);
+const files = new Map();
+const wanted = [];
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--file') {
+    const [id, path] = (args[++i] ?? '').split('=');
+    if (!id || !path) throw new Error('Use --file <group>=<path>');
+    files.set(id, path);
+    wanted.push(id);
+  } else wanted.push(args[i]);
+}
+function fileFor(id) {
+  return files.get(id);
+}
 const asOf = new Date().toISOString().slice(0, 10);
 const failures = [];
 // Wikipedia groups first, so their share-class symbols help read iShares' tickers.
