@@ -56,7 +56,7 @@ import {
   sizingText,
 } from '@/lib/backtest-text';
 import { bare } from '@/lib/units';
-import { loggedScheduleText, type ConditionNode } from '@tm/domain';
+import { isStockGroupId, loggedScheduleText, stockGroup, type ConditionNode } from '@tm/domain';
 
 /**
  * Back test results by cycle (N157–N165, ADR 0061): one row per cycle, and
@@ -780,7 +780,7 @@ function TradeSide({
     const t = plan.trade;
     const universe =
       t.universe.type === 'builtin'
-        ? (UNIVERSE_WORDS[t.universe.id] ?? t.universe.id)
+        ? universeWords(t.universe.id)
         : `Your list of ${t.universe.size}`;
     return (
       <div className="space-y-3">
@@ -884,7 +884,9 @@ function TradeSide({
   );
 }
 
-const UNIVERSE_WORDS: Record<string, string> = { sp500: 'S&P 500 (current members)' };
+/** A built-in group's name, or its id when this build doesn't know it. */
+const universeWords = (id: string) =>
+  isStockGroupId(id) ? `${stockGroup(id).label} (current members)` : id;
 
 function EntrySignal({
   c,

@@ -246,7 +246,9 @@ export function autoCreatedRecord(src: AutoCreateSource): RegisterLibraryEntryIn
     .map((id) => src.symbol(id))
     .filter((s): s is string => !!s)
     .sort();
-  const assets = [builtin ? `${stockGroup(builtin).label} members` : null, ...symbols].filter(Boolean).join(', ');
+  const assets = [builtin ? `${stockGroup(builtin).label} members` : null, ...symbols]
+    .filter(Boolean)
+    .join(', ');
   const description = src.description.trim();
   const stub = `Auto-created from the Strategy Lab strategy “${src.name}”.`;
 

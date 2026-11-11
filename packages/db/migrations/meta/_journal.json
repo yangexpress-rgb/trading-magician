@@ -589,6 +589,13 @@
       "when": 1794277729174,
       "tag": "0083_strategies_and_theories_separate",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1794427930566,
+      "tag": "0084_stock_group_universes",
+      "breakpoints": true
     }
   ]
 }

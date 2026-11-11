@@ -7,12 +7,15 @@ import {
   EMPTY_FILTERS,
   filterRows,
   formatCell,
+  inUniverse,
+  isUniverse,
   hasOptionFigures,
   parseAmount,
   screenPresets,
   sectorOf,
   sortRows,
   toCsv,
+  universeCovers,
 } from './screener';
 
 function row(symbol: string, values: Partial<ScreenRow> = {}): ScreenRow {
@@ -217,5 +220,28 @@ describe('options columns', () => {
     expect(hasOptionFigures(withOptions)).toBe(true);
     expect(COLUMN_BY_KEY.get('iv30Pct')?.hint).toMatch(/daily options recording/);
     expect(COLUMN_BY_KEY.get('iv30Pct')?.hint).not.toMatch(/0\.20 is 20%/);
+  });
+});
+
+describe('stock group universes (ADR 0079)', () => {
+  it('needs no new load when the loaded rows already hold the group', () => {
+    expect(universeCovers(null, 'sp500')).toBe(false);
+    expect(universeCovers('all', 'ndx')).toBe(true);
+    expect(universeCovers('sp500', 'sp500')).toBe(true);
+    expect(universeCovers('sp500', 'sp500_tech')).toBe(true);
+    expect(universeCovers('sp500_tech', 'sp500')).toBe(false);
+    expect(universeCovers('sp500', 'all')).toBe(false);
+  });
+
+  it('keeps only the group’s members and reads any group id from the address', () => {
+    expect(inUniverse({ symbol: 'AAPL' }, 'sp500_tech')).toBe(true);
+    expect(inUniverse({ symbol: 'XOM' }, 'sp500_tech')).toBe(false);
+    expect(inUniverse({ symbol: 'ZZZZ' }, 'all')).toBe(true);
+    expect(isUniverse('ndx')).toBe(true);
+    expect(isUniverse('ftse100')).toBe(false);
+    expect(decodeScreenState(new URLSearchParams('universe=sp500_energy'), 'sp500').universe).toBe(
+      'sp500_energy',
+    );
+    expect(decodeScreenState(new URLSearchParams('universe=nope'), 'sp500').universe).toBe('sp500');
   });
 });

@@ -1,0 +1,2 @@
+ALTER TABLE "stock_screen" DROP CONSTRAINT "stock_screen_universe";--> statement-breakpoint
+ALTER TABLE "stock_screen" ADD CONSTRAINT "stock_screen_universe" CHECK ("stock_screen"."universe" ~ '^[a-z0-9_]{1,40}$');

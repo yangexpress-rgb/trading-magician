@@ -7,13 +7,19 @@ import {
   type CredentialKey,
   type Database,
 } from '@tm/db';
-import { providerCoversVenue, resolveRoute, SP500_SECTORS } from '@tm/domain';
+import {
+  providerCoversVenue,
+  resolveRoute,
+  stockGroup,
+  stockGroupSymbols,
+  type BuiltinUniverse,
+} from '@tm/domain';
 import type { ProviderRegistry } from './providers';
 
 /**
- * Resolves a built-in universe to instruments for a back test (Design v1.2
- * item 1). The S&P 500 is today's member list that ships with the app (the
- * screener's), so a back test over past years carries survivorship bias;
+ * Resolves a built-in stock group (ADR 0079) to instruments for a back test
+ * (Design v1.2 item 1). Each group is today's member list that ships with
+ * the app (the screener's), so a back test over past years carries survivorship bias;
  * the result says so. Members not yet registered are confirmed with the
  * tenant's US stock feed in one listing call and registered, as a lookup
  * would; members the feed doesn't list are left out and named.
@@ -24,14 +30,17 @@ export async function resolveBuiltinUniverse(options: {
   providers: ProviderRegistry;
   privateKey: CredentialKey | undefined;
   now: () => Date;
+  /** Which group; the S&P 500 when absent. */
+  group?: BuiltinUniverse;
 }): Promise<{ ids: string[]; warnings: string[] }> {
   const { db, userId } = options;
-  const symbols = [...SP500_SECTORS.keys()];
+  const label = stockGroup(options.group ?? 'sp500').label;
+  const symbols = stockGroupSymbols(options.group ?? 'sp500');
   const inTenant = <T>(fn: Parameters<typeof withTenant<T>>[2]) => withTenant(db, { userId }, fn);
   const known = await inTenant((tx) => instrumentsBySymbol(tx, symbols));
   const missing = symbols.filter((s) => !known.has(s));
   const warnings = [
-    'The S&P 500 universe is today’s member list, so earlier years leave out companies that have since left the index (survivorship bias)',
+    `The ${label} universe is today’s member list, so earlier years leave out companies that have since left it (survivorship bias)`,
   ];
   if (missing.length > 0) {
     await inTenant(async (tx) => {
@@ -69,7 +78,7 @@ export async function resolveBuiltinUniverse(options: {
   const left = symbols.filter((s) => !known.has(s));
   if (left.length > 0) {
     warnings.push(
-      `${left.length} S&P 500 members could not be found with your data feed and were left out: ${left.slice(0, 10).join(', ')}${left.length > 10 ? '…' : ''}`,
+      `${left.length} ${label} members could not be found with your data feed and were left out: ${left.slice(0, 10).join(', ')}${left.length > 10 ? '…' : ''}`,
     );
   }
   return { ids: symbols.flatMap((s) => known.get(s) ?? []), warnings };

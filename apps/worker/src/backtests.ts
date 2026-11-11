@@ -30,6 +30,7 @@ import {
   eventInstruments,
   optionInstruments,
   UnsupportedBarRequestError,
+  type BuiltinUniverse,
   type HistoricalDataProvider,
 } from '@tm/domain';
 import type { Logger } from 'pino';
@@ -57,8 +58,11 @@ export interface BacktestWorkerOptions {
   logger: Pick<Logger, 'info' | 'warn' | 'error'>;
   leaseSeconds?: number;
   maxAttempts?: number;
-  /** Resolves a built-in universe (the S&P 500) for a tenant (Design v1.2 item 1). */
-  resolveUniverse?: (userId: string) => Promise<{ ids: string[]; warnings: string[] }>;
+  /** Resolves a built-in stock group for a tenant (Design v1.2 item 1, ADR 0079). */
+  resolveUniverse?: (
+    userId: string,
+    group: BuiltinUniverse,
+  ) => Promise<{ ids: string[]; warnings: string[] }>;
   /** Point-in-time company filings, for strategies with fundamental metrics (v1.2 item 6). */
   fundamentals?: FundamentalsLoader;
 }
@@ -115,15 +119,15 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
     if (work.cancelRequested)
       return (await inTenant((tx) => finishCanceled(tx, runId, workerId))) ?? 'lost';
 
-    // A Selection group's universe: a list as stored, or the S&P 500 resolved now.
+    // A Selection group's universe: a list as stored, or a built-in stock group resolved now.
     let members = listMembers(work.definition);
     const universeWarnings: string[] = [];
     const instruments = new Map<string, InstrumentRef>(work.instruments);
     const trade = work.definition.trade;
     if (trade.kind === 'group' && trade.universe.type === 'builtin') {
       if (!options.resolveUniverse)
-        throw new UnsupportedBarRequestError('This worker cannot resolve the S&P 500 universe');
-      const resolved = await options.resolveUniverse(userId);
+        throw new UnsupportedBarRequestError('This worker cannot resolve built-in stock groups');
+      const resolved = await options.resolveUniverse(userId, trade.universe.id);
       members = resolved.ids;
       universeWarnings.push(...resolved.warnings);
       const refs = await inTenant((tx) => instrumentRefs(tx, members));

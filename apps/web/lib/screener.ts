@@ -1,4 +1,12 @@
-import { getMetric, SP500_SECTORS, type ScreenNumberColumn, type ScreenRow } from '@tm/domain';
+import {
+  getMetric,
+  isStockGroupId,
+  STOCK_SECTORS,
+  stockGroup,
+  type ScreenNumberColumn,
+  type ScreenRow,
+  type StockGroupId,
+} from '@tm/domain';
 
 /**
  * The stock screener's columns, filters, sorting and presets (ADR 0030).
@@ -310,14 +318,31 @@ export const COLUMN_BY_KEY = new Map(NUMBER_COLUMNS.map((c) => [c.key, c]));
 
 export type SortKey = ScreenNumberColumn | 'symbol' | 'name' | 'sector';
 
-/** Which stocks a screen starts from: the S&P 500, or everything the feed covers. */
-export type Universe = 'sp500' | 'all';
+/** Which stocks a screen starts from: a built-in stock group (ADR 0079), or everything the feed covers. */
+export type Universe = StockGroupId | 'all';
 
-/** A stock's GICS sector, known for S&P 500 members only. */
+export const isUniverse = (value: unknown): value is Universe =>
+  value === 'all' || isStockGroupId(value);
+
+/** Whether rows loaded for `loaded` already hold every stock of `want`, so no new load is needed. */
+export function universeCovers(loaded: Universe | null, want: Universe): boolean {
+  if (loaded === null) return false;
+  if (loaded === 'all' || loaded === want) return true;
+  if (want === 'all') return false;
+  const have = stockGroup(loaded).members;
+  for (const s of stockGroup(want).members) if (!have.has(s)) return false;
+  return true;
+}
+
+/** Whether a row belongs to the universe. */
+export const inUniverse = (row: Pick<ScreenRow, 'symbol'>, universe: Universe): boolean =>
+  universe === 'all' || stockGroup(universe).members.has(row.symbol);
+
+/** A stock's sector: GICS for S&P 500/400/600 members, else the Nasdaq 100's or Russell ETFs' (ADR 0079). */
 export const sectorOf = (row: Pick<ScreenRow, 'symbol'>): string | null =>
-  SP500_SECTORS.get(row.symbol) ?? null;
+  STOCK_SECTORS.get(row.symbol) ?? null;
 
-export const SECTORS: readonly string[] = [...new Set(SP500_SECTORS.values())].sort();
+export const SECTORS: readonly string[] = [...new Set(STOCK_SECTORS.values())].sort();
 export interface SortState {
   key: SortKey;
   dir: 'asc' | 'desc';
@@ -382,7 +407,7 @@ export function filterRows(
       !!e[1] && (e[1].min !== undefined || e[1].max !== undefined),
   );
   return rows.filter((r) => {
-    if (universe === 'sp500' && !SP500_SECTORS.has(r.symbol)) return false;
+    if (!inUniverse(r, universe)) return false;
     if (f.sector && sectorOf(r) !== f.sector) return false;
     if (f.type !== 'all' && r.assetClass !== f.type) return false;
     if (f.exchange && r.exchange !== f.exchange) return false;
@@ -602,7 +627,7 @@ export function decodeScreenState(
   const sector = q.get('sector') ?? '';
   return {
     sort,
-    universe: universe === 'sp500' || universe === 'all' ? universe : defaultUniverse,
+    universe: isUniverse(universe) ? universe : defaultUniverse,
     filters: {
       text: (q.get('q') ?? '').slice(0, 60),
       type: type === 'stock' || type === 'etf' ? type : 'all',

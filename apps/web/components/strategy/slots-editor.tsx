@@ -1,7 +1,9 @@
 'use client';
 
 import {
-  BUILTIN_UNIVERSES,
+  AVAILABLE_STOCK_GROUPS,
+  type BuiltinUniverse,
+  stockGroup,
   EXCLUSION_LABELS,
   getMetric,
   isIndicatorOnlyClass,
@@ -53,8 +55,10 @@ import { MiniInput, MiniSelect, RowButton } from './fields';
 import { InstrumentSelect } from './instrument-select';
 import { SymbolLookup } from './symbol-lookup';
 
-const UNIVERSE_LABELS: Record<(typeof BUILTIN_UNIVERSES)[number], string> = {
-  sp500: 'S&P 500 (current members)',
+/** A built-in group's name in the Members select, with its size. */
+const universeLabel = (id: BuiltinUniverse) => {
+  const g = stockGroup(id);
+  return `${g.label} (${g.members.size.toLocaleString('en-US')} current members)`;
 };
 
 const emptyGroup = (): ConditionGroup => ({
@@ -290,24 +294,33 @@ function GroupEditor({
                     ? { type: 'list', instrumentIds: instruments.slice(0, 10).map((i) => i.id) }
                     : {
                         type: 'builtin',
-                        id: e.target.value as (typeof BUILTIN_UNIVERSES)[number],
+                        id: e.target.value as BuiltinUniverse,
                       },
               })
             }
           >
-            {BUILTIN_UNIVERSES.map((b) => (
-              <option key={b} value={b}>
-                {UNIVERSE_LABELS[b]}
-              </option>
-            ))}
+            <optgroup label="Indexes">
+              {AVAILABLE_STOCK_GROUPS.filter((g) => g.kind === 'index').map((g) => (
+                <option key={g.id} value={g.id}>
+                  {universeLabel(g.id)}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="S&amp;P 500 sectors">
+              {AVAILABLE_STOCK_GROUPS.filter((g) => g.kind === 'sector').map((g) => (
+                <option key={g.id} value={g.id}>
+                  {universeLabel(g.id)}
+                </option>
+              ))}
+            </optgroup>
             <option value="list">My list of instruments</option>
           </MiniSelect>
         </fieldset>
         {u.type === 'builtin' && (
           <p className="mt-1 text-xs text-ink-muted" role="note">
-            Back tests use today&rsquo;s S&amp;P 500 members for the whole period, so companies that
-            left the index are missing (survivorship bias): results look better than history did.
-            Paper runs take lists of up to {PAPER_UNIVERSE_LIMIT} instruments for now.
+            Back tests use today&rsquo;s {stockGroup(u.id).label} members for the whole period, so
+            companies that left the group are missing (survivorship bias): results look better than
+            history did. Paper runs take lists of up to {PAPER_UNIVERSE_LIMIT} instruments for now.
           </p>
         )}
         {u.type === 'list' && (

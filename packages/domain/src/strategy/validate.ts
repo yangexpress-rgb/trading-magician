@@ -1054,16 +1054,20 @@ function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Ad
   const account = template ? ctx.accounts.get(template.accountId) : undefined;
   if (sel.universe.type === 'builtin') {
     if (ranking && !ranking.assetClasses.includes('stock')) {
-      add('error', 'metric_unsupported', `${ranking.label} can't be computed for ${stockGroup(sel.universe.id).label} stocks`, [
-        'trade',
-        'ranking',
-      ]);
+      add(
+        'error',
+        'metric_unsupported',
+        `${ranking.label} can't be computed for ${stockGroup(sel.universe.id).label} stocks`,
+        ['trade', 'ranking'],
+      );
     }
     if (!ctx.hasFeed('stock', 'bars')) {
-      add('error', 'missing_feed', `No active data feed covers US stock bars for the ${stockGroup(sel.universe.id).label}`, [
-        'trade',
-        'universe',
-      ]);
+      add(
+        'error',
+        'missing_feed',
+        `No active data feed covers US stock bars for the ${stockGroup(sel.universe.id).label}`,
+        ['trade', 'universe'],
+      );
     }
     if (account && !account.capabilities.assetClasses.includes('stock')) {
       add(
