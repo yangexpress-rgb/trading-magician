@@ -1,4 +1,4 @@
-import { createDefinition, type StrategyDefinition } from '@tm/domain';
+import { createDefinition, scheduleFrom, type StrategyDefinition } from '@tm/domain';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Transaction } from '../src/client';
 import {
@@ -61,7 +61,7 @@ async function rejects(promise: Promise<unknown>): Promise<LibraryError> {
 
 /** Long `symbols` on daily closes above their 200-day SMA; sell below it. */
 function monthEnd(def: StrategyDefinition): StrategyDefinition {
-  return { ...def, entry: { ...def.entry, schedule: { frequency: 'monthEnd' } } };
+  return { ...def, entry: { ...def.entry, schedule: scheduleFrom('monthEnd') } };
 }
 
 function definition(
