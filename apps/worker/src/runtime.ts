@@ -72,7 +72,7 @@ import {
   rankUniverse,
   scheduledPeriod,
   scheduleOf,
-  openTimeOf,
+  normalSchedule,
   exitScheduleOf,
   readsThisInstrument,
   selectionOf,
@@ -107,7 +107,6 @@ import {
   withContext,
   type Slot,
   type Schedule,
-  type ScheduleFrequency,
   type StrategyDefinition,
   newCycleState,
   nyDate,
@@ -699,34 +698,32 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   const newData = dataTime > 0 && dataTime > (state.lastDataTime ?? 0);
   if (newData) state.lastDataTime = dataTime;
   // Check Entry gates Entry and re-selection; Check Exit gates Exit (ADR 0073).
-  // Bar cadences count the newest bar's end; once a day and calendar periods count closes (N184).
-  // After the open (N226): checked on the period's trading day once its first
-  // 1-minute, 5-minute or hourly bar is in. Rules on intraday bars wait for
-  // that bar; rules on daily bars only have yesterday's close, so the clock decides.
+  // Every intraday bar counts the newest bar's end; checks after the close count closes (N184).
+  // The 1st or 2nd bar (N226, N227) is checked on its day once that bar is in.
+  // Rules on intraday bars wait for that bar; rules on daily bars only have
+  // yesterday's close, so the clock decides. Before the open is clock-driven:
+  // one bar (at most an hour) before the scheduled day's open.
   const intraday = seriesExprs(def, members).some(
     (e) => e.interval !== '1d' && e.interval !== '1w',
   );
-  const due = (
-    schedule: Schedule | undefined,
-    frequency: ScheduleFrequency,
-    last: string | undefined,
-  ): string | undefined => {
-    const at = openTimeOf(schedule);
-    if (at) {
+  const due = (schedule: Schedule, last: string | undefined): string | undefined => {
+    const s = normalSchedule(schedule);
+    if (s.which === 'beforeOpen') return dataTime > 0 ? scheduledPeriod(s, t, last, t) : undefined;
+    if ((s.which === 'first' || s.which === 'second') && s.bar !== '1d') {
       if (dataTime <= 0 || (intraday && !newData)) return undefined;
-      return scheduledPeriod(frequency, t, last, intraday ? dataTime : t, at);
+      return scheduledPeriod(s, t, last, intraday ? dataTime : t);
     }
-    return newData ? scheduledPeriod(frequency, t, last, dataTime) : undefined;
+    return newData ? scheduledPeriod(s, t, last, dataTime) : undefined;
   };
-  const frequency = scheduleOf(def);
-  const period = due(def.entry.schedule, frequency, state.lastSchedulePeriod);
+  const schedule = scheduleOf(def);
+  const period = due(schedule, state.lastSchedulePeriod);
   const entryDue = period !== undefined;
   if (entryDue) state.lastSchedulePeriod = period;
   // Check Exit (ADR 0073): without one, Exit is checked on every new bar, as before.
-  const exitFrequency = exitScheduleOf(def);
+  const exitSchedule = exitScheduleOf(def);
   let exitDue = newData;
-  if (exitFrequency) {
-    const exitPeriod = due(def.exit.schedule, exitFrequency, state.lastExitSchedulePeriod);
+  if (exitSchedule) {
+    const exitPeriod = due(exitSchedule, state.lastExitSchedulePeriod);
     exitDue = exitPeriod !== undefined;
     if (exitPeriod !== undefined) state.lastExitSchedulePeriod = exitPeriod;
   }
@@ -942,7 +939,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     entryEventId = randomUUID();
     const plan = planSlots({
       mode,
-      scheduled: isCalendarSchedule(frequency),
+      scheduled: isCalendarSchedule(schedule),
       candidates,
       held: work.cycles
         .filter((c) => c.cycle.slot)

@@ -56,13 +56,7 @@ import {
   sizingText,
 } from '@/lib/backtest-text';
 import { bare } from '@/lib/units';
-import {
-  SCHEDULE_LABELS,
-  scheduleLabel,
-  type ConditionNode,
-  type ScheduleFrequency,
-  type ScheduleTime,
-} from '@tm/domain';
+import { loggedScheduleText, type ConditionNode } from '@tm/domain';
 
 /**
  * Back test results by cycle (N157–N165, ADR 0061): one row per cycle, and
@@ -616,8 +610,7 @@ function Side({
   );
 }
 
-const scheduleText = (f: string, at?: string) =>
-  f in SCHEDULE_LABELS ? scheduleLabel(f as ScheduleFrequency, at as ScheduleTime | undefined) : f;
+const scheduleText = (f: string, at?: string) => loggedScheduleText(f, at);
 
 /** When a part was checked (Check Entry, Check Exit; ADR 0073). */
 function ScheduleLine({ label, value }: { label: string; value: string | null }) {

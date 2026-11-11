@@ -104,7 +104,7 @@ const INTERVAL_CODE: Record<BarInterval, 'N' | 'H' | 'D' | 'W'> = {
  * minute bars N, all hourly H, all weekly W, all daily D. Mixed or none: D.
  */
 export function deriveTimeframeCode(def: StrategyDefinition): string {
-  switch (def.entry.schedule?.frequency) {
+  switch (def.entry.schedule?.days) {
     case 'monthEnd':
       return 'M';
     case 'quarterEnd':

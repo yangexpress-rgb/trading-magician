@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONTEXT_INSTRUMENT_ID } from '../strategy/evaluate';
-import type { ScheduleFrequency, StrategyDefinition } from '../strategy/schema';
+import { scheduleFrom, type ScheduleFrequency, type StrategyDefinition } from '../strategy/schema';
 import {
   comparison,
   indicator,
@@ -128,7 +128,7 @@ describe('letters for an auto-created record (brief D4)', () => {
 });
 
 function withSchedule(def: StrategyDefinition, frequency: ScheduleFrequency): StrategyDefinition {
-  return { ...def, entry: { ...def.entry, schedule: { frequency } } };
+  return { ...def, entry: { ...def.entry, schedule: scheduleFrom(frequency) } };
 }
 
 describe('the auto-created record (brief D3)', () => {

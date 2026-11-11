@@ -66,7 +66,7 @@ describe('migrateV2 (schema 2 → 3)', () => {
   it('moves the schedule into Entry and leaves Exit on every bar', () => {
     const doc = v2((d) => (d.schedule = { frequency: 'weekly' }));
     const parsed = parseDefinition(doc);
-    expect(parsed.entry.schedule).toEqual({ frequency: 'weekly' });
+    expect(parsed.entry.schedule).toEqual({ which: 'every', bar: '1d', days: 'weekly' });
     expect(parsed.exit.schedule).toBeUndefined();
     expect(parsed).not.toHaveProperty('schedule');
     expect(codes(doc)).toContain('schedule_moved');

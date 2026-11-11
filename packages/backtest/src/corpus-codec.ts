@@ -1,3 +1,4 @@
+import { SCHEDULE_FREQUENCIES, scheduleFrom, scheduleLabel } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { createHash } from 'node:crypto';
 import type { BacktestResult } from './results';
@@ -69,8 +70,15 @@ export function behaviour(r: BacktestResult): string {
   const { cycles: _cycles, plan: _plan, ...rest } = r;
   void _cycles;
   void _plan;
+  // Check Entry is logged in words since N227; recorded runs logged its code.
+  const code = SCHEDULE_FREQUENCIES.find(
+    (f) => scheduleLabel(scheduleFrom(f)) === r.selections?.schedule,
+  );
   const picked = {
     ...rest,
+    ...(r.selections && {
+      selections: { ...r.selections, schedule: code ?? r.selections.schedule },
+    }),
     conditions: r.conditions && {
       entry: stripEntry(r.conditions.entry),
       exit: stripExit(r.conditions.exit),

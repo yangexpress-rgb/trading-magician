@@ -49,8 +49,11 @@ export function atrExpr(
  * itself stays a daily ATR.
  */
 export function stopInterval(part: { exit: Pick<ExitPhase, 'schedule'> }): BarInterval {
-  const f = part.exit.schedule?.frequency;
-  return f === 'bar1m' || f === 'bar5m' ? '5m' : f === 'bar1h' ? '1h' : '1d';
+  const s = part.exit.schedule;
+  // Intraday checks read closes at their bar size: 1, 5 and 30 minutes read
+  // 5-minute closes (no feed serves 1- or 30-minute bars), hourly reads hourly.
+  if (!s || s.bar === '1d' || s.which === 'beforeOpen') return '1d';
+  return s.bar === '1h' ? '1h' : '5m';
 }
 
 /** "daily", "hourly" or "5-minute": the closes the stops read, for help texts and run notes. */

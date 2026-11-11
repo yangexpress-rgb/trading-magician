@@ -10,7 +10,12 @@ import {
   stopCloseExpr,
   stopInterval,
 } from './risk-exits';
-import type { PlannedOrder, ScheduleFrequency, StrategyDefinition } from './schema';
+import {
+  scheduleFrom,
+  type PlannedOrder,
+  type ScheduleFrequency,
+  type StrategyDefinition,
+} from './schema';
 import { parseDefinition } from './serialize';
 import { context, order, STOCK_A, STOCK_B, validDefinition } from './test-fixtures';
 import { validateStrategy } from './validate';
@@ -199,7 +204,7 @@ describe('validation', () => {
 
 describe('stopInterval (O144, ADR 0073)', () => {
   const on = (frequency?: ScheduleFrequency) => ({
-    exit: frequency ? { schedule: { frequency } } : {},
+    exit: frequency ? { schedule: scheduleFrom(frequency) } : {},
   });
   it('reads closes at the Check Exit bar size, daily otherwise', () => {
     expect(stopInterval(on())).toBe('1d');

@@ -8,14 +8,7 @@ import type {
   StoredTruth,
 } from '@tm/backtest';
 import type { BacktestRunDto, BacktestTradeDto } from '@tm/contracts';
-import {
-  getMetric,
-  SCHEDULE_LABELS,
-  scheduleLabel,
-  type Comparison,
-  type ScheduleFrequency,
-  type ScheduleTime,
-} from '@tm/domain';
+import { getMetric, loggedScheduleText, type Comparison } from '@tm/domain';
 import { Badge, Button, Card, cx, SelectField, Table, Td, Th } from '@tm/ui';
 import { useId, useState } from 'react';
 import {
@@ -555,10 +548,7 @@ export function SelectionRounds({ log, interval }: { log: SelectionLog; interval
   const [index, setIndex] = useState(log.rounds.length - 1);
   const round: SelectionRound | undefined = log.rounds[index];
   const ranking = log.kind === 'ranking';
-  const schedule =
-    log.schedule in SCHEDULE_LABELS
-      ? scheduleLabel(log.schedule as ScheduleFrequency, log.scheduleAt as ScheduleTime | undefined)
-      : log.schedule;
+  const schedule = loggedScheduleText(log.schedule, log.scheduleAt);
 
   const download = () => {
     const blob = new Blob([selectionCsv(log)], { type: 'text/csv' });

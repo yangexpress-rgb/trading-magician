@@ -287,7 +287,7 @@ function checkCondition(
           mode === 'selection' ||
           (mode === 'legs' &&
             def.entry.schedule !== undefined &&
-            isCalendarSchedule(def.entry.schedule.frequency));
+            isCalendarSchedule(def.entry.schedule));
     if (!allTimingOnly && !decidedElsewhere) {
       add(
         'error',

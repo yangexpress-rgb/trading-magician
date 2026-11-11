@@ -7,9 +7,8 @@ import {
   scheduledPeriod,
   scheduleLabel,
   scheduleOf,
-  SCHEDULE_LABELS,
 } from './schedule';
-import { SCHEDULE_FREQUENCIES, type ScheduleTime } from './schema';
+import { SCHEDULE_FREQUENCIES, scheduleFrom, type Schedule } from './schema';
 import { comparison, indicator, market, validDefinition } from './test-fixtures';
 
 const at = (iso: string) => Date.parse(iso);
@@ -24,11 +23,15 @@ function reading(interval: BarInterval) {
 }
 
 /** Times of a list at which Entry is evaluated, remembering the last period. */
-function evaluations(frequency: Parameters<typeof scheduledPeriod>[0], times: number[]): number[] {
+function evaluations(
+  frequency: Parameters<typeof scheduleFrom>[0] | Schedule,
+  times: number[],
+): number[] {
+  const schedule = typeof frequency === 'string' ? scheduleFrom(frequency) : frequency;
   let last: string | undefined;
   const out: number[] = [];
   for (const t of times) {
-    const p = scheduledPeriod(frequency, t, last);
+    const p = scheduledPeriod(schedule, t, last);
     if (p !== undefined) {
       last = p;
       out.push(t);
@@ -47,18 +50,18 @@ function sessionBars(minutes: number): number[] {
 }
 
 describe('Entry schedule (N184)', () => {
-  it('names each bar size and keeps calendar periods apart', () => {
-    expect(SCHEDULE_FREQUENCIES.map((f) => SCHEDULE_LABELS[f])).toEqual([
-      'Every 1-minute bar',
-      'Every 5-minute bar',
-      'Every hourly bar',
-      'Once a day, after the close',
-      'Last trading day of each week',
-      'Last trading day of each month',
-      'Last trading day of each quarter',
-      'Last trading day of each year',
+  it('names each saved choice in the three boxes, and keeps calendar periods apart', () => {
+    expect(SCHEDULE_FREQUENCIES.map((f) => scheduleLabel(scheduleFrom(f)))).toEqual([
+      'Every 1-minute bar, every trading day',
+      'Every 5-minute bar, every trading day',
+      'Every 1-hour bar, every trading day',
+      'After the close, every trading day',
+      'After the close, last trading day of each week',
+      'After the close, last trading day of each month',
+      'After the close, last trading day of each quarter',
+      'After the close, last trading day of each year',
     ]);
-    expect(SCHEDULE_FREQUENCIES.filter(isCalendarSchedule)).toEqual([
+    expect(SCHEDULE_FREQUENCIES.filter((f) => isCalendarSchedule(scheduleFrom(f)))).toEqual([
       'weekly',
       'monthEnd',
       'quarterEnd',
@@ -67,16 +70,16 @@ describe('Entry schedule (N184)', () => {
   });
 
   it('defaults to the cadence of the finest bars the rules read', () => {
-    expect(defaultSchedule(reading('1m'))).toBe('bar1m');
-    expect(defaultSchedule(reading('5m'))).toBe('bar5m');
-    expect(defaultSchedule(reading('15m'))).toBe('bar5m');
-    expect(defaultSchedule(reading('1h'))).toBe('bar1h');
-    expect(defaultSchedule(reading('4h'))).toBe('bar1h');
-    expect(defaultSchedule(reading('1d'))).toBe('daily');
-    expect(defaultSchedule(reading('1w'))).toBe('daily');
+    expect(defaultSchedule(reading('1m'))).toEqual(scheduleFrom('bar1m'));
+    expect(defaultSchedule(reading('5m'))).toEqual(scheduleFrom('bar5m'));
+    expect(defaultSchedule(reading('15m'))).toEqual(scheduleFrom('bar5m'));
+    expect(defaultSchedule(reading('1h'))).toEqual(scheduleFrom('bar1h'));
+    expect(defaultSchedule(reading('4h'))).toEqual(scheduleFrom('bar1h'));
+    expect(defaultSchedule(reading('1d'))).toEqual(scheduleFrom('daily'));
+    expect(defaultSchedule(reading('1w'))).toEqual(scheduleFrom('daily'));
     const base = reading('5m');
-    const picked = { ...base, entry: { ...base.entry, schedule: { frequency: 'daily' as const } } };
-    expect(scheduleOf(picked)).toBe('daily');
+    const picked = { ...base, entry: { ...base.entry, schedule: scheduleFrom('daily') } };
+    expect(scheduleOf(picked)).toEqual(scheduleFrom('daily'));
   });
 
   it('checks every bar of the picked size, and every bar when the bars are coarser', () => {
@@ -119,24 +122,22 @@ describe('Entry schedule (N184)', () => {
 
   it('keys bar cadences by the newest bar, not the time of the check', () => {
     const bar = at('2026-03-10T14:05:00Z');
-    const first = scheduledPeriod('bar5m', bar + 20_000, undefined, bar);
+    const first = scheduledPeriod(scheduleFrom('bar5m'), bar + 20_000, undefined, bar);
     expect(first).toBeDefined();
-    expect(scheduledPeriod('bar5m', bar + 40_000, first, bar)).toBeUndefined();
-    expect(scheduledPeriod('bar5m', bar + 300_000, first, bar + 300_000)).toBeDefined();
+    expect(scheduledPeriod(scheduleFrom('bar5m'), bar + 40_000, first, bar)).toBeUndefined();
+    expect(
+      scheduledPeriod(scheduleFrom('bar5m'), bar + 300_000, first, bar + 300_000),
+    ).toBeDefined();
   });
 });
 
-describe('Checks after the open (N226)', () => {
+describe('Which bar, bar size and days (N226, N227)', () => {
   const open = at('2026-03-10T13:30:00Z');
-  const opens = (
-    frequency: Parameters<typeof scheduledPeriod>[0],
-    when: ScheduleTime,
-    times: number[],
-  ): number[] => {
+  const checks = (schedule: Schedule, times: number[], beforeOpenAtClose = false): number[] => {
     let last: string | undefined;
     const out: number[] = [];
     for (const t of times) {
-      const p = scheduledPeriod(frequency, t, last, t, when);
+      const p = scheduledPeriod(schedule, t, last, t, { beforeOpenAtClose });
       if (p !== undefined) {
         last = p;
         out.push(t);
@@ -144,47 +145,85 @@ describe('Checks after the open (N226)', () => {
     }
     return out;
   };
+  const bars5 = Array.from({ length: 78 }, (_, i) => open + (i + 1) * 5 * 60_000);
+  const s = (which: Schedule['which'], bar: Schedule['bar'], days: Schedule['days'] = 'daily') => ({
+    which,
+    bar,
+    days,
+  });
 
-  it('checks once a day, at the first bar ending at least N minutes after the open', () => {
-    const bars = Array.from({ length: 78 }, (_, i) => open + (i + 1) * 5 * 60_000);
-    expect(opens('daily', 'open5m', bars)).toEqual([open + 5 * 60_000]);
-    expect(opens('daily', 'open1h', bars)).toEqual([open + 60 * 60_000]);
+  it('reads saved after-the-open choices as the 1st bar', () => {
+    expect(scheduleFrom('monthEnd', 'open5m')).toEqual(s('first', '5m', 'monthEnd'));
+    expect(scheduleFrom('daily', 'open1h')).toEqual(s('first', '1h'));
+    expect(scheduleFrom('weekly', 'close')).toEqual(s('every', '1d', 'weekly'));
+  });
+
+  it('checks the 1st and 2nd bar once a day, at the first bar ending that long after the open', () => {
+    expect(checks(s('first', '5m'), bars5)).toEqual([open + 5 * 60_000]);
+    expect(checks(s('second', '5m'), bars5)).toEqual([open + 10 * 60_000]);
+    expect(checks(s('first', '1h'), bars5)).toEqual([open + 60 * 60_000]);
+    expect(checks(s('second', '30m'), bars5)).toEqual([open + 60 * 60_000]);
     // 1-minute: the first 5-minute bar is the first bar in after one minute.
-    expect(opens('daily', 'open1m', bars)).toEqual([open + 5 * 60_000]);
+    expect(checks(s('first', '1m'), bars5)).toEqual([open + 5 * 60_000]);
+  });
+
+  it('checks every 30-minute bar on the half hours', () => {
+    const got = checks(s('every', '30m'), bars5);
+    expect(got).toHaveLength(14);
+    for (const t of got.slice(1)) expect(new Date(t).getUTCMinutes() % 30).toBe(0);
+  });
+
+  it('checks the last bar at the close', () => {
+    expect(checks(s('last', '5m'), bars5)).toEqual([bars5[0], at('2026-03-10T20:00:00Z')]);
   });
 
   it('does not check before the open, nor on a day without a session', () => {
-    expect(opens('daily', 'open5m', [open - 60_000, open])).toEqual([]);
-    expect(opens('daily', 'open5m', [at('2026-03-14T15:00:00Z')])).toEqual([]); // Saturday
+    expect(checks(s('first', '5m'), [open - 60_000, open])).toEqual([]);
+    expect(checks(s('first', '5m'), [at('2026-03-14T15:00:00Z')])).toEqual([]); // Saturday
   });
 
-  it('checks a calendar period only on its last trading day', () => {
+  it('limits every bar to the scheduled days', () => {
     // 2026-03-31 is the last trading day of March.
     const days = ['2026-03-30', '2026-03-31', '2026-04-01'].map((d) => at(`${d}T14:00:00Z`));
-    expect(opens('monthEnd', 'open5m', days)).toEqual([days[1]]);
+    expect(checks(s('first', '5m', 'monthEnd'), days)).toEqual([days[1]]);
+    expect(checks(s('every', '5m', 'monthEnd'), days)).toEqual([days[1]]);
   });
 
-  it('counts a daily bar ending at the close, so daily runs check at the close', () => {
+  it('checks before the open: one bar ahead in paper runs, at the prior close in back tests', () => {
+    // 2026-03-10 opens 13:30Z; the day before closed 20:00Z.
+    const ticks = [
+      at('2026-03-09T20:00:00Z'),
+      at('2026-03-10T13:00:00Z'),
+      at('2026-03-10T13:25:00Z'),
+    ];
+    expect(checks(s('beforeOpen', '5m'), ticks)).toEqual([ticks[2]]);
+    expect(checks(s('beforeOpen', '1h'), ticks)).toEqual([ticks[1]]);
+    expect(checks(s('beforeOpen', '5m'), ticks, true)).toEqual([ticks[0]]);
+    // Before the open on month end: the evening before the last trading day of March.
+    const closes = ['2026-03-27', '2026-03-30', '2026-03-31'].map((d) => at(`${d}T20:00:00Z`));
+    expect(checks(s('beforeOpen', '5m', 'monthEnd'), closes, true)).toEqual([closes[1]]);
+  });
+
+  it('counts a daily bar ending at the close, so daily runs check the 1st bar at the close', () => {
     const closes = [at('2026-03-10T20:00:00Z'), at('2026-03-11T20:00:00Z')];
-    expect(opens('daily', 'open5m', closes)).toEqual(closes);
-  });
-
-  it('keys apart from the after-the-close check and ignores the time on bar cadences', () => {
-    const t = open + 10 * 60_000;
-    expect(scheduledPeriod('daily', t, undefined, t, 'open5m')).toMatch(/^O/);
-    expect(scheduledPeriod('bar5m', t, undefined, t, 'open1h')).toBe(
-      scheduledPeriod('bar5m', t, undefined, t),
-    );
+    expect(checks(s('first', '5m'), closes)).toEqual(closes);
   });
 
   it('labels and bar minutes', () => {
-    expect(scheduleLabel('daily', 'open5m')).toBe('Once a day, after the first 5-minute bar');
-    expect(scheduleLabel('monthEnd', 'open1h')).toBe(
-      'Last trading day of each month, after the first hour',
+    expect(scheduleLabel(s('first', '5m'))).toBe('1st 5-minute bar, every trading day');
+    expect(scheduleLabel(s('second', '30m', 'monthEnd'))).toBe(
+      '2nd 30-minute bar, last trading day of each month',
     );
-    expect(scheduleLabel('monthEnd', 'close')).toBe(SCHEDULE_LABELS.monthEnd);
-    expect(scheduleBarMinutes({ frequency: 'weekly', at: 'open5m' })).toBe(5);
-    expect(scheduleBarMinutes({ frequency: 'weekly' })).toBeUndefined();
-    expect(scheduleBarMinutes({ frequency: 'bar1h', at: 'open5m' })).toBe(60);
+    expect(scheduleLabel(s('first', '1d', 'monthEnd'))).toBe(
+      'After the close, last trading day of each month',
+    );
+    expect(scheduleLabel(s('beforeOpen', '5m', 'weekly'))).toBe(
+      'Before the open, last trading day of each week',
+    );
+    expect(scheduleBarMinutes(s('first', '5m', 'weekly'))).toBe(5);
+    expect(scheduleBarMinutes(s('second', '30m'))).toBe(60);
+    expect(scheduleBarMinutes(s('every', '1d', 'weekly'))).toBeUndefined();
+    expect(scheduleBarMinutes(s('every', '1h'))).toBe(60);
+    expect(scheduleBarMinutes(s('beforeOpen', '5m'))).toBeUndefined();
   });
 });

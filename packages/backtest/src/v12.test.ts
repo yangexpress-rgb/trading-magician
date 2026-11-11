@@ -1,3 +1,4 @@
+import { scheduleFrom } from '@tm/domain';
 import {
   CONTEXT_INSTRUMENT_ID,
   createDefinition,
@@ -158,7 +159,7 @@ function sectorFixture(schedule?: 'monthEnd'): StrategyDefinition {
   def.exit.orders = [leg('close-each', CONTEXT_INSTRUMENT_ID, { side: 'close' })];
   // Holdings that drop out of the top 3 are sold at the next check (ADR 0073).
   def.exit.rules = [{ kind: 'leftGroup', id: 'left' }];
-  if (schedule) def.entry.schedule = { frequency: schedule };
+  if (schedule) def.entry.schedule = scheduleFrom(schedule);
   return def;
 }
 
@@ -418,7 +419,7 @@ function dualMomentum(schedule: 'monthEnd' | undefined = 'monthEnd'): StrategyDe
     }),
   );
   def.exit.orders = RISK3.map(([id, symbol]) => leg(`sell-${symbol}`, id, { side: 'close' }));
-  if (schedule) def.entry.schedule = { frequency: schedule };
+  if (schedule) def.entry.schedule = scheduleFrom(schedule);
   return def;
 }
 
@@ -486,7 +487,7 @@ describe('item 2: per-leg conditions, SPY / EFA / AGG', () => {
       count: { type: 'fixed', value: 1 },
     };
     def.exit.orders = RISK3.map(([id, s]) => leg(`sell-${s}`, id, { side: 'close' }));
-    def.entry.schedule = { frequency: 'monthEnd' };
+    def.entry.schedule = scheduleFrom('monthEnd');
     const r = run3(def);
     for (const round of r.selections?.rounds ?? []) {
       const selected = round.rows.filter((row) => row[4]);
@@ -730,7 +731,7 @@ describe('What to trade, Entry, Exit (ADR 0073)', () => {
     def.exit.rules = [];
     def.exit.condition = all(cmp(market(CONTEXT_INSTRUMENT_ID), 'gt', constant('0')));
     const everyBar = runSectors(def);
-    def.exit.schedule = { frequency: 'monthEnd' };
+    def.exit.schedule = scheduleFrom('monthEnd');
     const monthly = runSectors(def);
     expect(monthly.trades.length).toBeGreaterThan(0);
     expect(monthly.trades.length).toBeLessThan(everyBar.trades.length);
@@ -803,7 +804,7 @@ describe('What to trade, Entry, Exit (ADR 0073)', () => {
 describe('a group trailing stop read as Exit when (N217, ADR 0074)', () => {
   it('exits on exactly the same closes as the rule did', () => {
     const def = sectorFixture('monthEnd');
-    def.exit.schedule = { frequency: 'daily' };
+    def.exit.schedule = scheduleFrom('daily');
     def.exit.rules = [{ kind: 'trailingStop', id: 'ts', percent: '3' }];
     const doc = { ...JSON.parse(JSON.stringify(def)), schemaVersion: 3 };
     const asRule = parseDefinition({ ...doc, schemaVersion: 4 });
@@ -841,7 +842,7 @@ describe('why each pick was picked (N218 to N220)', () => {
         universe: { type: 'list', size: 9 },
         ranking: { metric: 'return', direction: 'desc', count: { type: 'fixed', value: 3 } },
       },
-      entrySchedule: 'monthEnd',
+      entrySchedule: 'After the close, last trading day of each month',
       exitSchedule: null,
       perCandidate: false,
     });

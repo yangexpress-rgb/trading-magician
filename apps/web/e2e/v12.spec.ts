@@ -29,11 +29,13 @@ test('build a group with a holding period, back test it, and read the ranking', 
   await expect(entryLeg.getByLabel('Instrument')).toHaveValue(
     '00000000-0000-0000-0000-000000000000',
   );
-  await expect(page.getByLabel('Check Entry')).toHaveValue('monthEnd');
-  // A period can be checked after the close or after the open (N226).
-  await expect(page.getByLabel('Entry check time')).toHaveValue('close');
+  // Check Entry in three boxes (N227): every 1-day bar on month end.
+  await expect(page.getByLabel('Check Entry')).toHaveValue('every');
+  await expect(page.getByLabel('Entry bar size')).toHaveValue('1d');
+  await expect(page.getByLabel('Entry days')).toHaveValue('monthEnd');
   // A month-end Entry checks Exit once a day (O145).
-  await expect(page.getByLabel('Check Exit')).toHaveValue('daily');
+  await expect(page.getByLabel('Check Exit')).toHaveValue('every');
+  await expect(page.getByLabel('Exit days')).toHaveValue('daily');
   await expect(page.getByText(/each instrument is evaluated on its own/).first()).toBeVisible();
   // Selling what leaves the top N is a group setting in What to trade (N222).
   await expect(page.getByLabel('Sell a pick when it leaves the group')).toBeChecked();
@@ -100,7 +102,7 @@ test('build a group with a holding period, back test it, and read the ranking', 
     cycle.getByRole('group', { name: 'Entry' }).getByText('Last trading day of each month'),
   ).toBeVisible();
   await expect(
-    cycle.getByRole('group', { name: 'Exit' }).getByText('Once a day, after the close'),
+    cycle.getByRole('group', { name: 'Exit' }).getByText('After the close, every trading day'),
   ).toBeVisible();
   if (SHOTS) await cycle.screenshot({ path: `${SHOTS}/selection-cycle-card.png` });
 });

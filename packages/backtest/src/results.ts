@@ -116,8 +116,9 @@ export interface SelectionLog {
   kind: 'ranking' | 'legs';
   metric: { metric: string; params: Record<string, number | string> } | null;
   direction: 'asc' | 'desc';
+  /** Check Entry in words (N227); a saved frequency code on older runs. */
   schedule: string;
-  /** When in the day, when after the open (N226). */
+  /** Older runs: when in the day, when after the open (N226). */
   scheduleAt?: string;
   exclusionLabels: Record<string, string>;
   rounds: SelectionRound[];
@@ -367,10 +368,14 @@ export interface RunPlan {
           count: { type: 'fixed' | 'percent'; value: number };
         };
       };
+  /**
+   * Check Entry in words (N227), e.g. "1st 5-minute bar, every trading day".
+   * Runs before N227 stored the saved frequency code ("monthEnd"), with
+   * `entryScheduleAt` for a check after the open.
+   */
   entrySchedule: string;
   /** Null: Exit was checked on every bar the run stepped on. */
   exitSchedule: string | null;
-  /** When in the day each was checked, when after the open (N226); absent: after the close. */
   entryScheduleAt?: string;
   exitScheduleAt?: string;
   /** Enter when reads "this stock", so it was checked for each candidate. */
