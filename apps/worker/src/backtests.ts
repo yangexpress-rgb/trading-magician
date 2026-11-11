@@ -168,7 +168,10 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
         work.inputs.symbols,
         (id) => instruments.get(id)?.symbol,
       );
-      if (narrowed.members.length === 0) throw new UnsupportedBarRequestError(narrowed.warning!);
+      if (narrowed.members.length === 0)
+        throw new UnsupportedBarRequestError(
+          narrowed.warning ?? 'No picked instruments are in the group',
+        );
       members = narrowed.members;
       if (narrowed.warning) universeWarnings.push(narrowed.warning);
     }

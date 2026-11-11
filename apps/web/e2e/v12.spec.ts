@@ -5,6 +5,7 @@ import {
   createTestedStrategy,
   group,
   leg,
+  pickRunDates,
   series,
 } from './backtest-fixtures';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
@@ -69,8 +70,7 @@ test('build a group with a holding period, back test it, and read the ranking', 
   expect(a11y.violations).toEqual([]);
 
   const panel = page.getByRole('region', { name: 'Run a back test', exact: true });
-  await panel.getByLabel('End date').fill('2023-12-29');
-  await panel.getByLabel('Look back').selectOption('1y');
+  await pickRunDates(panel, '2023-12-29', '1y', 'Dec 29, 2022 to Dec 29, 2023');
   await panel.getByRole('button', { name: 'Run back test' }).click();
   const results = page.getByRole('region', { name: 'Back test results' });
   await expect(results.getByText('Completed')).toBeVisible({ timeout: 60_000 });
@@ -219,8 +219,7 @@ test('a filtered group explains each pick: filter values, ranking, Enter when fo
   );
   await page.goto(`/strategy-lab/${strategy.id}`);
   const panel = page.getByRole('region', { name: 'Run a back test', exact: true });
-  await panel.getByLabel('End date').fill('2023-06-30');
-  await panel.getByLabel('Look back').selectOption('6m');
+  await pickRunDates(panel, '2023-06-30', '6m', 'Dec 30, 2022 to Jun 30, 2023');
   await panel.getByRole('button', { name: 'Run back test' }).click();
   const results = page.getByRole('region', { name: 'Back test results' });
   await expect(results.getByText('Completed')).toBeVisible({ timeout: 60_000 });
@@ -274,14 +273,8 @@ test('a filtered group explains each pick: filter values, ranking, Enter when fo
       /^Version \d+ · Dec 30, 2022 to Jun 30, 2023 · Daily bars · DEMO-\w+, DEMO-\w+$/,
     ),
   ).toBeVisible();
-  await results
-    .getByRole('table', { name: 'Cycles' })
-    .getByRole('button', { name: 'Cycle 1', exact: true })
-    .click();
-  await expect(
-    results
-      .getByRole('region', { name: 'Cycle 1', exact: true })
-      .getByRole('group', { name: 'What to trade' })
-      .getByText(/^Filter: passed by \d+ of 2$/),
-  ).toBeVisible();
+  // Only the two picked members are ever traded.
+  const picks = results.getByRole('table', { name: 'Cycles' });
+  await expect(picks.getByRole('row').nth(1)).toContainText(/DEMO-[AB]/);
+  await expect(picks).not.toContainText(/DEMO-[C-Z]/);
 });

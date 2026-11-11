@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test';
-import { createStrategyWithRules, group, leg } from './backtest-fixtures';
+import { createStrategyWithRules, group, leg, pickRunDates } from './backtest-fixtures';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 const THIS = '00000000-0000-0000-0000-000000000000';
@@ -84,8 +84,7 @@ test('dual momentum with per-leg conditions and no shared Entry condition valida
   await expect(checks.getByRole('heading', { name: /problems? blocks? starting/ })).toHaveCount(0);
   await expect(page.getByText('Add at least one Entry condition')).toHaveCount(0);
   const panel = page.getByRole('region', { name: 'Run a back test', exact: true });
-  await panel.getByLabel('End date').fill('2024-12-31');
-  await panel.getByLabel('Look back').selectOption('2y');
+  await pickRunDates(panel, '2024-12-31', '2y', 'Dec 31, 2022 to Dec 31, 2024');
   await panel.getByRole('button', { name: 'Run back test' }).click();
   const results = page.getByRole('region', { name: 'Back test results' });
   await expect(results.getByText('Completed')).toBeVisible({ timeout: 60_000 });

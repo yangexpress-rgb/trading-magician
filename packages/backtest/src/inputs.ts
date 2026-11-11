@@ -28,12 +28,6 @@ export const BACKTEST_INTERVAL_NAMES: Record<BacktestInterval, string> = {
   '5m': '5-minute',
 };
 
-const RANGE_LIMIT_TEXT: Record<BacktestInterval, string> = {
-  '1d': 'Daily back tests can cover at most 5 years',
-  '1h': 'Hourly back tests can cover at most 1 year',
-  '5m': '5-minute back tests can cover at most 31 days',
-};
-
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 
 /**
@@ -125,16 +119,9 @@ export const backtestInputsSchema = z
   .superRefine((v, ctx) => {
     if (v.from > v.to) {
       ctx.addIssue({ code: 'custom', path: ['to'], message: 'End date must be after the start' });
-      return;
     }
-    const days = (Date.parse(v.to) - Date.parse(v.from)) / 86_400_000;
-    if (days > MAX_RANGE_DAYS[v.interval]) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['from'],
-        message: RANGE_LIMIT_TEXT[v.interval],
-      });
-    }
+    // The longest range depends on the strategy's own bars (N228), so the
+    // server checks it once it has set them (`fitInputs`, ADR 0079).
   });
 export type BacktestInputs = z.infer<typeof backtestInputsSchema>;
 

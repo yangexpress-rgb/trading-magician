@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect } from '@playwright/test';
-import { createTestedStrategy } from './backtest-fixtures';
+import { createTestedStrategy, pickRunDates } from './backtest-fixtures';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 const SHOTS = process.env.E2E_SCREENSHOT_DIR;
@@ -18,8 +18,7 @@ test('back test a pair strategy, read the results beside their assumptions, and 
   // An end date and a period back from it (N229); the strategy sets the bars (N228).
   await expect(panel.getByLabel('End date')).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
   await expect(panel.getByLabel('Look back')).toHaveValue('1y');
-  await panel.getByLabel('End date').fill('2023-12-29');
-  await expect(panel.getByText('Dec 29, 2022 to Dec 29, 2023')).toBeVisible();
+  await pickRunDates(panel, '2023-12-29', '1y', 'Dec 29, 2022 to Dec 29, 2023');
   await expect(panel.getByLabel('Bars')).toHaveCount(0);
   await expect(
     panel.getByText(/^Daily bars, set by the strategy's Check Entry, Check Exit and conditions\./),
