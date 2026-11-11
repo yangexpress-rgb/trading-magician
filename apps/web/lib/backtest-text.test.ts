@@ -1,7 +1,7 @@
 import type { BacktestMetrics } from '@tm/backtest';
 import { describe, expect, it } from 'vitest';
 import {
-  intervalHint,
+  barsFromStrategy,
   describeRun,
   DIRECTION_WORDS,
   tradeDirection,
@@ -145,17 +145,13 @@ describe('tradeDirection', () => {
   });
 });
 
-describe('intervalHint (N179)', () => {
-  it('says when the bars match the conditions and when they are coarser', () => {
-    expect(intervalHint('5m', '5m')).toMatch(
-      /^Matches your conditions, which check every 5 minutes\./,
+describe('barsFromStrategy (N228)', () => {
+  it('names the bars the strategy sets and their longest range', () => {
+    expect(barsFromStrategy('5m', '5m')).toBe(
+      "5-minute bars, set by the strategy's Check Entry, Check Exit and conditions. A 5-minute back test covers at most 31 days.",
     );
-    expect(intervalHint('1h', '5m')).toMatch(
-      /^Your conditions check every 5 minutes, so hourly bars check them less often/,
-    );
-    expect(intervalHint('1d', undefined)).toBe(
-      'Up to 5 years daily, 1 year hourly or 31 days of 5-minute bars.',
-    );
+    expect(barsFromStrategy('1d', undefined)).toMatch(/^Daily bars, .* covers at most 5 years\.$/);
+    expect(barsFromStrategy('5m', '1m')).toMatch(/Some conditions read every 1 minute/);
   });
 
   it('names 5-minute runs', () => {

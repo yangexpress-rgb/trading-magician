@@ -126,9 +126,12 @@ export function metricTiles(m: BacktestMetrics, currency = 'USD'): MetricTile[] 
 /** One line naming what a run tested: version, dates and resolution. */
 export function describeRun(run: Pick<BacktestRunSummaryDto, 'versionNo' | 'inputs'>): string {
   const { inputs } = run;
+  const only = inputs.symbols
+    ? ` · ${inputs.symbols.length <= 3 ? inputs.symbols.join(', ') : `${inputs.symbols.length} instruments`}`
+    : '';
   return `Version ${run.versionNo} · ${formatDay(inputs.from)} to ${formatDay(inputs.to)} · ${
     BACKTEST_INTERVAL_NAMES[inputs.interval]
-  } bars`;
+  } bars${only}`;
 }
 
 export interface ChartGeometry {
@@ -238,13 +241,25 @@ export function tradeDirection(t: {
   return short > 0 ? 'long_short' : 'long';
 }
 
-/** What the Bars choice means for these rules (N179). */
-export function intervalHint(interval: BacktestInterval, finest: BarInterval | undefined): string {
-  const limits = 'Up to 5 years daily, 1 year hourly or 31 days of 5-minute bars.';
-  if (!finest) return limits;
-  const rules = INTERVAL_LABELS[finest];
-  if (coarserThan(interval, finest)) {
-    return `Your conditions check every ${rules}, so ${BACKTEST_INTERVAL_NAMES[interval].toLowerCase()} bars check them less often than paper trading would. ${limits}`;
-  }
-  return `Matches your conditions, which check every ${rules}. ${limits}`;
+/** Longest range each run interval allows, in words. */
+export const RANGE_LIMIT_WORDS: Record<BacktestInterval, string> = {
+  '1d': '5 years',
+  '1h': '1 year',
+  '5m': '31 days',
+};
+
+/**
+ * Where a run's bars come from (N228, ADR 0079): the strategy's own checks and
+ * conditions set them, so the form shows them instead of offering a choice.
+ */
+export function barsFromStrategy(
+  interval: BacktestInterval,
+  finest: BarInterval | undefined,
+): string {
+  const name = BACKTEST_INTERVAL_NAMES[interval];
+  const coarser =
+    finest && coarserThan(interval, finest)
+      ? ` Some conditions read every ${INTERVAL_LABELS[finest]}; back tests stop at 5-minute bars.`
+      : '';
+  return `${name} bars, set by the strategy's Check Entry, Check Exit and conditions. A ${name.toLowerCase()} back test covers at most ${RANGE_LIMIT_WORDS[interval]}.${coarser}`;
 }

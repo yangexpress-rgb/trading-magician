@@ -7,6 +7,7 @@ import {
   claimBacktestRun,
   completeRun,
   failRun,
+  fitInputs,
   getBacktest,
   latestCompletedBacktest,
   listBacktests,
@@ -261,6 +262,57 @@ describe('queuing a back test', () => {
       asA((tx) => cancelBacktest(tx, userA, run.id)),
       'invalid_state',
     );
+  });
+});
+
+describe('run inputs the strategy sets (ADR 0079)', () => {
+  it('uses the bars the rules read, whatever the request asked (N228)', async () => {
+    const fitted = await asA((tx) =>
+      fitInputs(tx, readyDefinition(), { ...inputs, interval: '5m' }),
+    );
+    expect(fitted.interval).toBe('1d');
+    expect(fitted.symbols).toBeUndefined();
+  });
+
+  it("refuses a period longer than the strategy's bars allow", async () => {
+    const def = readyDefinition();
+    const hourly = JSON.parse(JSON.stringify(def).replaceAll('"interval":"1d"', '"interval":"1h"'));
+    const error = await expectStrategyError(
+      asA((tx) => fitInputs(tx, hourly, { ...inputs, from: '2022-01-03', to: '2024-01-03' })),
+      'invalid_definition',
+    );
+    expect(error.details).toMatchObject([{ path: ['lookback'] }]);
+  });
+
+  it('keeps only members of the group, and only for a group (N230)', async () => {
+    const def = readyDefinition();
+    await expectStrategyError(
+      asA((tx) => fitInputs(tx, def, { ...inputs, symbols: ['DEMO-A'] })),
+      'invalid_definition',
+    );
+    const sp500: StrategyDefinition = {
+      ...def,
+      trade: { kind: 'group', universe: { type: 'builtin', id: 'sp500' } },
+    };
+    const fitted = await asA((tx) =>
+      fitInputs(tx, sp500, { ...inputs, symbols: ['aapl', 'MSFT', 'AAPL'] }),
+    );
+    expect(fitted.symbols).toEqual(['AAPL', 'MSFT']);
+    const outside = await expectStrategyError(
+      asA((tx) => fitInputs(tx, sp500, { ...inputs, symbols: ['AAPL', 'DEMO-A'] })),
+      'invalid_definition',
+    );
+    expect(outside.message).toBe('Some back test inputs need attention');
+    expect(outside.details).toMatchObject([
+      { path: ['symbols'], message: "Not in this strategy's group: DEMO-A" },
+    ]);
+    const list: StrategyDefinition = {
+      ...def,
+      trade: { kind: 'group', universe: { type: 'list', instrumentIds: [demoA] } },
+    };
+    expect(
+      (await asA((tx) => fitInputs(tx, list, { ...inputs, symbols: ['DEMO-A'] }))).symbols,
+    ).toEqual(['DEMO-A']);
   });
 });
 

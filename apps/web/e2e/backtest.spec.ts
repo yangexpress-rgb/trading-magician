@@ -15,9 +15,17 @@ test('back test a pair strategy, read the results beside their assumptions, and 
 
   const panel = page.getByRole('region', { name: 'Run a back test', exact: true });
   await expect(panel.getByText('None yet')).toBeVisible();
-  await panel.getByLabel('From').fill('2023-01-03');
-  await panel.getByLabel('To').fill('2023-12-29');
-  await expect(panel.getByLabel('Bars')).toHaveValue('1d');
+  // An end date and a period back from it (N229); the strategy sets the bars (N228).
+  await expect(panel.getByLabel('End date')).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
+  await expect(panel.getByLabel('Look back')).toHaveValue('1y');
+  await panel.getByLabel('End date').fill('2023-12-29');
+  await expect(panel.getByText('Dec 29, 2022 to Dec 29, 2023')).toBeVisible();
+  await expect(panel.getByLabel('Bars')).toHaveCount(0);
+  await expect(
+    panel.getByText(/^Daily bars, set by the strategy's Check Entry, Check Exit and conditions\./),
+  ).toBeVisible();
+  // A pair is not a group: no instruments to narrow (N230).
+  await expect(panel.getByRole('group', { name: 'Instruments to test' })).toHaveCount(0);
   await panel.getByText('Costs and fills').click();
   await expect(panel.getByLabel('Slippage (basis points)')).toHaveValue('5');
   await panel.getByRole('button', { name: 'Run back test' }).click();
@@ -29,7 +37,7 @@ test('back test a pair strategy, read the results beside their assumptions, and 
   await expect(results.getByText(/Engine engine@1/)).toBeHidden();
   await results.getByText('Run summary').click();
   await expect(
-    results.getByText('Version 1 · Jan 3, 2023 to Dec 29, 2023 · Daily bars'),
+    results.getByText('Version 1 · Dec 29, 2022 to Dec 29, 2023 · Daily bars'),
   ).toBeVisible();
   await expect(results.getByText(/Engine engine@1 · Data demo-history@1/)).toBeVisible();
 
@@ -128,16 +136,8 @@ test('back test a pair strategy, read the results beside their assumptions, and 
       .map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`),
   ).toEqual([]);
 
-  // A bad range comes back as a field error, without leaving the page.
-  await panel.getByLabel('Bars').selectOption('1h');
-  await panel.getByLabel('From').fill('2021-01-04');
-  await panel.getByRole('button', { name: 'Run back test' }).click();
-  await expect(panel.getByText('Hourly back tests can cover at most 1 year')).toBeVisible();
-
-  // 5-minute bars (N178): picking them moves the start inside their 31 days.
-  await panel.getByLabel('Bars').selectOption('5m');
-  await expect(panel.getByLabel('From')).not.toHaveValue('2021-01-04');
-  await expect(panel.getByText(/31 days of 5-minute bars/)).toBeVisible();
+  // Every period fits daily bars (N229).
+  await expect(panel.getByRole('option', { name: '5 years' })).toBeEnabled();
 
   // Validation picked up the finished run: no back-test warning remains.
   const validation = page.getByRole('region', { name: 'Validation' });

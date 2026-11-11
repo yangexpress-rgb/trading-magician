@@ -69,8 +69,8 @@ test('build a group with a holding period, back test it, and read the ranking', 
   expect(a11y.violations).toEqual([]);
 
   const panel = page.getByRole('region', { name: 'Run a back test', exact: true });
-  await panel.getByLabel('From').fill('2023-01-03');
-  await panel.getByLabel('To').fill('2023-12-29');
+  await panel.getByLabel('End date').fill('2023-12-29');
+  await panel.getByLabel('Look back').selectOption('1y');
   await panel.getByRole('button', { name: 'Run back test' }).click();
   const results = page.getByRole('region', { name: 'Back test results' });
   await expect(results.getByText('Completed')).toBeVisible({ timeout: 60_000 });
@@ -219,8 +219,8 @@ test('a filtered group explains each pick: filter values, ranking, Enter when fo
   );
   await page.goto(`/strategy-lab/${strategy.id}`);
   const panel = page.getByRole('region', { name: 'Run a back test', exact: true });
-  await panel.getByLabel('From').fill('2023-01-03');
-  await panel.getByLabel('To').fill('2023-06-30');
+  await panel.getByLabel('End date').fill('2023-06-30');
+  await panel.getByLabel('Look back').selectOption('6m');
   await panel.getByRole('button', { name: 'Run back test' }).click();
   const results = page.getByRole('region', { name: 'Back test results' });
   await expect(results.getByText('Completed')).toBeVisible({ timeout: 60_000 });
@@ -249,4 +249,39 @@ test('a filtered group explains each pick: filter values, ranking, Enter when fo
   const a11y = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(a11y.violations).toEqual([]);
   if (SHOTS) await cycle.screenshot({ path: `${SHOTS}/pick-cycle-card.png` });
+
+  // Test only some of the group (N230): the filter then reads just those members.
+  const only = panel.getByRole('group', { name: 'Instruments to test' });
+  await expect(only.getByLabel(/^Whole group \(the list, 5 instruments\)$/)).toBeChecked();
+  await only.getByLabel('Only some of them').check();
+  await only.getByLabel('Symbols').fill('NOPE');
+  await expect(only.getByText('Not in the list: NOPE')).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Run back test' })).toBeDisabled();
+  await only.getByLabel('Symbols').fill('');
+  const members = only.getByRole('group', { name: 'Members of the group' }).getByRole('button');
+  await members.nth(0).click();
+  await members.nth(1).click();
+  await expect(members.nth(0)).toHaveAttribute('aria-pressed', 'true');
+  await expect(
+    only.getByText(/^Separate symbols with commas or spaces\. Tests 2 of 5;/),
+  ).toBeVisible();
+  if (SHOTS) await panel.screenshot({ path: `${SHOTS}/backtest-inputs.png` });
+  await panel.getByRole('button', { name: 'Run back test' }).click();
+  await expect(results.getByText('Completed')).toBeVisible({ timeout: 60_000 });
+  await results.getByText('Run summary').click();
+  await expect(
+    results.getByText(
+      /^Version \d+ · Dec 30, 2022 to Jun 30, 2023 · Daily bars · DEMO-\w+, DEMO-\w+$/,
+    ),
+  ).toBeVisible();
+  await results
+    .getByRole('table', { name: 'Cycles' })
+    .getByRole('button', { name: 'Cycle 1', exact: true })
+    .click();
+  await expect(
+    results
+      .getByRole('region', { name: 'Cycle 1', exact: true })
+      .getByRole('group', { name: 'What to trade' })
+      .getByText(/^Filter: passed by \d+ of 2$/),
+  ).toBeVisible();
 });

@@ -92,6 +92,33 @@ export function scrub(text: string): string {
     .trim();
 }
 
+/**
+ * The group members a run tests when only some were picked (N230), in the
+ * group's order, and a warning naming picks that left the group since.
+ */
+export function pickMembers(
+  members: readonly string[],
+  symbols: readonly string[],
+  symbolOf: (id: string) => string | undefined,
+): { members: string[]; warning?: string } {
+  const picked = new Set(symbols.map((s) => s.toUpperCase()));
+  const kept = members.filter((id) => picked.has(symbolOf(id)?.toUpperCase() ?? ''));
+  const found = new Set(kept.map((id) => symbolOf(id)?.toUpperCase()));
+  const absent = [...picked].filter((s) => !found.has(s));
+  const names = (list: string[]) => `${list.slice(0, 10).join(', ')}${list.length > 10 ? '…' : ''}`;
+  if (kept.length === 0) {
+    return {
+      members: [],
+      warning: `None of the instruments picked for this back test are in the group now: ${names([...picked])}`,
+    };
+  }
+  if (absent.length === 0) return { members: kept };
+  return {
+    members: kept,
+    warning: `${absent.length === 1 ? 'This pick is' : 'These picks are'} no longer in the group and ${absent.length === 1 ? 'was' : 'were'} left out: ${names(absent)}`,
+  };
+}
+
 export async function processNextRun(options: BacktestWorkerOptions): Promise<ProcessOutcome> {
   const { db, workerId, logger } = options;
   const leaseSeconds = options.leaseSeconds ?? 120;
@@ -128,6 +155,22 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
       universeWarnings.push(...resolved.warnings);
       const refs = await inTenant((tx) => instrumentRefs(tx, members));
       for (const [id, ref] of refs) instruments.set(id, ref);
+    }
+    // Only the members picked for this run (N230); the rest of the group is left out.
+    if (work.inputs.symbols && trade.kind === 'group') {
+      const missing = members.filter((id) => !instruments.has(id));
+      if (missing.length > 0) {
+        const refs = await inTenant((tx) => instrumentRefs(tx, missing));
+        for (const [id, ref] of refs) instruments.set(id, ref);
+      }
+      const narrowed = pickMembers(
+        members,
+        work.inputs.symbols,
+        (id) => instruments.get(id)?.symbol,
+      );
+      if (narrowed.members.length === 0) throw new UnsupportedBarRequestError(narrowed.warning!);
+      members = narrowed.members;
+      if (narrowed.warning) universeWarnings.push(narrowed.warning);
     }
     // Hundreds of members take a while to load; keep the lease while they do.
     let lastRenew = Date.now();

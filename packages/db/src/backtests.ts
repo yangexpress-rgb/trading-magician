@@ -1,4 +1,7 @@
 import {
+  BACKTEST_INTERVAL_NAMES,
+  MAX_RANGE_DAYS,
+  matchingBacktestInterval,
   strategyInstruments,
   type BacktestInputs,
   type BacktestMetrics,
@@ -6,6 +9,7 @@ import {
   type InstrumentRef,
 } from '@tm/backtest';
 import {
+  isSp500,
   listMembers,
   parseDefinition,
   validateStrategy,
@@ -147,6 +151,8 @@ export async function startBacktest(
     );
   }
 
+  const runInputs = await fitInputs(tx, pinned.definition, inputs);
+
   await assertWithinLimit(tx, userId, 'concurrentBacktests');
   await assertWithinLimit(tx, userId, 'backtestRunsPerDay');
 
@@ -157,7 +163,7 @@ export async function startBacktest(
       strategyId,
       versionId: pinned.versionId,
       definitionHash: pinned.row.draftHash,
-      inputs,
+      inputs: runInputs,
       dataSource: BACKTEST_DATA_SOURCE,
       createdBy: userId,
     })
@@ -173,6 +179,60 @@ export async function startBacktest(
     context: { strategyId, versionId: pinned.versionId, versionNo: pinned.versionNo },
   });
   return getBacktest(tx, run.id);
+}
+
+/** A field problem in a back test request, shaped like the request's own checks. */
+function inputsError(path: string, message: string): StrategyError {
+  return new StrategyError('invalid_definition', 'Some back test inputs need attention', [
+    { code: 'custom', path: [path], message, input: undefined },
+  ]);
+}
+
+/**
+ * The inputs a run keeps (ADR 0079): bars at the strategy's own size (N228),
+ * whatever the request sent, within that size's longest range; and, for a
+ * group, only members of it (N230).
+ */
+export async function fitInputs(
+  tx: Transaction,
+  definition: StrategyDefinition,
+  inputs: BacktestInputs,
+): Promise<BacktestInputs> {
+  const { interval } = matchingBacktestInterval(definition);
+  const days = (Date.parse(inputs.to) - Date.parse(inputs.from)) / 86_400_000;
+  if (days > MAX_RANGE_DAYS[interval]) {
+    const most = interval === '1d' ? '5 years' : interval === '1h' ? '1 year' : '31 days';
+    throw inputsError(
+      'lookback',
+      `This strategy checks ${BACKTEST_INTERVAL_NAMES[interval].toLowerCase()} bars, so a back test can cover at most ${most}`,
+    );
+  }
+  const { symbols, ...rest } = inputs;
+  if (!symbols) return { ...rest, interval };
+  const trade = definition.trade;
+  if (trade.kind !== 'group') {
+    throw inputsError(
+      'symbols',
+      'Only a strategy that trades a group can test some of its members',
+    );
+  }
+  const picked = [...new Set(symbols.map((s) => s.toUpperCase()))];
+  let inGroup: (symbol: string) => boolean;
+  if (trade.universe.type === 'builtin') {
+    inGroup = isSp500;
+  } else {
+    const refs = await instrumentRefs(tx, listMembers(definition));
+    const members = new Set([...refs.values()].map((r) => r.symbol.toUpperCase()));
+    inGroup = (s) => members.has(s);
+  }
+  const outside = picked.filter((s) => !inGroup(s));
+  if (outside.length > 0) {
+    throw inputsError(
+      'symbols',
+      `Not in this strategy's group: ${outside.slice(0, 10).join(', ')}${outside.length > 10 ? '…' : ''}`,
+    );
+  }
+  return { ...rest, interval, symbols: picked };
 }
 
 export async function getBacktest(tx: Transaction, runId: string): Promise<BacktestRunDetail> {
