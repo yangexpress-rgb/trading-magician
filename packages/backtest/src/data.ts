@@ -120,6 +120,8 @@ export interface SeriesPlan {
   spec: SeriesSpec;
   from: string;
   to: string;
+  /** Bars the rules read back from the newest one (offsets and indicator warm-up). */
+  bars?: number;
 }
 
 /**
@@ -143,6 +145,7 @@ export function planExprs(exprs: readonly SeriesExpr[], from: string, to: string
   }
   return [...plans.values()].map(({ spec, bars }) => ({
     spec,
+    bars,
     from: addDays(from, -warmupDays(spec.interval, bars)),
     to,
   }));
@@ -198,6 +201,7 @@ export function planSeries(
   }
   return [...plans.values()].map(({ spec, bars }) => ({
     spec,
+    bars,
     from: addDays(inputs.from, -warmupDays(spec.interval, bars)),
     to: inputs.to,
   }));

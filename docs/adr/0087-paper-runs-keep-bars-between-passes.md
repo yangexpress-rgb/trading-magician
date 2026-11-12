@@ -52,9 +52,13 @@ A back test does not have the problem: it loads each series once and replays it.
 - **Other data for a minute.** Earnings, deals, filings, options signals and model scores are
   reloaded when a new bar arrives, when the members change, or after 60 seconds.
 - **A memory cap replaces the size cap.** Start refuses a strategy whose bars would exceed
-  `MAX_PAPER_BARS` = 400,000 (estimated from the series plan, as ADR 0081 does for back tests),
-  saying what drives the size. The whole S&P 500 needs about 15,000 bars on daily rules and about
-  240,000 on 5-minute rules (a 5-minute series always loads a few days back).
+  `MAX_PAPER_BARS` = 400,000, saying what drives the size. The count is what the runtime keeps,
+  not what it loads: each series keeps twice the bars its rules read back and at least two sessions
+  more (`paperBarsKept`); the plan's calendar margin (at least a week, for holidays and gaps) is
+  only loaded, a chunk of 100 series at a time, and trimmed at once. The whole S&P 500 keeps about
+  80,000 bars per 5-minute series kind and a few thousand on daily rules. (First version, same day:
+  the cap counted the load margin, about 235,000 bars per 5-minute series kind, and refused Yong's
+  5-minute S&P 500 strategy at 478,856.)
 
 ## Consequences
 
@@ -65,7 +69,7 @@ A back test does not have the problem: it loads each series once and replays it.
   each close. A 5-minute one sends about five every five minutes in the session. Both stay far
   inside the key's 200 a minute.
 - Bars live in the worker's memory alongside back tests (ADR 0081's 1.2 million bar cap). A
-  5-minute S&P 500 runtime holds about 300 MB. Several such runtimes plus a maximal back test
+  5-minute S&P 500 runtime holds about 100 to 200 MB. Several such runtimes plus a maximal back test
   could exhaust the 2 GB heap; if that shows up, the next step is a compact numeric bar store.
 - Several workers each keep their own copy; a runtime that moves to another worker loads again
   once.

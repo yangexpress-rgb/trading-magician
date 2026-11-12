@@ -122,11 +122,22 @@ export function workloadProblem(
 /**
  * Most bars one paper runtime may keep loaded (estimated, ADR 0087). The
  * runtime keeps its bars between passes and shares the worker's 2 GB heap
- * with back tests (up to MAX_BACKTEST_BARS), so it gets a smaller share. The
- * whole S&P 500 on daily bars needs about 30 thousand; on 5-minute bars
- * about 200 thousand.
+ * with back tests (up to MAX_BACKTEST_BARS), so it gets a smaller share.
  */
 export const MAX_PAPER_BARS = 400_000;
+
+/**
+ * Bars a paper runtime keeps of a series (ADR 0087): twice what the rules
+ * read back, and at least two sessions more, so a missing bar or a holiday
+ * never leaves the rules short. Older bars are let go after each load. The
+ * whole S&P 500 on 5-minute rules that read the latest bars keeps about 80
+ * thousand bars a series kind; on daily rules a few thousand.
+ */
+export function paperBarsKept(plan: Pick<SeriesPlan, 'spec' | 'bars'>): number {
+  const need = plan.bars ?? 2;
+  const perDay = Math.ceil(BARS_PER_DAY[plan.spec.interval] ?? 1);
+  return Math.max(need * 2, need + 2 * perDay);
+}
 
 /** The window a paper pass evaluates: today, on daily execution bars. */
 export function paperEvaluationInputs(today: string): BacktestInputs {
@@ -136,6 +147,21 @@ export function paperEvaluationInputs(today: string): BacktestInputs {
     interval: '1d',
     adjustment: 'split_and_dividend',
   } as BacktestInputs;
+}
+
+/** Bars a paper runtime keeps loaded for a plan, by interval (ADR 0087). */
+export function estimatePaperBars(plans: readonly SeriesPlan[]): {
+  total: number;
+  byInterval: Record<string, number>;
+} {
+  const byInterval: Record<string, number> = {};
+  let total = 0;
+  for (const p of plans) {
+    const n = paperBarsKept(p);
+    byInterval[p.spec.interval] = (byInterval[p.spec.interval] ?? 0) + n;
+    total += n;
+  }
+  return { total, byInterval };
 }
 
 /**
@@ -150,13 +176,14 @@ export function paperWorkloadProblem(
 ): string | undefined {
   // Only the count matters for the estimate, so stand-in ids do.
   const members = Array.from({ length: memberCount }, (_, i) => `member-${i}`);
-  const w = estimateWorkload(planSeries(def, paperEvaluationInputs(today), members));
-  if (w.estimatedBars <= maxBars) return undefined;
-  const [interval] = Object.entries(w.byInterval).sort(
-    (a, b) => b[1].estimatedBars - a[1].estimatedBars,
-  )[0] as [string, IntervalWorkload];
+  const w = estimatePaperBars(planSeries(def, paperEvaluationInputs(today), members));
+  if (w.total <= maxBars) return undefined;
+  const [interval] = Object.entries(w.byInterval).sort((a, b) => b[1] - a[1])[0] as [
+    string,
+    number,
+  ];
   return (
-    `Running this on paper would keep about ${millions(w.estimatedBars)} price bars loaded, mostly ${
+    `Running this on paper would keep about ${millions(w.total)} price bars loaded, mostly ${
       INTERVAL_WORDS[interval] ?? interval
     } bars for ${memberCount.toLocaleString('en-US')} stocks. ` +
     `A paper run can keep up to ${millions(maxBars)}. ` +
