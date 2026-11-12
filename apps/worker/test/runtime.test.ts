@@ -984,15 +984,17 @@ describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, ti
         count: { type: 'fixed', value: 10 },
       },
     };
-    // 500 five-minute bars back for every member: about 470 thousand bars.
+    // A 200-bar average 500 five-minute bars back for every member: about 430 thousand bars.
     def.entry.condition = group('far', [
       {
         kind: 'comparison',
         id: 'far-c',
         operator: 'gt',
         left: {
-          kind: 'market',
+          kind: 'indicator',
           id: 'far-px',
+          name: 'SMA',
+          params: { period: 200 },
           instrumentId: CONTEXT,
           field: 'close',
           interval: '5m',
