@@ -44,6 +44,13 @@ export interface HistoricalDataProvider {
   readonly id: string;
   readonly intervals: readonly BarInterval[];
   getBars(request: BarRequest): Promise<BarSeries>;
+  /**
+   * Many series in few requests, for feeds that serve several symbols per
+   * call (paper runs over a stock group, ADR 0087). Each result lines up with
+   * its request: the series, or the error that request alone would have
+   * thrown. Feeds without it are asked one series at a time.
+   */
+  getBarsMany?(requests: readonly BarRequest[]): Promise<(BarSeries | Error)[]>;
 }
 
 export class UnsupportedBarRequestError extends Error {}

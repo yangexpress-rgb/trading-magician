@@ -1,10 +1,12 @@
 import {
   loadData,
   MarketView,
+  paperEvaluationInputs,
+  type InstrumentRef,
+  type LoadedData,
   planSeries,
   seriesExprs,
   watchOnlyInstruments,
-  type BacktestInputs,
 } from '@tm/backtest';
 import { PaperBroker } from '@tm/broker';
 import {
@@ -50,9 +52,11 @@ import {
   loadAccountRouting,
   type AccountRouting,
   feedScope,
+  instrumentRefs,
   loadRouting,
   type CredentialKey,
 } from '@tm/db';
+import { RuntimeBarCache, RuntimeSideData, RuntimeUniverses } from './runtime-cache';
 import {
   addDays,
   fundamentalInstruments,
@@ -134,6 +138,7 @@ import {
   type Truth,
   withPositions,
   isIndicatorOnlyClass,
+  type BuiltinUniverse,
 } from '@tm/domain';
 import { randomUUID } from 'node:crypto';
 import Decimal from 'decimal.js';
@@ -181,6 +186,35 @@ export interface RuntimeWorkerOptions {
   wrapBroker?: (broker: BrokerAdapter) => BrokerAdapter;
   /** Point-in-time company filings, for strategies with fundamental metrics (v1.2 item 6). */
   fundamentals?: FundamentalsLoader;
+  /**
+   * Bars, group members and other data kept between passes (ADR 0087). The
+   * worker always has them; without them (some tests) every pass loads afresh.
+   */
+  caches?: RuntimeCaches;
+  /** A built-in stock group's members, as back tests resolve them (ADR 0080, 0087). */
+  resolveUniverse?: (
+    userId: string,
+    group: BuiltinUniverse,
+  ) => Promise<{ ids: string[]; warnings: string[] }>;
+}
+
+/** Data besides bars that a pass reads, kept for a minute when caches are on. */
+type SideData = Pick<LoadedData, 'fundamentals' | 'options' | 'events' | 'ml'>;
+
+export interface RuntimeCaches {
+  bars: RuntimeBarCache;
+  universes: RuntimeUniverses;
+  side: RuntimeSideData<SideData>;
+}
+
+export function createRuntimeCaches(
+  resolveUniverse?: RuntimeWorkerOptions['resolveUniverse'],
+): RuntimeCaches {
+  return {
+    bars: new RuntimeBarCache(),
+    universes: new RuntimeUniverses(resolveUniverse),
+    side: new RuntimeSideData<SideData>(),
+  };
 }
 
 const ZERO = new Decimal(0);
@@ -203,17 +237,6 @@ export const SAFETY = {
 /** What went wrong with the broker during a pass. */
 interface PassHealth {
   brokerDown: boolean;
-}
-
-/** Bars needed for the rules, as a back-test style plan ending today. */
-function evaluationInputs(now: Date): BacktestInputs {
-  const today = nyDate(now);
-  return {
-    from: today,
-    to: today,
-    interval: '1d',
-    adjustment: 'split_and_dividend',
-  } as BacktestInputs;
 }
 
 /** Latest values of the series a condition reads, for the trigger event (§8.2). */
@@ -289,6 +312,15 @@ export async function runRuntimePass(
 
     let work = await loadRuntimeWork(tx, runtimeId, workerId);
     if (!work) return 'lost';
+    // A Selection group's members: a list as stored, or a built-in group looked up (ADR 0087).
+    const group = await groupMembers(options, tx, work, now);
+    const withMembers = (w: RuntimeWork): RuntimeWork => {
+      if (group)
+        for (const [id, ref] of group.refs) if (!w.instruments.has(id)) w.instruments.set(id, ref);
+      return w;
+    };
+    work = withMembers(work);
+    const members = group?.ids ?? listMembers(work.definition);
 
     // Each account's orders go to its own platform: the demo one to the simulator (ADR 0018).
     const accounts = await loadAccountRouting(tx, work.accounts);
@@ -314,11 +346,12 @@ export async function runRuntimePass(
     const sync = await syncUpdates(tx, broker, work, health);
     // 3. Periodic reconciliation against the broker (§8.5).
     const healed = sync.complete ? await reconcile(tx, broker, work, now, sync.unknown, health) : 0;
-    if (sync.changed || healed > 0) work = (await loadRuntimeWork(tx, runtimeId, workerId)) ?? work;
+    if (sync.changed || healed > 0)
+      work = withMembers((await loadRuntimeWork(tx, runtimeId, workerId)) ?? work);
 
     // 4. Automatic pauses (§8.6): a broker that stops answering, prices that go stale.
     work = await watchBroker(tx, work, now, health);
-    if (work.status === 'running') work = await watchFeed(tx, work, quotes, now);
+    if (work.status === 'running') work = await watchFeed(tx, work, quotes, now, new Set(members));
 
     if (work.status !== 'stopped') {
       await planPass(tx, {
@@ -331,6 +364,9 @@ export async function runRuntimePass(
         health,
         accounts,
         fundamentals: options.fundamentals,
+        members,
+        caches: options.caches,
+        scope: feeds.userId,
       });
       if (work.status === 'running') await watchRejects(tx, work);
     } else {
@@ -468,13 +504,20 @@ async function watchFeed(
   work: RuntimeWork,
   quotes: LiveQuoteProvider,
   now: Date,
+  members: ReadonlySet<string> = new Set(),
 ): Promise<RuntimeWork> {
   const t = now.getTime();
   const limit = work.definition.execution.staleDataSec;
   const bad: string[] = [];
+  // A group member's live price matters once the runtime holds it or has an order
+  // on it; before that, the pre-trade check refuses an order on a stale price
+  // (ADR 0087). Watching all 500 would ask for 500 prices every pass.
+  const active = new Set<string>(work.working.map((o) => o.intent.instrumentId));
+  for (const [id, q] of work.book.positions) if (!q.isZero()) active.add(id);
   for (const [instrumentId, ref] of work.instruments) {
     // An index has daily closes only and is never traded: no live price to watch (v1.2 item 5).
     if (isIndicatorOnlyClass(ref.assetClass)) continue;
+    if (members.has(instrumentId) && !active.has(instrumentId)) continue;
     const q = await quotes.latestQuote({ instrumentId, symbol: ref.symbol });
     // Outside the session the last quote simply stands; that is not a feed problem.
     if (!q) bad.push(`${ref.symbol} (no price)`);
@@ -558,7 +601,10 @@ function requestFor(o: WorkingOrder): BrokerOrderRequest {
  * Submits orders recorded as ready whose submission never completed, e.g. the
  * broker was unreachable. The same client order id means no duplicate (§8.5).
  */
-async function submitReady(tx: Transaction, ctx: Omit<PassContext, 'history'>) {
+async function submitReady(
+  tx: Transaction,
+  ctx: Omit<PassContext, 'history' | 'members' | 'scope' | 'caches'>,
+) {
   const open = regularSessionOpenAt(ctx.now.getTime());
   const risk = ctx.work.definition.risk;
   for (const o of ctx.work.working) {
@@ -611,6 +657,72 @@ interface PassContext {
   /** Each account's platform and capabilities (ADR 0018). */
   accounts: ReadonlyMap<string, AccountRouting>;
   fundamentals?: FundamentalsLoader | undefined;
+  /** The group's members today (empty without a group). */
+  members: string[];
+  caches?: RuntimeCaches | undefined;
+  /** Whose feeds answer, so runtimes on the same feeds share loaded bars. */
+  scope: string;
+}
+
+/**
+ * What a pass reads besides bars: company filings, options signals, earnings
+ * and deals, model scores, each only when the rules read it.
+ */
+async function loadSideData(
+  tx: Transaction,
+  ctx: PassContext,
+  members: readonly string[],
+): Promise<SideData> {
+  const { work, now } = ctx;
+  const def = work.definition;
+  const out: SideData = {};
+  // Fundamental metrics read company filings as known now (v1.2 item 6); without
+  // them those metrics are unknown, so conditions on them don't qualify.
+  const companies = fundamentalInstruments(def, members);
+  if (companies.length > 0) {
+    try {
+      if (!ctx.fundamentals) throw new Error(NO_COMPANY_FEED);
+      const loaded = await ctx.fundamentals(
+        work.userId,
+        companies.flatMap((id) => {
+          const ref = work.instruments.get(id);
+          return ref ? [{ id, symbol: ref.symbol }] : [];
+        }),
+      );
+      out.fundamentals = loaded.byId;
+    } catch (error) {
+      const e = error as { name?: string; message?: string };
+      ctx.logger.warn(
+        { runtimeId: work.id, err: { name: e.name, message: e.message } },
+        'fundamentals unavailable',
+      );
+    }
+  }
+  // Options metrics read the latest end-of-day signal (options brief v2 §5.3): at
+  // most one change a day, unknown when the latest is over 5 trading days old.
+  const underlyings = optionInstruments(def, members);
+  if (underlyings.length > 0)
+    out.options = await loadOptionSignals(tx, underlyings, addDays(nyDate(now), -14));
+  // Earnings, deals and rates: the latest record on or before each bar (ADR 0058).
+  const eventReads = eventInstruments(def, members);
+  if (eventReads.size > 0) out.events = await loadEventData(tx, eventReads);
+  // Stored model scores (ML brief v1 §8): the latest prediction, unknown past 45 days.
+  const mlWanted = mlReads(def, members);
+  if (mlWanted.size > 0) out.ml = await loadMlPredictions(tx, mlWanted, addDays(nyDate(now), -60));
+  return out;
+}
+
+/** A built-in group's members and their instruments, today's list (ADR 0087). */
+async function groupMembers(
+  options: RuntimeWorkerOptions,
+  tx: Transaction,
+  work: RuntimeWork,
+  now: Date,
+): Promise<{ ids: string[]; refs: Map<string, InstrumentRef> } | undefined> {
+  const trade = work.definition.trade;
+  if (trade.kind !== 'group' || trade.universe.type !== 'builtin') return undefined;
+  const universes = options.caches?.universes ?? new RuntimeUniverses(options.resolveUniverse);
+  return universes.members(work.userId, trade.universe.id, now, (ids) => instrumentRefs(tx, ids));
 }
 
 async function planPass(tx: Transaction, ctx: PassContext) {
@@ -667,45 +779,39 @@ async function planPass(tx: Transaction, ctx: PassContext) {
 
   // 3. Conditions on the newest completed bars (§6.5).
   const mode = slotModeOf(def);
-  const members = listMembers(def);
-  const data = await loadData(
-    ctx.history,
-    planSeries(def, evaluationInputs(now), members, watchOnlyInstruments(work.instruments)),
-    work.instruments,
+  const members = ctx.members;
+  const plans = planSeries(
+    def,
+    paperEvaluationInputs(nyDate(now)),
+    members,
+    watchOnlyInstruments(work.instruments),
   );
-  // Fundamental metrics read company filings as known now (v1.2 item 6); without
-  // them those metrics are unknown, so conditions on them don't qualify.
-  const companies = fundamentalInstruments(def, members);
-  if (companies.length > 0) {
-    try {
-      if (!ctx.fundamentals) throw new Error(NO_COMPANY_FEED);
-      const loaded = await ctx.fundamentals(
-        work.userId,
-        companies.flatMap((id) => {
-          const ref = work.instruments.get(id);
-          return ref ? [{ id, symbol: ref.symbol }] : [];
-        }),
-      );
-      data.fundamentals = loaded.byId;
-    } catch (error) {
-      const e = error as { name?: string; message?: string };
-      ctx.logger.warn(
-        { runtimeId: work.id, err: { name: e.name, message: e.message } },
-        'fundamentals unavailable',
-      );
-    }
+  // Bars stay loaded between passes; only a newly finished bar is asked for (ADR 0087).
+  // A member whose bars fail is left out of the pass, as in back tests.
+  const data: LoadedData = ctx.caches
+    ? await ctx.caches.bars.load({
+        scope: ctx.scope,
+        owner: work.id,
+        history: ctx.history,
+        plans,
+        instruments: work.instruments,
+        now,
+        optional: new Set(members),
+      })
+    : await loadData(ctx.history, plans, work.instruments, undefined, new Set(members));
+  let dataTime = 0;
+  for (const e of seriesExprs(def, members)) {
+    const bars = data.series.get(`${e.instrumentId}|${e.interval}|${e.adjustment}|${e.session}`);
+    const last = bars?.findLast((b) => Date.parse(b.end) <= t);
+    if (last) dataTime = Math.max(dataTime, Date.parse(last.end));
   }
-  // Options metrics read the latest end-of-day signal (options brief v2 §5.3): at
-  // most one change a day, unknown when the latest is over 5 trading days old.
-  const underlyings = optionInstruments(def, members);
-  if (underlyings.length > 0)
-    data.options = await loadOptionSignals(tx, underlyings, addDays(nyDate(now), -14));
-  // Earnings, deals and rates: the latest record on or before each bar (ADR 0058).
-  const eventReads = eventInstruments(def, members);
-  if (eventReads.size > 0) data.events = await loadEventData(tx, eventReads);
-  // Stored model scores (ML brief v1 §8): the latest prediction, unknown past 45 days.
-  const mlWanted = mlReads(def, members);
-  if (mlWanted.size > 0) data.ml = await loadMlPredictions(tx, mlWanted, addDays(nyDate(now), -60));
+  const newData = dataTime > 0 && dataTime > (state.lastDataTime ?? 0);
+  const side = ctx.caches
+    ? await ctx.caches.side.get(work.id, members.join(','), t, newData, () =>
+        loadSideData(tx, ctx, members),
+      )
+    : await loadSideData(tx, ctx, members);
+  Object.assign(data, side);
   const view = new MarketView(
     data.series,
     watchOnlyInstruments(work.instruments),
@@ -715,13 +821,6 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     data.ml,
   );
   view.advance(t);
-  let dataTime = 0;
-  for (const e of seriesExprs(def, members)) {
-    const bars = data.series.get(`${e.instrumentId}|${e.interval}|${e.adjustment}|${e.session}`);
-    const last = bars?.filter((b) => Date.parse(b.end) <= t).at(-1);
-    if (last) dataTime = Math.max(dataTime, Date.parse(last.end));
-  }
-  const newData = dataTime > 0 && dataTime > (state.lastDataTime ?? 0);
   if (newData) state.lastDataTime = dataTime;
   // Check Entry gates Entry and re-selection; Check Exit gates Exit (ADR 0073).
   // Every intraday bar counts the newest bar's end; checks after the close count closes (N184).

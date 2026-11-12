@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { stockGroup } from '../market/stock-groups';
+import { stockGroupSymbols } from '../market/stock-groups';
 import { riskSeries } from './risk-exits';
 import { expectedMoveCloses, expectedMoveExprs } from './expected-move-exit';
 import { holdingMoveExprs, holdingSeries } from './holding-values';
@@ -664,22 +664,16 @@ export function listMembers(def: StrategyDefinition): string[] {
   return u?.type === 'list' ? [...new Set(u.instrumentIds)] : [];
 }
 
-/** Largest list universe a paper run takes; every member's bars load on each pass. */
-export const PAPER_UNIVERSE_LIMIT = 50;
-
 /**
- * Why a strategy can be back tested but not yet run on paper, or undefined.
- * Open decision (design v1.2 N13, O17): S&P 500 Selection groups back test in this round
- * and run on paper once the worker caches bars (Design v1.2 N11).
+ * How many members a strategy's group has today: a list's own, a built-in
+ * group's current list (0 without a group). Paper runs over any group size
+ * since bars stay loaded between passes (ADR 0087, which settled N13 / O17);
+ * only the bars a run keeps loaded are limited.
  */
-export function paperRunBlocker(def: StrategyDefinition): string | undefined {
-  if (def.trade.kind !== 'group') return undefined;
+export function groupMemberCount(def: StrategyDefinition): number {
+  if (def.trade.kind !== 'group') return 0;
   const u = def.trade.universe;
-  if (u?.type === 'builtin')
-    return `${stockGroup(u.id).label} groups can be back tested, but not run on paper yet: the paper runtime would reload every member’s bars on every pass. Use a list of up to ${PAPER_UNIVERSE_LIMIT} instruments to run on paper.`;
-  if (u?.type === 'list' && new Set(u.instrumentIds).size > PAPER_UNIVERSE_LIMIT)
-    return `Paper runs take list universes of up to ${PAPER_UNIVERSE_LIMIT} instruments; this one has ${new Set(u.instrumentIds).size}. It can still be back tested.`;
-  return undefined;
+  return u.type === 'builtin' ? stockGroupSymbols(u.id).length : listMembers(def).length;
 }
 
 /**

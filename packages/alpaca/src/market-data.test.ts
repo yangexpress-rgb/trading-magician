@@ -213,3 +213,40 @@ describe('Alpaca throttling (v1.2 review: the S&P 500 back test)', () => {
     await expect(history.getBars(request)).rejects.toThrow(/over its request limit/);
   });
 });
+
+describe('Alpaca bars for many symbols (ADR 0087)', () => {
+  const req = (symbol: string, interval: '1d' | '5m' | '1m' = '1d') => ({
+    instrumentId: symbol,
+    symbol,
+    assetClass: 'stock',
+    interval,
+    from: '2026-09-28',
+    to: '2026-10-02',
+    adjustment: 'split_and_dividend' as const,
+    session: 'regular' as const,
+  });
+
+  it('answers many symbols in one request, each like its own request', async () => {
+    const now = { t: new Date('2026-10-05T00:00:00Z') };
+    const { fake, client } = setup(now);
+    const history = createAlpacaHistory(client, { now: () => now.t });
+    const one = await history.getBars(req('ZTSTA'));
+    const two = await history.getBars(req('ZTSTB'));
+    const before = fake.requests.length;
+    const many = await history.getBarsMany!([req('ZTSTA'), req('ZTSTB'), req('ZTSTA', '1m')]);
+    expect(fake.requests.length - before).toBe(1);
+    expect(fake.requests.at(-1)?.url).toContain('symbols=ZTSTA%2CZTSTB');
+    expect(many[0]).toEqual(one);
+    expect(many[1]).toEqual(two);
+    expect(many[2]).toBeInstanceOf(Error);
+    expect(one.bars.length).toBe(5);
+  });
+
+  it('a batch of 5-minute bars pages through like one symbol', async () => {
+    const now = { t: new Date('2026-10-05T00:00:00Z') };
+    const { client } = setup(now);
+    const history = createAlpacaHistory(client, { now: () => now.t });
+    const [a] = await history.getBarsMany!([req('ZTSTA', '5m'), req('ZTSTB', '5m')]);
+    expect(a).toEqual(await history.getBars(req('ZTSTA', '5m')));
+  });
+});

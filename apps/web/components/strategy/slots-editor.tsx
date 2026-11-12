@@ -7,7 +7,6 @@ import {
   EXCLUSION_LABELS,
   getMetric,
   isIndicatorOnlyClass,
-  PAPER_UNIVERSE_LIMIT,
   randomId,
   SCHEDULE_BARS,
   SCHEDULE_BAR_LABELS,
@@ -320,7 +319,7 @@ function GroupEditor({
           <p className="mt-1 text-xs text-ink-muted" role="note">
             Back tests use today&rsquo;s {stockGroup(u.id).label} members for the whole period, so
             companies that left the group are missing (survivorship bias): results look better than
-            history did. Paper runs take lists of up to {PAPER_UNIVERSE_LIMIT} instruments for now.
+            history did. Paper runs use the members on each day they run.
           </p>
         )}
         {u.type === 'list' && (

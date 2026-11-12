@@ -1,4 +1,6 @@
-import type { SeriesPlan } from './data';
+import type { StrategyDefinition } from '@tm/domain';
+import { planSeries, type SeriesPlan } from './data';
+import type { BacktestInputs } from './inputs';
 
 /**
  * How much price data a back test would hold, estimated from its series plan
@@ -114,5 +116,50 @@ export function workloadProblem(
     `This back test needs about ${millions(w.estimatedBars)} price bars, mostly ${what}. ` +
     `A back test can hold up to ${millions(maxBars)}. ` +
     'Shorten the dates or test fewer stocks.'
+  );
+}
+
+/**
+ * Most bars one paper runtime may keep loaded (estimated, ADR 0087). The
+ * runtime keeps its bars between passes and shares the worker's 2 GB heap
+ * with back tests (up to MAX_BACKTEST_BARS), so it gets a smaller share. The
+ * whole S&P 500 on daily bars needs about 30 thousand; on 5-minute bars
+ * about 200 thousand.
+ */
+export const MAX_PAPER_BARS = 400_000;
+
+/** The window a paper pass evaluates: today, on daily execution bars. */
+export function paperEvaluationInputs(today: string): BacktestInputs {
+  return {
+    from: today,
+    to: today,
+    interval: '1d',
+    adjustment: 'split_and_dividend',
+  } as BacktestInputs;
+}
+
+/**
+ * Why a strategy is too big to run on paper, or undefined (ADR 0087).
+ * `memberCount` is how many members its group has today (0 without a group).
+ */
+export function paperWorkloadProblem(
+  def: StrategyDefinition,
+  memberCount: number,
+  today: string,
+  maxBars: number = MAX_PAPER_BARS,
+): string | undefined {
+  // Only the count matters for the estimate, so stand-in ids do.
+  const members = Array.from({ length: memberCount }, (_, i) => `member-${i}`);
+  const w = estimateWorkload(planSeries(def, paperEvaluationInputs(today), members));
+  if (w.estimatedBars <= maxBars) return undefined;
+  const [interval] = Object.entries(w.byInterval).sort(
+    (a, b) => b[1].estimatedBars - a[1].estimatedBars,
+  )[0] as [string, IntervalWorkload];
+  return (
+    `Running this on paper would keep about ${millions(w.estimatedBars)} price bars loaded, mostly ${
+      INTERVAL_WORDS[interval] ?? interval
+    } bars for ${memberCount.toLocaleString('en-US')} stocks. ` +
+    `A paper run can keep up to ${millions(maxBars)}. ` +
+    'Use a smaller group, longer bars, or rules that look back fewer bars.'
   );
 }
