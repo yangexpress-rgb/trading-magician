@@ -18,6 +18,7 @@ import {
   type IndicatorExpr,
   type MarketExpr,
   type EventData,
+  type MlPredictionData,
   type OptionSignal,
   type PriceAdjustment,
   type Session,
@@ -56,6 +57,8 @@ export interface LoadedData {
   options?: Map<string, OptionSignal[]>;
   /** Earnings, deals and rates (free data feeds brief v1 §6), when the strategy reads any. */
   events?: EventData;
+  /** Stored model scores by model key, then instrument id (ML brief v1 §8), when the strategy reads any. */
+  ml?: MlPredictionData;
 }
 
 type SeriesExpr = MarketExpr | IndicatorExpr;
@@ -117,6 +120,32 @@ export interface SeriesPlan {
   spec: SeriesSpec;
   from: string;
   to: string;
+}
+
+/**
+ * Plans for a list of series read from `from` to `to`, each starting early
+ * enough for its offset and indicator warm-up: for jobs that read registry
+ * metrics without a strategy, such as the ML feature snapshots (ADR 0086).
+ */
+export function planExprs(exprs: readonly SeriesExpr[], from: string, to: string): SeriesPlan[] {
+  const plans = new Map<string, { spec: SeriesSpec; bars: number }>();
+  for (const e of exprs) {
+    const spec = {
+      instrumentId: e.instrumentId,
+      interval: e.interval,
+      adjustment: e.adjustment,
+      session: e.session,
+    };
+    const key = seriesKey(spec);
+    const bars = lookbackBars(e);
+    const existing = plans.get(key);
+    if (!existing || existing.bars < bars) plans.set(key, { spec, bars });
+  }
+  return [...plans.values()].map(({ spec, bars }) => ({
+    spec,
+    from: addDays(from, -warmupDays(spec.interval, bars)),
+    to,
+  }));
 }
 
 /**

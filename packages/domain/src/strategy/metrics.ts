@@ -8,6 +8,7 @@ import {
 } from '../market/point-in-time';
 import type { OptionSignalField, OptionSignalSource } from '../options/signals';
 import type { EventMetricId, EventPoint } from '../events/signals';
+import { isMlModelKey, type MlPrediction } from '../ml/predictions';
 import {
   BAR_INTERVALS,
   type BarInterval,
@@ -67,6 +68,19 @@ export interface MetricReader {
    * that bar; absent without event data.
    */
   event?(instrumentId: string, metric: EventMetricId, barsBack: number): EventPoint | undefined;
+  /**
+   * A model series' stored score for an instrument as known at that bar (ML
+   * brief v1 §8): the latest prediction dated on or before it, no more than
+   * 45 calendar days old; absent without prediction data.
+   */
+  ml?(instrumentId: string, modelKey: string, barsBack: number): MlPoint | undefined;
+}
+
+/** One stored model score, with the prediction and model run it came from (brief §10). */
+export interface MlPoint {
+  value: Decimal;
+  modelKey: string;
+  prediction: MlPrediction;
 }
 
 /** One options signal value, with the trading day it was worked out for. */
@@ -79,8 +93,8 @@ export interface OptionPoint {
 }
 
 export interface MetricParamSpec extends Omit<IndicatorParamSpec, 'kind'> {
-  /** `instrument` holds an instrument id, e.g. a benchmark. */
-  kind: IndicatorParamSpec['kind'] | 'instrument';
+  /** `instrument` holds an instrument id, e.g. a benchmark; `model` a model series key (ML brief §8). */
+  kind: IndicatorParamSpec['kind'] | 'instrument' | 'model';
 }
 
 export interface MetricSpec {
@@ -88,7 +102,7 @@ export interface MetricSpec {
   label: string;
   /** One line for the builder's help text. */
   help: string;
-  category: 'price' | 'fundamental' | 'options' | 'earnings' | 'deals' | 'rates';
+  category: 'price' | 'fundamental' | 'options' | 'earnings' | 'deals' | 'rates' | 'ml';
   /** How a value reads: a fraction (0.12 is 12%), a plain number, or US dollars. */
   unit: 'fraction' | 'number' | 'usd';
   params: readonly MetricParamSpec[];
@@ -775,12 +789,51 @@ const EVENT_METRICS: readonly MetricSpec[] = [
   ),
 ];
 
+/** The `ml.score` metric id (ML brief v1 §8). */
+export const ML_SCORE_METRIC = 'ml.score';
+
+/**
+ * A model series' stored score (ML brief v1 §8, ADR 0086): frozen walk-forward
+ * predictions written by the trainer, read point in time like options signals.
+ * It reads no bars (a signal read, outside the N232 bar cap): a bar further
+ * back is dated by the instrument's own daily closes when the run has them.
+ */
+const ML_METRICS: readonly MetricSpec[] = [
+  {
+    id: ML_SCORE_METRIC,
+    label: 'ML score',
+    help: "A model series' stored score for the stock (higher is more attractive), as of the latest prediction dated on or before the bar and no more than 45 calendar days old. Scores come from a model trained only on data whose outcomes were known before that date; the model never runs inside a back test. Unknown without a current score.",
+    category: 'ml',
+    unit: 'number',
+    params: [{ name: 'modelKey', label: 'Model series', kind: 'model', default: '' }],
+    assetClasses: ['stock'],
+    requirements: () => [],
+    compute: (instrumentId, params, r, barsBack) =>
+      typeof params.modelKey === 'string' && params.modelKey
+        ? r.ml?.(instrumentId, params.modelKey, barsBack)?.value
+        : undefined,
+  },
+];
+
 export const METRICS: readonly MetricSpec[] = [
   ...PRICE_METRICS,
   ...FUNDAMENTAL_METRICS,
   ...OPTIONS_METRICS,
   ...EVENT_METRICS,
+  ...ML_METRICS,
 ];
+
+/** Whether a metric reads stored model scores (ML brief v1 §8). */
+export function isMlMetric(id: string): boolean {
+  return getMetric(id)?.category === 'ml';
+}
+
+/** The model series key an `ml.score` reference reads, if it names one. */
+export function mlModelKey(ref: { metric: string; params: Record<string, number | string> }) {
+  if (!isMlMetric(ref.metric)) return undefined;
+  const key = ref.params.modelKey;
+  return typeof key === 'string' && key ? key : undefined;
+}
 
 /** Whether a metric reads earnings, deals or rates (event data the worker records, ADR 0058). */
 export function isEventMetric(id: string): boolean {
@@ -855,6 +908,9 @@ export function checkMetricRef(ref: MetricRef): string[] {
         problems.push(`${p.label} must be one of ${p.options?.join(', ')}`);
     } else if (p.kind === 'instrument') {
       if (typeof v !== 'string' || !v) problems.push(`Choose the ${p.label.toLowerCase()}`);
+    } else if (p.kind === 'model') {
+      if (typeof v !== 'string' || !v) problems.push(`Choose the ${p.label.toLowerCase()}`);
+      else if (!isMlModelKey(v)) problems.push(`"${v}" is not a model series key`);
     } else {
       if (typeof v !== 'number' || !Number.isFinite(v))
         problems.push(`${p.label} must be a number`);

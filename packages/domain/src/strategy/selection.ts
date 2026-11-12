@@ -14,6 +14,7 @@ import {
 import {
   computeMetric,
   isEventMetric,
+  mlModelKey,
   isFundamentalMetric,
   isOptionsMetric,
   metricExprRef,
@@ -679,4 +680,39 @@ export function paperRunBlocker(def: StrategyDefinition): string | undefined {
   if (u?.type === 'list' && new Set(u.instrumentIds).size > PAPER_UNIVERSE_LIMIT)
     return `Paper runs take list universes of up to ${PAPER_UNIVERSE_LIMIT} instruments; this one has ${new Set(u.instrumentIds).size}. It can still be back tested.`;
   return undefined;
+}
+
+/**
+ * The stored model scores a definition reads (ML brief v1 §8): by model
+ * series key, the instruments whose scores it reads, "this instrument"
+ * expanded to every member or leg. Ranking a Selection group by `ml.score`
+ * reads every member.
+ */
+export function mlReads(
+  def: StrategyDefinition,
+  members: readonly string[] = [],
+): Map<string, Set<string>> {
+  const contexts = contextInstruments(def, members);
+  const out = new Map<string, Set<string>>();
+  const add = (key: string, id: string) => {
+    const set = out.get(key) ?? new Set<string>();
+    if (id === CONTEXT_INSTRUMENT_ID) for (const c of contexts) set.add(c);
+    else set.add(id);
+    out.set(key, set);
+  };
+  for (const e of definitionExpressions(def)) {
+    if (e.kind !== 'metric') continue;
+    const key = mlModelKey(e);
+    if (key) add(key, e.instrumentId);
+  }
+  for (const r of definitionMetrics(def)) {
+    const key = mlModelKey(r);
+    if (key) for (const c of contexts) add(key, c);
+  }
+  return out;
+}
+
+/** Whether a definition reads any stored model score. */
+export function usesMl(def: StrategyDefinition): boolean {
+  return mlReads(def).size > 0;
 }

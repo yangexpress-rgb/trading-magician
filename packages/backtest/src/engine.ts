@@ -17,6 +17,8 @@ import {
   exitFiresDirectly,
   newRuntimeTriggerState,
   planEntry,
+  mlModelKey,
+  mlProvenance,
   rankedLegs,
   rearmEntryTrigger,
   sizesFromAtr,
@@ -352,7 +354,14 @@ export function simulate({
   const v12 = mode !== 'none' || calendar || (def.exit.rules?.length ?? 0) > 0;
   for (const w of data.warnings) warnings.add(`data:${w}`, w);
   const watchOnly = watchOnlyInstruments(instruments);
-  const view = new MarketView(data.series, watchOnly, data.fundamentals, data.options, data.events);
+  const view = new MarketView(
+    data.series,
+    watchOnly,
+    data.fundamentals,
+    data.options,
+    data.events,
+    data.ml,
+  );
   const ex = def.execution;
   const risk = def.risk;
   const slippageBps = new Decimal(inputs.slippageBps);
@@ -1271,6 +1280,16 @@ export function simulate({
     if (!c.slot) rearmEntryTrigger(groupOf(c).entry.entryTrigger);
   }
 
+  /** Ranked by `ml.score`: the pick's score provenance for the cycle card (ML brief v1 §10). */
+  function mlPick(
+    ranking: { metric: string; params: Record<string, number | string> } | undefined,
+    instrumentId: string,
+  ): { ml?: string } {
+    const key = ranking ? mlModelKey(ranking) : undefined;
+    const p = key ? view.ml(instrumentId, key, 0) : undefined;
+    return key && p ? { ml: mlProvenance(key, p.prediction) } : {};
+  }
+
   /** One evaluation of a Selection group or per-leg conditions (v1.2 items 1, 2). */
   function selectSlots(now: number, period: string) {
     if (mode === 'none') return;
@@ -1297,6 +1316,7 @@ export function simulate({
           count: ranking.count,
           rank: row?.rank ?? null,
           value: row?.value ?? null,
+          ...mlPick(selection.ranking, instrumentId),
           ...(filter && hasComparisons(filter)
             ? { filter: conditionChecks(filter, r, iso(now)) }
             : {}),

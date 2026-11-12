@@ -191,6 +191,12 @@ export interface ConditionCheck {
   optionsAsOf?: string[];
   /** The earnings, deal and rate records read, e.g. "earnings 2026-10-30" (ADR 0058). */
   eventsAsOf?: string[];
+  /**
+   * `ml.score` reads only (ML brief v1 §10): each score's provenance, e.g.
+   * "ML score 0.83 — model mf-ranker-ridge, run 14, trained through Aug 29,
+   * 2026, score dated Sep 30, 2026".
+   */
+  mlAsOf?: string[];
   /** The values inside a calculated side, by expression id (N218). */
   inputs?: Record<string, string | null>;
 }
@@ -337,6 +343,8 @@ export interface CyclePick {
   rank: number | null;
   /** The ranking metric's value for this stock; null without a ranking. */
   value: string | null;
+  /** Ranked by `ml.score`: the score's provenance line (ML brief v1 §10). */
+  ml?: string;
   filter?: { truth: StoredTruth; checks: ConditionCheck[] };
   /** Enter when for this stock, when it reads "this stock" (ADR 0073). */
   enterWhen?: { truth: StoredTruth; checks: ConditionCheck[] };

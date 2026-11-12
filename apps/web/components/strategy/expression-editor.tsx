@@ -1,5 +1,6 @@
 'use client';
 
+import { Fragment } from 'react';
 import {
   DEFAULT_HOLDING_ATR_PERIOD,
   BAR_INTERVALS,
@@ -9,6 +10,8 @@ import {
   getMetric,
   BUILDER_INDICATORS,
   isEventMetric,
+  isMlMetric,
+  ML_SCORE_METRIC,
   isFundamentalMetric,
   isOptionsMetric,
   isRankingMetric,
@@ -57,7 +60,7 @@ type Kind = Expr['kind'];
  * The Type choices: fundamental (v1.2 item 6) and options (options brief v2 §6)
  * metrics are registry metrics listed on their own.
  */
-type UiKind = Kind | 'fundamental' | 'options' | 'events';
+type UiKind = Kind | 'fundamental' | 'options' | 'events' | 'ml';
 
 const KIND_LABELS: Record<UiKind, string> = {
   constant: 'Fixed value',
@@ -69,10 +72,11 @@ const KIND_LABELS: Record<UiKind, string> = {
   fundamental: 'Fundamental metric (company filings)',
   options: 'Options metric (end-of-day)',
   events: 'Earnings, deals and rates (EDGAR, FRED)',
+  ml: 'Machine learning (model scores)',
   stat: 'Statistic (std. dev., z-score, Bollinger, BandWidth)',
 };
 
-type MetricCategoryFilter = 'price' | 'fundamental' | 'options' | 'events';
+type MetricCategoryFilter = 'price' | 'fundamental' | 'options' | 'events' | 'ml';
 
 const categoryOf = (metric: string): MetricCategoryFilter =>
   isFundamentalMetric(metric)
@@ -81,7 +85,9 @@ const categoryOf = (metric: string): MetricCategoryFilter =>
       ? 'options'
       : isEventMetric(metric)
         ? 'events'
-        : 'price';
+        : isMlMetric(metric)
+          ? 'ml'
+          : 'price';
 
 const uiKindOf = (expr: Expr): UiKind => {
   if (expr.kind !== 'metric') return expr.kind;
@@ -220,7 +226,14 @@ export function ExpressionEditor({
   path: Path;
   depth?: number;
 }) {
-  const { instruments, issueAt, editable, slotMode, optionUnderlyings = [] } = useEditor();
+  const {
+    instruments,
+    issueAt,
+    editable,
+    slotMode,
+    optionUnderlyings = [],
+    mlModels = [],
+  } = useEditor();
   const fallbackInstrument =
     slotMode !== 'none' ? CONTEXT_INSTRUMENT_ID : (instruments[0]?.id ?? '');
   const id = (field: string) => `${expr.id}-${field}`;
@@ -250,6 +263,18 @@ export function ExpressionEditor({
             if (kind === 'fundamental') {
               const metric = newExpr('metric', fallbackInstrument, expr);
               onChange({ ...metric, ...defaultMetricRef('pe') } as Expr);
+              return;
+            }
+            if (kind === 'ml') {
+              // A model series' stored score (ML brief v1 §8), on the first registered series.
+              const metric = newExpr('metric', fallbackInstrument, expr);
+              const ref = defaultMetricRef(ML_SCORE_METRIC);
+              const first = mlModels[0]?.modelKey;
+              onChange({
+                ...metric,
+                ...ref,
+                params: { ...ref.params, ...(first ? { modelKey: first } : {}) },
+              } as Expr);
               return;
             }
             if (kind === 'events') {
@@ -799,7 +824,9 @@ function MetricFields({
               ? 'Options metric'
               : category === 'events'
                 ? 'Event metric'
-                : 'Metric'
+                : category === 'ml'
+                  ? 'ML metric'
+                  : 'Metric'
         }
         onChange={(ref) => onChange({ ...expr, metric: ref.metric, params: ref.params })}
       />
@@ -887,7 +914,7 @@ export function MetricRefFields({
   category?: MetricCategoryFilter | undefined;
   onChange: (ref: MetricRef) => void;
 }) {
-  const { instruments } = useEditor();
+  const { instruments, mlModels = [] } = useEditor();
   const spec = getMetric(value.metric);
   const offered = metricsForClasses(classes).filter((m) =>
     category ? categoryOf(m.id) === category : isRankingMetric(m.id),
@@ -906,6 +933,10 @@ export function MetricRefFields({
       label: 'Fundamental (company filings)',
       metrics: offered.filter((m) => isFundamentalMetric(m.id)),
     },
+    {
+      label: 'Machine learning (model scores)',
+      metrics: offered.filter((m) => categoryOf(m.id) === 'ml'),
+    },
   ].filter((g) => g.metrics.length > 0);
   return (
     <>
@@ -919,6 +950,8 @@ export function MetricRefFields({
           // A benchmark defaults to SPY when the strategy knows it (v1.2 item 1).
           const next = getMetric(ref.metric);
           for (const p of next?.params ?? []) {
+            if (p.kind === 'model' && !ref.params[p.name] && mlModels[0])
+              ref.params = { ...ref.params, [p.name]: mlModels[0].modelKey };
             if (p.kind === 'instrument' && !ref.params[p.name]) {
               const spy = instruments.find((i) => i.symbol === 'SPY') ?? instruments[0];
               if (spy) ref.params = { ...ref.params, [p.name]: spy.id };
@@ -952,6 +985,36 @@ export function MetricRefFields({
         const v = value.params[p.name] ?? p.default;
         const setParam = (next: number | string) =>
           onChange({ ...value, params: { ...value.params, [p.name]: next } });
+        if (p.kind === 'model') {
+          const known = mlModels.some((m) => m.modelKey === v);
+          const chosen = mlModels.find((m) => m.modelKey === v);
+          return (
+            <Fragment key={p.name}>
+              <MiniSelect
+                id={id(`metric-${p.name}`)}
+                label={p.label}
+                value={String(v)}
+                onChange={(e) => setParam(e.target.value)}
+              >
+                {!known && (
+                  <option value={String(v)}>
+                    {v ? `${String(v)} (not a registered model)` : 'Choose a model series'}
+                  </option>
+                )}
+                {mlModels.map((m) => (
+                  <option key={m.modelKey} value={m.modelKey}>
+                    {`${m.name} (${m.modelKey})${m.latestTrainingEnd ? ` — trained through ${m.latestTrainingEnd}` : ' — not trained yet'}`}
+                  </option>
+                ))}
+              </MiniSelect>
+              <p className="col-span-full text-xs text-ink-muted">
+                {chosen?.latestPrediction
+                  ? `Latest scores: ${chosen.latestPrediction} (monthly; a score over 45 days old reads unknown).`
+                  : 'No scores stored for this model yet.'}
+              </p>
+            </Fragment>
+          );
+        }
         if (p.kind === 'instrument') {
           return (
             <InstrumentSelect

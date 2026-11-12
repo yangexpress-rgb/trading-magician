@@ -19,6 +19,7 @@ import {
   failRun,
   finishCanceled,
   loadOptionSignals,
+  loadMlPredictions,
   loadRunWork,
   renewLease,
   withTenant,
@@ -30,6 +31,7 @@ import {
   fundamentalInstruments,
   listMembers,
   eventInstruments,
+  mlReads,
   optionInstruments,
   UnsupportedBarRequestError,
   type BuiltinUniverse,
@@ -318,6 +320,34 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
         earningsReleases: data.events ? count(data.events.earnings) : 0,
         calendarRows: data.events ? count(data.events.calendar) : 0,
       });
+      // Stored model scores (ML brief v1 §8): signal reads, outside the bar plan and its cap.
+      done = trace.stage('load_ml');
+      const mlWanted = mlReads(work.definition, members);
+      if (mlWanted.size > 0) {
+        data.ml = await loadMlPredictions(db, mlWanted);
+        for (const [key, ids] of mlWanted) {
+          const byId = data.ml.get(key);
+          const dates = [...(byId?.values() ?? [])].flatMap((l) => l.map((p) => p.asOf)).sort();
+          const first = dates[0];
+          if (!first || first > work.inputs.to)
+            throw new UnsupportedBarRequestError(
+              first
+                ? `Model ${key} has no scores before ${first}`
+                : `Model ${key} has no stored scores yet`,
+            );
+          if (first > work.inputs.from)
+            data.warnings.push(
+              `Model ${key} scores start ${first}: before then ml.score is unknown and nothing ranks by it`,
+            );
+          // A named stock without any score fails; a Selection member just reads unknown.
+          for (const id of ids) {
+            if (members.includes(id) || byId?.get(id)?.length) continue;
+            const symbol = instruments.get(id)?.symbol ?? 'this instrument';
+            throw new UnsupportedBarRequestError(`Model ${key} has no scores for ${symbol}`);
+          }
+        }
+      }
+      done({ models: mlWanted.size });
       // The simulation can't renew while it runs, so it starts on a longer lease
       // and no other worker can claim the run under it (ADR 0081).
       done = trace.stage('renew_before_simulate');

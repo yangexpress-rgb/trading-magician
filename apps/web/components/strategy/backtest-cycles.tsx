@@ -821,6 +821,10 @@ function TradeSide({
                     {pick.rank ?? '—'} of {pick.ranked} ranked · top {pick.count} kept
                   </KeyRow>
                 </dl>
+                {pick.ml && (
+                  // Which model run produced the pick (ML brief v1 §10).
+                  <p className="text-xs text-ink-muted">{pick.ml}</p>
+                )}
               </SignalBox>
             ) : (
               <p className="text-sm text-ink-muted">

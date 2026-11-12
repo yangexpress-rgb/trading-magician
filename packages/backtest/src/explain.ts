@@ -5,6 +5,8 @@ import {
   evaluateExpr,
   isEventMetricId,
   markExpr,
+  mlModelKey,
+  mlProvenance,
   optionMetricField,
   type ConditionNode,
   type Expr,
@@ -63,6 +65,8 @@ function checksFor(
   if (asOf.length > 0) check.optionsAsOf = asOf;
   const events = eventDates([node.left, node.right, node.upper], r);
   if (events.length > 0) check.eventsAsOf = events;
+  const ml = mlReadsOf([node.left, node.right, node.upper], r);
+  if (ml.length > 0) check.mlAsOf = ml;
   const inputs = calcInputs([node.left, node.right, node.upper], r, now);
   if (Object.keys(inputs).length > 0) check.inputs = inputs;
   out.push(check);
@@ -151,6 +155,26 @@ function optionDates(exprs: (Expr | undefined)[], r: SeriesResolver): string[] {
   };
   exprs.forEach(visit);
   return [...dates];
+}
+
+/**
+ * The stored model scores a comparison read on this bar (ML brief v1 §10),
+ * each as its provenance line: score, model, run, training end, score date.
+ */
+function mlReadsOf(exprs: (Expr | undefined)[], r: SeriesResolver): string[] {
+  const lines = new Set<string>();
+  const visit = (e: Expr | undefined) => {
+    if (!e) return;
+    if (e.kind === 'metric') {
+      const key = mlModelKey(e);
+      const p = key ? r.ml?.(e.instrumentId, key, 0) : undefined;
+      if (key && p) lines.add(mlProvenance(key, p.prediction));
+      else if (key) lines.add(`No current score from model ${key}`);
+    } else if (e.kind === 'calc') e.args.forEach(visit);
+    else if (e.kind === 'stat') visit(e.input);
+  };
+  exprs.forEach(visit);
+  return [...lines];
 }
 
 /**

@@ -25,6 +25,7 @@ import {
   type AccountOption,
   type EditorContextValue,
   type InstrumentOption,
+  type MlModelOption,
   type OptionUnderlying,
 } from '@/components/strategy/editor-context';
 import { useBacktests } from '@/components/strategy/backtest';
@@ -67,6 +68,8 @@ interface Props {
   instruments: InstrumentOption[];
   /** Underlyings with options signals, for the options metric picker (brief v2 §6). */
   optionUnderlyings?: OptionUnderlying[];
+  /** Registered model series for `ml.score` (ML brief v1 §8). */
+  mlModels?: MlModelOption[];
   accounts: AccountOption[];
   timeZone: string;
   baseCurrency: string;
@@ -94,6 +97,7 @@ function structuralIssues(def: StrategyDefinition): Map<string, string> {
 }
 
 const NO_UNDERLYINGS: OptionUnderlying[] = [];
+const NO_MODELS: MlModelOption[] = [];
 
 export function StrategyEditor({
   strategyId,
@@ -103,6 +107,7 @@ export function StrategyEditor({
   initialRowVersion,
   instruments: initialInstruments,
   optionUnderlyings = NO_UNDERLYINGS,
+  mlModels = NO_MODELS,
   accounts,
   timeZone,
   baseCurrency,
@@ -232,6 +237,7 @@ export function StrategyEditor({
       slotMode,
       universeClasses,
       optionUnderlyings,
+      mlModels,
     }),
     [
       instruments,
@@ -244,6 +250,7 @@ export function StrategyEditor({
       slotMode,
       universeClasses,
       optionUnderlyings,
+      mlModels,
     ],
   );
 
