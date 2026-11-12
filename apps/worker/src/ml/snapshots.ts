@@ -14,6 +14,7 @@ import {
   type SnapshotRow,
 } from '@tm/db';
 import {
+  addDays,
   computeFeatures,
   dailyClose,
   FEATURE_SET_V1,
@@ -91,6 +92,15 @@ export function featureSeries(
   return out;
 }
 
+/**
+ * Calendar days after a label's window ends during which a missing label is
+ * retried (a late bar, a feed hiccup). After that the bars are not coming: a
+ * member without a label simply has none, and the date no longer holds up the
+ * job (staging 2026-11-12: dates before the feed's history kept the first
+ * chunk busy forever).
+ */
+export const LABEL_RETRY_DAYS = 14;
+
 const closeOf = (date: string) => Date.parse(regularSession(date)?.close ?? `${date}T21:00:00Z`);
 
 /** One pass over every registered model: snapshots and labels still to do, chunk by chunk. */
@@ -129,13 +139,19 @@ async function snapshotModel(
   const dates = predictionDates(model.snapshotsFrom, lastDay);
   const state = await snapshotState(db, model.id);
   const toSnapshot = dates.filter((d) => !state.dates.has(d) && !state.frozen.has(d));
-  // A label is due once its 21st trading day has closed; dates with fewer labels than members are retried.
-  const toLabel = dates.filter(
-    (d) =>
-      (state.dates.has(d) || toSnapshot.includes(d)) &&
-      tradingDayAfter(d, LABEL_HORIZON_DAYS) <= lastDay &&
-      (state.labelled.get(d) ?? 0) < (state.dates.get(d) ?? Number.POSITIVE_INFINITY),
-  );
+  // A label is due once its 21st trading day has closed. A date with fewer labels than
+  // members is retried only for LABEL_RETRY_DAYS after that, so it can't block the job.
+  const retryFrom = addDays(lastDay, -LABEL_RETRY_DAYS);
+  const toLabel = dates.filter((d) => {
+    const end = tradingDayAfter(d, LABEL_HORIZON_DAYS);
+    if (end > lastDay) return false;
+    if (toSnapshot.includes(d)) return true;
+    return (
+      state.dates.has(d) &&
+      end >= retryFrom &&
+      (state.labelled.get(d) ?? 0) < (state.dates.get(d) ?? 0)
+    );
+  });
   const work = [...new Set([...toSnapshot, ...toLabel])].sort();
   const result: SnapshotPassResult = {
     snapshots: [],
@@ -166,9 +182,15 @@ async function snapshotModel(
         to: chunk.at(-1),
         snapshots: done.snapshots.length,
         labels: done.labels,
+        withPrices: done.withPrices,
       },
       'ml snapshots written',
     );
+    if (done.warnings.length > 0)
+      logger.warn(
+        { model: model.modelKey, count: done.warnings.length, first: done.warnings.slice(0, 3) },
+        'ml snapshot data warnings',
+      );
   }
   // The availability report (brief §5): per feature, the earliest date ≥ 90% of members had it.
   if (result.snapshots.length > 0)
@@ -191,7 +213,7 @@ async function snapshotChunk(
   snapDates: readonly string[],
   labelDates: readonly string[],
   lastDay: string,
-): Promise<{ snapshots: string[]; labels: number }> {
+): Promise<{ snapshots: string[]; labels: number; withPrices: number; warnings: string[] }> {
   const features = options.features ?? FEATURE_SET_V1;
   const names = features.map((f) => f.name);
   const all = [...snapDates, ...labelDates].sort();
@@ -208,6 +230,7 @@ async function snapshotChunk(
   const batch = options.batchSize ?? 25;
   const usesFilings = features.some((f) => f.source === 'EDGAR replay');
   const usesEvents = features.some((f) => f.source === 'events store');
+  const warnings = new Set<string>();
   for (let k = 0; k < members.length; k += batch) {
     const ids = members.slice(k, k + batch).filter((id) => refs.has(id));
     if (ids.length === 0) continue;
@@ -221,6 +244,8 @@ async function snapshotChunk(
       options.onProgress,
       new Set(ids),
     );
+    // Feed notes every series carries (e.g. IEX volumes) aren't news; left-out members and gaps are.
+    for (const w of data.warnings) if (!/IEX exchange trades only/.test(w)) warnings.add(w);
     if (usesFilings) {
       const filings = await options.fundamentals(
         options.userId,
@@ -273,5 +298,9 @@ async function snapshotChunk(
     written.push(date);
   }
   await saveLabels(options.db, model.id, labels);
-  return { snapshots: written, labels: labels.length };
+  // Members with a price-based feature on the chunk's last snapshot date: 0 means no bars.
+  const lastSnap = snapDates.at(-1);
+  const priced = lastSnap ? [...(raw.get(lastSnap)?.values() ?? [])] : [];
+  const withPrices = priced.filter((r) => Object.values(r).some((v) => v !== null)).length;
+  return { snapshots: written, labels: labels.length, withPrices, warnings: [...warnings] };
 }
