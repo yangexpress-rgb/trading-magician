@@ -45,13 +45,18 @@ describe('invite codes', () => {
     expect(inviteCodeMatches(generateInviteCode(), hashInviteCode(code))).toBe(false);
   });
 
-  it('stores only the hash, so a code cannot be read back', async () => {
+  it('stores only the hash and first group, so a code cannot be read back', async () => {
     const [code] = await mintInvites(t.owner.db, 1, { note: 'first tester' });
     const rows = await t.owner.db.select().from(invites);
     expect(rows.some((r) => r.codeHash === hashInviteCode(code!))).toBe(true);
     expect(JSON.stringify(rows)).not.toContain(normalizeInviteCode(code!));
+    expect(JSON.stringify(rows)).not.toContain(normalizeInviteCode(code!).slice(4));
     expect(await listInvites(t.owner.db)).toContainEqual(
-      expect.objectContaining({ note: 'first tester', claimedAt: null }),
+      expect.objectContaining({
+        note: 'first tester',
+        claimedAt: null,
+        codeHint: code!.slice(0, 4),
+      }),
     );
   });
 

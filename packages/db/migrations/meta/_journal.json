@@ -596,6 +596,13 @@
       "when": 1794430975152,
       "tag": "0084_stock_group_universes",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1794454348164,
+      "tag": "0085_invite_code_hint",
+      "breakpoints": true
     }
   ]
 }

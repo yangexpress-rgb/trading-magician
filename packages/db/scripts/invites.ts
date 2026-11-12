@@ -29,7 +29,8 @@ async function main(): Promise<void> {
           : row.expiresAt && row.expiresAt <= new Date()
             ? 'expired'
             : 'open';
-        process.stdout.write(`  ${state}${row.note ? ` — ${row.note}` : ''}\n`);
+        const code = row.codeHint ? `${row.codeHint}-…  ` : '';
+        process.stdout.write(`  ${code}${state}${row.note ? ` — ${row.note}` : ''}\n`);
       }
       return;
     }

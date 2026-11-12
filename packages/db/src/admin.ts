@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { recordOperatorAudit } from './audit';
 import type { Database, Transaction } from './client';
-import { generateInviteCode, hashInviteCode } from './invites';
+import { generateInviteCode, hashInviteCode, inviteCodeHint } from './invites';
 import { platformAdmins, users } from './schema';
 
 /**
@@ -127,7 +127,7 @@ export async function adminResetPassword(
   return row?.changed === true;
 }
 
-/** Mints codes and returns them, to show once; only their hashes are stored. */
+/** Mints codes and returns them, to show once; only their hashes and first groups are stored. */
 export async function adminMintInvites(
   tx: Transaction,
   count: number,
@@ -141,9 +141,13 @@ export async function adminMintInvites(
     codes.map((c) => sql`${hashInviteCode(c)}`),
     sql`, `,
   );
+  const hints = sql.join(
+    codes.map((c) => sql`${inviteCodeHint(c)}`),
+    sql`, `,
+  );
   await call(() =>
     tx.execute(
-      sql`select admin_mint_invites(array[${hashes}]::char(64)[], ${options.note ?? null}, ${
+      sql`select admin_mint_invites(array[${hashes}]::char(64)[], array[${hints}]::text[], ${options.note ?? null}, ${
         options.expiresAt?.toISOString() ?? null
       }::timestamptz)`,
     ),
@@ -159,6 +163,10 @@ export interface AdminInvite {
   claimedAt: Date | null;
   claimedBy: string | null;
   claimedByEmail: string | null;
+  /** The code's first group of four (`ABCD`), or null for codes minted before N236. */
+  codeHint: string | null;
+  createdBy: string | null;
+  createdByEmail: string | null;
 }
 
 export type InviteState = 'open' | 'used' | 'stuck' | 'expired';
@@ -183,6 +191,9 @@ export async function adminListInvites(tx: Transaction): Promise<AdminInvite[]> 
     claimedAt: date(r.claimed_at),
     claimedBy: (r.claimed_by as string | null) ?? null,
     claimedByEmail: (r.claimed_by_email as string | null) ?? null,
+    codeHint: (r.code_hint as string | null) ?? null,
+    createdBy: (r.created_by as string | null) ?? null,
+    createdByEmail: (r.created_by_email as string | null) ?? null,
   }));
 }
 
