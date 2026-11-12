@@ -32,7 +32,11 @@ export default async function OrdersPage({
 
   const { strategies, instruments } = await withTenant(appDb(), tenant, async (tx) => ({
     strategies: await tx
-      .select({ id: schema.strategies.id, name: schema.strategies.name })
+      .select({
+        id: schema.strategies.id,
+        name: schema.strategies.name,
+        labNumber: schema.strategies.labNumber,
+      })
       .from(schema.strategies)
       .where(sql`${schema.strategies.deletedAt} is null`)
       .orderBy(asc(schema.strategies.name)),

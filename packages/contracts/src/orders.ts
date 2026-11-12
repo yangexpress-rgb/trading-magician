@@ -51,6 +51,8 @@ export interface OrderRowDto {
   source: 'strategy' | 'user' | 'system';
   strategyId: string;
   strategyName: string;
+  /** The strategy's own S number (ADR 0066), shown with its name; null if none. */
+  strategyNumber: string | null;
   runtimeId: string;
   cycleId: string;
   cycleSeq: number;
@@ -81,6 +83,8 @@ export interface ScheduledRowDto {
   id: string;
   strategyId: string;
   strategyName: string;
+  /** The strategy's own S number (ADR 0066), shown with its name; null if none. */
+  strategyNumber: string | null;
   runtimeId: string;
   cycleId: string;
   cycleSeq: number;
@@ -145,6 +149,8 @@ export interface PositionDto {
   runtimeStatus: 'running' | 'paused' | 'stopped';
   strategyId: string;
   strategyName: string;
+  /** The strategy's own S number (ADR 0066), shown with its name; null if none. */
+  strategyNumber: string | null;
   instrumentId: string;
   symbol: string;
   accountId: string;
@@ -164,6 +170,8 @@ export interface RuntimeSummaryDto {
   id: string;
   strategyId: string;
   strategyName: string;
+  /** The strategy's own S number (ADR 0066), shown with its name; null if none. */
+  strategyNumber: string | null;
   status: 'running' | 'paused' | 'stopped';
   pauseReason: string | null;
   startedAt: string;

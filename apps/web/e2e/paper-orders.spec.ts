@@ -96,7 +96,17 @@ test('start on paper, watch Entry fill live, read its timeline, cancel, stop and
   const execution = await startFromLab(page, buyer.id);
   await execution.getByRole('link', { name: 'Follow its orders in Orders' }).click();
   await expect(page).toHaveURL(/\/orders\?started=/);
-  await expect(page.getByRole('listitem', { name: 'Paper buyer, just started' })).toBeVisible();
+  // The card names the strategy with its own S number (N246); its status sits
+  // left-aligned on its own line under the name (N247).
+  const card = page.getByRole('listitem', {
+    name: /^S\d{5,}-[A-Z]{2} Paper buyer, just started$/,
+  });
+  await expect(card).toBeVisible();
+  const name = card.getByRole('link', { name: /^S\d{5,}-[A-Z]{2} Paper buyer$/ });
+  const running = card.getByText('Running', { exact: true });
+  const [nameBox, badgeBox] = [await name.boundingBox(), await running.boundingBox()];
+  expect(badgeBox!.y).toBeGreaterThanOrEqual(nameBox!.y + nameBox!.height - 1);
+  expect(Math.abs(badgeBox!.x - nameBox!.x)).toBeLessThan(2);
   await expect(page.getByText('Live updates on')).toBeVisible();
 
   // The Entry order appears and fills without a reload.

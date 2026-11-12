@@ -26,7 +26,6 @@ import {
   TextField,
   Th,
 } from '@tm/ui';
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 import {
@@ -41,6 +40,7 @@ import {
 } from '@/lib/order-text';
 import { ORDER_TYPE_LABELS, SIDE_LABELS } from '@/lib/strategy-text';
 import { OrderDrawer } from './order-drawer';
+import { StrategyRef, strategyLabel } from './strategy-ref';
 import { filtersToSearch, useOrders, type LiveState, type OrderFilters } from './use-orders';
 
 const LIVE_TEXT: Record<LiveState, string> = {
@@ -165,7 +165,7 @@ function ExecutionBanner({
             className="flex flex-wrap items-center gap-3 rounded-md border border-warn/40 bg-warn-soft px-3 py-2 text-sm text-warn"
           >
             <span>
-              <span className="font-semibold">{r.strategyName} is paused.</span>{' '}
+              <span className="font-semibold">{strategyLabel(r)} is paused.</span>{' '}
               {r.pauseReason ?? ''}
             </span>
             <Button
@@ -175,11 +175,11 @@ function ExecutionBanner({
               onClick={() =>
                 void run(async () => {
                   await apiClient.execution.resume(r.id);
-                  return `${r.strategyName} resumed.`;
+                  return `${strategyLabel(r)} resumed.`;
                 })
               }
             >
-              Resume {r.strategyName}
+              Resume {strategyLabel(r)}
             </Button>
           </div>
         ))}
@@ -363,16 +363,20 @@ function Runtimes({
           return (
             <li
               key={r.id}
-              aria-label={`${r.strategyName}${isNew ? ', just started' : ''}`}
+              aria-label={`${strategyLabel(r)}${isNew ? ', just started' : ''}`}
               className={cx(
                 'rounded-lg border bg-surface p-3 text-sm',
                 isNew ? 'border-accent ring-2 ring-accent/40' : 'border-line',
               )}
             >
-              <div className="flex flex-wrap items-center gap-2">
-                <Link href={`/strategy-lab/${r.strategyId}`} className="font-semibold underline">
-                  {r.strategyName}
-                </Link>
+              {/* Name on its own line, status left-aligned on the line under it (N247). */}
+              <StrategyRef
+                strategyId={r.strategyId}
+                strategyName={r.strategyName}
+                strategyNumber={r.strategyNumber}
+                className="block font-semibold underline"
+              />
+              <div className="mt-1 flex flex-wrap items-center justify-start gap-2">
                 <Badge tone={s.tone}>{s.label}</Badge>
                 {isNew && <Badge tone="info">Just started</Badge>}
               </div>
@@ -446,9 +450,11 @@ function OrdersTable({
                 )}
               </Td>
               <Td>
-                <Link href={`/strategy-lab/${o.strategyId}`} className="underline">
-                  {o.strategyName}
-                </Link>{' '}
+                <StrategyRef
+                  strategyId={o.strategyId}
+                  strategyName={o.strategyName}
+                  strategyNumber={o.strategyNumber}
+                />{' '}
                 <button
                   type="button"
                   className="text-xs text-ink-muted underline"
@@ -510,7 +516,12 @@ function ScheduledTable({
           <tr key={r.id}>
             <Td className="font-medium">{r.legLabel}</Td>
             <Td>
-              {r.strategyName} <span className="text-xs text-ink-muted">cycle {r.cycleSeq}</span>
+              <StrategyRef
+                strategyId={r.strategyId}
+                strategyName={r.strategyName}
+                strategyNumber={r.strategyNumber}
+              />{' '}
+              <span className="text-xs text-ink-muted">cycle {r.cycleSeq}</span>
             </Td>
             <Td>{PHASE_LABELS[r.phase]}</Td>
             <Td>{r.symbol ?? '—'}</Td>
@@ -562,9 +573,11 @@ function Positions({
             {positions.map((p) => (
               <tr key={`${p.runtimeId}:${p.instrumentId}`}>
                 <Td>
-                  <Link href={`/strategy-lab/${p.strategyId}`} className="underline">
-                    {p.strategyName}
-                  </Link>
+                  <StrategyRef
+                    strategyId={p.strategyId}
+                    strategyName={p.strategyName}
+                    strategyNumber={p.strategyNumber}
+                  />
                 </Td>
                 <Td>{p.symbol}</Td>
                 <Td numeric>{describeHolding(p.quantity)}</Td>
@@ -601,7 +614,7 @@ function Positions({
         title={closing ? `Close ${closing.symbol} position?` : 'Close position?'}
         description={
           closing
-            ? `Sends a market order to ${Number(closing.quantity) > 0 ? 'sell' : 'buy back'} ${describeHolding(closing.quantity).toLowerCase()} for ${closing.strategyName}. It is recorded as your order, not the strategy's.`
+            ? `Sends a market order to ${Number(closing.quantity) > 0 ? 'sell' : 'buy back'} ${describeHolding(closing.quantity).toLowerCase()} for ${strategyLabel(closing)}. It is recorded as your order, not the strategy's.`
             : undefined
         }
       >
@@ -650,7 +663,7 @@ export function OrdersView({
   initialFilters: OrderFilters;
   /** Strategy just started from the Strategy Lab, to highlight (§15.2). */
   started: string | undefined;
-  strategies: { id: string; name: string }[];
+  strategies: { id: string; name: string; labNumber: string | null }[];
   instruments: { id: string; symbol: string }[];
 }) {
   const [filters, setFilters] = useState<OrderFilters>(initialFilters);
@@ -676,7 +689,8 @@ export function OrdersView({
   const set = (patch: Partial<OrderFilters>) => setFilters((f) => ({ ...f, ...patch }));
   const counts = data.list?.counts;
   const scoped = filters.runtimeId || filters.cycleId;
-  const runtimeName = data.status?.runtimes.find((r) => r.id === filters.runtimeId)?.strategyName;
+  const scopedRuntime = data.status?.runtimes.find((r) => r.id === filters.runtimeId);
+  const runtimeName = scopedRuntime ? strategyLabel(scopedRuntime) : undefined;
 
   return (
     <>
@@ -740,7 +754,7 @@ export function OrdersView({
           <option value="">Any strategy</option>
           {strategies.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.name}
+              {s.labNumber ? `${s.labNumber} ${s.name}` : s.name}
             </option>
           ))}
         </SelectField>
