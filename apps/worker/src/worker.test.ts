@@ -40,6 +40,8 @@ describe('worker env', () => {
       OPTIONS_HISTORY_DAYS: 400,
       EVENTS_RECORDING: 'on',
       EVENTS_FAKE: false,
+      ML_SNAPSHOTS: 'on',
+      ML_SNAPSHOT_POLL_MS: 600000,
       EARNINGS_CALENDAR_PROVIDER: 'fmp',
     });
   });
