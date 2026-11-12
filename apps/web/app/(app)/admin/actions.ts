@@ -12,6 +12,7 @@ import { hashPassword } from 'better-auth/crypto';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { asAdmin } from '@/lib/server/admin';
+import { inviteKey } from '@/lib/server/invite-key';
 import { logger } from '@/lib/server/log';
 
 /**
@@ -104,13 +105,14 @@ export async function mintInvites(
   return run(async () => {
     const codes = await asAdmin((tx) =>
       adminMintInvites(tx, count, {
+        sealKey: inviteKey(),
         ...(note ? { note } : {}),
         ...(expiresInDays ? { expiresAt: new Date(Date.now() + expiresInDays * 86_400_000) } : {}),
       }),
     );
     return {
       status: 'done',
-      message: `Minted ${codes.length} ${codes.length === 1 ? 'code' : 'codes'}. Copy them now: only their fingerprints are kept, so they cannot be shown again.`,
+      message: `Minted ${codes.length} ${codes.length === 1 ? 'code' : 'codes'}. They are also listed below.`,
       secrets: codes,
     };
   }, '/admin/invites');

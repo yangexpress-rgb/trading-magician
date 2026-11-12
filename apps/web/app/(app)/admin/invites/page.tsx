@@ -3,6 +3,7 @@ import { formatDateTime } from '@tm/domain';
 import { Badge, Card, EmptyState, Table, Td, Th, type Tone } from '@tm/ui';
 import { AdminButton, MintInvitesForm } from '@/components/admin/admin-forms';
 import { asAdmin, requireAdmin } from '@/lib/server/admin';
+import { inviteKey } from '@/lib/server/invite-key';
 import { getProfile } from '@/lib/server/profile';
 import { changeInvite, mintInvites } from '../actions';
 
@@ -17,7 +18,7 @@ const STATE: Record<InviteState, { label: string; tone: Tone }> = {
 
 export default async function AdminInvitesPage() {
   const tenant = await requireAdmin();
-  const invites = await asAdmin(adminListInvites);
+  const invites = await asAdmin((tx) => adminListInvites(tx, inviteKey()));
   const profile = await getProfile(tenant);
   const prefs = { timeZone: profile.timezone, locale: profile.locale };
   const when = (d: Date | null) => (d ? formatDateTime(d, prefs) : '—');
@@ -30,10 +31,8 @@ export default async function AdminInvitesPage() {
           Create invite codes
         </h2>
         <p className="mt-1 mb-4 text-sm text-ink-muted">
-          Each code lets one person sign up. Codes are shown once, right after you create them.
-          After that the list shows only each code&rsquo;s first four characters (like ABCD-…), so
-          you can tell which code you gave to whom: the rest is stored as a fingerprint, so a lost
-          code cannot be shown again (create another).
+          Each code lets one person sign up. Codes are kept encrypted, so the list below shows each
+          one in full. Older codes show only their first four characters.
         </p>
         <MintInvitesForm action={mintInvites} />
       </Card>
@@ -65,14 +64,17 @@ export default async function AdminInvitesPage() {
                 return (
                   <tr key={i.id}>
                     <Td className="font-mono whitespace-nowrap text-content">
-                      {i.codeHint ? (
-                        <span title="First four characters; the rest is not stored">
-                          {i.codeHint}-…
+                      {i.code ? (
+                        <span className="select-all">{i.code}</span>
+                      ) : i.codeHint ? (
+                        <span title="Only the first four characters were kept for this code">
+                          {i.codeHint}
+                          <span className="text-ink-muted">-····-····-····</span>
                         </span>
                       ) : (
                         <span
                           className="font-sans text-ink-muted"
-                          title="Created before codes kept their first four characters"
+                          title="Created before codes were kept"
                         >
                           Not kept
                         </span>

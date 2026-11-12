@@ -13,7 +13,13 @@ import {
   isPlatformAdmin,
   setPlatformAdmin,
 } from '../src/admin';
-import { attachInvite, claimInvite, hashInviteCode } from '../src/invites';
+import {
+  attachInvite,
+  claimInvite,
+  hashInviteCode,
+  inviteCodeKey,
+  normalizeInviteCode,
+} from '../src/invites';
 import { accounts, auditEvents, sessions, users } from '../src/schema';
 import { withTenant } from '../src/tenant';
 import { createTestDatabase, type TestDatabase } from './harness';
@@ -170,8 +176,18 @@ describe('admin access (ADR 0037)', () => {
   });
 
   it('mints, lists, revokes and releases invite codes without auditing any code', async () => {
-    const codes = await asAdmin((tx) => adminMintInvites(tx, 2, { note: 'friends' }));
+    const key = inviteCodeKey('x'.repeat(32));
+    const codes = await asAdmin((tx) => adminMintInvites(tx, 2, { note: 'friends', sealKey: key }));
     expect(codes).toHaveLength(2);
+    // With the key, the list opens each whole code (N238); without it, it can't.
+    const opened = (await asAdmin((tx) => adminListInvites(tx, key))).filter(
+      (i) => i.note === 'friends',
+    );
+    expect(opened.map((i) => i.code).sort()).toEqual([...codes].sort());
+    const wrongKey = await asAdmin((tx) => adminListInvites(tx, inviteCodeKey('y'.repeat(32))));
+    expect(wrongKey.every((i) => i.code === null)).toBe(true);
+    const sealedRows = await t.ownerSql`select code_sealed from invite`;
+    expect(JSON.stringify(sealedRows)).not.toContain(normalizeInviteCode(codes[0]!));
     let invites = await asAdmin(adminListInvites);
     const mine = invites.filter((i) => i.note === 'friends');
     expect(mine.map((i) => inviteState(i))).toEqual(['open', 'open']);

@@ -124,7 +124,7 @@ export const platformAdmins = pgTable('platform_admin', {
   grantedAt: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow(),
   /**
    * Whether members without a feed of their own use this admin's data feeds
-   * (N237, ADR 0084). Only the oldest admin who shares is used.
+   * (N238, ADR 0085). Only the oldest admin who shares is used.
    */
   sharesFeeds: boolean('shares_feeds').notNull().default(true),
 });
@@ -210,6 +210,12 @@ export const invites = pgTable(
      * leaked row still cannot be redeemed. Null for codes minted before 0085.
      */
     codeHint: text('code_hint'),
+    /**
+     * The whole code, encrypted with a key only the web app holds (N238, ADR 0085), so
+     * the admin page can show it again. A leaked row alone still cannot be redeemed.
+     * Null for codes minted before 0087 or from the command line.
+     */
+    codeSealed: text('code_sealed'),
     /** The admin who minted it; null for codes minted from the command line. */
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   },

@@ -43,7 +43,7 @@ test('an admin creates invite codes, locks and unlocks a tester, and resets a pa
   await page.getByRole('link', { name: 'Admin' }).click();
   await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible();
 
-  // Invite codes: shown once after creating, then listed by their first four characters (N236).
+  // Invite codes: shown once after creating, then listed in full (N238).
   await sections(page).getByRole('link', { name: 'Invite codes' }).click();
   await page.getByLabel('How many').fill('2');
   await page.getByLabel('Note (who it is for)').fill(note);
@@ -54,9 +54,10 @@ test('an admin creates invite codes, locks and unlocks a tester, and resets a pa
   const firstCode = (await codes.first().textContent()) ?? '';
   await page.reload();
   await expect(page.getByRole('row', { name: new RegExp(note) })).toHaveCount(2);
-  const minted = page.getByRole('row', { name: new RegExp(`${firstCode.slice(0, 4)}-…`) });
-  await expect(minted.first()).toContainText(adminEmail);
-  await expect(page.getByRole('main')).not.toContainText(firstCode.slice(5));
+  // The list shows each new code in full, with who created it (N238).
+  const minted = page.getByRole('row', { name: new RegExp(firstCode) });
+  await expect(minted).toHaveCount(1);
+  await expect(minted).toContainText(adminEmail);
   page.once('dialog', (d) => void d.accept());
   await page
     .getByRole('row', { name: new RegExp(note) })
