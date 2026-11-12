@@ -53,10 +53,11 @@ A back test does not have the problem: it loads each series once and replays it.
   reloaded when a new bar arrives, when the members change, or after 60 seconds.
 - **A memory cap replaces the size cap.** Start refuses a strategy whose bars would exceed
   `MAX_PAPER_BARS` = 400,000, saying what drives the size. The count is what the runtime keeps,
-  not what it loads: each series keeps twice the bars its rules read back and at least two sessions
-  more (`paperBarsKept`); the plan's calendar margin (at least a week, for holidays and gaps) is
+  not what it loads: each series keeps the bars its rules read back (offsets, indicator warm-up,
+  metric look-backs) plus two sessions of bars, at least 5 (`paperBarsKept`); the plan's calendar margin (at least a week, for holidays and gaps) is
   only loaded, a chunk of 100 series at a time, and trimmed at once. The whole S&P 500 keeps about
-  80,000 bars per 5-minute series kind and a few thousand on daily rules. (First version, same day:
+  80,000 bars per 5-minute series kind, a few thousand on daily rules, and about 130,000 for a
+  daily ranking by 12-month return. (First version, same day:
   the cap counted the load margin, about 235,000 bars per 5-minute series kind, and refused Yong's
   5-minute S&P 500 strategy at 478,856.)
 

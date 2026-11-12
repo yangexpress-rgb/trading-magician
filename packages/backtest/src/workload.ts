@@ -127,16 +127,17 @@ export function workloadProblem(
 export const MAX_PAPER_BARS = 400_000;
 
 /**
- * Bars a paper runtime keeps of a series (ADR 0087): twice what the rules
- * read back, and at least two sessions more, so a missing bar or a holiday
- * never leaves the rules short. Older bars are let go after each load. The
- * whole S&P 500 on 5-minute rules that read the latest bars keeps about 80
- * thousand bars a series kind; on daily rules a few thousand.
+ * Bars a paper runtime keeps of a series (ADR 0087): what the rules read
+ * back (offsets, indicator warm-up and metric look-backs, as `SeriesPlan.bars`
+ * counts them) plus two sessions of bars, at least 5, so a missing bar or a
+ * holiday never leaves the rules short. Older bars are let go after each load.
+ * The S&P 500 keeps about 80 thousand bars per 5-minute series that reads the
+ * latest bars, and about 130 thousand per daily series ranked by 12-month return.
  */
 export function paperBarsKept(plan: Pick<SeriesPlan, 'spec' | 'bars'>): number {
   const need = plan.bars ?? 2;
   const perDay = Math.ceil(BARS_PER_DAY[plan.spec.interval] ?? 1);
-  return Math.max(need * 2, need + 2 * perDay);
+  return need + Math.max(2 * perDay, 5);
 }
 
 /** The window a paper pass evaluates: today, on daily execution bars. */

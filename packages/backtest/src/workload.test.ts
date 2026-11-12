@@ -86,7 +86,7 @@ describe('paper run workload (ADR 0087)', () => {
     return def;
   };
 
-  it('keeps two sessions of 5-minute bars beyond what the rules read, not the load margin', () => {
+  it('keeps what the rules read plus two sessions, not the load margin', () => {
     const spec = {
       instrumentId: 'a',
       interval: '5m',
@@ -94,7 +94,9 @@ describe('paper run workload (ADR 0087)', () => {
       session: 'regular',
     } as const;
     expect(paperBarsKept({ spec, bars: 2 })).toBe(158);
-    expect(paperBarsKept({ spec, bars: 500 })).toBe(1000);
+    expect(paperBarsKept({ spec, bars: 500 })).toBe(656);
+    // Daily: what the rules read plus five, e.g. a 12-month return ranking.
+    expect(paperBarsKept({ spec: { ...spec, interval: '1d' }, bars: 254 })).toBe(259);
   });
 
   it('lets the S&P 500 run on 5-minute rules, even reading two price bases', () => {
@@ -104,8 +106,8 @@ describe('paper run workload (ADR 0087)', () => {
   });
 
   it('refuses rules that read hundreds of 5-minute bars back over the S&P 500', () => {
-    expect(paperWorkloadProblem(sp500(500, ['split_and_dividend']), 503, '2026-11-12')).toMatch(
-      /mostly 5-minute bars for 503 stocks\. A paper run can keep up to 400,000/,
-    );
+    expect(
+      paperWorkloadProblem(sp500(500, ['split_and_dividend', 'none']), 503, '2026-11-12'),
+    ).toMatch(/mostly 5-minute bars for 503 stocks\. A paper run can keep up to 400,000/);
   });
 });

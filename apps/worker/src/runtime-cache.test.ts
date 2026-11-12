@@ -271,11 +271,11 @@ describe('built-in group members for paper runs', () => {
 });
 
 describe('how many bars a paper series keeps (ADR 0087)', () => {
-  it('keeps twice what the rules read back, at least two sessions more, not the load margin', async () => {
+  it('keeps what the rules read back plus two sessions (at least 5), not the load margin', async () => {
     const clock = { t: at('2026-11-12T15:00:00Z') };
     const { history } = fakeHistory(clock, { batch: true });
     const cache = new RuntimeBarCache();
-    // Rules that read the latest 2 daily bars keep 4; the plan loaded 9.
+    // Rules that read the latest 2 daily bars keep 7; the plan loaded 9.
     const loaded = await cache.load({
       scope: 'u',
       owner: 'r1',
@@ -284,7 +284,7 @@ describe('how many bars a paper series keeps (ADR 0087)', () => {
       instruments: refs,
       now: new Date(clock.t),
     });
-    expect(loaded.series.get('a|1d|split_and_dividend|regular')).toHaveLength(4);
-    expect(cache.bars).toBe(4);
+    expect(loaded.series.get('a|1d|split_and_dividend|regular')).toHaveLength(7);
+    expect(cache.bars).toBe(7);
   });
 });
