@@ -1,6 +1,7 @@
 import {
   eq,
   getStrategy,
+  listMlModels,
   listTenantInstruments,
   optionUnderlyingOptions,
   preferredLegAccountId,
@@ -47,6 +48,7 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
     strategy: await getStrategy(tx, id),
     instruments: await listTenantInstruments(tx),
     optionUnderlyings: await optionUnderlyingOptions(tx),
+    mlModels: await listMlModels(tx),
     accounts: await tx
       .select({
         id: schema.tradingAccounts.id,
@@ -62,7 +64,7 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
     throw e;
   });
   // Recorded options underlyings (options brief v2 §6) are offered only by the options picker.
-  const { strategy, instruments, optionUnderlyings } = loaded;
+  const { strategy, instruments, optionUnderlyings, mlModels } = loaded;
   // New legs start on the Alpaca paper account when there is one (pickLegAccount).
   const accounts = loaded.accounts.map((a) => ({
     ...a,
@@ -187,6 +189,7 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
           symbol: u.symbol,
           latestAsOf: u.latestAsOf,
         }))}
+        mlModels={mlModels}
         accounts={accounts}
         timeZone={profile.timezone}
         baseCurrency={profile.baseCurrency}

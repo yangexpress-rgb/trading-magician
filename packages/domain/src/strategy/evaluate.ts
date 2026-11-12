@@ -4,6 +4,7 @@ import {
   metricExprRef,
   populationStdDev,
   sampleStdDev,
+  type MlPoint,
   type OptionPoint,
 } from './metrics';
 import type { FundamentalField, FundamentalPoint } from '../market/point-in-time';
@@ -101,6 +102,8 @@ export interface SeriesResolver {
   ): OptionPoint | undefined;
   /** An earnings, deal or rate value as known at that bar (free data feeds brief v1 §6). */
   event?(instrumentId: string, metric: EventMetricId, barsBack: number): EventPoint | undefined;
+  /** A model series' stored score as known at that bar (ML brief v1 §8). */
+  ml?(instrumentId: string, modelKey: string, barsBack: number): MlPoint | undefined;
   /** When the bar `value` reads ended (ms), for explaining a check (N224). */
   barEnd?(expr: SeriesExpr, barsBack: number): number | undefined;
 }
@@ -156,6 +159,11 @@ export function withContext(r: SeriesResolver, instrumentId: string): SeriesReso
             r.event?.(bindId(id), metric, barsBack),
         }
       : {}),
+    ...(r.ml
+      ? {
+          ml: (id: string, key: string, barsBack: number) => r.ml?.(bindId(id), key, barsBack),
+        }
+      : {}),
     ...(r.position
       ? {
           position: (id: string) => r.position?.(id === CONTEXT_INSTRUMENT_ID ? instrumentId : id),
@@ -193,6 +201,9 @@ export function withPositions(
           event: (id: string, metric: EventMetricId, barsBack: number) =>
             r.event?.(id, metric, barsBack),
         }
+      : {}),
+    ...(r.ml
+      ? { ml: (id: string, key: string, barsBack: number) => r.ml?.(id, key, barsBack) }
       : {}),
     position,
   };

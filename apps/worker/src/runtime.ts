@@ -18,6 +18,7 @@ import {
   intentsByClientOrderId,
   loadEventData,
   loadOptionSignals,
+  loadMlPredictions,
   loadRuntimeWork,
   lockPaperBroker,
   markOrderFailed,
@@ -57,6 +58,7 @@ import {
   fundamentalInstruments,
   eventInstruments,
   optionInstruments,
+  mlReads,
   activeFromFor,
   collarBreach,
   holdsForOpenCollar,
@@ -701,12 +703,16 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   // Earnings, deals and rates: the latest record on or before each bar (ADR 0058).
   const eventReads = eventInstruments(def, members);
   if (eventReads.size > 0) data.events = await loadEventData(tx, eventReads);
+  // Stored model scores (ML brief v1 §8): the latest prediction, unknown past 45 days.
+  const mlWanted = mlReads(def, members);
+  if (mlWanted.size > 0) data.ml = await loadMlPredictions(tx, mlWanted, addDays(nyDate(now), -60));
   const view = new MarketView(
     data.series,
     watchOnlyInstruments(work.instruments),
     data.fundamentals,
     data.options,
     data.events,
+    data.ml,
   );
   view.advance(t);
   let dataTime = 0;

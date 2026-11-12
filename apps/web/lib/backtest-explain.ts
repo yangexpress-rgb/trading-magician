@@ -100,6 +100,8 @@ export function describeValues(c: Comparison, check: ConditionCheck | undefined)
     ...(check.optionsAsOf?.length ? [`options as of ${check.optionsAsOf.join(', ')}`] : []),
     // Earnings, deal and rate metrics name the record they read (ADR 0058).
     ...(check.eventsAsOf?.length ? [`from ${check.eventsAsOf.join(', ')}`] : []),
+    // Model scores name the run and dates behind them (ML brief v1 §10).
+    ...(check.mlAsOf ?? []),
   ];
   return notes.length > 0 ? `${values} (${notes.join('; ')})` : values;
 }
@@ -236,6 +238,8 @@ export function comparisonEvidence(
     ...(check.optionsAsOf?.length ? [`Options signal as of ${check.optionsAsOf.join(', ')}`] : []),
     // Earnings, deal and rate records, with their dates written out (N224).
     ...(check.eventsAsOf ?? []).map((x) => x.replace(/\d{4}-\d{2}-\d{2}/g, (d) => formatDay(d))),
+    // Model scores: the model, its run, its training end and the score's date (ML brief v1 §10).
+    ...(check.mlAsOf ?? []),
   ];
   return { elements, reason: reasonOf(c, check), sources };
 }

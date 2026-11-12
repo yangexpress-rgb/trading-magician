@@ -6,6 +6,7 @@ import {
   char,
   check,
   customType,
+  doublePrecision,
   date,
   foreignKey,
   index,
@@ -2675,3 +2676,177 @@ export const eventScanState = pgTable(
     ),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Machine-learning prediction signals (ML brief v1 §4, ADR 0086). Global data
+// kept once for every tenant, like options signals: the worker (tm_secrets)
+// writes snapshots and labels, the trainer (same login) writes runs,
+// predictions and evaluations; the app login reads what strategies need.
+
+/** One row per model series (brief §4). */
+export const mlModels = pgTable(
+  'ml_model',
+  {
+    id: id(),
+    modelKey: text('model_key').notNull().unique(),
+    name: text('name').notNull(),
+    /** The Theory Library entry it implements, if any (N205: theory, model, strategy stay separate). */
+    theoryNumber: text('theory_number'),
+    /** A built-in stock group id (Phase 1: `sp500`). */
+    universe: text('universe').notNull(),
+    featureSet: jsonb('feature_set').notNull(),
+    featureSetVersion: integer('feature_set_version').notNull(),
+    label: jsonb('label').notNull(),
+    algorithm: text('algorithm').notNull(),
+    status: text('status').notNull().default('registered'),
+    /** The first prediction date the snapshot job covers. */
+    snapshotsFrom: date('snapshots_from', { mode: 'string' }).notNull(),
+    /** Per feature, the earliest date ≥ 90% of members had a value (brief §5); null until reported. */
+    availability: jsonb('availability'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('ml_model_status', sql`${t.status} in ('registered', 'retired')`),
+    check('ml_model_key', sql`${t.modelKey} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
+  ],
+);
+
+/** One row per refit (brief §4): each serves one prediction date. */
+export const mlModelRuns = pgTable(
+  'ml_model_run',
+  {
+    id: id(),
+    modelId: uuid('model_id')
+      .notNull()
+      .references(() => mlModels.id),
+    runNo: integer('run_no').notNull(),
+    /** The prediction date this run serves. */
+    predictionDate: date('prediction_date', { mode: 'string' }).notNull(),
+    trainingStart: date('training_start', { mode: 'string' }).notNull(),
+    /** The last date whose features were used. */
+    trainingEnd: date('training_end', { mode: 'string' }).notNull(),
+    /** The last date any training label finished realising: always before the prediction date (§7). */
+    maxLabelEnd: date('max_label_end', { mode: 'string' }).notNull(),
+    rowsTrained: integer('rows_trained').notNull(),
+    crossSections: integer('cross_sections').notNull(),
+    hyperparams: jsonb('hyperparams').notNull(),
+    /** The learned coefficient per feature, so a wrong-way feature is visible (§6). */
+    coefficients: jsonb('coefficients').notNull(),
+    codeVersion: text('code_version').notNull(),
+    status: text('status').notNull().default('active'),
+    supersededAt: timestamp('superseded_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('ml_model_run_no_uq').on(t.modelId, t.runNo),
+    uniqueIndex('ml_model_run_active_uq')
+      .on(t.modelId, t.predictionDate)
+      .where(sql`${t.status} = 'active'`),
+    check('ml_model_run_status', sql`${t.status} in ('active', 'superseded')`),
+    check('ml_model_run_embargo', sql`${t.maxLabelEnd} < ${t.predictionDate}`),
+    check('ml_model_run_window', sql`${t.trainingStart} <= ${t.trainingEnd}`),
+  ],
+);
+
+/** One row per (model, member, prediction date) (brief §4): raw values and their z-scores. */
+export const mlFeatureSnapshots = pgTable(
+  'ml_feature_snapshot',
+  {
+    modelId: uuid('model_id')
+      .notNull()
+      .references(() => mlModels.id),
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => instruments.id),
+    asOf: date('as_of', { mode: 'string' }).notNull(),
+    /** Feature name → cross-sectional z-score, or null (what the model reads). */
+    features: jsonb('features').notNull(),
+    /** Feature name → value before the transform, or null. */
+    raw: jsonb('raw').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.modelId, t.instrumentId, t.asOf] })],
+);
+
+/**
+ * A member's realised forward return from a prediction date (brief §7): the
+ * worker records it once the 21 trading days have passed, from the same
+ * adjusted daily closes the features read. The trainer subtracts the
+ * universe median to get the label.
+ */
+export const mlLabels = pgTable(
+  'ml_label',
+  {
+    modelId: uuid('model_id')
+      .notNull()
+      .references(() => mlModels.id),
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => instruments.id),
+    asOf: date('as_of', { mode: 'string' }).notNull(),
+    /** The trading day the return window ends: 21 trading days after `as_of`. */
+    labelEnd: date('label_end', { mode: 'string' }).notNull(),
+    forwardReturn: doublePrecision('forward_return').notNull(),
+    recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.modelId, t.instrumentId, t.asOf] }),
+    check('ml_label_window', sql`${t.labelEnd} > ${t.asOf}`),
+  ],
+);
+
+/** One row per (model run, member, date) (brief §4). Immutable: no update path. */
+export const mlPredictions = pgTable(
+  'ml_prediction',
+  {
+    modelRunId: uuid('model_run_id')
+      .notNull()
+      .references(() => mlModelRuns.id),
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => instruments.id),
+    asOf: date('as_of', { mode: 'string' }).notNull(),
+    score: doublePrecision('score').notNull(),
+    generatedAt: timestamp('generated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.modelRunId, t.instrumentId, t.asOf] }),
+    index('ml_prediction_instrument_idx').on(t.instrumentId, t.asOf),
+  ],
+);
+
+/** One row per (model run, prediction date) once labels realise (brief §4, §11). */
+export const mlEvaluations = pgTable(
+  'ml_evaluation',
+  {
+    modelRunId: uuid('model_run_id')
+      .notNull()
+      .references(() => mlModelRuns.id),
+    asOf: date('as_of', { mode: 'string' }).notNull(),
+    /** Spearman rank correlation of the scores with the realised labels. */
+    ic: doublePrecision('ic'),
+    /** Members in the universe that date (snapshot rows). */
+    universeSize: integer('universe_size').notNull(),
+    /** Members with a prediction. */
+    predicted: integer('predicted').notNull(),
+    /** Members with both a prediction and a realised label. */
+    labelled: integer('labelled').notNull(),
+    /** Mean label of the top decile by score minus that of the bottom decile. */
+    decileSpread: doublePrecision('decile_spread'),
+    computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.modelRunId, t.asOf] })],
+);
+
+/** The evaluation report per model series (brief §11), kept as written. */
+export const mlReports = pgTable('ml_report', {
+  id: id(),
+  modelId: uuid('model_id')
+    .notNull()
+    .references(() => mlModels.id),
+  markdown: text('markdown').notNull(),
+  summary: jsonb('summary').notNull(),
+  codeVersion: text('code_version').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});

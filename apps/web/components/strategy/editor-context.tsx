@@ -20,6 +20,16 @@ export interface OptionUnderlying {
   latestAsOf: string | null;
 }
 
+/** A model series the `ml.score` picker offers (ML brief v1 §8). */
+export interface MlModelOption {
+  modelKey: string;
+  name: string;
+  /** The latest active run's training end, or null before the first run. */
+  latestTrainingEnd: string | null;
+  /** The latest prediction date, or null. */
+  latestPrediction: string | null;
+}
+
 export interface AccountOption {
   id: string;
   nickname: string;
@@ -52,6 +62,8 @@ export interface EditorContextValue {
   universeClasses: readonly string[];
   /** Underlyings in the options recording (options brief v2 §6); none outside the editor page. */
   optionUnderlyings?: readonly OptionUnderlying[];
+  /** Registered model series for `ml.score` (ML brief v1 §8); none outside the editor page. */
+  mlModels?: readonly MlModelOption[];
 }
 
 export const EditorContext = createContext<EditorContextValue | null>(null);

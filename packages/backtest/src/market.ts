@@ -19,6 +19,9 @@ import {
   type IndicatorExpr,
   type IndicatorValues,
   type MarketExpr,
+  type MlPoint,
+  type MlPredictionData,
+  predictionAt,
   type SeriesResolver,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
@@ -69,6 +72,8 @@ export class MarketView implements SeriesResolver {
     private readonly options: ReadonlyMap<string, readonly OptionSignal[]> = new Map(),
     /** Earnings, deals and rates (free data feeds brief v1 §6), when the strategy reads any. */
     private readonly events: EventData | undefined = undefined,
+    /** Stored model scores by model key, then instrument id (ML brief v1 §8), sorted by date. */
+    private readonly mlScores: MlPredictionData = new Map(),
   ) {
     this.watchOnly = watchOnly;
     const ends = new Map<string, Set<number>>();
@@ -211,6 +216,32 @@ export class MarketView implements SeriesResolver {
     const asOf = barsBack > 0 && bar ? Date.parse(bar.end) : this.now;
     const close = bar ? Number(bar.close) : undefined;
     return eventPointAt(this.events, instrumentId, metric, asOf, close);
+  }
+
+  /**
+   * A model series' stored score as known at the end of the bar `barsBack`
+   * daily bars ago (now, for 0): the latest prediction whose date had closed
+   * by then, no more than 45 calendar days old (ML brief v1 §8). A bar further
+   * back is dated by the instrument's own daily closes; without them it is unknown.
+   */
+  ml(instrumentId: string, modelKey: string, barsBack: number): MlPoint | undefined {
+    const list = this.mlScores.get(modelKey)?.get(instrumentId);
+    if (!list) return undefined;
+    let asOf = this.now;
+    if (barsBack > 0) {
+      let bar: Bar | undefined;
+      for (const adjustment of ['none', 'split_and_dividend', 'split_only'] as const) {
+        const key = seriesKey(dailyClose(instrumentId, 0, adjustment));
+        const at = (this.pointers.get(key) ?? -1) - barsBack;
+        bar = at >= 0 ? this.series.get(key)?.[at] : undefined;
+        if (bar) break;
+      }
+      if (!bar) return undefined;
+      asOf = Date.parse(bar.end);
+    }
+    const prediction = predictionAt(list, asOf);
+    if (!prediction || !Number.isFinite(prediction.score)) return undefined;
+    return { value: new Decimal(prediction.score), modelKey, prediction };
   }
 
   /** When the bar `value` reads ended (N224); undefined when there is none. */
