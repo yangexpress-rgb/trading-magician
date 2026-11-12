@@ -6,6 +6,7 @@ import {
   type FeedInUseDetails,
   type FeedListDto,
   type RouteDto,
+  type SharedFeedDto,
 } from '@tm/contracts';
 import {
   customHealthCheckSeconds,
@@ -278,6 +279,7 @@ export function FeedsView({
 
   return (
     <div className="space-y-8">
+      {data && <SharedFeeds data={data} onChanged={() => void load()} />}
       <section aria-labelledby="feeds-heading" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 id="feeds-heading" className="text-lg font-semibold">
@@ -1053,5 +1055,82 @@ function TurnOffDialog({
         <Button onClick={onClose}>Keep it on</Button>
       </div>
     </Dialog>
+  );
+}
+
+const SHARED_KIND_LABELS: Record<SharedFeedDto['kind'], string> = {
+  prices: 'prices',
+  company: 'company data',
+  options: 'options data',
+};
+
+/**
+ * Shared data feeds (N237, ADR 0084): an admin chooses whether members
+ * without a feed of their own use the admin's; a member sees which of the
+ * admin's feeds they are using.
+ */
+function SharedFeeds({ data, onChanged }: { data: FeedListDto; onChanged: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (data.sharing !== null) {
+    return (
+      <section aria-labelledby="sharing-heading" className="space-y-2">
+        <h2 id="sharing-heading" className="text-lg font-semibold">
+          Sharing with members
+        </h2>
+        <div className="flex items-start gap-2 text-sm">
+          <input
+            id="share-feeds"
+            type="checkbox"
+            className="mt-1"
+            checked={data.sharing}
+            disabled={saving}
+            onChange={async (e) => {
+              setSaving(true);
+              setError(null);
+              try {
+                await apiClient.feeds.setSharing({ on: e.target.checked });
+                onChanged();
+              } catch (err) {
+                setError(message(err, 'Could not change sharing.'));
+              } finally {
+                setSaving(false);
+              }
+            }}
+          />
+          <label htmlFor="share-feeds">
+            Share my data feeds with all members
+            <span className="block text-ink-muted">
+              Members without a feed of their own for prices, company data or options data use
+              yours. They see each feed&apos;s name, never its key or settings, and their requests
+              count against your keys&apos; limits. A member who adds their own feed of a kind uses
+              theirs instead.
+            </span>
+          </label>
+        </div>
+        {error && <Alert>{error}</Alert>}
+      </section>
+    );
+  }
+  if (data.shared.length === 0) return null;
+  return (
+    <section aria-labelledby="shared-heading" className="space-y-2">
+      <h2 id="shared-heading" className="text-lg font-semibold">
+        Shared by the admin
+      </h2>
+      <p className="text-sm text-ink-muted">
+        You have no feed of your own for these, so the admin&apos;s are used. Add your own below to
+        use it instead.
+      </p>
+      <ul aria-label="Shared feeds" className="space-y-1 text-sm">
+        {data.shared.map((f) => (
+          <li key={`${f.kind}:${f.name}`} className="flex flex-wrap items-center gap-2">
+            <span className="text-content">{f.name}</span>
+            <Badge tone="neutral">{providerName(f.provider)}</Badge>
+            <span className="text-ink-muted">for {SHARED_KIND_LABELS[f.kind]}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

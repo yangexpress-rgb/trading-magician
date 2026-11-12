@@ -34,7 +34,8 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm';
-import { activeFundamentalsFeed } from './company-reports';
+import { usableFundamentalsFeed } from './company-reports';
+import { hasOwnFeed, sharedRouteKeys } from './feed-sharing';
 import {
   applyLibraryChoice,
   libraryNumbers,
@@ -482,6 +483,8 @@ export async function loadValidationContext(
     .where(eq(dataFeedConnections.isActive, true));
 
   const routes = new Set(routeRows.map((r) => `${r.assetClass}:${r.dataType}`));
+  // Without a price feed of their own, a member's prices come from the admin's (N237).
+  if (!(await hasOwnFeed(tx, 'prices'))) for (const k of await sharedRouteKeys(tx)) routes.add(k);
   return {
     instruments: new Map<string, InstrumentInfo>(
       instrumentRows.map((i) => [
@@ -507,7 +510,7 @@ export async function loadValidationContext(
       ]),
     ),
     hasFeed: (assetClass, dataType) => routes.has(`${assetClass}:${dataType}`),
-    hasCompanyFeed: (await activeFundamentalsFeed(tx)) !== undefined,
+    hasCompanyFeed: (await usableFundamentalsFeed(tx)) !== undefined,
     options: {
       feedOn: (await activeOptionsFeed(tx)) !== undefined,
       universe: new Set((await listOptionUniverse(tx)).map((u) => u.underlyingId)),

@@ -1,4 +1,4 @@
-import { demoDataEnabled, loadRouting, withTenant } from '@tm/db';
+import { demoDataEnabled, loadRouting, sharedFeedsInUse, withTenant } from '@tm/db';
 import { providerCoversVenue } from '@tm/domain';
 import { PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
@@ -18,9 +18,11 @@ export default async function ScreenerPage({
   const params = await searchParams;
   const tenant = await requireTenant();
   const canScreenMarket = await withTenant(appDb(), tenant, async (tx) =>
-    [...(await loadRouting(tx)).feeds.values()].some(
-      (f) => f.isActive && providerCoversVenue(f.provider, 'US'),
-    ),
+    [
+      ...(await loadRouting(tx)).feeds.values(),
+      // The admin's shared price feeds, for members without one (N237).
+      ...(await sharedFeedsInUse(tx, 'prices')).map((f) => ({ ...f, isActive: true })),
+    ].some((f) => f.isActive && providerCoversVenue(f.provider, 'US')),
   );
   const initial = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {

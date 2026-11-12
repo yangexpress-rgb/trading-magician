@@ -122,6 +122,11 @@ export const platformAdmins = pgTable('platform_admin', {
     .primaryKey()
     .references(() => users.id, { onDelete: 'cascade' }),
   grantedAt: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow(),
+  /**
+   * Whether members without a feed of their own use this admin's data feeds
+   * (N237, ADR 0084). Only the oldest admin who shares is used.
+   */
+  sharesFeeds: boolean('shares_feeds').notNull().default(true),
 });
 
 /** Auth library tables (Better Auth). Only the tm_auth role can read them. */

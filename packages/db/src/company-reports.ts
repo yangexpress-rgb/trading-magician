@@ -2,6 +2,7 @@ import { isFundamentalsProvider, type CompanyReport } from '@tm/domain';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import type { Database, Transaction } from './client';
 import { IntegrationError } from './feeds';
+import { sharedFeeds } from './feed-sharing';
 import { companyReports, dataFeedConnections } from './schema';
 
 /**
@@ -37,7 +38,23 @@ export interface FundamentalsFeedRow {
   credentialRef: string | null;
 }
 
-/** The company data feed in use: the oldest one that is on. */
+/**
+ * The company data feed a member's screens and checks see: their own, else
+ * the sharing admin's (N237, ADR 0084), whose key only the worker opens, in
+ * the admin's tenant. Name and provider only.
+ */
+export async function usableFundamentalsFeed(
+  tx: Transaction,
+): Promise<{ id: string; name: string; provider: string; shared: boolean } | undefined> {
+  const own = await activeFundamentalsFeed(tx);
+  if (own) return { id: own.id, name: own.name, provider: own.provider, shared: false };
+  const shared = (await sharedFeeds(tx)).find((f) => f.kind === 'company');
+  return shared
+    ? { id: shared.id, name: shared.name, provider: shared.provider, shared: true }
+    : undefined;
+}
+
+/** The tenant's own company data feed in use: the oldest one that is on. */
 export async function activeFundamentalsFeed(
   tx: Transaction,
 ): Promise<FundamentalsFeedRow | undefined> {
@@ -61,7 +78,7 @@ export async function requestCompanyReport(
 ): Promise<CompanyReportSummary> {
   const symbol = input.symbol.trim().toUpperCase().replace(/-/g, '.');
   if (!SYMBOL.test(symbol)) throw new IntegrationError('bad_request', 'That is not a US ticker');
-  if (!(await activeFundamentalsFeed(tx))) {
+  if (!(await usableFundamentalsFeed(tx))) {
     throw new IntegrationError(
       'invalid_state',
       'Add a company data feed under Settings › Data feeds to see company financials.',

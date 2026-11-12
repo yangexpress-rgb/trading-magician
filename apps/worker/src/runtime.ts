@@ -48,6 +48,7 @@ import {
   type Transaction,
   loadAccountRouting,
   type AccountRouting,
+  feedScope,
   loadRouting,
   type CredentialKey,
 } from '@tm/db';
@@ -258,12 +259,14 @@ export async function runRuntimePass(
     ...options.providers,
   };
 
+  // A member without a price feed of their own uses the admin's shared ones (N237, ADR 0084).
+  const feeds = await feedScope(db, userId, 'prices');
   return withTenant(db, { userId }, async (tx) => {
     await lockPaperBroker(tx, userId);
     // Bars, like prices, come through the tenant's routes (ADR 0017).
     const history = createRoutedHistory({
-      inTenant: (fn) => fn(tx),
-      userId,
+      inTenant: feeds.shared ? feeds.inTenant : (fn) => fn(tx),
+      userId: feeds.userId,
       now: at,
       providers,
       privateKey: options.privateKey,
@@ -273,10 +276,11 @@ export async function runRuntimePass(
       tx,
       userId,
       now,
-      routing: await loadRouting(tx),
+      routing: feeds.shared ? await feeds.inTenant(loadRouting) : await loadRouting(tx),
       providers,
       privateKey: options.privateKey,
       logger,
+      feeds: feeds.shared ? feeds : undefined,
     });
     const store = new DbPaperBrokerStore(tx, userId);
     const paper = new PaperBroker({ quotes, store, now: at });
