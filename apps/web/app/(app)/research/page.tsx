@@ -1,8 +1,9 @@
 import {
-  activeFundamentalsFeed,
   activeOptionsFeed,
   listTenantInstruments,
   loadRouting,
+  sharedFeedsInUse,
+  usableFundamentalsFeed,
   withTenant,
 } from '@tm/db';
 import {
@@ -43,7 +44,11 @@ export default async function ResearchPage({
     async (tx) => ({
       instruments: await listTenantInstruments(tx),
       // A real price feed, such as Alpaca, can search every US stock (ADR 0029).
-      canSearchMarket: [...(await loadRouting(tx)).feeds.values()].some(
+      // Without a price feed of their own, the admin's shared ones search for them (N237).
+      canSearchMarket: [
+        ...(await loadRouting(tx)).feeds.values(),
+        ...(await sharedFeedsInUse(tx, 'prices')).map((f) => ({ ...f, isActive: true })),
+      ].some(
         (f) =>
           f.isActive &&
           providerCoversVenue(f.provider, 'US') &&
@@ -51,7 +56,7 @@ export default async function ResearchPage({
           (PROVIDERS[f.provider].assetClasses as readonly string[]).includes('stock'),
       ),
       // Company financials come from a company data feed, such as SEC EDGAR (ADR 0031).
-      companyFeed: (await activeFundamentalsFeed(tx))?.name ?? null,
+      companyFeed: (await usableFundamentalsFeed(tx))?.name ?? null,
       // Options data comes from the keyless CBOE options feed (ADR 0047, 0048).
       optionsFeed: (await activeOptionsFeed(tx))?.name ?? null,
     }),

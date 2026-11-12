@@ -1,4 +1,5 @@
 import {
+  feedScope,
   instrumentsBySymbol,
   loadRouting,
   openCredential,
@@ -6,6 +7,7 @@ import {
   withTenant,
   type CredentialKey,
   type Database,
+  type TenantRunner,
 } from '@tm/db';
 import {
   providerCoversVenue,
@@ -43,8 +45,11 @@ export async function resolveBuiltinUniverse(options: {
     `The ${label} universe is today’s member list, so earlier years leave out companies that have since left it (survivorship bias)`,
   ];
   if (missing.length > 0) {
+    // Without a price feed of their own, the admin's shared one finds them (N237, ADR 0084).
+    const feeds = await feedScope(db, userId, 'prices');
     await inTenant(async (tx) => {
-      const routing = await loadRouting(tx);
+      const inFeeds: TenantRunner = feeds.shared ? feeds.inTenant : (fn) => fn(tx);
+      const routing = await inFeeds(loadRouting);
       const route = resolveRoute(routing.routes, {
         assetClass: 'stock',
         venue: 'US',
@@ -60,11 +65,13 @@ export async function resolveBuiltinUniverse(options: {
       if (!feed || !provider?.listings) return;
       const credential =
         provider.needsCredential && feed.credentialRef
-          ? await openCredential(tx, {
-              userId,
-              id: feed.credentialRef,
-              privateKey: options.privateKey,
-            })
+          ? await inFeeds((t) =>
+              openCredential(t, {
+                userId: feeds.userId,
+                id: feed.credentialRef as string,
+                privateKey: options.privateKey,
+              }),
+            )
           : undefined;
       const found = await provider.listings({ now: options.now, credential }, missing);
       for (const listing of found) {

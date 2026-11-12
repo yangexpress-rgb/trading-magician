@@ -2,6 +2,7 @@ import { AlpacaAuthError } from '@tm/alpaca';
 import {
   activeFundamentalsFeed,
   claimStockScreens,
+  feedScope,
   finishStockScreen,
   listTenantInstruments,
   loadPendingScreen,
@@ -12,6 +13,7 @@ import {
   type RoutingFeed,
   type Transaction,
   type CredentialKey,
+  type TenantRunner,
 } from '@tm/db';
 import {
   BrokerUnavailableError,
@@ -93,16 +95,23 @@ export async function runStockScreens(options: StockScreenOptions): Promise<numb
       withTenant(options.db, { userId }, fn);
     const pending = await inTenant((tx) => loadPendingScreen(tx, screenId));
     if (!pending) continue;
+    // Without feeds of their own, the admin's shared ones screen (N237, ADR 0084).
+    const prices = await feedScope(options.db, userId, 'prices');
+    const companies = await feedScope(options.db, userId, 'company');
     const { feed, provider, credential, known, company } = await inTenant(async (tx) => {
-      const picked = pickScreenFeed(await loadRouting(tx), options.providers);
-      const opened =
-        picked.provider?.needsCredential && picked.feed?.credentialRef
-          ? await openCredential(tx, {
-              userId,
-              id: picked.feed.credentialRef,
+      const inPrices: TenantRunner = prices.shared ? prices.inTenant : (fn) => fn(tx);
+      const inCompanies: TenantRunner = companies.shared ? companies.inTenant : (fn) => fn(tx);
+      const picked = pickScreenFeed(await inPrices(loadRouting), options.providers);
+      const priceKey = picked.provider?.needsCredential ? picked.feed?.credentialRef : null;
+      const opened = priceKey
+        ? await inPrices((t) =>
+            openCredential(t, {
+              userId: prices.userId,
+              id: priceKey,
               privateKey: options.privateKey,
-            })
-          : undefined;
+            }),
+          )
+        : undefined;
       // Instruments already registered can be charted straight from the screen.
       const known = new Map<string, string>();
       for (const i of await listTenantInstruments(tx)) {
@@ -110,18 +119,20 @@ export async function runStockScreens(options: StockScreenOptions): Promise<numb
       }
       // The company columns come from the company data feed, when one is on.
       let company: CompanySource | undefined;
-      const facts = await activeFundamentalsFeed(tx);
+      const facts = await inCompanies(activeFundamentalsFeed);
       const factsProvider = facts ? options.fundamentals?.[facts.provider] : undefined;
       if (facts && factsProvider) {
         try {
-          const factsCredential =
-            factsProvider.needsCredential && facts.credentialRef
-              ? await openCredential(tx, {
-                  userId,
-                  id: facts.credentialRef,
+          const factsKey = factsProvider.needsCredential ? facts.credentialRef : null;
+          const factsCredential = factsKey
+            ? await inCompanies((t) =>
+                openCredential(t, {
+                  userId: companies.userId,
+                  id: factsKey,
                   privateKey: options.privateKey,
-                })
-              : undefined;
+                }),
+              )
+            : undefined;
           company = {
             name: facts.name,
             provider: factsProvider,

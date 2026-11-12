@@ -27,6 +27,7 @@ import type {
   FeedListDto,
   RouteDto,
   SetFeedActiveRequest,
+  SetFeedSharingRequest,
   UpdateFeedRequest,
   UpdateRouteRequest,
   CreateCredentialRequest,
@@ -281,6 +282,9 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
       customTest: (id: string) =>
         call<CustomFeedTestDto>('GET', `/data-feeds/custom-tests/${enc(id)}`),
       remove: (id: string) => call<undefined>('DELETE', `/data-feeds/${enc(id)}`),
+      /** An admin shares their feeds with members, or stops (N237, ADR 0084). */
+      setSharing: (body: SetFeedSharingRequest) =>
+        call<{ sharing: boolean }>('PUT', '/data-feeds/sharing', body),
     },
     routes: {
       create: (body: CreateRouteRequest) => call<RouteDto>('POST', '/data-routes', body),

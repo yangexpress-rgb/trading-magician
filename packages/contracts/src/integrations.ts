@@ -181,7 +181,23 @@ export interface RouteDto {
 export interface FeedListDto {
   feeds: FeedDto[];
   routes: RouteDto[];
+  /**
+   * The admin's feeds this person uses because they have none of that kind
+   * (N237, ADR 0084): names and providers only.
+   */
+  shared: SharedFeedDto[];
+  /** For an admin: whether their feeds are shared with members; null for everyone else. */
+  sharing: boolean | null;
 }
+
+export interface SharedFeedDto {
+  name: string;
+  provider: string;
+  kind: 'prices' | 'company' | 'options';
+}
+
+export const setFeedSharingRequest = z.object({ on: z.boolean() });
+export type SetFeedSharingRequest = z.infer<typeof setFeedSharingRequest>;
 
 /** `details` of the invalid_state error when a feed in use is turned off. */
 export interface FeedInUseDetails {

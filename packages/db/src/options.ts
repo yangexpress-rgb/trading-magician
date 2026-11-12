@@ -9,6 +9,7 @@ import {
 } from '@tm/domain';
 import { and, asc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import type { Database, Transaction } from './client';
+import { sharedFeeds } from './feed-sharing';
 import { withTenant } from './tenant';
 import {
   dataFeedConnections,
@@ -689,8 +690,21 @@ export async function underlyingsBySymbol(db: Db, symbols: readonly string[]) {
   return out;
 }
 
-/** The tenant's oldest active options feed (ADR 0047), if any. */
+/**
+ * The tenant's oldest active options feed (ADR 0047), else the sharing
+ * admin's (N237, ADR 0084). Options data is keyless and recorded once for
+ * everyone, so a shared one serves just like an own one.
+ */
 export async function activeOptionsFeed(tx: Db) {
+  return (await ownOptionsFeed(tx)) ?? sharedOptionsFeed(tx);
+}
+
+async function sharedOptionsFeed(tx: Db) {
+  const feed = (await sharedFeeds(tx)).find((f) => f.kind === 'options');
+  return feed ? { id: feed.id, name: feed.name, provider: feed.provider } : undefined;
+}
+
+async function ownOptionsFeed(tx: Db) {
   const feeds = await tx
     .select({
       id: dataFeedConnections.id,

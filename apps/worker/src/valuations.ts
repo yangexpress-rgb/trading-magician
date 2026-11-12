@@ -6,6 +6,7 @@ import {
   loadAccountRouting,
   loadAccountToValue,
   loadLedger,
+  feedScope,
   loadRouting,
   recordValuation,
   releaseValuation,
@@ -73,6 +74,8 @@ export async function valueAccount(
 ): Promise<void> {
   const now = (options.now ?? (() => new Date()))();
   const session = valuationSession(now);
+  // Members without a price feed of their own are marked by the admin's shared ones (N237).
+  const feeds = await feedScope(options.db, userId, 'prices');
   await withTenant(options.db, { userId }, async (tx) => {
     const account = await loadAccountToValue(tx, accountId, session.date);
     if (!account) return;
@@ -87,10 +90,11 @@ export async function valueAccount(
       tx,
       userId,
       now,
-      routing: await loadRouting(tx),
+      routing: feeds.shared ? await feeds.inTenant(loadRouting) : await loadRouting(tx),
       providers: options.providers,
       privateKey: options.privateKey,
       logger: options.logger,
+      feeds: feeds.shared ? feeds : undefined,
     });
     const marks = new Map<string, Mark>();
     for (const ref of await instrumentsToMark(tx, ledger)) {

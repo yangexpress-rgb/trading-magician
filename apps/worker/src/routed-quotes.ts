@@ -7,6 +7,8 @@ import {
   type RoutingFeed,
   type Transaction,
   type CredentialKey,
+  type FeedScope,
+  type TenantRunner,
 } from '@tm/db';
 import {
   FAILOVER,
@@ -38,8 +40,16 @@ export function createRoutedQuotes(options: {
   providers: ProviderRegistry;
   privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'warn'>;
+  /**
+   * Whose routes and feeds these are when they are not the tenant's own: the
+   * sharing admin's (N237, ADR 0084). Their keys open, and their routes fail
+   * over, in the admin's tenant, in transactions of their own.
+   */
+  feeds?: FeedScope | undefined;
 }): LiveQuoteProvider {
-  const { tx, userId, now, routing } = options;
+  const { tx, now, routing } = options;
+  const userId = options.feeds?.userId ?? options.userId;
+  const inFeeds: TenantRunner = options.feeds?.inTenant ?? ((fn) => fn(tx));
   const at = () => now;
   const sources = new Map<string, LiveQuoteProvider | undefined>();
   const decided = new Map<string, Promise<RouteLike>>();
@@ -55,18 +65,17 @@ export function createRoutedQuotes(options: {
         // A custom feed has a key only when its description signs in with one (ADR 0041).
         if (provider.needsCredential || feed.credentialRef) {
           if (!feed.credentialRef) throw new Error('no stored key');
-          credential = await openCredential(tx, {
-            userId,
-            id: feed.credentialRef,
-            privateKey: options.privateKey,
-          });
+          const ref = feed.credentialRef;
+          credential = await inFeeds((t) =>
+            openCredential(t, { userId, id: ref, privateKey: options.privateKey }),
+          );
         }
         source = provider.quotes({
           now: at,
           credential,
           feed: { id: feed.id, config: feed.config },
           userId,
-          inTenant: (fn) => fn(tx),
+          inTenant: inFeeds,
         });
       }
     } catch (error) {
@@ -113,7 +122,9 @@ export function createRoutedQuotes(options: {
         const primaryQuote = await ask(route.primaryFeedId, ref);
         const step = failoverStep(route, healthy(primaryQuote), now);
         if (step.kind === 'stay') return route;
-        await applyFailoverStep(tx, { userId, route, step, now, feeds: routing.feeds });
+        await inFeeds((t) =>
+          applyFailoverStep(t, { userId, route, step, now, feeds: routing.feeds }),
+        );
         switch (step.kind) {
           case 'fail_over':
             return { ...route, activeSource: 'fallback', primaryOkSince: null };

@@ -1,5 +1,6 @@
 import {
   activeFundamentalsFeed,
+  feedScope,
   claimCompanyReports,
   finishCompanyReport,
   loadPendingCompanyReport,
@@ -42,13 +43,15 @@ export async function runCompanyReports(options: CompanyReportOptions): Promise<
     if (!pending) continue;
     let source: string | undefined;
     try {
-      const { feed, credential } = await inTenant(async (tx) => {
+      // Without a company feed of their own, the admin's shared one answers (N237, ADR 0084).
+      const feeds = await feedScope(options.db, userId, 'company');
+      const { feed, credential } = await feeds.inTenant(async (tx) => {
         const feed = await activeFundamentalsFeed(tx);
         const provider = feed ? options.fundamentals[feed.provider] : undefined;
         const credential =
           feed && provider?.needsCredential && feed.credentialRef
             ? await openCredential(tx, {
-                userId,
+                userId: feeds.userId,
                 id: feed.credentialRef,
                 privateKey: options.privateKey,
               })

@@ -3,7 +3,7 @@ import { hostname } from 'node:os';
 import { FAKE_ALPACA_DATA_URL, FAKE_ALPACA_TRADING_URL, FakeAlpaca } from '@tm/alpaca/testing';
 import { FAKE_SEC_DATA_URL, FAKE_SEC_WWW_URL, FakeSec } from '@tm/sec/testing';
 import { StripeBilling } from '@tm/billing';
-import { createDb, withTenant } from '@tm/db';
+import { createDb } from '@tm/db';
 import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
 import { resolveBuiltinUniverse } from './universes';
 import { startBacktestLoop, type BacktestLoop } from './backtests';
@@ -23,7 +23,7 @@ import { startCompanyReportLoop, type CompanyReportLoop } from './company-report
 import { demoProvider, type FundamentalsRegistry, type ProviderRegistry } from './providers';
 import { secProvider, type SecProviderOptions } from './sec';
 import { fundamentalsLoader } from './fundamentals';
-import { createRoutedHistory } from './routed-history';
+import { createMemberHistory } from './routed-history';
 import { customRestProvider } from './custom-rest';
 import { cboeProvider } from './cboe';
 import { fakeCboeFetch } from './cboe-fake';
@@ -109,7 +109,7 @@ if (databaseUrl) {
       'credential key loaded',
     );
   }
-  const handle = createDb(databaseUrl, { max: 4 });
+  const handle = createDb(databaseUrl, { max: 6 });
   closeDb = handle.close;
   const workerId = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
   const now = env.PAPER_CLOCK_START ? shiftedClock(env.PAPER_CLOCK_START) : undefined;
@@ -163,8 +163,8 @@ if (databaseUrl) {
   loop = startBacktestLoop({
     db,
     provider: (userId, run) =>
-      createRoutedHistory({
-        inTenant: (fn) => withTenant(db, { userId }, fn),
+      createMemberHistory({
+        db,
         userId,
         now: () => new Date(),
         providers,

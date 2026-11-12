@@ -1,10 +1,12 @@
 import {
+  feedScope,
   instrumentRoutingInfo,
   loadRouting,
   openCredential,
   type Routing,
   type Transaction,
   type CredentialKey,
+  type Database,
 } from '@tm/db';
 import { resolveRoute, UnsupportedBarRequestError, type HistoricalDataProvider } from '@tm/domain';
 import type { ProviderRegistry } from './providers';
@@ -136,6 +138,32 @@ export function createRoutedHistory(options: {
       throw new UnsupportedBarRequestError(
         `The data feed for ${request.symbol} cannot give bars right now`,
       );
+    },
+  };
+}
+
+/**
+ * Bars for a member through whichever routes serve them: their own, or the
+ * sharing admin's when they have no price feed (N237, ADR 0084). Which one is
+ * decided at the first request.
+ */
+export function createMemberHistory(
+  options: Omit<Parameters<typeof createRoutedHistory>[0], 'inTenant' | 'userId'> & {
+    db: Database;
+    userId: string;
+  },
+): HistoricalDataProvider {
+  const { db, userId, ...rest } = options;
+  let inner: Promise<HistoricalDataProvider> | undefined;
+  const resolve = () =>
+    (inner ??= feedScope(db, userId, 'prices').then((feeds) =>
+      createRoutedHistory({ ...rest, inTenant: feeds.inTenant, userId: feeds.userId }),
+    ));
+  return {
+    id: 'routed',
+    intervals: ['5m', '1h', '1d'],
+    async getBars(request) {
+      return (await resolve()).getBars(request);
     },
   };
 }

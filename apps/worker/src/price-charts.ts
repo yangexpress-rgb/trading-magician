@@ -8,6 +8,7 @@ import {
   type Database,
   type Transaction,
   type CredentialKey,
+  feedScope,
 } from '@tm/db';
 import { BrokerUnavailableError, nyDate, UnsupportedBarRequestError } from '@tm/domain';
 import type { Logger } from 'pino';
@@ -43,9 +44,11 @@ export async function runPriceCharts(options: PriceChartOptions): Promise<number
     const chart = await inTenant((tx) => loadPendingChart(tx, chartId));
     if (!chart) continue;
     let source: string | undefined;
+    // A member without a price feed of their own charts from the admin's shared ones (N237).
+    const feeds = await feedScope(options.db, userId, 'prices');
     const history = createRoutedHistory({
-      inTenant,
-      userId,
+      inTenant: feeds.inTenant,
+      userId: feeds.userId,
       now,
       providers: options.providers,
       privateKey: options.privateKey,

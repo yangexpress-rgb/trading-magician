@@ -1,6 +1,7 @@
 import { AlpacaAuthError } from '@tm/alpaca';
 import {
   claimInstrumentLookups,
+  feedScope,
   finishLookup,
   loadPendingLookup,
   loadRouting,
@@ -9,6 +10,7 @@ import {
   withTenant,
   type Database,
   type CredentialKey,
+  type TenantRunner,
 } from '@tm/db';
 import {
   BrokerUnavailableError,
@@ -51,7 +53,10 @@ export async function runInstrumentLookups(options: LookupOptions): Promise<numb
     limit: LOOKUPS.batch,
   });
   for (const { lookupId, userId } of claimed) {
+    // Without a price feed of their own, the admin's shared one looks up (N237, ADR 0084).
+    const feeds = await feedScope(options.db, userId, 'prices');
     await withTenant(options.db, { userId }, async (tx) => {
+      const inFeeds: TenantRunner = feeds.shared ? feeds.inTenant : (fn) => fn(tx);
       const lookup = await loadPendingLookup(tx, lookupId);
       if (!lookup) return;
       // An index the app knows, such as the VIX: registered as indicator-only,
@@ -70,7 +75,7 @@ export async function runInstrumentLookups(options: LookupOptions): Promise<numb
         options.logger.info({ lookupId, symbol: index.symbol }, 'index found');
         return;
       }
-      const routing = await loadRouting(tx);
+      const routing = await inFeeds(loadRouting);
       // The feed behind the any-venue US stock route, else any active feed that can look up.
       const route = resolveRoute(routing.routes, {
         assetClass: 'stock',
@@ -93,11 +98,13 @@ export async function runInstrumentLookups(options: LookupOptions): Promise<numb
       try {
         const credential =
           provider.needsCredential && feed.credentialRef
-            ? await openCredential(tx, {
-                userId,
-                id: feed.credentialRef,
-                privateKey: options.privateKey,
-              })
+            ? await inFeeds((t) =>
+                openCredential(t, {
+                  userId: feeds.userId,
+                  id: feed.credentialRef as string,
+                  privateKey: options.privateKey,
+                }),
+              )
             : undefined;
         const listing = lookup.symbol
           ? await withTimeout(

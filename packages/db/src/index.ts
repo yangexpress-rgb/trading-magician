@@ -78,6 +78,7 @@ export {
   type SealedSecret,
 } from './sealed';
 export * from './feeds';
+export * from './feed-sharing';
 export * from './fundamentals';
 export * from './custom-feeds';
 export * from './instruments';
