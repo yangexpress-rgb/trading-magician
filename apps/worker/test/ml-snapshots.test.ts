@@ -35,7 +35,7 @@ const quiet = { info: () => undefined, warn: () => undefined };
 const FEATURES = FEATURE_SET_V1.filter((f) => f.name !== 'sue');
 
 /** Deterministic random walk per symbol; after T, optionally doubled. */
-function provider(mutateAfterT: boolean): HistoricalDataProvider {
+function provider(mutateAfterT: boolean, firstBar = '2023-01-03'): HistoricalDataProvider {
   return {
     id: 'ml-test',
     intervals: ['1d'],
@@ -51,7 +51,7 @@ function provider(mutateAfterT: boolean): HistoricalDataProvider {
       // The walk starts on a fixed day so every request sees the same prices.
       for (const d of tradingDays('2023-01-03', req.to)) {
         price *= 1 + (rand() - 0.5) * 0.04 + (k - 2.5) * 0.0004;
-        if (d < req.from) continue;
+        if (d < req.from || d < firstBar) continue;
         const session = regularSession(d);
         if (!session) continue;
         // Raw closes stay above the adjusted ones (dividends), splits none.
@@ -134,10 +134,16 @@ async function newModel(key: string): Promise<string> {
   return row!.id;
 }
 
-async function run(key: string, mutated: boolean, chunkDates = 4) {
+async function run(
+  key: string,
+  mutated: boolean,
+  chunkDates = 4,
+  extra: { firstBar?: string; maxChunks?: number } = {},
+) {
   return runSnapshotPass({
     db: t.worker.db,
-    history: provider(mutated),
+    history: provider(mutated, extra.firstBar),
+    ...(extra.maxChunks !== undefined ? { maxChunks: extra.maxChunks } : {}),
     fundamentals: fundamentals(mutated),
     members: async () => members,
     userId: '00000000-0000-4000-8000-000000000001',
@@ -291,5 +297,27 @@ describe('ML feature snapshots (brief §5)', () => {
         ),
       );
     expect(rows).toHaveLength(members.length);
+  });
+
+  it('dates before the feed has bars do not hold up later dates (staging 2026-11-12)', async () => {
+    const id = await newModel('snap-late-feed');
+    const all = predictionDates('2025-06-01', '2026-03-13');
+    // One chunk per pass, as the worker loop does. Bars start in October, so the summer
+    // dates get no labels; later passes must still move on instead of retrying them.
+    for (let pass = 0; pass < all.length; pass++) {
+      const r = await run('snap-late-feed', false, 2, { firstBar: '2025-10-01', maxChunks: 1 });
+      if (r.pendingSnapshots === 0 && r.snapshots.length === 0) break;
+    }
+    const rows = await rowsOf(id);
+    expect([...new Set(rows.snaps.map((s) => s.asOf))]).toEqual(all);
+    expect(rows.labels.some((l) => l.asOf < '2025-10-01')).toBe(false);
+    expect(rows.labels.some((l) => l.asOf >= '2025-10-31')).toBe(true);
+    const again = await run('snap-late-feed', false, 2, { firstBar: '2025-10-01', maxChunks: 1 });
+    expect(again).toMatchObject({
+      snapshots: [],
+      labels: 0,
+      pendingSnapshots: 0,
+      pendingLabels: 0,
+    });
   });
 });
