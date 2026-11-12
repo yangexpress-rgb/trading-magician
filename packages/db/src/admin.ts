@@ -2,7 +2,13 @@ import { randomBytes } from 'node:crypto';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { recordOperatorAudit } from './audit';
 import type { Database, Transaction } from './client';
-import { generateInviteCode, hashInviteCode, inviteCodeHint } from './invites';
+import {
+  generateInviteCode,
+  hashInviteCode,
+  inviteCodeHint,
+  openInviteCode,
+  sealInviteCode,
+} from './invites';
 import { platformAdmins, users } from './schema';
 
 /**
@@ -127,11 +133,15 @@ export async function adminResetPassword(
   return row?.changed === true;
 }
 
-/** Mints codes and returns them, to show once; only their hashes and first groups are stored. */
+/**
+ * Mints codes and returns them. Stores each code's hash and first group, and,
+ * given `sealKey` (the web app's, N238), the whole code encrypted so the admin
+ * page can show it again.
+ */
 export async function adminMintInvites(
   tx: Transaction,
   count: number,
-  options: { note?: string; expiresAt?: Date } = {},
+  options: { note?: string; expiresAt?: Date; sealKey?: Buffer } = {},
 ): Promise<string[]> {
   if (!Number.isInteger(count) || count < 1 || count > 50) {
     throw new AdminError('refused', 'Mint between 1 and 50 codes.');
@@ -145,9 +155,16 @@ export async function adminMintInvites(
     codes.map((c) => sql`${inviteCodeHint(c)}`),
     sql`, `,
   );
+  const key = options.sealKey;
+  const sealed = key
+    ? sql`array[${sql.join(
+        codes.map((c) => sql`${sealInviteCode(c, key)}`),
+        sql`, `,
+      )}]::text[]`
+    : sql`null::text[]`;
   await call(() =>
     tx.execute(
-      sql`select admin_mint_invites(array[${hashes}]::char(64)[], array[${hints}]::text[], ${options.note ?? null}, ${
+      sql`select admin_mint_invites(array[${hashes}]::char(64)[], array[${hints}]::text[], ${sealed}, ${options.note ?? null}, ${
         options.expiresAt?.toISOString() ?? null
       }::timestamptz)`,
     ),
@@ -165,6 +182,8 @@ export interface AdminInvite {
   claimedByEmail: string | null;
   /** The code's first group of four (`ABCD`), or null for codes minted before N236. */
   codeHint: string | null;
+  /** The whole code, when it was kept sealed and `adminListInvites` got the key (N238). */
+  code: string | null;
   createdBy: string | null;
   createdByEmail: string | null;
 }
@@ -179,7 +198,8 @@ export function inviteState(invite: AdminInvite, now = new Date()): InviteState 
   return 'open';
 }
 
-export async function adminListInvites(tx: Transaction): Promise<AdminInvite[]> {
+/** Lists every code; with `sealKey`, whole codes are opened where they were kept (N238). */
+export async function adminListInvites(tx: Transaction, sealKey?: Buffer): Promise<AdminInvite[]> {
   const rows = await call(() =>
     tx.execute<Record<string, unknown>>(sql`select * from admin_list_invites()`),
   );
@@ -192,6 +212,8 @@ export async function adminListInvites(tx: Transaction): Promise<AdminInvite[]> 
     claimedBy: (r.claimed_by as string | null) ?? null,
     claimedByEmail: (r.claimed_by_email as string | null) ?? null,
     codeHint: (r.code_hint as string | null) ?? null,
+    code:
+      sealKey && typeof r.code_sealed === 'string' ? openInviteCode(r.code_sealed, sealKey) : null,
     createdBy: (r.created_by as string | null) ?? null,
     createdByEmail: (r.created_by_email as string | null) ?? null,
   }));

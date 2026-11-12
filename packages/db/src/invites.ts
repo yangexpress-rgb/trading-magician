@@ -1,4 +1,11 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  hkdfSync,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto';
 import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { recordOperatorAudit } from './audit';
 import type { Database, Transaction } from './client';
@@ -26,6 +33,35 @@ export function normalizeInviteCode(code: string): string {
  */
 export function inviteCodeHint(code: string): string {
   return normalizeInviteCode(code).slice(0, 4);
+}
+
+/**
+ * The key that seals whole codes for the admin page (N238, ADR 0085), derived
+ * from a secret only the web app holds (its BETTER_AUTH_SECRET).
+ */
+export function inviteCodeKey(secret: string): Buffer {
+  return Buffer.from(hkdfSync('sha256', secret, 'tm-invite-code', 'invite code v1', 32));
+}
+
+/** AES-256-GCM: `v1.` + base64url(iv | tag | ciphertext). */
+export function sealInviteCode(code: string, key: Buffer): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const body = Buffer.concat([cipher.update(code, 'utf8'), cipher.final()]);
+  return `v1.${Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64url')}`;
+}
+
+/** The code, or null when it was sealed with another key or is damaged. */
+export function openInviteCode(sealed: string, key: Buffer): string | null {
+  if (!sealed.startsWith('v1.')) return null;
+  try {
+    const raw = Buffer.from(sealed.slice(3), 'base64url');
+    const decipher = createDecipheriv('aes-256-gcm', key, raw.subarray(0, 12));
+    decipher.setAuthTag(raw.subarray(12, 28));
+    return Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString('utf8');
+  } catch {
+    return null;
+  }
 }
 
 export function hashInviteCode(code: string): string {
