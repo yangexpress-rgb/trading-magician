@@ -28,7 +28,7 @@ import { customRestProvider } from './custom-rest';
 import { cboeProvider } from './cboe';
 import { fakeCboeFetch } from './cboe-fake';
 import { fakeCustomTransport } from './custom-rest-fake';
-import { startRuntimeLoop, type RuntimeLoop } from './runtime';
+import { createRuntimeCaches, startRuntimeLoop, type RuntimeLoop } from './runtime';
 import { startValuationLoop, type ValuationLoop } from './valuations';
 import {
   AlpacaClient,
@@ -199,6 +199,17 @@ if (databaseUrl) {
     brokers,
     privateKey: credentialKey,
     fundamentals: companyFilings,
+    // Bars, group members and side data stay loaded between passes (ADR 0087).
+    caches: createRuntimeCaches((userId, group) =>
+      resolveBuiltinUniverse({
+        db: handle.db,
+        userId,
+        group,
+        providers,
+        privateKey: credentialKey,
+        now: () => new Date(),
+      }),
+    ),
     logger,
     pollMs: env.RUNTIME_POLL_MS,
   });

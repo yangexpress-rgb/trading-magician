@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
+import { paperWorkloadProblem } from '@tm/backtest';
 import {
   canonicalJson,
   collectInstrumentUses,
   createDefinition,
-  paperRunBlocker,
+  groupMemberCount,
+  nyDate,
   parseDefinition,
   planTransition,
   STATUS_LABELS,
@@ -991,11 +993,12 @@ export async function startStrategy(
       validation,
     });
   }
-  // Back test only for now (decision of 2026-11-06, Design v1.2).
-  const blocker = paperRunBlocker(parseOrThrow(row.draftDefinition));
+  // A paper run keeps its bars loaded between passes: only how many is limited (ADR 0087).
+  const startDef = parseOrThrow(row.draftDefinition);
+  const blocker = paperWorkloadProblem(startDef, groupMemberCount(startDef), nyDate(new Date()));
   if (blocker) {
     throw new StrategyError('transition_blocked', blocker, {
-      reason: 'backtest_only',
+      reason: 'paper_workload',
       details: [blocker],
       validation,
     });

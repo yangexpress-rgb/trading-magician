@@ -34,8 +34,15 @@ import {
 import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
 
 import Decimal from 'decimal.js';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { closeSinceFill, runRuntimePass, SAFETY, type RuntimeWorkerOptions } from '../src/runtime';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  closeSinceFill,
+  createRuntimeCaches,
+  runRuntimePass,
+  SAFETY,
+  type RuntimeCaches,
+  type RuntimeWorkerOptions,
+} from '../src/runtime';
 
 let t: TestDatabase;
 let userId: string;
@@ -54,8 +61,16 @@ let quoteDelayMs = 0;
 let brokerDown = false;
 /** Test hook: DEMO-A daily closes replaced by the date the bar ended, for the N225 stop checks. */
 const dailyCloses = new Map<string, string>();
+/** Bars kept between passes, as the worker keeps them (ADR 0087); fresh for each test. */
+let caches: RuntimeCaches = createRuntimeCaches();
+/** Test hook: the members a built-in group resolves to. */
+const groupMembers: string[] = [];
+beforeEach(() => {
+  caches = createRuntimeCaches(async () => ({ ids: groupMembers, warnings: [] }));
+});
 const options = (workerId: string): RuntimeWorkerOptions => ({
   db: t.app.db,
+  caches,
   workerId,
   history: (now) => {
     const demo = createDemoHistoryProvider({ now });
@@ -910,7 +925,54 @@ describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, ti
     await stopAll();
   });
 
-  it('refuses to start an S&P 500 Selection group on paper, saying why', async () => {
+  it('runs an S&P 500 group on paper with today’s members, loading bars once (ADR 0087)', async () => {
+    clock = T0 + 3 * 86_400_000; // Friday
+    groupMembers.splice(0, groupMembers.length, demoA, demoB);
+    const def = createDefinition();
+    def.trade = {
+      kind: 'group',
+      universe: { type: 'builtin', id: 'sp500' },
+      ranking: {
+        metric: 'return',
+        params: { lookbackMonths: '1', skipMonths: '0' },
+        direction: 'desc',
+        count: { type: 'fixed', value: 2 },
+      },
+      splitTotal: true,
+    };
+    def.entry.orders = [
+      leg('each', {
+        legLabel: 'Buy each',
+        instrumentId: CONTEXT,
+        quantity: { type: 'units', value: '20', rounding: 'down' },
+      }),
+    ];
+    def.exit.orders = [
+      leg('close-each', { legLabel: 'Close each', instrumentId: CONTEXT, side: 'close' }),
+    ];
+    const { runtimeId } = await startPaper('S&P', def);
+    await pass();
+    expect((await orders(runtimeId)).map((x) => [x.legLabel, x.quantity])).toEqual([
+      ['Buy each', '10'],
+      ['Buy each', '10'],
+    ]);
+    const loaded = caches.bars.requests;
+    expect(loaded).toBeGreaterThan(0);
+    // Later passes before the next bar ends ask the feed for nothing.
+    for (let i = 0; i < 5; i++) {
+      clock += 1_000;
+      await pass();
+    }
+    expect(caches.bars.requests).toBe(loaded);
+    // After the close, the new daily bar is asked for once.
+    clock = Date.parse('2026-10-09T20:10:00Z');
+    await pass();
+    expect(caches.bars.requests).toBeGreaterThan(loaded);
+    groupMembers.splice(0, groupMembers.length);
+    await stopAll();
+  });
+
+  it('refuses to start a group whose bars would not fit in memory, saying why', async () => {
     const def = createDefinition();
     def.trade = {
       kind: 'group',
@@ -922,11 +984,28 @@ describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, ti
         count: { type: 'fixed', value: 10 },
       },
     };
+    // 500 five-minute bars back for every member: about 470 thousand bars.
+    def.entry.condition = group('far', [
+      {
+        kind: 'comparison',
+        id: 'far-c',
+        operator: 'gt',
+        left: {
+          kind: 'market',
+          id: 'far-px',
+          instrumentId: CONTEXT,
+          field: 'close',
+          interval: '5m',
+          adjustment: 'split_and_dividend',
+          session: 'regular',
+          offset: 500,
+        },
+        right: { kind: 'constant', id: 'far-k', value: '1' },
+      },
+    ]);
     def.entry.orders = [leg('each', { instrumentId: CONTEXT })];
     def.exit.orders = [leg('close-each', { instrumentId: CONTEXT, side: 'close' })];
-    await expect(startPaper('S&P', def)).rejects.toThrow(
-      /can be back tested, but not run on paper/,
-    );
+    await expect(startPaper('S&P 5m', def)).rejects.toThrow(/A paper run can keep up to/);
   });
 
   it('evaluates Entry only after a month-end close', async () => {

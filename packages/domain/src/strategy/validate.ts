@@ -34,7 +34,6 @@ import {
   hasComparisons,
   listMembers,
   optionInstruments,
-  paperRunBlocker,
   slotModeOf,
   usesFundamentals,
   usesOptions,
@@ -993,8 +992,6 @@ function checkSlots(def: StrategyDefinition, ctx: ValidationContext, add: Add) {
 
   if (mode === 'selection') checkSelection(def, ctx, add);
   else checkLegConditions(def, ctx, add);
-  const blocker = paperRunBlocker(def);
-  if (blocker) add('warning', 'selection_backtest_only', blocker, ['trade', 'universe']);
 }
 
 function checkSelection(def: StrategyDefinition, ctx: ValidationContext, add: Add) {

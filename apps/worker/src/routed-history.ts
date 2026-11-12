@@ -8,7 +8,13 @@ import {
   type CredentialKey,
   type Database,
 } from '@tm/db';
-import { resolveRoute, UnsupportedBarRequestError, type HistoricalDataProvider } from '@tm/domain';
+import {
+  resolveRoute,
+  UnsupportedBarRequestError,
+  type BarRequest,
+  type BarSeries,
+  type HistoricalDataProvider,
+} from '@tm/domain';
 import type { ProviderRegistry } from './providers';
 
 /**
@@ -92,7 +98,7 @@ export function createRoutedHistory(options: {
     });
   }
 
-  return {
+  const routed: HistoricalDataProvider = {
     id: 'routed',
     intervals: ['5m', '1h', '1d'],
     /**
@@ -139,7 +145,60 @@ export function createRoutedHistory(options: {
         `The data feed for ${request.symbol} cannot give bars right now`,
       );
     },
+    /**
+     * Requests whose primary feed takes many symbols at once go to it together
+     * (ADR 0087); anything that fails there, or whose feed can't batch, takes
+     * the one-at-a-time path above, with its fallback.
+     */
+    async getBarsMany(requests) {
+      const out: (BarSeries | Error)[] = new Array(requests.length);
+      const byFeed = new Map<string, number[]>();
+      const single: number[] = [];
+      for (const [i, request] of requests.entries()) {
+        let first: Candidate | undefined;
+        try {
+          first = (await candidatesFor(request.instrumentId, request.symbol))[0];
+        } catch (error) {
+          out[i] = error instanceof Error ? error : new Error(String(error));
+          continue;
+        }
+        if (first) byFeed.set(first.feedId, [...(byFeed.get(first.feedId) ?? []), i]);
+        else single.push(i);
+      }
+      for (const [feedId, indexes] of byFeed) {
+        const source = await sourceFor(feedId);
+        if (!source?.getBarsMany || indexes.length < 2) {
+          single.push(...indexes);
+          continue;
+        }
+        const results = await source.getBarsMany(indexes.map((i) => requests[i] as BarRequest));
+        const feed = routing?.feeds.get(feedId);
+        for (const [n, i] of indexes.entries()) {
+          const r = results[n];
+          if (r && !(r instanceof Error)) {
+            out[i] = r;
+            if (feed) {
+              const request = requests[i] as BarRequest;
+              options.onFeed?.(request.instrumentId, {
+                id: feedId,
+                name: feed.name,
+                provider: feed.provider,
+              });
+            }
+          } else single.push(i);
+        }
+      }
+      for (const i of single) {
+        try {
+          out[i] = await routed.getBars(requests[i] as BarRequest);
+        } catch (error) {
+          out[i] = error instanceof Error ? error : new Error(String(error));
+        }
+      }
+      return out;
+    },
   };
+  return routed;
 }
 
 /**
@@ -164,6 +223,18 @@ export function createMemberHistory(
     intervals: ['5m', '1h', '1d'],
     async getBars(request) {
       return (await resolve()).getBars(request);
+    },
+    async getBarsMany(requests) {
+      const inner = await resolve();
+      if (inner.getBarsMany) return inner.getBarsMany(requests);
+      const out: (BarSeries | Error)[] = [];
+      for (const r of requests)
+        out.push(
+          await inner
+            .getBars(r)
+            .catch((e: unknown) => (e instanceof Error ? e : new Error(String(e)))),
+        );
+      return out;
     },
   };
 }
