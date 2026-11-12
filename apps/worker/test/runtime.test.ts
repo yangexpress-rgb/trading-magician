@@ -972,6 +972,16 @@ describe('paper runtime: v1.2 Selection groups, per-leg conditions, schedule, ti
     await stopAll();
   });
 
+  it('spaces passes over a runtime out by passEveryMs (ADR 0087)', async () => {
+    const { runtimeId } = await startPaper('Spaced', pairDefinition());
+    const claimed = await claimRuntimes(t.app.db, 'worker-1', { leaseSeconds: 30, limit: 10 });
+    const mine = claimed.find((c) => c.runtimeId === runtimeId)!;
+    await runRuntimePass({ ...options('worker-1'), passEveryMs: 60_000 }, runtimeId, mine.userId);
+    const again = await claimRuntimes(t.app.db, 'worker-1', { leaseSeconds: 30, limit: 10 });
+    expect(again.map((c) => c.runtimeId)).not.toContain(runtimeId);
+    await stopAll();
+  });
+
   it('refuses to start a group whose bars would not fit in memory, saying why', async () => {
     const def = createDefinition();
     def.trade = {

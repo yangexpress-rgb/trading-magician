@@ -30,6 +30,12 @@ export interface QuoteRequest {
 export interface LiveQuoteProvider {
   readonly id: string;
   latestQuote(ref: QuoteRequest): Promise<Quote | undefined>;
+  /**
+   * Many instruments' latest quotes in few requests, by instrument id, for
+   * feeds that serve several symbols per call (ADR 0087). Instruments without
+   * a quote are left out. Feeds without it are asked one at a time.
+   */
+  latestQuotes?(refs: readonly QuoteRequest[]): Promise<Map<string, Quote>>;
 }
 
 /** Seconds between a quote's provider time and `now`. */

@@ -231,6 +231,55 @@ describe('routing a real instrument', () => {
     expect(warnings.join(' ')).toMatch(/IEX/);
   });
 
+  it('prices many instruments in one request, and bars them in one (ADR 0087)', async () => {
+    const a = (await lookUp(userA, 'ZTSTA')).instrument!;
+    const b = (await lookUp(userA, 'ZTSTB')).instrument!;
+    const refs = [a, b].map((i) => ({ instrumentId: i.id, symbol: i.symbol }));
+    const before = fake.requests.length;
+    const [qa, qb] = await asWorker(userA, async (tx) => {
+      const quotes = createRoutedQuotes({
+        tx,
+        userId: userA,
+        now: NOW,
+        routing: await loadRouting(tx),
+        providers,
+        privateKey: keys.privateKey,
+        logger: quiet,
+      });
+      await quotes.prefetch(refs);
+      return [await quotes.latestQuote(refs[0]!), await quotes.latestQuote(refs[1]!)];
+    });
+    const sent = fake.requests.slice(before).map((r) => new URL(r.url).pathname);
+    expect(sent).toEqual(['/v2/stocks/snapshots']);
+    expect(qa).toMatchObject({ symbol: 'ZTSTA', source: 'alpaca-iex' });
+    expect(qb).toMatchObject({ symbol: 'ZTSTB', source: 'alpaca-iex' });
+
+    const history = createRoutedHistory({
+      inTenant: (fn) => withTenant(t.worker.db, { userId: userA }, fn),
+      userId: userA,
+      now: () => NOW,
+      providers,
+      privateKey: keys.privateKey,
+    });
+    const req = (i: typeof a) => ({
+      instrumentId: i.id,
+      symbol: i.symbol,
+      assetClass: 'stock',
+      interval: '1d' as const,
+      from: '2026-09-01',
+      to: '2026-09-30',
+      adjustment: 'split_and_dividend' as const,
+      session: 'regular' as const,
+    });
+    const mid = fake.requests.length;
+    const [ba, bb] = await history.getBarsMany!([req(a), req(b)]);
+    expect(fake.requests.slice(mid).filter((r) => r.url.includes('/v2/stocks/bars'))).toHaveLength(
+      1,
+    );
+    expect(ba).toEqual(await history.getBars(req(a)));
+    expect(bb).toEqual(await history.getBars(req(b)));
+  });
+
   it('still bars demo instruments from the demo feed', async () => {
     const [demoA] = await t.owner.db
       .select()

@@ -61,6 +61,16 @@ A back test does not have the problem: it loads each series once and replays it.
   the cap counted the load margin, about 235,000 bars per 5-minute series kind, and refused Yong's
   5-minute S&P 500 strategy at 478,856.)
 
+- **Passes are spaced out, prices asked together** (added 2026-11-12, after an S&P 500 runtime
+  paused on "the paper broker has not answered for 61 seconds"). Every pass asks the broker for
+  updates (two Alpaca requests) and the feed for a price per watched instrument, and a pass came
+  about every second: a runtime holding ten stocks sent about 700 requests a minute, while Alpaca
+  allows 200 a minute per key, shared by trading and data. Throttled calls count as the broker not
+  answering, so the runtime paused. Now a runtime's next pass waits `RUNTIME_PASS_EVERY_MS`
+  (default 5 seconds; tests and E2E use 0), and each pass first asks for every watched instrument's
+  price at once (`latestQuotes`: Alpaca `/v2/stocks/snapshots`, 100 symbols a request). A runtime
+  now sends about 40 requests a minute.
+
 ## Consequences
 
 - S&P 500 and other built-in groups, and lists of any length, start on paper. The Selection

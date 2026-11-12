@@ -191,6 +191,13 @@ export interface RuntimeWorkerOptions {
    * worker always has them; without them (some tests) every pass loads afresh.
    */
   caches?: RuntimeCaches;
+  /**
+   * Least time between two passes over one runtime (ADR 0087). Each pass asks
+   * the broker for updates and the feed for prices, so passing every second
+   * spent a single Alpaca key's 200 requests a minute on its own. Tests leave
+   * it at 0 and drive passes themselves.
+   */
+  passEveryMs?: number;
   /** A built-in stock group's members, as back tests resolve them (ADR 0080, 0087). */
   resolveUniverse?: (
     userId: string,
@@ -321,6 +328,9 @@ export async function runRuntimePass(
     };
     work = withMembers(work);
     const members = group?.ids ?? listMembers(work.definition);
+    // Every price this pass reads, asked for together (ADR 0087): one request
+    // for all the holdings instead of one each, every pass.
+    await quotes.prefetch(watchedInstruments(work, new Set(members)));
 
     // Each account's orders go to its own platform: the demo one to the simulator (ADR 0018).
     const accounts = await loadAccountRouting(tx, work.accounts);
@@ -372,7 +382,9 @@ export async function runRuntimePass(
     } else {
       await saveRuntimeState(tx, work.id, work.state, now);
     }
-    await releaseRuntime(tx, runtimeId, workerId);
+    // The next pass waits `passEveryMs` (ADR 0087), so a runtime's requests to
+    // its feed and broker stay within the key's limit.
+    await releaseRuntime(tx, runtimeId, workerId, options.passEveryMs ?? 0);
     return 'done';
   });
 }
@@ -509,15 +521,8 @@ async function watchFeed(
   const t = now.getTime();
   const limit = work.definition.execution.staleDataSec;
   const bad: string[] = [];
-  // A group member's live price matters once the runtime holds it or has an order
-  // on it; before that, the pre-trade check refuses an order on a stale price
-  // (ADR 0087). Watching all 500 would ask for 500 prices every pass.
-  const active = new Set<string>(work.working.map((o) => o.intent.instrumentId));
-  for (const [id, q] of work.book.positions) if (!q.isZero()) active.add(id);
-  for (const [instrumentId, ref] of work.instruments) {
-    // An index has daily closes only and is never traded: no live price to watch (v1.2 item 5).
-    if (isIndicatorOnlyClass(ref.assetClass)) continue;
-    if (members.has(instrumentId) && !active.has(instrumentId)) continue;
+  for (const { instrumentId, symbol } of watchedInstruments(work, members)) {
+    const ref = { symbol };
     const q = await quotes.latestQuote({ instrumentId, symbol: ref.symbol });
     // Outside the session the last quote simply stands; that is not a feed problem.
     if (!q) bad.push(`${ref.symbol} (no price)`);
@@ -548,6 +553,28 @@ async function watchFeed(
     link,
   });
   return { ...work, status: 'paused' };
+}
+
+/**
+ * The instruments whose live prices a pass watches. A group member's price
+ * matters once the runtime holds it or has an order on it; before that, the
+ * pre-trade check refuses an order on a stale price (ADR 0087). Watching all
+ * 500 would ask for 500 prices every pass. An index has daily closes only and
+ * is never traded, so it has no live price to watch (v1.2 item 5).
+ */
+function watchedInstruments(
+  work: RuntimeWork,
+  members: ReadonlySet<string>,
+): { instrumentId: string; symbol: string }[] {
+  const active = new Set<string>(work.working.map((o) => o.intent.instrumentId));
+  for (const [id, q] of work.book.positions) if (!q.isZero()) active.add(id);
+  const out: { instrumentId: string; symbol: string }[] = [];
+  for (const [instrumentId, ref] of work.instruments) {
+    if (isIndicatorOnlyClass(ref.assetClass)) continue;
+    if (members.has(instrumentId) && !active.has(instrumentId)) continue;
+    out.push({ instrumentId, symbol: ref.symbol });
+  }
+  return out;
 }
 
 /** Pauses a strategy whose last few orders were all rejected or failed (§8.6). */

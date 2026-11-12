@@ -212,6 +212,7 @@ if (databaseUrl) {
     ),
     logger,
     pollMs: env.RUNTIME_POLL_MS,
+    passEveryMs: env.RUNTIME_PASS_EVERY_MS,
   });
   logger.info({ workerId }, 'paper strategy runtimes started');
   feedChecks = startFeedCheckLoop({

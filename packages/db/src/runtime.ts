@@ -223,11 +223,22 @@ export async function claimRuntimes(
   return rows.map((r) => ({ runtimeId: r.claimed_id, userId: r.claimed_user }));
 }
 
-/** Ends a pass early so the runtime is claimable again at the next poll. */
-export async function releaseRuntime(tx: Transaction, runtimeId: string, workerId: string) {
+/**
+ * Ends a pass early so the runtime is claimable again: at the next poll, or
+ * after `afterMs` so passes over one runtime are spaced out (ADR 0087).
+ */
+export async function releaseRuntime(
+  tx: Transaction,
+  runtimeId: string,
+  workerId: string,
+  afterMs = 0,
+) {
   await tx
     .update(strategyRuntimes)
-    .set({ leaseExpiresAt: sql`now()` })
+    .set({
+      leaseExpiresAt:
+        afterMs > 0 ? sql`now() + make_interval(secs => ${afterMs / 1000})` : sql`now()`,
+    })
     .where(and(eq(strategyRuntimes.id, runtimeId), eq(strategyRuntimes.leaseOwner, workerId)));
 }
 
