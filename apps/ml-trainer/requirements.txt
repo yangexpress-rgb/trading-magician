@@ -1,0 +1,4 @@
+# The trainer's runtime (ML brief v1 §3, ADR 0086). scikit-learn only in Phase 1.
+numpy==2.5.3
+scikit-learn==1.9.1
+psycopg[binary]==3.3.9

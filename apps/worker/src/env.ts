@@ -105,6 +105,14 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
        */
       EVENTS_RECORDING: z.enum(['on', 'off']).default('on'),
       /**
+       * ML feature snapshots and realised labels (ML brief v1 §5, ADR 0086):
+       * 'off' stops the job. Training is the separate trainer service's, behind
+       * its own ML_TRAINER_ENABLED switch.
+       */
+      ML_SNAPSHOTS: z.enum(['on', 'off']).default('on'),
+      /** How often the ML snapshot job looks for dates to do; each pass does one chunk. */
+      ML_SNAPSHOT_POLL_MS: z.coerce.number().int().min(1000).default(600_000),
+      /**
        * The contact the SEC asks automated clients to name, for the global
        * EDGAR scans. Without it the worker uses the oldest platform admin's SEC
        * EDGAR feed contact; with neither, the scans wait.

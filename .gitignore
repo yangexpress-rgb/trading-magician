@@ -12,3 +12,7 @@ test-results/
 .DS_Store
 next-env.d.ts
 .mail-outbox/
+
+# Python (apps/ml-trainer)
+__pycache__/
+.pytest_cache/
