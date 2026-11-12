@@ -16,7 +16,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -48,7 +48,7 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://tm_owner:ci_only_password@localhost:5432/postgres
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -79,7 +79,7 @@ jobs:
       DATABASE_URL: postgres://tm_owner:ci_only_password@localhost:5432/trading_magician
       ML_TEST_DATABASE_URL: postgres://tm_owner:ci_only_password@localhost:5432/trading_magician
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -103,7 +103,7 @@ jobs:
     # release (e.g. lint-only transitive deps) are handled through Dependabot.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -119,7 +119,7 @@ jobs:
     # this job needs no allow-listed action.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Secrets in the repository and its history
@@ -183,7 +183,7 @@ jobs:
       DATABASE_WORKER_URL: postgres://tm_worker_login:ci_only_worker_password@localhost:5432/trading_magician
       BETTER_AUTH_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
