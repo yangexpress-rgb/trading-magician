@@ -51,12 +51,13 @@ import {
   FakeEdgarEvents,
 } from '@tm/sec/testing';
 import { fetchTickers, SecClient } from '@tm/sec';
-import { saveRates } from '@tm/db';
-import { EVENT_HISTORY_FROM } from '@tm/domain';
+import { saveRates, sharedFeedOwner } from '@tm/db';
+import { EVENT_HISTORY_FROM, type BuiltinUniverse } from '@tm/domain';
 import { finnhubCalendar, fmpCalendar, type CalendarSource } from './events/calendar';
 import { adminCredentialField } from './events/keys';
 import { earningsFeedProvider } from './events/feed';
 import { startEventsLoop, type EventsLoop } from './events/loop';
+import { startMlSnapshotLoop, type MlSnapshotLoop } from './ml/loop';
 
 const env = loadWorkerEnv();
 const reporter = createErrorReporter({
@@ -89,6 +90,7 @@ let valuations: ValuationLoop | undefined;
 let optionsLoop: OptionsLoop | undefined;
 let liveChains: LiveChainLoop | undefined;
 let eventsLoop: EventsLoop | undefined;
+let mlSnapshots: MlSnapshotLoop | undefined;
 let billing: BillingLoop | undefined;
 let heartbeat: HeartbeatLoop | undefined;
 let fakeTicker: ReturnType<typeof setInterval> | undefined;
@@ -443,6 +445,37 @@ if (databaseUrl) {
       logger.info('event data recording started');
     }
   }
+  if (env.ML_SNAPSHOTS === 'on') {
+    // ML feature snapshots and labels (ADR 0086), through the sharing admin's feeds.
+    mlSnapshots = startMlSnapshotLoop({
+      db,
+      history: (userId) =>
+        createMemberHistory({
+          db,
+          userId,
+          now: () => new Date(),
+          providers,
+          privateKey: credentialKey,
+          patient: true,
+          background: true,
+        }),
+      fundamentals: companyFilings,
+      members: async (universe) =>
+        (
+          await resolveBuiltinUniverse({
+            db,
+            userId: (await db.transaction((tx) => sharedFeedOwner(tx))) ?? '',
+            group: universe as BuiltinUniverse,
+            providers,
+            privateKey: credentialKey,
+            now: () => new Date(),
+          })
+        ).ids,
+      logger,
+      pollMs: env.ML_SNAPSHOT_POLL_MS,
+    });
+    logger.info('ml snapshot job started');
+  }
   companies = startCompanyReportLoop({
     db,
     fundamentals,
@@ -477,6 +510,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         optionsLoop?.stop(),
         liveChains?.stop(),
         eventsLoop?.stop(),
+        mlSnapshots?.stop(),
         billing?.stop(),
         heartbeat?.stop(),
       ]);
