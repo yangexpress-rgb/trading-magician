@@ -188,16 +188,31 @@ export const rateLimits = pgTable('rate_limit', {
  * stored as a SHA-256 hash, so a leaked database row cannot be redeemed. One
  * code admits one person.
  */
-export const invites = pgTable('invite', {
-  id: id(),
-  codeHash: char('code_hash', { length: 64 }).notNull().unique(),
-  /** Who it was minted for, for the owner's own notes. No email is required. */
-  note: text('note'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  expiresAt: timestamp('expires_at', { withTimezone: true }),
-  claimedAt: timestamp('claimed_at', { withTimezone: true }),
-  claimedBy: uuid('claimed_by').references(() => users.id, { onDelete: 'set null' }),
-});
+export const invites = pgTable(
+  'invite',
+  {
+    id: id(),
+    codeHash: char('code_hash', { length: 64 }).notNull().unique(),
+    /** Who it was minted for, for the owner's own notes. No email is required. */
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    claimedBy: uuid('claimed_by').references(() => users.id, { onDelete: 'set null' }),
+    /**
+     * The code's first group of four, so the owner can tell codes apart in the
+     * list (N236, ADR 0083). The other twelve characters stay hash-only, so a
+     * leaked row still cannot be redeemed. Null for codes minted before 0085.
+     */
+    codeHint: text('code_hint'),
+    /** The admin who minted it; null for codes minted from the command line. */
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  },
+  (t) => [
+    // Only ever the first group of four, never the whole code.
+    check('invite_code_hint', sql`${t.codeHint} ~ '^[A-Z2-9]{4}$'`),
+  ],
+);
 
 /**
  * Fixed-window counters for the app's own rate limits, shared by every web

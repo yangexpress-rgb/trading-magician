@@ -175,6 +175,9 @@ describe('admin access (ADR 0037)', () => {
     let invites = await asAdmin(adminListInvites);
     const mine = invites.filter((i) => i.note === 'friends');
     expect(mine.map((i) => inviteState(i))).toEqual(['open', 'open']);
+    // Each row shows its code's first group and who minted it, never the rest (N236).
+    expect(mine.map((i) => i.codeHint).sort()).toEqual(codes.map((c) => c.slice(0, 4)).sort());
+    expect(mine.every((i) => i.createdBy === admin && i.createdByEmail !== null)).toBe(true);
 
     // One gets used, the other is revoked.
     const [first, second] = codes as [string, string];

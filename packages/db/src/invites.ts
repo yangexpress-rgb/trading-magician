@@ -20,6 +20,14 @@ export function normalizeInviteCode(code: string): string {
   return code.toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+/**
+ * The code's first group of four, stored so the owner can tell codes apart
+ * (N236, ADR 0083). Shown as `ABCD-…`; the rest of the code stays hash-only.
+ */
+export function inviteCodeHint(code: string): string {
+  return normalizeInviteCode(code).slice(0, 4);
+}
+
 export function hashInviteCode(code: string): string {
   return createHash('sha256').update(normalizeInviteCode(code)).digest('hex');
 }
@@ -32,7 +40,7 @@ export function inviteCodeMatches(code: string, hash: string): boolean {
 }
 
 /**
- * Mints `count` codes and returns them; only the hashes are stored. Each batch
+ * Mints `count` codes and returns them; only the hashes and first groups are stored. Each batch
  * writes one `invite.minted` operator audit event with the count, the note and
  * the expiry, never a code (deviation D6). Needs the owner connection.
  */
@@ -46,6 +54,7 @@ export async function mintInvites(
     await tx.insert(invites).values(
       codes.map((code) => ({
         codeHash: hashInviteCode(code),
+        codeHint: inviteCodeHint(code),
         ...(options.note ? { note: options.note } : {}),
         ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}),
       })),
@@ -124,16 +133,19 @@ export async function releaseInviteAsOperator(
 }
 
 export interface InviteSummary {
+  /** First group of four, or null for codes minted before N236. */
+  codeHint: string | null;
   note: string | null;
   createdAt: Date;
   expiresAt: Date | null;
   claimedAt: Date | null;
 }
 
-/** Owner-only view of how the launch is going; never shows a code. */
+/** Owner-only view of how the launch is going; never shows a whole code. */
 export async function listInvites(db: Db): Promise<InviteSummary[]> {
   return db
     .select({
+      codeHint: invites.codeHint,
       note: invites.note,
       createdAt: invites.createdAt,
       expiresAt: invites.expiresAt,

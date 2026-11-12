@@ -30,8 +30,10 @@ export default async function AdminInvitesPage() {
           Create invite codes
         </h2>
         <p className="mt-1 mb-4 text-sm text-ink-muted">
-          Each code lets one person sign up. Codes are shown once, right after you create them: only
-          a fingerprint is stored, so a lost code cannot be shown again (create another).
+          Each code lets one person sign up. Codes are shown once, right after you create them.
+          After that the list shows only each code&rsquo;s first four characters (like ABCD-…), so
+          you can tell which code you gave to whom: the rest is stored as a fingerprint, so a lost
+          code cannot be shown again (create another).
         </p>
         <MintInvitesForm action={mintInvites} />
       </Card>
@@ -45,9 +47,11 @@ export default async function AdminInvitesPage() {
           <Table label="Invite codes">
             <thead>
               <tr>
+                <Th>Code</Th>
                 <Th>Note</Th>
                 <Th>Status</Th>
                 <Th>Created ({prefs.timeZone})</Th>
+                <Th>Created by</Th>
                 <Th>Expires</Th>
                 <Th>Used by</Th>
                 <Th>
@@ -60,11 +64,28 @@ export default async function AdminInvitesPage() {
                 const state = inviteState(i, now);
                 return (
                   <tr key={i.id}>
+                    <Td className="font-mono whitespace-nowrap text-content">
+                      {i.codeHint ? (
+                        <span title="First four characters; the rest is not stored">
+                          {i.codeHint}-…
+                        </span>
+                      ) : (
+                        <span
+                          className="font-sans text-ink-muted"
+                          title="Created before codes kept their first four characters"
+                        >
+                          Not kept
+                        </span>
+                      )}
+                    </Td>
                     <Td>{i.note ?? <span className="text-ink-muted">No note</span>}</Td>
                     <Td>
                       <Badge tone={STATE[state].tone}>{STATE[state].label}</Badge>
                     </Td>
                     <Td className="text-content">{when(i.createdAt)}</Td>
+                    <Td>
+                      {i.createdByEmail ?? (i.createdBy ? 'Deleted account' : 'Command line')}
+                    </Td>
                     <Td className="text-content">{i.expiresAt ? when(i.expiresAt) : 'Never'}</Td>
                     <Td>{i.claimedByEmail ?? (i.claimedBy ? 'Deleted account' : '—')}</Td>
                     <Td className="min-w-40">
