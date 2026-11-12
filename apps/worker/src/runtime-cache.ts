@@ -1,5 +1,6 @@
 import {
   BarLoadError,
+  paperBarsKept,
   seriesKey,
   type InstrumentRef,
   type LoadedData,
@@ -48,6 +49,8 @@ export const MISSING_RETRY_MS = 30_000;
 const MISSING_RETRY_WINDOW_MS = 3 * MINUTE;
 /** A series that failed to load is asked again after this long, not every pass. */
 export const FAILED_RETRY_MS = 60_000;
+/** Series asked for in one feed call; a first load trims each chunk before the next. */
+export const FETCH_CHUNK = 100;
 /** Series no runtime has read for this long are dropped. */
 export const IDLE_MS = 15 * MINUTE;
 
@@ -113,7 +116,7 @@ interface Entry {
   /** The last load failed: why, and when to try again. */
   failed?: { error: unknown; until: number } | undefined;
   /** The earliest date each runtime reading it needs, and when it last read it. */
-  wants: Map<string, { from: string; at: number }>;
+  wants: Map<string, { from: string; keep: number; at: number }>;
 }
 
 interface Fetch {
@@ -171,7 +174,7 @@ export class RuntimeBarCache {
         };
         this.entries.set(key, entry);
       }
-      entry.wants.set(input.owner, { from: plan.from, at: t });
+      entry.wants.set(input.owner, { from: plan.from, keep: paperBarsKept(plan), at: t });
       const request: BarRequest = {
         ...plan.spec,
         symbol: instrument.symbol,
@@ -195,12 +198,15 @@ export class RuntimeBarCache {
       }
     }
 
-    if (fetches.length > 0) {
+    // A chunk at a time, each trimmed before the next loads, so a first load
+    // over hundreds of members never holds all their history at once.
+    for (let at = 0; at < fetches.length; at += FETCH_CHUNK) {
+      const chunk = fetches.slice(at, at + FETCH_CHUNK);
       const results = await this.fetchAll(
         input.history,
-        fetches.map((f) => f.request),
+        chunk.map((f) => f.request),
       );
-      for (const [i, f] of fetches.entries()) {
+      for (const [i, f] of chunk.entries()) {
         const entry = this.entries.get(f.key) as Entry;
         const r = results[i] as BarSeries | Error;
         if (r instanceof Error) {
@@ -219,6 +225,7 @@ export class RuntimeBarCache {
           entry.bars = r.bars;
           entry.from = f.request.from;
         }
+        this.trim(entry, t);
         const latest = entry.bars.at(-1);
         entry.nextCheck = nextCheckAt(
           entry.interval,
@@ -272,15 +279,27 @@ export class RuntimeBarCache {
     return out;
   }
 
-  /** Bars older than any reader still needs are let go. */
+  /**
+   * Bars no reader still needs are let go: before the earliest date any
+   * reader plans from, and beyond the most bars any reader keeps
+   * (`paperBarsKept`: twice what the rules read back, at least two sessions
+   * more). The plan's calendar margin is for loading; it isn't kept.
+   */
   private trim(entry: Entry, t: number) {
+    if (!entry.bars) return;
     let from: string | undefined;
-    for (const w of entry.wants.values())
-      if (t - w.at < IDLE_MS && (from === undefined || w.from < from)) from = w.from;
-    if (!from || from <= entry.from || !entry.bars) return;
-    const keep = from;
-    entry.bars = entry.bars.filter((b) => nyDate(b.start) >= keep);
-    entry.from = keep;
+    let keep = 0;
+    for (const w of entry.wants.values()) {
+      if (t - w.at >= IDLE_MS) continue;
+      if (from === undefined || w.from < from) from = w.from;
+      keep = Math.max(keep, w.keep);
+    }
+    if (from && from > entry.from) {
+      const since = from;
+      entry.bars = entry.bars.filter((b) => nyDate(b.start) >= since);
+      entry.from = since;
+    }
+    if (keep > 0 && entry.bars.length > keep) entry.bars = entry.bars.slice(-keep);
   }
 
   private evict(t: number) {

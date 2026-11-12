@@ -106,10 +106,11 @@ function fakeHistory(clock: { t: number }, opts: { batch?: boolean; fail?: Set<s
   return { history, calls };
 }
 
-const plan = (id: string, from: string, to: string): SeriesPlan => ({
+const plan = (id: string, from: string, to: string, bars = 20): SeriesPlan => ({
   spec: { instrumentId: id, interval: '1d', adjustment: 'split_and_dividend', session: 'regular' },
   from,
   to,
+  bars,
 });
 const refs = new Map(
   ['a', 'b', 'c'].map((id) => [
@@ -266,5 +267,24 @@ describe('built-in group members for paper runs', () => {
     await expect(new RuntimeUniverses().members('u', 'sp500', day1, refsOf)).rejects.toThrow(
       /cannot resolve/,
     );
+  });
+});
+
+describe('how many bars a paper series keeps (ADR 0087)', () => {
+  it('keeps twice what the rules read back, at least two sessions more, not the load margin', async () => {
+    const clock = { t: at('2026-11-12T15:00:00Z') };
+    const { history } = fakeHistory(clock, { batch: true });
+    const cache = new RuntimeBarCache();
+    // Rules that read the latest 2 daily bars keep 4; the plan loaded 9.
+    const loaded = await cache.load({
+      scope: 'u',
+      owner: 'r1',
+      history,
+      plans: [plan('a', '2026-11-02', '2026-11-12', 2)],
+      instruments: refs,
+      now: new Date(clock.t),
+    });
+    expect(loaded.series.get('a|1d|split_and_dividend|regular')).toHaveLength(4);
+    expect(cache.bars).toBe(4);
   });
 });
