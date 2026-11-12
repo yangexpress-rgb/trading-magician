@@ -65,6 +65,8 @@ export interface OrderRow {
   source: 'strategy' | 'user' | 'system';
   strategyId: string;
   strategyName: string;
+  /** The strategy's own S number (ADR 0066); null if it has none or was deleted. */
+  strategyNumber: string | null;
   runtimeId: string;
   cycleId: string;
   cycleSeq: number;
@@ -96,6 +98,8 @@ export interface ScheduledRow {
   id: string;
   strategyId: string;
   strategyName: string;
+  /** The strategy's own S number (ADR 0066); null if it has none or was deleted. */
+  strategyNumber: string | null;
   runtimeId: string;
   cycleId: string;
   cycleSeq: number;
@@ -145,6 +149,7 @@ const orderColumns = {
   source: orderIntents.source,
   strategyId: orderIntents.strategyId,
   strategyName: strategies.name,
+  strategyNumber: strategies.labNumber,
   runtimeId: orderIntents.runtimeId,
   cycleId: orderIntents.cycleId,
   cycleSeq: strategyCycles.seq,
@@ -182,6 +187,7 @@ function toOrderRow(r: RawOrder): OrderRow {
     source: r.source as OrderRow['source'],
     strategyId: r.strategyId as string,
     strategyName: r.strategyName ?? 'Deleted strategy',
+    strategyNumber: r.strategyNumber ?? null,
     runtimeId: r.runtimeId as string,
     cycleId: r.cycleId as string,
     cycleSeq: r.cycleSeq ?? 0,
@@ -242,6 +248,7 @@ async function listScheduled(tx: Transaction, f: OrderFilters): Promise<Schedule
       id: scheduledActions.id,
       strategyId: strategyRuntimes.strategyId,
       strategyName: strategies.name,
+      strategyNumber: strategies.labNumber,
       runtimeId: scheduledActions.runtimeId,
       cycleId: scheduledActions.cycleId,
       cycleSeq: strategyCycles.seq,
@@ -280,6 +287,7 @@ async function listScheduled(tx: Transaction, f: OrderFilters): Promise<Schedule
         id: r.id,
         strategyId: r.strategyId,
         strategyName: r.strategyName ?? 'Deleted strategy',
+        strategyNumber: r.strategyNumber ?? null,
         runtimeId: r.runtimeId,
         cycleId: r.cycleId,
         cycleSeq: r.cycleSeq,
@@ -528,6 +536,8 @@ export interface PositionRow {
   runtimeStatus: 'running' | 'paused' | 'stopped';
   strategyId: string;
   strategyName: string;
+  /** The strategy's own S number (ADR 0066); null if it has none or was deleted. */
+  strategyNumber: string | null;
   instrumentId: string;
   symbol: string;
   accountId: string;
@@ -670,6 +680,7 @@ export async function listPositions(
       status: strategyRuntimes.status,
       strategyId: strategyRuntimes.strategyId,
       strategyName: strategies.name,
+      strategyNumber: strategies.labNumber,
     })
     .from(strategyRuntimes)
     .leftJoin(strategies, eq(strategies.id, strategyRuntimes.strategyId))
@@ -702,6 +713,7 @@ export async function listPositions(
         runtimeStatus: runtime?.status ?? 'stopped',
         strategyId: runtime?.strategyId ?? '',
         strategyName: runtime?.strategyName ?? 'Deleted strategy',
+        strategyNumber: runtime?.strategyNumber ?? null,
         instrumentId: p.instrumentId,
         symbol: symbols.get(p.instrumentId) ?? '?',
         accountId: p.accountId,
@@ -846,6 +858,8 @@ export interface RuntimeSummary {
   id: string;
   strategyId: string;
   strategyName: string;
+  /** The strategy's own S number (ADR 0066); null if it has none or was deleted. */
+  strategyNumber: string | null;
   status: 'running' | 'paused' | 'stopped';
   pauseReason: string | null;
   startedAt: string;
@@ -875,6 +889,7 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
       id: strategyRuntimes.id,
       strategyId: strategyRuntimes.strategyId,
       strategyName: strategies.name,
+      strategyNumber: strategies.labNumber,
       status: strategyRuntimes.status,
       pauseReason: strategyRuntimes.pauseReason,
       startedAt: strategyRuntimes.startedAt,
@@ -896,6 +911,7 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
       id: r.id,
       strategyId: r.strategyId,
       strategyName: r.strategyName ?? 'Deleted strategy',
+      strategyNumber: r.strategyNumber ?? null,
       status: r.status,
       pauseReason: r.pauseReason,
       startedAt: r.startedAt.toISOString(),

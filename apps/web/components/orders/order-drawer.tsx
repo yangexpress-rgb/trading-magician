@@ -198,6 +198,13 @@ export function OrderDrawer({
                         : `/strategy-lab/${d.strategyId}`
                     }
                   >
+                    {d.strategyNumber && (
+                      <>
+                        <span className="whitespace-nowrap font-mono text-xs">
+                          {d.strategyNumber}
+                        </span>{' '}
+                      </>
+                    )}
                     {d.strategyName}
                     {d.versionNo ? ` (version ${d.versionNo})` : ''}
                   </Link>,

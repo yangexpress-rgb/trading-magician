@@ -11,6 +11,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Transaction } from '../src/client';
 import { listOpenIncidents, openIncident, resolveIncident } from '../src/incidents';
+import { issueLabNumber } from '../src/library-lab';
 import { listenForExecutionChanges } from '../src/notify';
 import { listNotifications, markNotificationsRead, notify } from '../src/notifications';
 import {
@@ -290,6 +291,22 @@ describe('listing orders (§8.3, §14.3)', () => {
       symbol: 'DEMO-A',
       side: 'buy',
       phase: 'entry',
+    });
+  });
+
+  it('names each strategy with its own S number (N246)', async () => {
+    const c = await startCycle('Numbered');
+    const number = await asA((tx) => issueLabNumber(tx, c.strategyId));
+    expect(number).toMatch(/^S\d{5,}-[A-Z]{2}$/);
+    const id = await order(c, 'filled');
+    const list = await asA((tx) => listOrders(tx, { runtimeId: c.runtimeId }));
+    expect(list.orders[0]).toMatchObject({ strategyName: 'Numbered', strategyNumber: number });
+    expect(await asA((tx) => getOrderDetail(tx, id))).toMatchObject({ strategyNumber: number });
+    const [p] = await asA((tx) => listPositions(tx, { runtimeId: c.runtimeId }));
+    expect(p).toMatchObject({ strategyNumber: number });
+    const status = await asA((tx) => getExecutionStatus(tx));
+    expect(status.runtimes.find((r) => r.id === c.runtimeId)).toMatchObject({
+      strategyNumber: number,
     });
   });
 
