@@ -250,3 +250,21 @@ describe('Alpaca bars for many symbols (ADR 0087)', () => {
     expect(a).toEqual(await history.getBars(req('ZTSTA', '5m')));
   });
 });
+
+describe('Alpaca quotes for many symbols (ADR 0087)', () => {
+  it('answers many symbols in one snapshots request, each like its own', async () => {
+    const now = { t: new Date('2026-10-06T15:00:00Z') };
+    const { fake, client } = setup(now);
+    const quotes = createAlpacaQuotes(client, { now: () => now.t });
+    const a = { instrumentId: 'i-a', symbol: 'ZTSTA' };
+    const b = { instrumentId: 'i-b', symbol: 'ZTSTB' };
+    const none = { instrumentId: 'i-x', symbol: 'NOPE' };
+    const one = await quotes.latestQuote(a);
+    const before = fake.requests.length;
+    const many = await quotes.latestQuotes!([a, b, none]);
+    expect(fake.requests.length - before).toBe(1);
+    expect(many.get('i-a')?.last.toString()).toBe(one?.last.toString());
+    expect(many.get('i-b')?.symbol).toBe('ZTSTB');
+    expect(many.has('i-x')).toBe(false);
+  });
+});

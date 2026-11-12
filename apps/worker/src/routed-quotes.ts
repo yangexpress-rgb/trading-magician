@@ -25,6 +25,11 @@ import { withTimeout, type ProviderRegistry } from './providers';
 
 const QUOTE_TIMEOUT_MS = 5_000;
 
+export interface RoutedQuotes extends LiveQuoteProvider {
+  /** Fetches these instruments' quotes for the pass in as few requests as the feeds allow. */
+  prefetch(refs: readonly QuoteRequest[]): Promise<void>;
+}
+
 /**
  * Prices for one pass, through the tenant's routes (§9.2; ADR 0016). Each
  * instrument resolves to a route; the route's primary feed answers unless it
@@ -46,7 +51,7 @@ export function createRoutedQuotes(options: {
    * over, in the admin's tenant, in transactions of their own.
    */
   feeds?: FeedScope | undefined;
-}): LiveQuoteProvider {
+}): RoutedQuotes {
   const { tx, now, routing } = options;
   const userId = options.feeds?.userId ?? options.userId;
   const inFeeds: TenantRunner = options.feeds?.inTenant ?? ((fn) => fn(tx));
@@ -141,18 +146,50 @@ export function createRoutedQuotes(options: {
     return pending;
   }
 
+  /** The feed that answers an instrument this pass, or undefined without a route. */
+  async function feedOf(ref: QuoteRequest): Promise<string | null | undefined> {
+    const info = await instrumentRoutingInfo(tx, ref.instrumentId);
+    if (!info) return undefined;
+    const route = resolveRoute(routing.routes, { ...info, dataType: 'quotes' });
+    if (!route) return undefined;
+    const current = await decide(route, ref);
+    return current.activeSource === 'fallback' ? current.fallbackFeedId : current.primaryFeedId;
+  }
+
   return {
     id: 'routed',
     async latestQuote(ref) {
-      const info = await instrumentRoutingInfo(tx, ref.instrumentId);
-      if (!info) return undefined;
-      const route = resolveRoute(routing.routes, { ...info, dataType: 'quotes' });
-      if (!route) return undefined;
-      const current = await decide(route, ref);
-      return ask(
-        current.activeSource === 'fallback' ? current.fallbackFeedId : current.primaryFeedId,
-        ref,
-      );
+      const feedId = await feedOf(ref);
+      if (feedId === undefined) return undefined;
+      return ask(feedId, ref);
+    },
+    /**
+     * Asks each feed for many instruments at once where it can (ADR 0087), so
+     * the pass's later `latestQuote` calls are answered from what came back. A
+     * runtime holding ten stocks then sends one request a pass, not ten.
+     */
+    async prefetch(refs) {
+      const byFeed = new Map<string, QuoteRequest[]>();
+      for (const ref of refs) {
+        const feedId = await feedOf(ref);
+        if (!feedId || asked.has(`${feedId}:${ref.instrumentId}`)) continue;
+        byFeed.set(feedId, [...(byFeed.get(feedId) ?? []), ref]);
+      }
+      for (const [feedId, list] of byFeed) {
+        const feed = routing.feeds.get(feedId);
+        const source = feed?.isActive ? await sourceFor(feed) : undefined;
+        if (!source?.latestQuotes || list.length < 2) continue;
+        const all = withTimeout(source.latestQuotes(list), QUOTE_TIMEOUT_MS, 'quotes').catch(
+          () => undefined,
+        );
+        for (const ref of list) {
+          // A batch that fails leaves each instrument to be asked on its own.
+          asked.set(
+            `${feedId}:${ref.instrumentId}`,
+            all.then((m) => (m ? m.get(ref.instrumentId) : askFeed(feedId, ref))),
+          );
+        }
+      }
     },
   };
 }

@@ -99,6 +99,8 @@ export default defineConfig({
         WORKER_HEALTH_PORT: String(WORKER_PORT),
         BACKTEST_POLL_MS: '200',
         RUNTIME_POLL_MS: '200',
+        // Passes as often as the poll, so paper orders move on quickly in tests.
+        RUNTIME_PASS_EVERY_MS: '0',
         FEED_CHECK_POLL_MS: '200',
         // Accounts are valued every 10 seconds rather than 5 minutes, so results show quickly.
         VALUATION_EVERY_SEC: '10',

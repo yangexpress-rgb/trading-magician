@@ -11,6 +11,7 @@ import {
   type LiveQuoteProvider,
   type PriceAdjustment,
   type Quote,
+  type QuoteRequest,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import {
@@ -59,32 +60,63 @@ export function createAlpacaQuotes(
         if (isNotFound(e)) return undefined;
         throw e;
       }
-      const trade = snap.latestTrade;
-      const quote = snap.latestQuote;
-      if (!trade && !quote) return undefined;
-      const bid = quote && quote.bp > 0 ? new Decimal(quote.bp) : undefined;
-      const ask = quote && quote.ap > 0 ? new Decimal(quote.ap) : undefined;
-      const last = trade ? new Decimal(trade.p) : bid && ask ? bid.plus(ask).div(2) : (bid ?? ask);
-      if (!last) return undefined;
-      const times = [trade?.t, quote?.t].filter((t): t is string => !!t).map(iso);
-      const at = times.sort().at(-1);
-      if (!at) return undefined;
-      const quoted = quote ? Math.min(quote.as, quote.bs) : 0;
-      const size = new Decimal(quoted > 0 ? quoted : (trade?.s ?? 1));
-      const received = now();
-      return {
-        instrumentId: ref.instrumentId,
-        symbol: ref.symbol,
-        bid: bid ?? last,
-        ask: ask ?? last,
-        last,
-        size,
-        at,
-        receivedAt: received.toISOString(),
-        source: ALPACA_QUOTE_SOURCE,
-        marketOpen: isRegularSessionOpen(received),
-      };
+      return toQuote(ref, snap, now());
     },
+    /** Up to SNAPSHOT_BATCH symbols a request (ADR 0087). */
+    async latestQuotes(refs: readonly QuoteRequest[]): Promise<Map<string, Quote>> {
+      const out = new Map<string, Quote>();
+      const bySymbol = new Map<string, QuoteRequest[]>();
+      for (const r of refs) bySymbol.set(r.symbol, [...(bySymbol.get(r.symbol) ?? []), r]);
+      const symbols = [...bySymbol.keys()];
+      for (let at = 0; at < symbols.length; at += SNAPSHOT_BATCH) {
+        const batch = symbols.slice(at, at + SNAPSHOT_BATCH);
+        const snaps = await client.data<Record<string, AlpacaSnapshot | null>>(
+          '/v2/stocks/snapshots',
+          { symbols: batch.join(','), feed: ALPACA_DATA_FEED },
+        );
+        const received = now();
+        for (const symbol of batch) {
+          const snap = snaps?.[symbol];
+          if (!snap) continue;
+          for (const ref of bySymbol.get(symbol) ?? []) {
+            const q = toQuote(ref, snap, received);
+            if (q) out.set(ref.instrumentId, q);
+          }
+        }
+      }
+      return out;
+    },
+  };
+}
+
+/** Symbols in one snapshots request (ADR 0087). */
+export const SNAPSHOT_BATCH = 100;
+
+/** A snapshot as the app's quote: the latest trade, else the quote's midpoint. */
+function toQuote(ref: QuoteRequest, snap: AlpacaSnapshot, received: Date): Quote | undefined {
+  const trade = snap.latestTrade;
+  const quote = snap.latestQuote;
+  if (!trade && !quote) return undefined;
+  const bid = quote && quote.bp > 0 ? new Decimal(quote.bp) : undefined;
+  const ask = quote && quote.ap > 0 ? new Decimal(quote.ap) : undefined;
+  const last = trade ? new Decimal(trade.p) : bid && ask ? bid.plus(ask).div(2) : (bid ?? ask);
+  if (!last) return undefined;
+  const times = [trade?.t, quote?.t].filter((t): t is string => !!t).map(iso);
+  const at = times.sort().at(-1);
+  if (!at) return undefined;
+  const quoted = quote ? Math.min(quote.as, quote.bs) : 0;
+  const size = new Decimal(quoted > 0 ? quoted : (trade?.s ?? 1));
+  return {
+    instrumentId: ref.instrumentId,
+    symbol: ref.symbol,
+    bid: bid ?? last,
+    ask: ask ?? last,
+    last,
+    size,
+    at,
+    receivedAt: received.toISOString(),
+    source: ALPACA_QUOTE_SOURCE,
+    marketOpen: isRegularSessionOpen(received),
   };
 }
 
