@@ -253,6 +253,12 @@ export const profiles = pgTable('profile', {
   baseCurrency: char('base_currency', { length: 3 }).notNull().default('USD'),
   locale: text('locale').notNull().default('en-US'),
   notificationPrefs: jsonb('notification_prefs').notNull().default({}),
+  /**
+   * When the person dismissed the new-user guide card or watched the guide to
+   * the end (N248, ADR 0088). The card on Strategy Lab shows while this is null;
+   * the Help page keeps the video either way.
+   */
+  guideVideoDoneAt: timestamp('guide_video_done_at', { withTimezone: true }),
   ...timestamps(),
   rowVersion: rowVersion(),
 });
