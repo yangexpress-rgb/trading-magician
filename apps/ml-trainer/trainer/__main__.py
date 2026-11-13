@@ -86,8 +86,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-report", action="store_true")
     parser.add_argument("--report", action="store_true", help="write the report even when nothing changed")
     args = parser.parse_args(argv)
-    if os.environ.get("ML_TRAINER_ENABLED", "off") != "on":
-        log("trainer is switched off (ML_TRAINER_ENABLED is not 'on'); nothing done")
+    ml_on = os.environ.get("ML_TRAINER_ENABLED", "off") == "on"
+    # Pattern discovery's miner runs in the same batch service (pattern brief §11, ADR 0091).
+    patterns_on = os.environ.get("PATTERN_MINER_ENABLED", "off") == "on"
+    if not ml_on and not patterns_on:
+        log("trainer is switched off (ML_TRAINER_ENABLED and PATTERN_MINER_ENABLED are not 'on'); nothing done")
         return 0
     url = os.environ.get("DATABASE_WORKER_URL") or os.environ.get("DATABASE_URL")
     if not url:
@@ -95,9 +98,20 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     started = time.time()
     with db.connect(url) as conn:
-        result = catch_up(conn, model_keys=args.model, until_year=args.until_year, write_report=not args.no_report, force_report=args.report)
-    log("trainer finished", seconds=round(time.time() - started, 1),
-        models={k: {kk: vv for kk, vv in v.items() if kk != "summary"} for k, v in result.items()})  # type: ignore[union-attr]
+        if ml_on:
+            result = catch_up(conn, model_keys=args.model, until_year=args.until_year, write_report=not args.no_report, force_report=args.report)
+            log("trainer finished", seconds=round(time.time() - started, 1),
+                models={k: {kk: vv for kk, vv in v.items() if kk != "summary"} for k, v in result.items()})  # type: ignore[union-attr]
+        else:
+            log("ML training is switched off (ML_TRAINER_ENABLED is not 'on')")
+        if patterns_on:
+            from miner import __version__ as miner_version
+            from miner.run import run_decay, run_queued
+
+            version = f"miner {miner_version}" + code_version().removeprefix(f"ml-trainer {__version__}")
+            scans = run_queued(conn, version)
+            scored = run_decay(conn, version)
+            log("pattern miner finished", scans=len(scans), scored=len(scored))
     return 0
 
 

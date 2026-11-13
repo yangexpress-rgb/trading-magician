@@ -11,6 +11,7 @@ WORKDIR /app
 COPY apps/ml-trainer/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY apps/ml-trainer/trainer ./trainer
+COPY apps/ml-trainer/miner ./miner
 
 RUN useradd --system --uid 10001 --no-create-home trainer
 USER 10001
