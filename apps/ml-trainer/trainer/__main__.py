@@ -106,10 +106,12 @@ def main(argv: list[str] | None = None) -> int:
             log("ML training is switched off (ML_TRAINER_ENABLED is not 'on')")
         if patterns_on:
             from miner import __version__ as miner_version
-            from miner.run import run_queued
+            from miner.run import run_decay, run_queued
 
-            scans = run_queued(conn, f"miner {miner_version}" + code_version().removeprefix(f"ml-trainer {__version__}"))
-            log("pattern miner finished", scans=len(scans))
+            version = f"miner {miner_version}" + code_version().removeprefix(f"ml-trainer {__version__}")
+            scans = run_queued(conn, version)
+            scored = run_decay(conn, version)
+            log("pattern miner finished", scans=len(scans), scored=len(scored))
     return 0
 
 

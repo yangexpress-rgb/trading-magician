@@ -20,11 +20,14 @@ import numpy as np
 import psycopg
 from psycopg import sql
 
+from .atoms import Atom
+from .decay import decay_state, reverify_checks, score_after
 from .labels import excursions
 from .scan import DISCOVERY_SHARE, mine, split
 
 MIN_CROSS_SECTION = 50
 OWN_LOOKBACK_DAYS = 400
+DECAY_EVERY_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -280,4 +283,99 @@ def run_queued(conn: psycopg.Connection, code_version: str, *, limit: int = 20, 
         if on_scan:
             on_scan(result)
         done.append(result)
+    return done
+
+
+def _due_patterns(conn: psycopg.Connection, today: str) -> list[tuple[Any, ...]]:
+    """Verified patterns not scored in the last week, or with a re-verify requested (§10)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select p.id::text, p.user_id::text, p.scan_id::text, p.rule, coalesce(p.decay_stats, '{}'::jsonb), "
+            "s.config, s.effective from pattern p join pattern_scan s on s.id = p.scan_id "
+            "where p.status = 'verified' and s.status = 'done' and ("
+            "p.last_scored is null or p.last_scored <= %s::date - %s::int "
+            "or p.decay_stats ? 'reverifyRequestedAt') order by p.scan_id, p.rank",
+            (today, DECAY_EVERY_DAYS),
+        )
+        rows = cur.fetchall()
+    conn.commit()
+    return rows
+
+
+def _last_index_on_or_before(days: list[str], day: str) -> int:
+    k = -1
+    for i, d in enumerate(days):
+        if d <= day:
+            k = i
+        else:
+            break
+    return k
+
+
+def run_decay(conn: psycopg.Connection, code_version: str, *, today: str | None = None) -> list[dict[str, Any]]:
+    """Re-scores due Verified patterns on fresh data and runs requested re-verifications (§10)."""
+    today = today or date.today().isoformat()
+    last = last_snapshot_day(conn)
+    if last is None:
+        return []
+    by_scan: dict[str, list[tuple[Any, ...]]] = {}
+    for row in _due_patterns(conn, today):
+        by_scan.setdefault(row[2], []).append(row)
+    done: list[dict[str, Any]] = []
+    for scan_id, rows in by_scan.items():
+        cfg = ScanConfig.parse(rows[0][5])
+        eff = rows[0][6] or {}
+        holdout_end, disc_end = eff.get("to"), eff.get("discoveryEnd")
+        if not holdout_end or not disc_end:
+            continue
+        rules = {r[0]: [Atom(a["factor"], a["mode"], a["bucket"]) for a in r[3]] for r in rows}
+        factor_ids = sorted({a.factor for rule in rules.values() for a in rule})
+        wants_reverify = any("reverifyRequestedAt" in r[4] for r in rows)
+        first_needed = disc_end if wants_reverify else holdout_end
+        grid = load_grid(conn, cfg.member_ids, factor_ids, _iso(first_needed, -OWN_LOOKBACK_DAYS), last)
+        if not grid.days:
+            continue
+        outcomes = excursions(grid.close_ret, grid.high_rel, grid.low_rel, cfg.horizon)
+        fresh_after = _last_index_on_or_before(grid.days, holdout_end)
+        disc_after = _last_index_on_or_before(grid.days, disc_end)
+        for pid, user_id, _scan, _rule, stats_in, _cfg, _eff in rows:
+            rule = rules[pid]
+            kw = dict(direction=cfg.direction, threshold=cfg.threshold, horizon=cfg.horizon)
+            fresh = score_after(grid.factors, rule, outcomes, after=fresh_after, **kw)  # type: ignore[arg-type]
+            state = decay_state(fresh.stats)
+            stats = {k: v for k, v in dict(stats_in).items() if k != "reverifyRequestedAt"}
+            stats["fresh"] = fresh.stats.as_json()
+            stats["freshFrom"] = grid.days[min(fresh_after + 1, len(grid.days) - 1)]
+            stats["codeVersion"] = code_version
+            if "reverifyRequestedAt" in stats_in:
+                rv = score_after(grid.factors, rule, outcomes, after=disc_after, window="holdout", **kw)  # type: ignore[arg-type]
+                failed = reverify_checks(rv.stats)
+                stats["reverify"] = {
+                    "stats": rv.stats.as_json(),
+                    "from": grid.days[min(disc_after + 1, len(grid.days) - 1)],
+                    "to": last,
+                    "verified": not failed,
+                    "failedChecks": failed,
+                    "requestedAt": stats_in["reverifyRequestedAt"],
+                }
+            with conn.cursor() as cur:
+                cur.executemany(
+                    "insert into pattern_occurrence (pattern_id, user_id, instrument_id, as_of, \"window\", hit, "
+                    "max_runup, max_drawdown, forward_return) values (%s, %s, %s, %s, 'fresh', %s, %s, %s, %s) "
+                    "on conflict do nothing",
+                    [
+                        (pid, user_id, grid.inst[o.inst], grid.days[o.day], o.hit, o.runup, o.drawdown, o.forward)
+                        for o in fresh.occurrences
+                    ],
+                )
+                cur.execute(
+                    "update pattern set decay_state = %s, decay_stats = %s, last_scored = %s where id = %s",
+                    (state, json.dumps(stats), last, pid),
+                )
+            conn.commit()
+            result = {"pattern": pid, "fresh": fresh.stats.n, "state": state}
+            if "reverify" in stats:
+                result["reverified"] = stats["reverify"]["verified"]
+            log("pattern scored", **result)
+            done.append(result)
     return done

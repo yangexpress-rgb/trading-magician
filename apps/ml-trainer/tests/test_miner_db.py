@@ -16,7 +16,7 @@ import numpy as np
 import psycopg
 import pytest
 
-from miner.run import run_queued
+from miner.run import run_decay, run_queued
 
 URL = os.environ.get("ML_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="ML_TEST_DATABASE_URL is not set")
@@ -112,7 +112,7 @@ def scan():
             ],
             "maxDepth": 3,
             "minSupport": 40,
-            "range": {},
+            "range": {"to": days[330]},
             "split": {"discovery": 0.7},
         }
         sid = owner.execute(
@@ -172,3 +172,52 @@ def test_pattern_evidence_is_never_rewritten(worker_url, scan):
         # The state fields decay monitoring writes are allowed.
         conn.execute("update pattern set decay_state = 'holding' where scan_id = %s", (sid,))
         conn.rollback()
+
+
+def test_decay_scores_fresh_days_and_reverify_runs_on_request(worker_url, scan):
+    sid, _, days = scan
+    with psycopg.connect(worker_url) as conn:
+        scored = run_decay(conn, "miner test", today=days[-1])
+    with psycopg.connect(URL) as owner:
+        pid, state, stats, last_scored = owner.execute(
+            "select id::text, decay_state, decay_stats, last_scored::text from pattern "
+            "where scan_id = %s and status = 'verified' order by rank limit 1",
+            (sid,),
+        ).fetchone()
+        assert pid in {s["pattern"] for s in scored}
+        assert last_scored == days[-1]
+        fresh = stats["fresh"]
+        # Fresh = strictly after the holdout ended (day 330), with the whole horizon in the data.
+        assert stats["freshFrom"] == days[331]
+        assert fresh["n"] >= 10 and fresh["rate"] > 0.6
+        assert state == "holding"
+        n_fresh, first = owner.execute(
+            "select count(*), min(as_of)::text from pattern_occurrence where pattern_id = %s and \"window\" = 'fresh'",
+            (pid,),
+        ).fetchone()
+        assert n_fresh == fresh["n"] and first > days[330]
+    # Scored this week: not due again, so a second run does nothing ...
+    with psycopg.connect(worker_url) as conn:
+        assert run_decay(conn, "miner test", today=days[-1]) == []
+        # ... until a re-verify is requested (brief §10).
+        conn.execute(
+            "update pattern set decay_stats = decay_stats || jsonb_build_object('reverifyRequestedAt', now()) where id = %s",
+            (pid,),
+        )
+        conn.commit()
+        again = run_decay(conn, "miner test", today=days[-1])
+    assert [a["pattern"] for a in again] == [pid] and again[0]["reverified"] is True
+    with psycopg.connect(URL) as owner:
+        stats, n_fresh_after = owner.execute(
+            "select decay_stats, (select count(*) from pattern_occurrence where pattern_id = %s and \"window\" = 'fresh') "
+            "from pattern where id = %s",
+            (pid, pid),
+        ).fetchone()
+        assert "reverifyRequestedAt" not in stats
+        rv = stats["reverify"]
+        assert rv["verified"] and rv["failedChecks"] == []
+        # One fresh holdout: everything after the discovery window.
+        effective = owner.execute("select effective from pattern_scan where id = %s", (sid,)).fetchone()[0]
+        assert rv["from"] == effective["holdoutStart"]
+        assert rv["stats"]["n"] > stats["fresh"]["n"]
+        assert n_fresh_after == stats["fresh"]["n"]

@@ -85,6 +85,13 @@ export default async function PatternPage({ params }: { params: Promise<{ id: st
     .sort((a, b) => (a.asOf < b.asOf ? 1 : a.asOf > b.asOf ? -1 : a.symbol.localeCompare(b.symbol)))
     .slice(0, OCCURRENCE_ROWS);
   const reverifyAsked = Boolean(pattern.decayStats?.reverifyRequestedAt);
+  const reverify = (pattern.decayStats?.reverify ?? null) as {
+    stats: PatternWindowStats;
+    from: string;
+    to: string;
+    verified: boolean;
+    failedChecks: string[];
+  } | null;
   return (
     <>
       <PageHeader title="Quantitative Research" description={scan.summary} />
@@ -191,6 +198,19 @@ export default async function PatternPage({ params }: { params: Promise<{ id: st
                 <StatsRow label="Discovery (where the rule was found)" s={s.discovery} />
               </tbody>
             </Table>
+            {reverify && (
+              <p className="text-sm">
+                Re-verification on everything after the discovery window:{' '}
+                {reverify.verified
+                  ? 'passes the holdout test again.'
+                  : `does not pass (${reverify.failedChecks.join('; ')}).`}
+              </p>
+            )}
+            {pattern.decayState === null && pattern.lastScored && (
+              <p className="text-sm text-ink-muted">
+                Fewer than 10 occurrences since verification so far: no decay state yet.
+              </p>
+            )}
             <p className="text-sm text-ink-muted">
               The discovery figures are biased upward: the search picked this rule because they
               looked good.

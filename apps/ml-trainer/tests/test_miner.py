@@ -156,3 +156,37 @@ def test_fixture_5_redundancy():
     assert res.suppressed == 1
     assert len(kept & {(0,), (1,)}) == 1
     assert (2,) in kept
+
+
+def test_decay_states():
+    from miner.decay import decay_state, reverify_checks
+    from miner.search import WindowStats
+
+    def ws(n, hits, base):
+        from miner.stats import binomial_p_upper, wilson_lower
+
+        rate = hits / n if n else 0.0
+        return WindowStats(n, hits, rate, base, rate / base, wilson_lower(hits, n), binomial_p_upper(hits, n, base))
+
+    assert decay_state(ws(9, 9, 0.2)) is None
+    assert decay_state(ws(20, 4, 0.2)) == "broken"  # rate == base
+    assert decay_state(ws(20, 6, 0.2)) == "weakening"  # beats base, lower bound does not
+    assert decay_state(ws(400, 84, 0.2)) == "weakening"  # lift 1.05 < 1.1
+    assert decay_state(ws(100, 60, 0.2)) == "holding"
+    assert reverify_checks(ws(100, 60, 0.2)) == []
+    assert any("n 10" in r for r in reverify_checks(ws(10, 9, 0.2)))
+
+
+def test_score_after_counts_only_fresh_days_with_whole_horizon():
+    from miner.atoms import Atom
+    from miner.decay import score_after
+
+    days, inst = 40, 60
+    rng = np.random.default_rng(3)
+    f = rng.standard_normal((days, inst))
+    hit = rng.random((days, inst)) < 0.3
+    out = outcomes_from_hits(hit)
+    res = score_after({"f": f}, [Atom("f", "cross", "top")], out, direction="spike", threshold=0.05, after=20, horizon=5)
+    assert res.occurrences and all(20 < o.day <= days - 1 - 5 for o in res.occurrences)
+    assert all(o.window == "fresh" for o in res.occurrences)
+    assert res.stats.n == len(res.occurrences)
