@@ -134,3 +134,40 @@ test('settings sections, profile formats and notification preferences', async ({
   ).toBeVisible();
   await expectAccessible(page);
 });
+
+test('AI agents: one plain row per agent, details and Advanced collapsed (N271)', async ({
+  page,
+  baseURL,
+}) => {
+  await signUpAndVerify(page, uniqueEmail('agents'));
+  await page.goto('/settings/ai-agents');
+  const endpoint = `${new URL(baseURL!).origin}/api/mcp`;
+  const technical = /\b(mcp|oauth|tokens?|endpoints?|scopes?|redirects?)\b/i;
+
+  for (const agent of ['Muse', 'Claude', 'ChatGPT', 'Claude Code', 'Another AI agent']) {
+    const row = page.getByRole('region', { name: agent, exact: true });
+    await expect(row.getByRole('button', { name: `Connect ${agent}` })).toBeVisible();
+    await expect(row.getByTestId('agent-status')).toHaveText('Not connected');
+    // Layer 1 has no technical words; layers 2 and 3 start closed.
+    const plain = await row.evaluate((el) => {
+      const copy = el.cloneNode(true) as HTMLElement;
+      copy.querySelectorAll('details').forEach((d) => d.remove());
+      return copy.innerText;
+    });
+    expect(plain).not.toMatch(technical);
+    await expect(row.getByText('Connection details')).toBeVisible();
+    await expect(row.locator('details').nth(1)).not.toHaveAttribute('open', '');
+  }
+  await expect(page.getByText('Another MCP agent')).toHaveCount(0);
+
+  // Muse: its own row, with the plain note under Connect and its link in Advanced.
+  const muse = page.getByRole('region', { name: 'Muse', exact: true });
+  await expect(muse).toContainText("Meta's personal AI agent (muse.ai)");
+  await expect(muse).toContainText("You'll confirm in Muse, then approve access here.");
+  await muse.getByText('Advanced').click();
+  await expect(muse.locator('pre').first()).toHaveText(endpoint);
+  await expect(
+    muse.getByText(/^https:\/\/agent\.meta\.ai\/connect\/oauth\?service=trading-magician&spec=/),
+  ).toBeVisible();
+  await expectAccessible(page);
+});

@@ -573,6 +573,64 @@ describe('OAuth 2.1', () => {
     expect(again.status).toBe(400);
   });
 
+  it('attributes a client calling back to agent.meta.ai to Muse (N271)', async () => {
+    const { handleRegister, handleToken, checkAuthorize } =
+      await import('@/lib/server/agents/oauth');
+    const { profileName } = await import('@/lib/agents/profiles');
+    const { createOAuthCode, pkceChallenge } = await import('@tm/db');
+    const redirect = 'https://agent.meta.ai/oauth/callback';
+    // A generic client name: the callback host alone decides.
+    const reg = await handleRegister(
+      new Request(`${APP_URL}/api/oauth/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          client_name: 'MCP Client',
+          redirect_uris: [redirect],
+          token_endpoint_auth_method: 'none',
+        }),
+      }),
+      deps(),
+    );
+    expect(reg.status).toBe(201);
+    const client = (await reg.json()) as { client_id: string };
+    const verifier = 'm'.repeat(20) + 'use-verifier-0123456789-abcdefg';
+    const check = await checkAuthorize(t.app.db, APP_URL, {
+      response_type: 'code',
+      client_id: client.client_id,
+      redirect_uri: redirect,
+      code_challenge: pkceChallenge(verifier),
+      code_challenge_method: 'S256',
+      scope: 'read',
+    });
+    if (!check.ok) throw new Error(check.message);
+    expect(check.request.profile.id).toBe('muse');
+    const code = await as(userB, (tx) =>
+      createOAuthCode(tx, userB, {
+        clientRowId: check.request.client.id,
+        redirectUri: check.request.redirectUri,
+        codeChallenge: check.request.codeChallenge,
+        scope: 'read',
+        profileId: check.request.profile.id,
+      }),
+    );
+    const tokenRes = await handleToken(
+      form({
+        grant_type: 'authorization_code',
+        client_id: client.client_id,
+        code,
+        redirect_uri: redirect,
+        code_verifier: verifier,
+      }),
+      deps(),
+    );
+    expect(tokenRes.status).toBe(200);
+    const conns = await as(userB, (tx) => tx.select().from(schema.agentConnections));
+    const conn = conns.find((c) => c.authMethod === 'oauth')!;
+    expect(conn).toMatchObject({ profileId: 'muse', scope: 'read' });
+    expect(profileName(conn.profileId)).toBe('Muse');
+  });
+
   it('refuses unregistered redirect URIs, plain PKCE and other resources', async () => {
     const { handleRegister, checkAuthorize } = await import('@/lib/server/agents/oauth');
     const bad = await handleRegister(

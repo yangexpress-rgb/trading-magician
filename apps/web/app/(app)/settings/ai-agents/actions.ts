@@ -3,6 +3,7 @@
 import {
   AGENT_TOKEN_EXPIRIES,
   createTokenConnection,
+  listAgentConnections,
   revokeAgentConnection,
   withTenant,
   type AgentConnectionSummary,
@@ -23,7 +24,10 @@ export interface MintTokenState {
 }
 
 const mintForm = z.object({
-  profileId: z.string().refine((id) => agentProfile(id)?.authMethod === 'token', 'Pick an agent'),
+  profileId: z.string().refine((id) => {
+    const p = agentProfile(id);
+    return p?.authMethod === 'token' || p?.tokenFallback === true;
+  }, 'Pick an agent'),
   name: z.string().trim().min(1, 'Name the token').max(80, 'Use 80 characters or fewer'),
   scope: z.enum(['read', 'operate']),
   expiry: z.enum(AGENT_TOKEN_EXPIRIES),
@@ -47,6 +51,56 @@ export async function mintAgentToken(
   );
   revalidatePath('/settings/ai-agents');
   return { status: 'created', token, connection };
+}
+
+export type ConnectWithKeyResult = { ok: true; token: string } | { ok: false; message: string };
+
+/**
+ * Layer 1 Connect for agents that take a key (Claude Code, another agent):
+ * makes one with the plain defaults (named after the agent, ends in 90
+ * days). Errors say what happened and what to do next; no codes here.
+ */
+export async function connectWithKey(
+  profileId: string,
+  scope: 'read' | 'operate',
+): Promise<ConnectWithKeyResult> {
+  const tenant = await requireTenant();
+  if (!serverEnv().AGENT_API_ENABLED) {
+    return {
+      ok: false,
+      message: 'Connecting agents is switched off on this server for now. Try again later.',
+    };
+  }
+  const profile = agentProfile(profileId);
+  if (!profile || profile.connect.kind !== 'key' || !['read', 'operate'].includes(scope)) {
+    return {
+      ok: false,
+      message: 'That agent cannot connect this way. Reload the page and try again.',
+    };
+  }
+  const { token } = await withTenant(appDb(), tenant, (tx) =>
+    createTokenConnection(tx, tenant.userId, {
+      profileId,
+      name: profile.displayName,
+      scope,
+      expiry: '90d',
+    }),
+  );
+  revalidatePath('/settings/ai-agents');
+  return { ok: true, token };
+}
+
+/** Layer 1 Disconnect: ends every active connection of one agent at once. */
+export async function disconnectAgent(profileId: string): Promise<void> {
+  const tenant = await requireTenant();
+  await withTenant(appDb(), tenant, async (tx) => {
+    for (const c of await listAgentConnections(tx)) {
+      if (c.profileId === profileId && c.status === 'active') {
+        await revokeAgentConnection(tx, tenant.userId, c.id);
+      }
+    }
+  });
+  revalidatePath('/settings/ai-agents');
 }
 
 /** Revokes a connection with immediate effect. */

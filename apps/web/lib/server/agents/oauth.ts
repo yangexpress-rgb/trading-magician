@@ -11,7 +11,7 @@ import {
   type OAuthClient,
   type OAuthTokens,
 } from '@tm/db';
-import { mcpEndpoint, profileForClientName, type AgentProfile } from '@/lib/agents/profiles';
+import { mcpEndpoint, profileForClient, type AgentProfile } from '@/lib/agents/profiles';
 
 /**
  * The app as its own OAuth 2.1 authorization server for the MCP endpoint
@@ -360,7 +360,7 @@ export async function checkAuthorize(
     ok: true,
     request: {
       client,
-      profile: profileForClientName(client.clientName),
+      profile: profileForClient(client),
       redirectUri,
       codeChallenge: q.code_challenge,
       state,

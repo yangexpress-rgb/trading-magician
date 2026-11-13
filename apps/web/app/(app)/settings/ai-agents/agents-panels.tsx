@@ -5,7 +5,13 @@ import { formatDateTime, type DisplayPreferences } from '@tm/domain';
 import { Alert, Badge, Button, cx, SelectField, Table, Td, TextField, Th } from '@tm/ui';
 import { useActionState, useState, useTransition } from 'react';
 import { fillTemplate, profileName, SCOPE_TEXT, type AgentProfile } from '@/lib/agents/profiles';
-import { mintAgentToken, revokeAgent, type MintTokenState } from './actions';
+import {
+  connectWithKey,
+  disconnectAgent,
+  mintAgentToken,
+  revokeAgent,
+  type MintTokenState,
+} from './actions';
 
 function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
@@ -38,87 +44,271 @@ function CopyBlock({ label, text }: { label: string; text: string }) {
   );
 }
 
-/** Part a: the agent list, and the chosen agent's connect panel. */
-export function ChooseAgent({
+const CAPABILITY = {
+  read: 'Can view',
+  operate: 'Can view and make changes',
+} as const;
+
+/**
+ * Settings › AI agents in three layers (N271): each agent shows its name, one
+ * plain line, one Connect or Disconnect button and its status; Connection
+ * details and Advanced are collapsed. Only Advanced uses technical words.
+ */
+export function AgentList({
   profiles,
+  connections,
   endpoint,
+  museUrl,
   enabled,
+  prefs,
 }: {
   profiles: readonly AgentProfile[];
+  connections: AgentConnectionSummary[];
   endpoint: string;
+  museUrl: string;
   enabled: boolean;
+  prefs: DisplayPreferences;
 }) {
-  const [chosen, setChosen] = useState<string | null>(null);
-  const profile = profiles.find((p) => p.id === chosen);
   return (
-    <div className="space-y-4">
-      <fieldset>
-        <legend className="sr-only">Which AI agent do you use?</legend>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {profiles.map((p) => (
-            <label
-              key={p.id}
-              className={cx(
-                'flex cursor-pointer items-start gap-3 rounded-md border p-3',
-                chosen === p.id ? 'border-accent bg-surface-2' : 'border-line',
-              )}
-            >
-              <input
-                type="radio"
-                name="agent-profile"
-                value={p.id}
-                checked={chosen === p.id}
-                onChange={() => setChosen(p.id)}
-                className="mt-1"
-              />
-              <span>
-                <span className="block font-semibold">{p.displayName}</span>
-                <span className="block text-sm text-ink-muted">{p.tagline}</span>
-              </span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
-      {profile && (
-        <ConnectPanel key={profile.id} profile={profile} endpoint={endpoint} enabled={enabled} />
-      )}
-    </div>
+    <ul className="space-y-3">
+      {profiles.map((p) => (
+        <li key={p.id}>
+          <AgentRow
+            profile={p}
+            connections={connections.filter((c) => c.profileId === p.id)}
+            endpoint={endpoint}
+            museUrl={museUrl}
+            enabled={enabled}
+            prefs={prefs}
+          />
+        </li>
+      ))}
+    </ul>
   );
 }
 
-function ConnectPanel({
+function statusText(active: AgentConnectionSummary[]): string {
+  if (active.length === 0) return 'Not connected';
+  const canChange = active.some((c) => c.scope === 'operate');
+  return `Connected · ${canChange ? CAPABILITY.operate : CAPABILITY.read}`;
+}
+
+function AgentRow({
   profile,
+  connections,
   endpoint,
+  museUrl,
   enabled,
+  prefs,
 }: {
   profile: AgentProfile;
+  connections: AgentConnectionSummary[];
   endpoint: string;
+  museUrl: string;
   enabled: boolean;
+  prefs: DisplayPreferences;
 }) {
+  const active = connections.filter((c) => c.status === 'active');
+  const connected = active.length > 0;
+  const [busy, start] = useTransition();
+  const [started, setStarted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [scope, setScope] = useState<'read' | 'operate'>('read');
+  const [key, setKey] = useState<string | null>(null);
+  const headingId = `agent-${profile.id}`;
+  const notReady = 'Connecting agents is switched off on this server for now. Try again later.';
+
+  const connect = () => {
+    setError(null);
+    if (!enabled) return setError(notReady);
+    const c = profile.connect;
+    if (c.kind === 'deeplink') {
+      // Without 'noopener' so a blocked pop-up can be told apart; the opener is cut by hand.
+      const tab = window.open(museUrl, '_blank');
+      if (tab) tab.opener = null;
+      if (!tab)
+        setError(
+          `Your browser blocked the ${profile.displayName} page. Allow pop-ups for this site and choose Connect again.`,
+        );
+      setStarted(true);
+    } else if (c.kind === 'paste') {
+      void navigator.clipboard?.writeText(endpoint).catch(() => undefined);
+      window.open(c.openUrl, '_blank', 'noopener');
+      setStarted(true);
+    } else {
+      setStarted(true);
+    }
+  };
+
+  const makeKey = () =>
+    start(async () => {
+      setError(null);
+      const r = await connectWithKey(profile.id, scope);
+      if (r.ok) setKey(r.token);
+      else setError(r.message);
+    });
+
   return (
-    <div
-      className="space-y-4 rounded-md border border-line p-4"
-      aria-label={`Connect ${profile.displayName}`}
+    <section
+      aria-labelledby={headingId}
+      className={cx('rounded-md border p-4', connected ? 'border-accent' : 'border-line')}
     >
-      <h3 className="font-semibold">Connect {profile.displayName}</h3>
-      <ol className="ml-5 list-decimal space-y-1 text-sm">
-        {profile.helpSteps.map((step) => (
-          <li key={step}>{fillTemplate(step, { endpoint })}</li>
-        ))}
-      </ol>
-      {profile.authMethod === 'oauth' ? (
-        <>
-          <CopyBlock label="MCP endpoint URL" text={endpoint} />
-          <p className="text-sm text-ink-muted">
-            When {profile.displayName} asks to connect, you choose what it may do: Read only (the
-            default), or Read and operate. The connection then shows under Your connections, where
-            you can revoke it at any time.
+      {/* Layer 1 */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 id={headingId} className="font-semibold">
+            {profile.displayName}
+          </h3>
+          <p className="text-sm text-ink-muted">{profile.plainLine}</p>
+          <p className="mt-1 text-sm" data-testid="agent-status">
+            {statusText(active)}
           </p>
-        </>
-      ) : (
-        <MintToken profile={profile} endpoint={endpoint} enabled={enabled} />
+        </div>
+        {connected ? (
+          <Button
+            type="button"
+            disabled={busy}
+            onClick={() => start(() => disconnectAgent(profile.id))}
+          >
+            Disconnect {profile.displayName}
+          </Button>
+        ) : (
+          <Button variant="primary" type="button" disabled={busy} onClick={connect}>
+            Connect {profile.displayName}
+          </Button>
+        )}
+      </div>
+      {!connected && profile.connectNote && (
+        <p className="mt-2 text-sm text-ink-muted">{profile.connectNote}</p>
       )}
-    </div>
+      {error && (
+        <div className="mt-3">
+          <Alert>{error}</Alert>
+        </div>
+      )}
+      {started && !connected && profile.connect.kind === 'paste' && (
+        <ol className="mt-3 ml-5 list-decimal space-y-1 text-sm">
+          {profile.connect.steps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+      )}
+      {started && profile.connect.kind === 'key' && !key && (
+        <div className="mt-3 space-y-3">
+          <fieldset className="space-y-1">
+            <legend className="text-sm font-semibold">What may {profile.displayName} do?</legend>
+            {(['read', 'operate'] as const).map((s) => (
+              <label key={s} className="flex items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name={`${profile.id}-capability`}
+                  value={s}
+                  checked={scope === s}
+                  onChange={() => setScope(s)}
+                  className="mt-1"
+                />
+                <span>
+                  <span className="font-semibold">{SCOPE_TEXT[s].label}</span>
+                  <span className="block text-ink-muted">{SCOPE_TEXT[s].detail}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+          <Button variant="primary" type="button" disabled={busy} onClick={makeKey}>
+            {busy ? 'Connecting…' : `Finish connecting ${profile.displayName}`}
+          </Button>
+        </div>
+      )}
+      {key && profile.connect.kind === 'key' && (
+        <div className="mt-3 space-y-3">
+          <Alert tone="warn">
+            Copy this now: it is shown only once. Anyone who has it can act in your account as{' '}
+            {profile.displayName} until you disconnect it.
+          </Alert>
+          <CopyBlock
+            label={profile.connect.pasteLabel}
+            text={fillTemplate(profile.snippetTemplate ?? '{token}', { endpoint, token: key })}
+          />
+        </div>
+      )}
+
+      {/* Layer 2 */}
+      <details className="mt-3">
+        <summary className="cursor-pointer text-sm font-semibold">Connection details</summary>
+        <ConnectionDetails connections={connections} prefs={prefs} busy={busy} start={start} />
+      </details>
+
+      {/* Layer 3 */}
+      <details className="mt-2">
+        <summary className="cursor-pointer text-sm font-semibold">Advanced</summary>
+        <div className="mt-3 space-y-4">
+          <ol className="ml-5 list-decimal space-y-1 text-sm">
+            {profile.helpSteps.map((step) => (
+              <li key={step}>{fillTemplate(step, { endpoint })}</li>
+            ))}
+          </ol>
+          <CopyBlock label="MCP endpoint URL" text={endpoint} />
+          {profile.connect.kind === 'deeplink' && (
+            <CopyBlock label={`${profile.displayName} connect link`} text={museUrl} />
+          )}
+          {(profile.authMethod === 'token' || profile.tokenFallback) && (
+            <MintToken profile={profile} endpoint={endpoint} enabled={enabled} />
+          )}
+        </div>
+      </details>
+    </section>
+  );
+}
+
+function ConnectionDetails({
+  connections,
+  prefs,
+  busy,
+  start,
+}: {
+  connections: AgentConnectionSummary[];
+  prefs: DisplayPreferences;
+  busy: boolean;
+  start: (fn: () => Promise<void>) => void;
+}) {
+  if (connections.length === 0) {
+    return <p className="mt-2 text-sm text-ink-muted">Not connected yet.</p>;
+  }
+  const date = (iso: string) => formatDateTime(iso, prefs, { dateStyle: 'medium' });
+  return (
+    <ul className="mt-2 space-y-2">
+      {connections.map((c) => (
+        <li key={c.id} className="rounded-md border border-line p-3 text-sm">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <span className="block font-semibold">{c.name}</span>
+              <span className="block">{CAPABILITY[c.scope]}</span>
+              <span className="block text-ink-muted">
+                Connected {date(c.createdAt)} · Last used{' '}
+                {c.lastUsedAt ? date(c.lastUsedAt) : 'never'}
+                {c.expiresAt && c.status === 'active' && ` · Ends ${date(c.expiresAt)}`}
+              </span>
+              <span className="block text-ink-muted">{STATUS_LABEL[c.status]}</span>
+            </div>
+            {c.status === 'active' && (
+              <Button
+                size="sm"
+                type="button"
+                disabled={busy}
+                onClick={() => start(() => revokeAgent(c.id))}
+              >
+                Disconnect
+              </Button>
+            )}
+          </div>
+        </li>
+      ))}
+      <li>
+        <a href="#activity" className="text-sm underline">
+          See activity
+        </a>
+      </li>
+    </ul>
   );
 }
 
@@ -147,7 +337,6 @@ function MintToken({
         </Alert>
         <CopyBlock label="Agent token" text={state.token} />
         <CopyBlock label={profile.snippetLabel ?? 'Configuration'} text={snippet} />
-        {profile.id === 'other-mcp' && <CopyBlock label="MCP endpoint URL" text={endpoint} />}
       </div>
     );
   }
@@ -193,72 +382,11 @@ function MintToken({
   );
 }
 
-const STATUS_TONE = { active: 'ok', revoked: 'neutral', expired: 'warn' } as const;
-const STATUS_LABEL = { active: 'Active', revoked: 'Revoked', expired: 'Expired' } as const;
-
-/** Part b: every connection, with Revoke. */
-export function AgentConnections({
-  connections,
-  prefs,
-}: {
-  connections: AgentConnectionSummary[];
-  prefs: DisplayPreferences;
-}) {
-  const [busy, start] = useTransition();
-  if (connections.length === 0) {
-    return <p className="text-sm text-ink-muted">No agent is connected yet.</p>;
-  }
-  return (
-    <Table label="Agent connections">
-      <thead>
-        <tr>
-          <Th>Agent</Th>
-          <Th>Connected with</Th>
-          <Th>Scope</Th>
-          <Th>Created ({prefs.timeZone})</Th>
-          <Th>Last used</Th>
-          <Th>Status</Th>
-          <Th>
-            <span className="sr-only">Action</span>
-          </Th>
-        </tr>
-      </thead>
-      <tbody>
-        {connections.map((c) => (
-          <tr key={c.id}>
-            <Td>
-              <span className="block font-semibold">{profileName(c.profileId)}</span>
-              <span className="block text-ink-muted">{c.name}</span>
-            </Td>
-            <Td className="text-content">
-              {c.authMethod === 'oauth' ? 'Sign-in (OAuth)' : `Token ${c.tokenHint ?? ''}`}
-              {c.expiresAt && c.status === 'active' && (
-                <span className="block text-ink-muted">
-                  Expires {formatDateTime(c.expiresAt, prefs, { dateStyle: 'medium' })}
-                </span>
-              )}
-            </Td>
-            <Td>{SCOPE_TEXT[c.scope].label}</Td>
-            <Td className="text-content">{formatDateTime(c.createdAt, prefs)}</Td>
-            <Td className="text-content">
-              {c.lastUsedAt ? formatDateTime(c.lastUsedAt, prefs) : 'Never'}
-            </Td>
-            <Td>
-              <Badge tone={STATUS_TONE[c.status]}>{STATUS_LABEL[c.status]}</Badge>
-            </Td>
-            <Td className="text-right">
-              {c.status === 'active' && (
-                <Button size="sm" disabled={busy} onClick={() => start(() => revokeAgent(c.id))}>
-                  Revoke
-                </Button>
-              )}
-            </Td>
-          </tr>
-        ))}
-      </tbody>
-    </Table>
-  );
-}
+const STATUS_LABEL = {
+  active: 'Connected',
+  revoked: 'Disconnected',
+  expired: 'Ended',
+} as const;
 
 const OUTCOME = {
   ok: { label: 'Done', tone: 'ok' },
