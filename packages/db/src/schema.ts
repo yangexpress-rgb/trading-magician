@@ -2939,10 +2939,7 @@ export const patternScans = pgTable(
   },
   (t) => [
     index('pattern_scan_user_idx').on(t.userId, t.createdAt),
-    check(
-      'pattern_scan_status',
-      sql`${t.status} in ('queued', 'running', 'done', 'failed')`,
-    ),
+    check('pattern_scan_status', sql`${t.status} in ('queued', 'running', 'done', 'failed')`),
   ],
 );
 
