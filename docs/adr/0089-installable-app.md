@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-13
-- **Design refs:** design v1.2 N250, N252, N253, §16.1 (CSP). Requested by Yong 2026-11-13.
+- **Design refs:** design v1.2 N250, N252, N253, N254, §16.1 (CSP). Requested by Yong 2026-11-13.
 
 ## Context
 
@@ -80,3 +80,10 @@ Browsers do not yet show tabs in installed app windows by default, so the app dr
   manifest for updates, so a new address lets installed apps pick up a changed icon on their
   own (within about a day). Safari keeps the icon from install time; re-adding it to the Dock
   refreshes it.
+
+## Amendment 2026-11-13 (N254): right-click opens a tab
+
+Yong opens links in new tabs with right-click. In the app window that went to the browser, so
+inside a tab's frame a right-click on an in-app link now opens it as a new tab in front instead
+of showing the context menu. Shift-right-click shows the usual menu; links to other sites, API
+routes and `/tabs` keep the browser's handling.
