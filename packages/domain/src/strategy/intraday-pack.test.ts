@@ -145,6 +145,15 @@ describe('Flatten at session end (N256)', () => {
     ).toBe(false);
   });
 
+  it('can be the only exit: Exit when may stay empty (brief §6a)', () => {
+    const def = readingVwap('5m');
+    def.exit.condition.children = [];
+    const codes = () => validateStrategy(def, context()).errors.map((e) => e.code);
+    expect(codes()).toContain('empty_condition');
+    def.execution.flattenAtSessionEnd = true;
+    expect(codes()).not.toContain('empty_condition');
+  });
+
   const T = Date.parse('2026-10-06T19:56:00Z'); // 15:56 New York
   const filled = (legId: string, phase: LegRecord['phase'] = 'entry'): LegRecord => ({
     legId,
