@@ -2906,3 +2906,112 @@ export const factorCoverage = pgTable(
   },
   (t) => [primaryKey({ columns: [t.factor, t.asOf] })],
 );
+
+/**
+ * A pattern scan (pattern brief §6, N262): one search over a universe for one
+ * outcome, queued from Research › Patterns and run by the miner in the batch
+ * service. The owner's, like a strategy. `config` is `PatternScanConfig` from
+ * @tm/domain with the universe's instrument ids resolved when queued;
+ * `effective` records what the miner actually used (windows per category,
+ * the discovery/holdout split, base rates).
+ */
+export const patternScans = pgTable(
+  'pattern_scan',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    config: jsonb('config').notNull(),
+    /** The config in plain words, for the scan list. */
+    summary: text('summary').notNull(),
+    status: text('status').notNull().default('queued'),
+    candidatesTested: integer('candidates_tested'),
+    finalists: integer('finalists'),
+    verified: integer('verified'),
+    effective: jsonb('effective'),
+    error: text('error'),
+    codeVersion: text('code_version'),
+    seconds: doublePrecision('seconds'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('pattern_scan_user_idx').on(t.userId, t.createdAt),
+    check(
+      'pattern_scan_status',
+      sql`${t.status} in ('queued', 'running', 'done', 'failed')`,
+    ),
+  ],
+);
+
+/**
+ * A finalist rule of a scan (brief §7): Verified when it passed the holdout
+ * gate, otherwise Candidate. `rule` is an ordered list of atoms {factor,
+ * mode, bucket}; `stats` holds both windows' counts and rates. Decay (§10)
+ * re-scores Verified patterns weekly on data after the holdout.
+ */
+export const patterns = pgTable(
+  'pattern',
+  {
+    id: id(),
+    scanId: uuid('scan_id')
+      .notNull()
+      .references(() => patternScans.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** Rank among the scan's finalists by discovery Wilson lower bound, from 1. */
+    rank: integer('rank').notNull(),
+    rule: jsonb('rule').notNull(),
+    stats: jsonb('stats').notNull(),
+    status: text('status').notNull(),
+    decayState: text('decay_state'),
+    decayStats: jsonb('decay_stats'),
+    lastScored: date('last_scored', { mode: 'string' }),
+    promotedTheoryId: uuid('promoted_theory_id').references(() => strategyLibraryEntries.id, {
+      onDelete: 'set null',
+    }),
+    /** The status when promoted (Candidate or Verified), recorded on the theory too. */
+    promotedStatus: text('promoted_status'),
+    promotedAt: timestamp('promoted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('pattern_scan_idx').on(t.scanId, t.rank),
+    index('pattern_user_idx').on(t.userId),
+    check('pattern_status', sql`${t.status} in ('candidate', 'verified')`),
+    check(
+      'pattern_decay_state',
+      sql`${t.decayState} is null or ${t.decayState} in ('holding', 'weakening', 'broken')`,
+    ),
+  ],
+);
+
+/** Every occurrence of a finalist (brief §6, §8): what happened after it, per window. */
+export const patternOccurrences = pgTable(
+  'pattern_occurrence',
+  {
+    patternId: uuid('pattern_id')
+      .notNull()
+      .references(() => patterns.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => instruments.id),
+    asOf: date('as_of', { mode: 'string' }).notNull(),
+    /** discovery, holdout, or fresh (decay monitoring's data after the holdout). */
+    window: text('window').notNull(),
+    hit: boolean('hit').notNull(),
+    maxRunup: doublePrecision('max_runup').notNull(),
+    maxDrawdown: doublePrecision('max_drawdown').notNull(),
+    forwardReturn: doublePrecision('forward_return').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.patternId, t.instrumentId, t.asOf] }),
+    check('pattern_occurrence_window', sql`${t.window} in ('discovery', 'holdout', 'fresh')`),
+  ],
+);
