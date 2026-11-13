@@ -98,3 +98,9 @@ phase, the first place a page sees an event, for click, auxclick, contextmenu an
 button presses on in-app links, and stops them there, so such add-ons never get them. Left
 clicks without modifiers, Shift-right-click and links to other sites are untouched. The e2e
 test adds a stand-in add-on that cancels right-clicks from every frame's start.
+
+## Amendment 2026-11-13: brighter icon
+
+Yong found the indigo background too dark and chose a brighter one. The icon keeps the
+candles-and-spark design on an orange-to-pink "Sunrise" gradient with white candles. Icons moved to `/icons/v3/`; every later icon
+change moves them to the next `/icons/vN/` so installed apps notice it.
