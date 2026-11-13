@@ -15,7 +15,8 @@ export function buildCsp(nonce: string, { dev }: { dev: boolean }): string {
     `object-src 'none'`,
     `base-uri 'self'`,
     `form-action 'self'`,
-    `frame-ancestors 'none'`,
+    // The installed app's tab bar frames this app's own pages (ADR 0089).
+    `frame-ancestors 'self'`,
     ...(dev ? [] : ['upgrade-insecure-requests']),
   ].join('; ');
 }

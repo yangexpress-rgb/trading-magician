@@ -12,7 +12,8 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'Trading Magician',
     short_name: 'Trading Magician',
     description: 'Plan, test and run multi-asset trading strategies. Paper trading only.',
-    start_url: '/strategy-lab',
+    // Opens into the tab bar (N253); signed-out windows go to sign-in first.
+    start_url: '/tabs',
     scope: '/',
     // Browsers that offer tabbed app windows show tabs, so links can open
     // beside the current page; the rest use a plain app window (N252).
@@ -25,10 +26,10 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: '#f6f7f9',
     theme_color: '#ffffff',
     icons: [
-      { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icons/v2/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icons/v2/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
       {
-        src: '/icons/icon-maskable-512.png',
+        src: '/icons/v2/icon-maskable-512.png',
         sizes: '512x512',
         type: 'image/png',
         purpose: 'maskable',
