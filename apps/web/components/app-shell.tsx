@@ -2,6 +2,7 @@ import {
   AdminIcon,
   Badge,
   ChartIcon,
+  HelpIcon,
   LabIcon,
   ModeBadge,
   OrdersIcon,
@@ -37,6 +38,8 @@ export const PRIMARY_NAV: readonly NavItem[] = [
   { href: '/orders', label: 'Orders', icon: <OrdersIcon /> },
   { href: '/performance', label: 'Performance', icon: <ChartIcon /> },
   { href: '/settings', label: 'Settings', icon: <SettingsIcon /> },
+  // The new-user guide's permanent home (N248).
+  { href: '/help', label: 'Help', icon: <HelpIcon /> },
 ];
 
 /** Shown only to admins (ADR 0037), after the primary tabs. */
