@@ -122,7 +122,7 @@ export interface AskAiAgentState {
 
 const askAiForm = z
   .object({
-    provider: z.enum(['muse', 'anthropic', 'openai', 'openai_compatible'], {
+    provider: z.enum(['muse', 'claude_ai', 'anthropic', 'openai', 'openai_compatible'], {
       message: 'Pick an agent',
     }),
     model: z.string().trim().max(120, 'Use 120 characters or fewer').optional(),

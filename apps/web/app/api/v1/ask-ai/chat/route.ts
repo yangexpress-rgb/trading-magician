@@ -1,4 +1,4 @@
-import { loadAiAssistantSecret } from '@tm/db';
+import { isLinkProvider, loadAiAssistantSecret } from '@tm/db';
 import { CHAT_SYSTEM_PROMPT, chatRequest, screenBlock } from '@/lib/ask-ai';
 import { aiSealKey } from '@/lib/server/ai-key';
 import { api, errorResponse, readJson } from '@/lib/server/api';
@@ -18,7 +18,7 @@ export const maxDuration = 300;
 export const POST = api(async (request, { tx, userId }) => {
   const body = await readJson(request, chatRequest);
   const agent = await tx((t) => loadAiAssistantSecret(t, userId, aiSealKey()));
-  if (!agent || agent.provider === 'muse') {
+  if (!agent || isLinkProvider(agent.provider)) {
     return errorResponse(
       'invalid_state',
       'Choose an AI agent with an API key in Settings › AI agents to chat here.',

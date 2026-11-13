@@ -12,7 +12,7 @@ import { clearAskAiAgent, saveAskAiAgent, type AskAiAgentState } from './actions
  * again; leaving the key empty keeps the stored one.
  */
 export function AskAiAgentForm({ current }: { current: AiAssistantSummary | null }) {
-  const [provider, setProvider] = useState<AskAiProviderId>(current?.provider ?? 'anthropic');
+  const [provider, setProvider] = useState<AskAiProviderId>(current?.provider ?? 'claude_ai');
   const [state, action, pending] = useActionState<AskAiAgentState, FormData>(saveAskAiAgent, {
     status: 'idle',
   });
@@ -107,7 +107,12 @@ export function AskAiAgentForm({ current }: { current: AiAssistantSummary | null
             disabled={clearing}
             onClick={() => startClear(() => clearAskAiAgent())}
           >
-            Remove {current.provider === 'muse' ? 'Muse' : 'agent and key'}
+            Remove{' '}
+            {current.provider === 'muse'
+              ? 'Muse'
+              : current.provider === 'claude_ai'
+                ? 'Claude'
+                : 'agent and key'}
           </Button>
         )}
       </div>

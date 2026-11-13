@@ -228,9 +228,21 @@ export function screenBlock(content: ScreenContent): string {
 /** The agents a person can choose for Ask AI, as Settings shows them. */
 export const ASK_AI_PROVIDERS = [
   {
+    id: 'claude_ai',
+    /** How the panel names it: Ask Claude. */
+    name: 'Claude',
+    label: 'Claude (my claude.ai plan)',
+    line: 'Uses your Claude Pro or Max plan, with nothing more to pay. Ask Claude opens claude.ai with your question filled in, and Claude reads your screen through the Trading Magician connector.',
+    keyLabel: null,
+    keyUrl: null,
+    modelHint: null,
+    needsModel: false,
+  },
+  {
     id: 'anthropic',
-    label: 'Claude',
-    line: 'Chats with you in the panel, using your Anthropic API key.',
+    name: 'Claude',
+    label: 'Claude (API key)',
+    line: 'Chats with you in the panel, using an Anthropic API key. API use is billed separately from a claude.ai plan.',
     keyLabel: 'Anthropic API key',
     keyUrl: 'https://console.anthropic.com/settings/keys',
     modelHint: 'claude-opus-5-5',
@@ -238,6 +250,7 @@ export const ASK_AI_PROVIDERS = [
   },
   {
     id: 'openai',
+    name: 'ChatGPT',
     label: 'ChatGPT (OpenAI)',
     line: 'Chats with you in the panel, using your OpenAI API key.',
     keyLabel: 'OpenAI API key',
@@ -247,6 +260,7 @@ export const ASK_AI_PROVIDERS = [
   },
   {
     id: 'openai_compatible',
+    name: 'your agent',
     label: 'Another AI service',
     line: 'Any service with an OpenAI-compatible chat API, such as a company gateway or a local model.',
     keyLabel: 'API key',
@@ -256,6 +270,7 @@ export const ASK_AI_PROVIDERS = [
   },
   {
     id: 'muse',
+    name: 'Muse',
     label: 'Muse',
     line: 'Muse has no way for apps to chat with it, so Ask Muse opens Muse with your question and screen filled in. Connect Muse below so it can read your screen.',
     keyLabel: null,
