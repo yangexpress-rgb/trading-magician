@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-13
-- **Design refs:** design v1.2 N250, N252, N253, N258, §16.1 (CSP). Requested by Yong 2026-11-13.
+- **Design refs:** design v1.2 N250, N252, N253, N258, N259, §16.1 (CSP). Requested by Yong 2026-11-13.
 
 ## Context
 
@@ -87,3 +87,14 @@ Yong opens links in new tabs with right-click. In the app window that went to th
 inside a tab's frame a right-click on an in-app link now opens it as a new tab in front instead
 of showing the context menu. Shift-right-click shows the usual menu; links to other sites, API
 routes and `/tabs` keep the browser's handling.
+
+## Amendment 2026-11-13 (N259): the app sees link clicks first
+
+On Yong's Chrome, right-click still opened the link in the browser: something in the browser
+(most likely the add-on he uses to open links with right-click) handles right-clicks on links
+at the document and cancels the event before the tab host's document listener ran, and the
+host skipped cancelled events. The host now listens on each tab frame's window in the capture
+phase, the first place a page sees an event, for click, auxclick, contextmenu and middle/right
+button presses on in-app links, and stops them there, so such add-ons never get them. Left
+clicks without modifiers, Shift-right-click and links to other sites are untouched. The e2e
+test adds a stand-in add-on that cancels right-clicks from every frame's start.

@@ -130,44 +130,58 @@ export function TabHost({ open }: { open: string | null }) {
   /** Opens in-app links as tabs when asked to (modifier keys, middle button, target=_blank). */
   const wireFrame = useCallback(
     (frame: HTMLIFrameElement) => {
-      const doc = frame.contentDocument;
-      if (!doc || (doc as Document & { __tmWired?: boolean }).__tmWired) return;
-      (doc as Document & { __tmWired?: boolean }).__tmWired = true;
-      const onClick = (e: globalThis.MouseEvent) => {
-        if (e.defaultPrevented || (e.button !== 0 && e.button !== 1)) return;
+      const win = frame.contentWindow as (Window & { __tmWired?: boolean }) | null;
+      if (!win || win.__tmWired) return;
+      win.__tmWired = true;
+      /** The in-app link under the pointer, or null (other sites keep the browser's handling). */
+      const linkPath = (
+        e: globalThis.MouseEvent,
+      ): { a: HTMLAnchorElement; path: string } | null => {
         const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
-        if (!a || a.hasAttribute('download')) return;
-        if (
-          !opensNewTab({
-            metaKey: e.metaKey,
-            ctrlKey: e.ctrlKey,
-            button: e.button,
-            target: a.target || null,
-          })
-        )
-          return;
+        if (!a || a.hasAttribute('download')) return null;
         const path = tabPath(a.href, window.location.origin);
-        if (!path) return; // Other sites keep the browser's own handling.
+        return path ? { a, path } : null;
+      };
+      // Listeners sit on the frame's window in the capture phase, the first place a
+      // page can see an event, so browser add-ons that act on link clicks further
+      // down (such as one that opens right-clicked links in a browser tab) never
+      // get them (N259).
+      const onClick = (e: globalThis.MouseEvent) => {
+        if (e.button !== 0 && e.button !== 1) return;
+        const hit = linkPath(e);
+        if (!hit) return;
+        const { a, path } = hit;
+        const target = a.target || null;
+        if (!opensNewTab({ metaKey: e.metaKey, ctrlKey: e.ctrlKey, button: e.button, target }))
+          return;
         e.preventDefault();
-        e.stopPropagation();
+        e.stopImmediatePropagation();
         // Like a browser: a plain new-window link opens in front; Cmd/Ctrl-click behind.
-        openTab(path, a.target === '_blank' && !e.metaKey && !e.ctrlKey && e.button === 0);
+        openTab(path, target === '_blank' && !e.metaKey && !e.ctrlKey && e.button === 0);
       };
       // Right-click on an in-app link opens it in a new tab in front (N258), as
       // Yong uses right-click in the browser; Shift-right-click keeps the menu.
       const onContextMenu = (e: globalThis.MouseEvent) => {
-        if (e.defaultPrevented || e.shiftKey) return;
-        const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
-        if (!a || a.hasAttribute('download')) return;
-        const path = tabPath(a.href, window.location.origin);
-        if (!path) return;
+        if (e.shiftKey) return;
+        const hit = linkPath(e);
+        if (!hit) return;
         e.preventDefault();
         e.stopImmediatePropagation();
-        openTab(path, true);
+        openTab(hit.path, true);
       };
-      doc.addEventListener('click', onClick, true);
-      doc.addEventListener('auxclick', onClick, true);
-      doc.addEventListener('contextmenu', onContextMenu, true);
+      // Middle and right button presses on in-app links stay with the app too.
+      const onButton = (e: globalThis.MouseEvent) => {
+        if (e.button === 0 || (e.button === 2 && e.shiftKey)) return;
+        if (linkPath(e)) e.stopImmediatePropagation();
+      };
+      win.addEventListener('click', onClick, true);
+      win.addEventListener('auxclick', onClick, true);
+      win.addEventListener('contextmenu', onContextMenu, true);
+      win.addEventListener('auxclick', onButton, true);
+      win.addEventListener('mousedown', onButton, true);
+      win.addEventListener('mouseup', onButton, true);
+      win.addEventListener('pointerdown', onButton, true);
+      win.addEventListener('pointerup', onButton, true);
     },
     [openTab],
   );
