@@ -48,7 +48,7 @@ function initialTabs(open: string | null): { tabs: AppTab[]; active: string } {
  * The installed app's tab bar (N253, ADR 0089). Each tab is a same-origin
  * frame running the normal app, so a tab keeps its page and state while
  * another is shown, as browser tabs do. Cmd/Ctrl-click, middle-click and
- * target="_blank" on in-app links open new tabs; so does right-click (N254).
+ * target="_blank" on in-app links open new tabs; so does right-click (N258).
  */
 export function TabHost({ open }: { open: string | null }) {
   const [state, setState] = useState<{ tabs: AppTab[]; active: string } | null>(null);
@@ -153,7 +153,7 @@ export function TabHost({ open }: { open: string | null }) {
         // Like a browser: a plain new-window link opens in front; Cmd/Ctrl-click behind.
         openTab(path, a.target === '_blank' && !e.metaKey && !e.ctrlKey && e.button === 0);
       };
-      // Right-click on an in-app link opens it in a new tab in front (N254), as
+      // Right-click on an in-app link opens it in a new tab in front (N258), as
       // Yong uses right-click in the browser; Shift-right-click keeps the menu.
       const onContextMenu = (e: globalThis.MouseEvent) => {
         if (e.defaultPrevented || e.shiftKey) return;

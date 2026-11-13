@@ -88,7 +88,7 @@ appTest('installed app opens pages in tabs', async ({ page }) => {
     .click();
   await expect(tabs).toHaveCount(2);
 
-  // Right-click on a link opens it in a new tab in front (N254).
+  // Right-click on a link opens it in a new tab in front (N258).
   const current = page.frameLocator('iframe[role="tabpanel"]:not(.invisible)');
   await current
     .getByRole('navigation', { name: 'Primary' })

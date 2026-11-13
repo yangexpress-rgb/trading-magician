@@ -16,6 +16,14 @@ import {
   type PriceAdjustment,
 } from './catalog';
 import type { Expr, IndicatorExpr, MarketExpr, MetricExpr, MetricRef } from './schema';
+import {
+  DEFAULT_RANGE_MINUTES,
+  MAX_RANGE_MINUTES,
+  RANGE_MINUTE_PRESETS,
+  sessionValue,
+  type SessionBars,
+  type SessionMetricId,
+} from './session-metrics';
 
 /**
  * The shared metric registry (Design v1.2 principle 3, item 1). Each metric is
@@ -74,6 +82,12 @@ export interface MetricReader {
    * 45 calendar days old; absent without prediction data.
    */
   ml?(instrumentId: string, modelKey: string, barsBack: number): MlPoint | undefined;
+  /**
+   * Today's completed regular-session bars of the instrument's finest loaded
+   * intraday series, as of the bar `barsBack` bars before the current one
+   * (intraday pack, N254); absent or undefined without intraday bars.
+   */
+  session?(instrumentId: string, barsBack: number): SessionBars | undefined;
 }
 
 /** One stored model score, with the prediction and model run it came from (brief §10). */
@@ -95,6 +109,8 @@ export interface OptionPoint {
 export interface MetricParamSpec extends Omit<IndicatorParamSpec, 'kind'> {
   /** `instrument` holds an instrument id, e.g. a benchmark; `model` a model series key (ML brief §8). */
   kind: IndicatorParamSpec['kind'] | 'instrument' | 'model';
+  /** Suggested values for a number the builder offers as presets; others are allowed. */
+  presets?: readonly number[];
 }
 
 export interface MetricSpec {
@@ -102,7 +118,7 @@ export interface MetricSpec {
   label: string;
   /** One line for the builder's help text. */
   help: string;
-  category: 'price' | 'fundamental' | 'options' | 'earnings' | 'deals' | 'rates' | 'ml';
+  category: 'price' | 'fundamental' | 'options' | 'earnings' | 'deals' | 'rates' | 'ml' | 'session';
   /** How a value reads: a fraction (0.12 is 12%), a plain number, or US dollars. */
   unit: 'fraction' | 'number' | 'usd';
   params: readonly MetricParamSpec[];
@@ -815,13 +831,76 @@ const ML_METRICS: readonly MetricSpec[] = [
   },
 ];
 
+/**
+ * Session-anchored values (intraday pack brief §3, N254, ADR 0090): worked
+ * out when evaluated from today's completed regular-session bars of the
+ * intraday series the run already steps on. They read no extra bars, so they
+ * add nothing to a run's plan or its bar estimate (brief §8). Bars ago is not
+ * offered: a session value is already anchored in time.
+ */
+const rangeParam: MetricParamSpec = {
+  name: 'rangeMinutes',
+  label: 'Opening range (minutes)',
+  kind: 'int',
+  min: 1,
+  max: MAX_RANGE_MINUTES,
+  default: DEFAULT_RANGE_MINUTES,
+  presets: RANGE_MINUTE_PRESETS,
+};
+function sessionMetric(
+  id: SessionMetricId,
+  label: string,
+  help: string,
+  params: readonly MetricParamSpec[] = [],
+): MetricSpec {
+  return {
+    id,
+    label,
+    help: `${help} Today's regular session only (09:30 to the close, 13:00 on early-close days), from bars that have ended; unknown before the first bar of the session ends, and on daily bars.`,
+    category: 'session',
+    unit: 'number',
+    params,
+    assetClasses: ['stock', 'etf'],
+    requirements: () => [],
+    compute: (instrumentId, p, r, barsBack) =>
+      sessionValue(id, r.session?.(instrumentId, barsBack), Number(p.rangeMinutes)),
+  };
+}
+const SESSION_METRICS: readonly MetricSpec[] = [
+  sessionMetric(
+    'session.vwap',
+    'Session VWAP',
+    'Cumulative volume-weighted average price since the open: the sum of typical price (high + low + close) ÷ 3 times volume, divided by the sum of volume, over the session so far. Unknown while the session has no volume.',
+  ),
+  sessionMetric('session.high', 'Session high', 'Highest bar high of the session so far.'),
+  sessionMetric('session.low', 'Session low', 'Lowest bar low of the session so far.'),
+  sessionMetric(
+    'session.opening_high',
+    'Opening range high',
+    'Highest bar high of the bars that start within the opening range (the first N minutes after the open). During the range it is the range so far; after it, it stays fixed for the rest of the session.',
+    [rangeParam],
+  ),
+  sessionMetric(
+    'session.opening_low',
+    'Opening range low',
+    'Lowest bar low of the bars that start within the opening range (the first N minutes after the open). During the range it is the range so far; after it, it stays fixed for the rest of the session.',
+    [rangeParam],
+  ),
+];
+
 export const METRICS: readonly MetricSpec[] = [
   ...PRICE_METRICS,
   ...FUNDAMENTAL_METRICS,
   ...OPTIONS_METRICS,
   ...EVENT_METRICS,
   ...ML_METRICS,
+  ...SESSION_METRICS,
 ];
+
+/** Whether a metric is a session-anchored intraday value (N254). */
+export function isSessionMetric(id: string): boolean {
+  return getMetric(id)?.category === 'session';
+}
 
 /** Whether a metric reads stored model scores (ML brief v1 §8). */
 export function isMlMetric(id: string): boolean {

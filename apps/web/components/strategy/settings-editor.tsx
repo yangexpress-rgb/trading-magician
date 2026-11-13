@@ -247,6 +247,37 @@ export function ExecutionAndRisk({
           </div>
         )}
 
+        <div className="mt-3">
+          <label className="flex items-center gap-1.5 text-sm">
+            <input
+              type="checkbox"
+              disabled={!editable}
+              checked={ex.flattenAtSessionEnd === true}
+              aria-describedby="exec-flatten-help"
+              onChange={(e) => {
+                const { flattenAtSessionEnd: _f, ...rest } = ex;
+                void _f;
+                onChange({
+                  ...definition,
+                  execution: e.target.checked ? { ...rest, flattenAtSessionEnd: true } : rest,
+                });
+              }}
+            />
+            Flatten at session end
+          </label>
+          {issueAt(['execution', 'flattenAtSessionEnd']) && (
+            <p className="text-xs font-medium text-danger">
+              {issueAt(['execution', 'flattenAtSessionEnd'])}
+            </p>
+          )}
+          <p id="exec-flatten-help" className="mt-1 text-xs text-ink-muted">
+            On: at the last bar of each regular session (13:00 on early-close days), after Exit
+            when, anything still held is closed at that bar&rsquo;s close with exit reason
+            &ldquo;Session end&rdquo;, even with no Exit when at all. Paper trading closes in the
+            last five minutes before the close. Needs intraday bars.
+          </p>
+        </div>
+
         {ex.multiLegPolicy !== 'concurrent' && (
           <div className="mt-3">
             <h3 className="text-sm font-semibold">Submission order</h3>

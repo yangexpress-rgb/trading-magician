@@ -120,6 +120,25 @@ const INTERVAL_MINUTES: Record<BarInterval, number> = {
 };
 
 /**
+ * The finest bar size, in minutes, a strategy's runs step on: the shortest
+ * bars its rules read, or a finer Check Entry or Check Exit bar cadence, as
+ * back tests pick their bars. 1440 (daily) when nothing is intraday. Session
+ * values and Flatten at session end need it intraday (N254, N256).
+ */
+export function finestBarMinutes(def: StrategyDefinition): number {
+  let finest = INTERVAL_MINUTES['1d'];
+  for (const e of definitionExpressions(def)) {
+    if (e.kind === 'market' || e.kind === 'indicator' || e.kind === 'position')
+      finest = Math.min(finest, INTERVAL_MINUTES[e.interval]);
+  }
+  for (const s of [def.entry.schedule, def.exit.schedule]) {
+    const m = scheduleBarMinutes(s);
+    if (m !== undefined) finest = Math.min(finest, m);
+  }
+  return finest;
+}
+
+/**
  * The schedule of a strategy that never picked one (N184): every bar of the
  * finest bars its rules read, so a stored strategy keeps checking Entry as
  * often as before. Under 5 minutes: every 1-minute bar; under an hour: every

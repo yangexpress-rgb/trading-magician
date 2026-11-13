@@ -18,7 +18,7 @@ import {
 import { extendedHoursEligible } from './extended-hours';
 import { groupDefinition } from './groups';
 import { checkTiming } from './timing';
-import { isCalendarSchedule } from './schedule';
+import { finestBarMinutes, isCalendarSchedule } from './schedule';
 import {
   collectInstrumentUses,
   exprDepth,
@@ -28,9 +28,16 @@ import {
   walkExpressions,
 } from './tree';
 import { CONTEXT_INSTRUMENT_ID } from './evaluate';
-import { checkMetricRef, getMetric, isYesNoExpr, metricReferences } from './metrics';
+import {
+  checkMetricRef,
+  getMetric,
+  isSessionMetric,
+  isYesNoExpr,
+  metricReferences,
+} from './metrics';
 import { atrStopDistance, sizesFromAtr } from './risk-exits';
 import {
+  conditionTrees,
   hasComparisons,
   listMembers,
   optionInstruments,
@@ -180,6 +187,7 @@ export function validateStrategy(
   });
 
   checkGroups(def, ctx, add);
+  checkSessionValues(def, add);
   checkAtrStops(def, add);
   checkExpectedMoveExits(def, add);
   checkTrailingStops(def, add);
@@ -276,7 +284,8 @@ function checkCondition(
       def[phase].orders.length > 0 &&
       def[phase].orders.every((o) => o.timing.mode !== 'immediate');
     // A Selection group or per-leg conditions decide entries themselves, and an
-    // exit rule such as the time stop can be the only exit (v1.2).
+    // exit rule such as the time stop, or Flatten at session end, can be the
+    // only exit (v1.2, N256).
     // A rebalance (Selection group, or per-leg conditions on a calendar
     // schedule) exits what is no longer selected.
     const mode = slotModeOf(def);
@@ -284,6 +293,8 @@ function checkCondition(
       phase === 'entry'
         ? mode !== 'none'
         : (def.exit.rules?.length ?? 0) > 0 ||
+          // Flatten at session end is an exit by itself (N256, brief §6a).
+          !!def.execution.flattenAtSessionEnd ||
           mode === 'selection' ||
           (mode === 'legs' &&
             def.entry.schedule !== undefined &&
@@ -1743,6 +1754,48 @@ export const RISK_LABELS: Record<(typeof REQUIRED_RISK_LIMITS)[number], string> 
   dailyLossLimit: 'daily loss',
   priceCollarPct: 'price collar',
 };
+
+/**
+ * Session values and Flatten at session end read today's intraday bars
+ * (intraday pack brief §§3, 6a; N254, N256): on daily bars a session value is
+ * always unknown, and flattening would close every position every day.
+ */
+function checkSessionValues(def: StrategyDefinition, add: Add) {
+  const daily = finestBarMinutes(def) >= 1440;
+  const warned = new Set<string>();
+  for (const { tree, where } of conditionTrees(def)) {
+    for (const c of walkComparisons(tree)) {
+      for (const e of [c.left, c.right, c.upper].flatMap((x) => (x ? [...walkExpr(x)] : []))) {
+        if (e.kind !== 'metric' || !isSessionMetric(e.metric)) continue;
+        const label = getMetric(e.metric)?.label ?? e.metric;
+        const path = where === 'entry' || where === 'exit' ? [where, 'condition'] : [];
+        if ((e.offset ?? 0) > 0)
+          add(
+            'error',
+            'session_bars_ago',
+            `${label} is already anchored to today's session: set Bars ago to 0`,
+            path,
+            c.id,
+          );
+        if (daily && !warned.has(e.metric)) {
+          warned.add(e.metric);
+          add(
+            'warning',
+            'session_needs_intraday',
+            `${label}: Session values need an intraday bar size in this strategy.`,
+            path,
+            c.id,
+          );
+        }
+      }
+    }
+  }
+  if (def.execution.flattenAtSessionEnd && daily)
+    add('error', 'flatten_needs_intraday', 'Flatten at session end needs an intraday bar size', [
+      'execution',
+      'flattenAtSessionEnd',
+    ]);
+}
 
 function checkBacktest(ctx: ValidationContext, add: Add) {
   if (ctx.backtest === undefined) return; // back testing arrives in Phase 2

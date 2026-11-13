@@ -102,6 +102,7 @@ export function VersionSummary({
             ['When the market is closed', MARKET_HOURS_LABELS[ex.marketHoursPolicy]],
             ['Holiday calendar', ex.holidayCalendar],
             ['Stale data after', `${ex.staleDataSec} seconds`],
+            ['Flatten at session end', ex.flattenAtSessionEnd ? 'On' : 'Off'],
           ]}
         />
       </Card>
