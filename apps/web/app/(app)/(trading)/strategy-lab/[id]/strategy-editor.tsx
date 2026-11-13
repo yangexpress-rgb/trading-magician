@@ -58,6 +58,7 @@ import {
 } from '@/components/strategy/entry-groups';
 import { ExecutionAndRisk, TriggerSettings } from '@/components/strategy/settings-editor';
 import { apiClient } from '@/lib/api-client';
+import { tradedAssets } from '@/lib/slot-edits';
 
 interface Props {
   strategyId: string;
@@ -225,9 +226,13 @@ export function StrategyEditor({
     [],
   );
 
+  // New conditions start on the stock or ETF in What to trade (N272).
+  const defaultInstrumentId = trade.kind === 'assets' ? tradedAssets(definition)[0] : undefined;
+
   const ctx: EditorContextValue = useMemo(
     () => ({
       instruments,
+      defaultInstrumentId,
       addInstrument,
       accounts,
       timeZone,
@@ -241,6 +246,7 @@ export function StrategyEditor({
     }),
     [
       instruments,
+      defaultInstrumentId,
       addInstrument,
       accounts,
       timeZone,

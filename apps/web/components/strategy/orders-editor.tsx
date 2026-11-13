@@ -16,6 +16,7 @@ import {
   type PhaseName,
   type PlannedOrder,
   type StrategyDefinition,
+  type QuantityRounding,
 } from '@tm/domain';
 import { useState } from 'react';
 import {
@@ -25,7 +26,7 @@ import {
   SIDE_LABELS,
   TIF_LABELS,
 } from '@/lib/strategy-text';
-import { useEditor } from './editor-context';
+import { defaultInstrumentOf, useEditor } from './editor-context';
 import { ExpressionEditor, newExpr } from './expression-editor';
 import { ConditionTreeEditor } from './condition-editor';
 import { MiniInput, MiniSelect, RowButton } from './fields';
@@ -76,7 +77,8 @@ export function OrdersEditor({
   phase: PhaseName;
   onChange: (def: StrategyDefinition) => void;
 }) {
-  const { instruments, accounts, editable, issueAt, baseCurrency } = useEditor();
+  const editor = useEditor();
+  const { accounts, editable, issueAt, baseCurrency } = editor;
   const orders = definition[phase].orders;
   const title = PHASE_TITLE[phase];
   const allLegs = (['entry', 'exit'] as const).flatMap((p) =>
@@ -110,10 +112,11 @@ export function OrdersEditor({
     const leg: PlannedOrder = {
       id: randomId(),
       legLabel: uniqueLabel(definition, phase),
-      instrumentId: instruments[0]?.id ?? '',
+      // A new leg starts on the stock or ETF in What to trade (N272).
+      instrumentId: defaultInstrumentOf(editor),
       accountId: account?.id ?? '',
       side: phase === 'entry' ? 'buy' : 'close',
-      quantity: { type: 'units', value: '1', rounding: 'down' },
+      quantity: { type: 'units', value: '1', rounding: 'up' },
       orderType: 'market',
       timeInForce: 'day',
       timing: { mode: 'immediate' },
@@ -600,10 +603,11 @@ function LegEditor({
               value={order.quantity.rounding}
               onChange={(e) =>
                 set({
-                  quantity: { ...order.quantity, rounding: e.target.value as 'down' | 'nearest' },
+                  quantity: { ...order.quantity, rounding: e.target.value as QuantityRounding },
                 })
               }
             >
+              <option value="up">Up, at least 1 unit</option>
               <option value="down">Down</option>
               <option value="nearest">To nearest</option>
             </MiniSelect>

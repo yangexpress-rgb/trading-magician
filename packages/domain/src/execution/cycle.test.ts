@@ -2,7 +2,7 @@ import Decimal from 'decimal.js';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { createDefinition } from '../strategy/defaults';
-import type { StrategyDefinition } from '../strategy/schema';
+import { DEFAULT_TRIGGER, type StrategyDefinition } from '../strategy/schema';
 import { order, STOCK_A, STOCK_B } from '../strategy/test-fixtures';
 import {
   activeFromFor,
@@ -23,14 +23,22 @@ const T0 = Date.parse('2026-10-06T14:00:00Z');
 const s = (n: number) => T0 + n * 1000;
 const d = (v: number | string) => new Decimal(v);
 
-function single(): StrategyDefinition {
+/** These tests cover "As soon as it becomes true", the default before N272. */
+function onTransition(): StrategyDefinition {
   const def = createDefinition();
+  def.entry.trigger = { ...DEFAULT_TRIGGER };
+  def.exit.trigger = { ...DEFAULT_TRIGGER };
+  return def;
+}
+
+function single(): StrategyDefinition {
+  const def = onTransition();
   def.entry.orders = [order('buy')];
   def.exit.orders = [order('sell', { side: 'sell' })];
   return def;
 }
 function pair(): StrategyDefinition {
-  const def = createDefinition();
+  const def = onTransition();
   def.entry.orders = [
     order('long', { instrumentId: STOCK_A }),
     order('short', { instrumentId: STOCK_B, side: 'sell_short' }),

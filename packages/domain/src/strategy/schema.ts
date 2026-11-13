@@ -390,6 +390,9 @@ export const timingSchema = z.discriminatedUnion('mode', [
 ]);
 export type Timing = z.infer<typeof timingSchema>;
 
+export const QUANTITY_ROUNDINGS = ['up', 'down', 'nearest'] as const;
+export type QuantityRounding = (typeof QUANTITY_ROUNDINGS)[number];
+
 export const plannedOrderSchema = z.object({
   id,
   legLabel: z.string().trim().min(1, 'Name this leg').max(40),
@@ -399,7 +402,12 @@ export const plannedOrderSchema = z.object({
   quantity: z.object({
     type: z.enum(QUANTITY_TYPES),
     value: positiveDecimalString,
-    rounding: z.enum(['down', 'nearest']).default('down'),
+    /**
+     * How a fractional size becomes whole lots. `up` (the builder's default
+     * since N272) rounds up, so a size below one unit buys one. Absent still
+     * parses as `down`, so saved strategies keep sizing as before.
+     */
+    rounding: z.enum(QUANTITY_ROUNDINGS).default('down'),
     /** `risk` only: whether `value` is dollars or a % of equity. */
     amountIn: z.enum(RISK_AMOUNT_UNITS).optional(),
     /** `risk` only: the stop distance, from the leg's stop price or the Entry's risk distance. */
@@ -442,6 +450,21 @@ export const DEFAULT_TRIGGER: Trigger = {
   cooldownBars: 0,
   confirmationBars: 0,
 };
+
+/**
+ * "Immediately" (N272): fires on every check the condition is true, with
+ * nothing to confirm or wait for. The Fire when a new strategy, phase or
+ * entry group starts with; the builder hides the other Fire when fields.
+ */
+export const IMMEDIATE_TRIGGER: Trigger = {
+  mode: 'while_true',
+  cooldownBars: 0,
+  confirmationBars: 0,
+};
+
+/** Whether a Fire when is "Immediately": any check the condition holds fires. */
+export const isImmediateTrigger = (t: Trigger | undefined): boolean =>
+  !t || (t.mode === 'while_true' && t.confirmationBars === 0 && t.cooldownBars === 0);
 
 export const phaseSchema = z.object({
   condition: conditionGroupSchema,

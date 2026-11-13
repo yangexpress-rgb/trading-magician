@@ -48,7 +48,7 @@ import {
   withTrailingCondition,
 } from '@/lib/slot-edits';
 import { ConditionTreeEditor } from './condition-editor';
-import { useEditor } from './editor-context';
+import { defaultInstrumentOf, useEditor } from './editor-context';
 import { MetricRefFields } from './expression-editor';
 import { MiniInput, MiniSelect, RowButton } from './fields';
 import { InstrumentSelect } from './instrument-select';
@@ -153,7 +153,8 @@ function AssetsEditor({
   assets: string[];
   onChange: (def: StrategyDefinition) => void;
 }) {
-  const { accounts, editable } = useEditor();
+  const editor = useEditor();
+  const { accounts, editable } = editor;
   const account = accounts.find((a) => a.isDefault) ?? accounts[0];
   return (
     <div className="mt-3 space-y-2">
@@ -164,7 +165,13 @@ function AssetsEditor({
           value=""
           allowContext={false}
           tradableOnly
-          onChange={(id) => id && onChange(addAsset(definition, id, account?.id ?? ''))}
+          onChange={(id) =>
+            id &&
+            onChange(
+              // Conditions added before the asset follow it (N272).
+              addAsset(definition, id, account?.id ?? '', defaultInstrumentOf(editor)),
+            )
+          }
         />
       )}
       {assets.map((id, i) => (

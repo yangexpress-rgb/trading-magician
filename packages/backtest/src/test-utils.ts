@@ -3,6 +3,7 @@
  */
 import {
   createDefinition,
+  DEFAULT_TRIGGER,
   regularSession,
   sequentialIds,
   tradingDays,
@@ -123,6 +124,9 @@ export function strategy(
   exitLegs: PlannedOrder[],
 ): StrategyDefinition {
   const def = createDefinition(sequentialIds('g'));
+  // Engine tests cover "As soon as it becomes true", the default before N272.
+  def.entry.trigger = { ...DEFAULT_TRIGGER };
+  def.exit.trigger = { ...DEFAULT_TRIGGER };
   def.entry.condition.children = [entry];
   def.entry.orders = entryLegs;
   def.exit.condition.children = [exit];

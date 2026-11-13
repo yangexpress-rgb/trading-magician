@@ -16,6 +16,7 @@ import {
   SIDE_LABELS,
   TIF_LABELS,
   TRIGGER_LABELS,
+  isImmediateTrigger,
   type SymbolLookup,
 } from './strategy-text';
 
@@ -278,6 +279,7 @@ function reasonOf(c: Comparison, check: ConditionCheck): string | null {
 export function describeTrigger(trigger: PhaseConditionReport['trigger']): string {
   // A slot's Exit has no trigger: it exits on any bar its condition is true (ADR 0049).
   if (!trigger) return 'Fires on every bar the condition is true';
+  if (isImmediateTrigger(trigger)) return 'Fires immediately, on every check the condition is true';
   const parts = [`Fires ${TRIGGER_LABELS[trigger.mode].replace(' (default)', '').toLowerCase()}`];
   if (trigger.confirmationBars > 0)
     parts.push(

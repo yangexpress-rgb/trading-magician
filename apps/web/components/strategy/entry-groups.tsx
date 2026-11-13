@@ -6,7 +6,7 @@ import {
   groupDefinition,
   randomId,
   refillExitOrders,
-  DEFAULT_TRIGGER,
+  IMMEDIATE_TRIGGER,
   type EntryGroup,
   type PositionDirection,
   type StrategyDefinition,
@@ -62,7 +62,7 @@ export function addGroup(def: StrategyDefinition): StrategyDefinition {
     },
     exit: {
       condition: emptyGroup(),
-      trigger: { ...(def.exit.trigger ?? DEFAULT_TRIGGER) },
+      trigger: { ...(def.exit.trigger ?? IMMEDIATE_TRIGGER) },
       orders: [],
       mirrorEntry: true,
     },

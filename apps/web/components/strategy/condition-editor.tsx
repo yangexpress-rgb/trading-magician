@@ -18,7 +18,7 @@ import {
 } from '@tm/domain';
 import { cx } from '@tm/ui';
 import { describeCondition, OPERATOR_LABELS } from '@/lib/strategy-text';
-import { useEditor } from './editor-context';
+import { defaultInstrumentOf, useEditor } from './editor-context';
 import { ExpressionEditor, newExpr } from './expression-editor';
 import { MiniSelect, RowButton } from './fields';
 
@@ -77,8 +77,8 @@ export function ConditionTreeEditor({
   label: string;
   path: Path;
 }) {
-  const { instruments } = useEditor();
-  const instrumentId = instruments[0]?.id ?? '';
+  const editor = useEditor();
+  const instrumentId = defaultInstrumentOf(editor);
 
   const ops: TreeOps = {
     update: (node) => onChange(replaceNode(root, node)),
@@ -339,8 +339,9 @@ function ComparisonEditor({
   index: number;
   siblings: number;
 }) {
-  const { instruments, editable } = useEditor();
-  const instrumentId = instruments[0]?.id ?? '';
+  const editor = useEditor();
+  const { editable } = editor;
+  const instrumentId = defaultInstrumentOf(editor);
   const range = RANGE_OPERATORS.includes(c.operator);
   const unary = UNARY_OPERATORS.includes(c.operator);
   const yesNo = isYesNoExpr(c.left);

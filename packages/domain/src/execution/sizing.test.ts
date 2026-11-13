@@ -9,7 +9,7 @@ const order = (
   side: PlannedOrder['side'],
   type: PlannedOrder['quantity']['type'],
   value: string,
-  rounding: 'down' | 'nearest' = 'down',
+  rounding: 'up' | 'down' | 'nearest' = 'down',
 ): SizingInput['order'] => ({ side, quantity: { type, value, rounding } });
 const base = { referencePrice: d(50), equity: d(100_000), position: d(0), lotSize: d(1) };
 
@@ -27,6 +27,11 @@ describe('sizeOrder', () => {
     expect(q(order('buy', 'notional', '1020'))).toBe('20');
     expect(q(order('buy', 'notional', '1020', 'nearest'))).toBe('20');
     expect(q(order('buy', 'notional', '1040', 'nearest'))).toBe('21');
+    // Round up (N272): any part of a unit buys a whole one, so never below 1.
+    expect(q(order('buy', 'notional', '1020', 'up'))).toBe('21');
+    expect(q(order('buy', 'notional', '1000', 'up'))).toBe('20');
+    expect(q(order('buy', 'notional', '10', 'up'))).toBe('1');
+    expect(q(order('buy', 'notional', '10'))).toBe('zero_quantity');
     expect(q(order('sell_short', 'pct_equity', '5'))).toBe('100');
     const risk = (
       value: string,
