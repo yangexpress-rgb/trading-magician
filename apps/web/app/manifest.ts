@@ -1,0 +1,31 @@
+import type { MetadataRoute } from 'next';
+
+/**
+ * Web app manifest (N250, ADR 0089). Lets Chrome "Install" and Safari
+ * "Add to Dock" open Trading Magician in its own window with its own name and
+ * icon. There is no service worker and nothing is cached for offline use, so
+ * prices and orders always come live from the server.
+ */
+export default function manifest(): MetadataRoute.Manifest {
+  return {
+    id: '/',
+    name: 'Trading Magician',
+    short_name: 'Trading Magician',
+    description: 'Plan, test and run multi-asset trading strategies. Paper trading only.',
+    start_url: '/strategy-lab',
+    scope: '/',
+    display: 'standalone',
+    background_color: '#f6f7f9',
+    theme_color: '#ffffff',
+    icons: [
+      { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      {
+        src: '/icons/icon-maskable-512.png',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'maskable',
+      },
+    ],
+  };
+}
