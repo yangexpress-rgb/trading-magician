@@ -35,9 +35,14 @@ with prices and limits as placeholders he can change.
   workaround, to make a new one. `assertWithinLimit` skips `savedStrategies` when the caller is a
   platform admin (`is_platform_admin()`, ADR 0037: the one admin role, granted only by
   `users:grant-admin`; never an email address). The exemption is a fixed set, `ADMIN_EXEMPT`, holding
-  that one limit: active strategies, back tests, accounts and the feature gates still apply to admins
+  that one limit (N251 below adds active strategies): back tests, accounts and the feature gates still apply to admins
   as to anyone on their plan, and plans, entitlements and billing are unchanged. An admin's usage can
   read above the plan's allowance on Settings › Subscription and billing.
+- **Platform admins skip the running-strategy cap too (amended 2026-11-13, design v1.2 N251).**
+  `ADMIN_EXEMPT` also holds `activeStrategies`: Start and Resume (`assertCanResume`) don't count an
+  admin's running strategies. The paper risk limits are not plan limits and still apply. A plan change
+  still pauses an admin's strategies over the new plan's limit (billing is unchanged, and the worker
+  role cannot read `is_platform_admin()`); the admin can resume them.
 - **Lowering a limit never deletes anything.** Over-limit strategies and accounts stay; only new ones
   are refused. What a downgrade does to running strategies is ADR 0023's subject.
 - **Tests.** New workspaces can start on another plan through `SIGNUP_PLAN` (web), which end-to-end
