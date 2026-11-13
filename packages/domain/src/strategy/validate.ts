@@ -18,7 +18,7 @@ import {
 import { extendedHoursEligible } from './extended-hours';
 import { groupDefinition } from './groups';
 import { checkTiming } from './timing';
-import { finestBarMinutes, isCalendarSchedule } from './schedule';
+import { finestBarMinutes, isCalendarSchedule, rulesReadIntraday } from './schedule';
 import {
   collectInstrumentUses,
   exprDepth,
@@ -1762,7 +1762,11 @@ export const RISK_LABELS: Record<(typeof REQUIRED_RISK_LIMITS)[number], string> 
  */
 function checkSessionValues(def: StrategyDefinition, add: Add) {
   const daily = finestBarMinutes(def) >= 1440;
+  // Paper loads only the series the rules read (O157): a Check Entry or Check
+  // Exit cadence alone gives back tests intraday bars but not paper (N260).
+  const rulesIntraday = rulesReadIntraday(def);
   const warned = new Set<string>();
+  const warnedPaper = new Set<string>();
   for (const { tree, where } of conditionTrees(def)) {
     for (const c of walkComparisons(tree)) {
       for (const e of [c.left, c.right, c.upper].flatMap((x) => (x ? [...walkExpr(x)] : []))) {
@@ -1783,6 +1787,16 @@ function checkSessionValues(def: StrategyDefinition, add: Add) {
             'warning',
             'session_needs_intraday',
             `${label}: Session values need an intraday bar size in this strategy.`,
+            path,
+            c.id,
+          );
+        }
+        if (!daily && !rulesIntraday && !warnedPaper.has(e.metric)) {
+          warnedPaper.add(e.metric);
+          add(
+            'warning',
+            'session_needs_rule_series',
+            `${label}: Session values need an intraday series in this strategy's rules to work in paper trading; checks alone do not load one.`,
             path,
             c.id,
           );

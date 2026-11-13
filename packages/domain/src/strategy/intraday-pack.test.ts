@@ -87,6 +87,56 @@ describe('session values in the registry (N254)', () => {
     ).toBe(false);
   });
 
+  it('warns that paper needs an intraday rule series when only a check cadence is intraday (O157, N260)', () => {
+    const code = 'session_needs_rule_series';
+    // Daily rules, an intraday Check Exit: back tests have bars, paper does not.
+    const checksOnly = readingVwap('1d');
+    checksOnly.exit.schedule = { which: 'every', bar: '5m', days: 'daily' };
+    const w = validateStrategy(checksOnly, context()).warnings.filter((x) => x.code === code);
+    expect(w.map((x) => x.message)).toEqual([
+      "Session VWAP: Session values need an intraday series in this strategy's rules to work in paper trading; checks alone do not load one.",
+    ]);
+    expect(validateStrategy(checksOnly, context()).errors).toEqual([]);
+    // A rule reading 5-minute closes loads the series on paper: no warning.
+    const ruled = readingVwap('5m');
+    expect(validateStrategy(ruled, context()).warnings.some((x) => x.code === code)).toBe(false);
+    // Daily only: the intraday bar size warning covers it, not this one.
+    const daily = validateStrategy(readingVwap('1d'), context()).warnings.map((x) => x.code);
+    expect(daily).toContain('session_needs_intraday');
+    expect(daily).not.toContain(code);
+  });
+
+  it('does not warn the three acceptance strategies (S00032-EN, S00033-EN, S00034-ED) on re-save', () => {
+    const shaped = (children: StrategyDefinition['entry']['condition']['children']) => {
+      const def = validDefinition();
+      def.entry.condition.children = children;
+      def.entry.schedule = { which: 'every', bar: '5m', days: 'daily' };
+      def.execution.flattenAtSessionEnd = true;
+      return def;
+    };
+    const close5 = (id: string) => market(id, { interval: '5m' });
+    const orb = shaped([
+      comparison('orb', close5('o1'), 'crosses_above', {
+        ...sessionValue('session.opening_high'),
+        params: { rangeMinutes: 30 },
+      }),
+    ]);
+    const vwap = shaped([comparison('vw', close5('v1'), 'lte', sessionValue('session.vwap'))]);
+    const gap = shaped([
+      comparison('gap', market('g0', { field: 'open', interval: '1d' }), 'gt', constant('1')),
+      comparison('go', close5('g1'), 'gt', {
+        ...sessionValue('session.opening_high'),
+        params: { rangeMinutes: 5 },
+      }),
+    ]);
+    gap.entry.schedule = { which: 'second', bar: '5m', days: 'daily' };
+    for (const def of [orb, vwap, gap]) {
+      const codes = validateStrategy(def, context()).warnings.map((w) => w.code);
+      expect(codes).not.toContain('session_needs_rule_series');
+      expect(codes).not.toContain('session_needs_intraday');
+    }
+  });
+
   it('refuses bars ago on a session value', () => {
     const def = readingVwap('5m');
     def.entry.condition.children = [
