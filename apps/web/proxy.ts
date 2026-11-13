@@ -37,7 +37,10 @@ export function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     {
-      source: '/((?!api/|_next/static|_next/image|favicon.ico).*)',
+      // The manifest and app icons must load without a session: browsers fetch
+      // them without cookies when installing the app (N250).
+      source:
+        '/((?!api/|_next/static|_next/image|favicon.ico|manifest.webmanifest|icon.svg|apple-icon.png|icons/).*)',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },
