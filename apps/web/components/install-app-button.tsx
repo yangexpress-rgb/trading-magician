@@ -2,6 +2,7 @@
 
 import { Button, Dialog, InstallIcon } from '@tm/ui';
 import { useEffect, useState } from 'react';
+import { insideAppTab, runningAsInstalledApp } from '@/lib/app-mode';
 
 /** Chrome and Edge's install prompt event (not in the DOM typings). */
 interface InstallPromptEvent extends Event {
@@ -18,14 +19,6 @@ function detectBrowser(ua: string): Browser {
   return 'other';
 }
 
-function runningAsApp(): boolean {
-  return (
-    window.matchMedia('(display-mode: standalone)').matches ||
-    window.matchMedia('(display-mode: tabbed)').matches ||
-    (navigator as Navigator & { standalone?: boolean }).standalone === true
-  );
-}
-
 /**
  * Sidebar "Install desktop app" (N252, ADR 0089). In Chrome and Edge it opens
  * the browser's own install prompt; elsewhere, or once that prompt is no
@@ -38,7 +31,7 @@ export function InstallAppButton() {
   const [browser, setBrowser] = useState<Browser>('other');
 
   useEffect(() => {
-    setInApp(runningAsApp());
+    setInApp(runningAsInstalledApp() || insideAppTab());
     setBrowser(detectBrowser(navigator.userAgent));
     const onPrompt = (e: Event) => {
       e.preventDefault();
