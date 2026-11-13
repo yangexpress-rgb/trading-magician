@@ -48,6 +48,11 @@ export interface AgentProfile {
   redirectHosts?: readonly string[];
   /** OAuth profiles that also offer an agent token, in Advanced (N271). */
   tokenFallback?: boolean;
+  /**
+   * Ask AI panel (N272): the agent's own page that opens with a prompt filled
+   * in, the URL-encoded prompt appended. Agents without one get Copy prompt.
+   */
+  askUrl?: string;
 }
 
 export const AGENT_PROFILES: readonly AgentProfile[] = [
@@ -69,6 +74,8 @@ export const AGENT_PROFILES: readonly AgentProfile[] = [
       'MCP server: {endpoint}\nTransport: Streamable HTTP\nHeader: Authorization: Bearer {token}',
     redirectHosts: ['agent.meta.ai'],
     clientNameHints: ['muse'],
+    // Fills Muse's message box without sending (checked 2026-11-13).
+    askUrl: 'https://muse.ai/?prompt=',
   },
   {
     id: 'claude',
@@ -91,6 +98,7 @@ export const AGENT_PROFILES: readonly AgentProfile[] = [
       'Back in Claude, turn the connector on in a chat from the tools menu.',
     ],
     clientNameHints: ['claude', 'anthropic'],
+    askUrl: 'https://claude.ai/new?q=',
   },
   {
     id: 'chatgpt',
@@ -113,6 +121,7 @@ export const AGENT_PROFILES: readonly AgentProfile[] = [
       'In a chat, add Trading Magician from the tools menu.',
     ],
     clientNameHints: ['chatgpt', 'openai'],
+    askUrl: 'https://chatgpt.com/?q=',
   },
   {
     id: 'claude-code',

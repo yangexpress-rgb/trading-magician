@@ -18,6 +18,7 @@ import {
   createStrategy,
   getBacktest,
   getLibraryEntry,
+  getScreenSnapshot,
   getStockScreen,
   getStockScreenData,
   getStrategy,
@@ -529,6 +530,35 @@ const getPaperAccounts = tool({
     }),
 });
 
+const getScreenContext = tool({
+  name: 'get_screen_context',
+  title: 'Get screen context',
+  description:
+    "What the person was looking at in Trading Magician when they asked you a question from the app's Ask AI panel: the page, the strategy, theory, back test or symbol on it, and the page text they chose to share, with their question. The prompt names a code such as K7Q2MX9A; leave code out to get their latest snapshot. Snapshots last 24 hours. Look items up with the other tools for full detail.",
+  scope: 'read',
+  input: z.object({
+    code: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9]{8}$/, 'Snapshot codes are 8 letters and digits')
+      .optional()
+      .describe('The snapshot code from the prompt, e.g. K7Q2MX9A. Omit for the latest.'),
+  }),
+  run: async (ctx, a) =>
+    ctx.tx(async (t) => {
+      const snap = await getScreenSnapshot(t, ctx.userId, a.code, ctx.now());
+      if (!snap) {
+        throw new HttpError(
+          'not_found',
+          a.code
+            ? `No screen snapshot ${a.code.toUpperCase()}: it may have expired (they last 24 hours). Ask the person to ask again from the app.`
+            : 'No screen snapshot in the last 24 hours. Ask the person to use Ask AI in the app.',
+        );
+      }
+      return { ...snap, appUrl: ctx.appUrl };
+    }),
+});
+
 // ---------------------------------------------------------------------------
 // Operate tools
 
@@ -758,6 +788,7 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   getBacktestTool,
   screenStocks,
   getPaperAccounts,
+  getScreenContext,
   createStrategyTool,
   updateStrategyTool,
   runBacktestTool,
