@@ -33,8 +33,9 @@ desktop app (Electron or similar). Yong chose the second.
 
 ## Consequences
 
-- Chrome shows an Install icon in the address bar; Safari 17+ on macOS offers File > Add to
-  Dock. Either opens the app in its own window with its own Dock icon and no browser tabs.
+- Mac: Chrome shows an Install icon in the address bar; Safari 17+ offers File > Add to Dock.
+  Windows: Chrome and Edge both install it from the same manifest (Edge: Apps > Install this
+  site as an app), with a Start menu and taskbar icon. Either opens the app in its own window with its own Dock icon and no browser tabs.
 - Links to other sites still open in the browser. The installed app shares the browser's
   cookies in Chrome; a Safari web app keeps its own website data, so it may ask to sign in once.
 - e2e `install-app.spec.ts` checks the manifest and icons load signed out and that Chrome
