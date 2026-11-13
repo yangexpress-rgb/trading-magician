@@ -17,7 +17,7 @@ export interface MlSnapshotLoop {
 
 export interface MlSnapshotLoopOptions extends Omit<
   SnapshotJobOptions,
-  'userId' | 'history' | 'maxChunks' | 'now' | 'logger'
+  'userId' | 'history' | 'maxChunks' | 'now' | 'logger' | 'labelAttempts'
 > {
   db: Database;
   history: (userId: string) => SnapshotJobOptions['history'];
@@ -35,6 +35,7 @@ export function startMlSnapshotLoop(options: MlSnapshotLoopOptions): MlSnapshotL
   let timer: ReturnType<typeof setTimeout> | undefined;
   let running: Promise<void> | undefined;
   let quietSince = '';
+  const labelAttempts = new Map<string, string>();
 
   const pass = async () => {
     const owner = await options.db.transaction((tx) => sharedFeedOwner(tx));
@@ -51,6 +52,7 @@ export function startMlSnapshotLoop(options: MlSnapshotLoopOptions): MlSnapshotL
       history: options.history(owner),
       now: options.now ?? (() => new Date()),
       maxChunks: 1,
+      labelAttempts,
     });
     if (result.snapshots.length > 0 || result.labels > 0)
       options.logger.info(

@@ -40,6 +40,7 @@ function provider(mutateAfterT: boolean, firstBar = '2023-01-03'): HistoricalDat
     id: 'ml-test',
     intervals: ['1d'],
     async getBars(req) {
+      if (req.symbol === 'MLZ') throw new Error('no bars for MLZ');
       const k = SYMBOLS.indexOf(req.symbol);
       let s = 1000 + k * 7919;
       const rand = () => {
@@ -319,5 +320,62 @@ describe('ML feature snapshots (brief §5)', () => {
       pendingSnapshots: 0,
       pendingLabels: 0,
     });
+  });
+
+  it('retries a missing label at most once per trading day (staging 2026-11-13)', async () => {
+    const id = await newModel('snap-retry');
+    await t.owner.db
+      .update(schema.mlModels)
+      .set({ snapshotsFrom: '2026-01-01' })
+      .where(eq(schema.mlModels.id, id));
+    const noBars = await t.worker.db.transaction((tx) =>
+      registerInstrument(tx, {
+        assetClass: 'stock',
+        symbol: 'MLZ',
+        venue: 'NYSE',
+        displayName: 'MLZ',
+        provider: 'alpaca',
+        providerId: 'MLZ-test',
+      }),
+    );
+    const labelAttempts = new Map<string, string>();
+    let requests = 0;
+    const base = provider(false);
+    const counted: HistoricalDataProvider = {
+      ...base,
+      getBars: (req) => {
+        requests++;
+        return base.getBars(req);
+      },
+    };
+    /** Whether the pass loaded any bars, i.e. retried the missing label. */
+    const pass = async (now: Date, attempts?: Map<string, string>) => {
+      requests = 0;
+      await runSnapshotPass({
+        db: t.worker.db,
+        history: counted,
+        fundamentals: fundamentals(false),
+        members: async () => [...members, noBars],
+        userId: '00000000-0000-4000-8000-000000000001',
+        now: () => now,
+        logger: quiet,
+        modelKeys: ['snap-retry'],
+        features: FEATURES,
+        ...(attempts ? { labelAttempts: attempts } : {}),
+      });
+      return requests > 0;
+    };
+    // Jan 30's window ends Mar 3: MLZ's label is missing and within the retry window.
+    expect(await pass(NOW, labelAttempts)).toBe(true);
+    const rows = await rowsOf(id);
+    expect(rows.labels.filter((l) => l.asOf === '2026-01-30')).toHaveLength(members.length);
+    // Same trading day: no retry.
+    expect(await pass(NOW, labelAttempts)).toBe(false);
+    // A new trading day: one retry, then quiet again.
+    const nextDay = new Date('2026-03-17T15:00:00Z');
+    expect(await pass(nextDay, labelAttempts)).toBe(true);
+    expect(await pass(nextDay, labelAttempts)).toBe(false);
+    // Without the map (a fresh worker), the date is due again.
+    expect(await pass(nextDay)).toBe(true);
   });
 });

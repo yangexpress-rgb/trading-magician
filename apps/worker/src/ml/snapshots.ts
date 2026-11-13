@@ -71,6 +71,12 @@ export interface SnapshotJobOptions {
   onProgress?: () => Promise<void>;
   /** Only these models (tests); every registered model otherwise. */
   modelKeys?: readonly string[];
+  /**
+   * Missing labels already retried, by model id and date, with the last closed
+   * day of that attempt: a retry happens at most once per new trading day, not
+   * every pass. The loop keeps one map for its lifetime.
+   */
+  labelAttempts?: Map<string, string>;
   /** The feature set; v1 unless a test narrows it. */
   features?: readonly FeatureSpec[];
 }
@@ -149,6 +155,7 @@ async function snapshotModel(
     return (
       state.dates.has(d) &&
       end >= retryFrom &&
+      options.labelAttempts?.get(`${model.id}|${d}`) !== lastDay &&
       (state.labelled.get(d) ?? 0) < (state.dates.get(d) ?? 0)
     );
   });
@@ -171,6 +178,7 @@ async function snapshotModel(
     const snapDates = chunk.filter((d) => toSnapshot.includes(d));
     const labelDates = chunk.filter((d) => toLabel.includes(d));
     const done = await snapshotChunk(options, model, members, refs, snapDates, labelDates, lastDay);
+    for (const d of labelDates) options.labelAttempts?.set(`${model.id}|${d}`, lastDay);
     result.snapshots.push(...done.snapshots);
     result.labels += done.labels;
     result.pendingSnapshots -= done.snapshots.length;
@@ -239,7 +247,8 @@ async function snapshotChunk(
       options.history,
       // Always from the model's first date: Wilder-smoothed RSI depends on where its
       // history starts, so a fixed start keeps every value independent of chunking.
-      planExprs(exprs, model.snapshotsFrom, loadTo),
+      // A labels-only chunk computes no features, so it needs bars from its first date only.
+      planExprs(exprs, snapDates.length > 0 ? model.snapshotsFrom : (all[0] as string), loadTo),
       refs,
       options.onProgress,
       new Set(ids),
