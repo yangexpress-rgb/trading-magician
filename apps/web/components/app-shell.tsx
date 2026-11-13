@@ -12,6 +12,7 @@ import {
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { EscapeCloses } from './escape-closes';
+import { InstallAppButton } from './install-app-button';
 import { NavLink } from './nav-link';
 import { NotificationsLink } from './notifications-link';
 import { SignOutButton } from './sign-out-button';
@@ -97,6 +98,7 @@ export function AppShell({
         </nav>
         <div className="flex flex-wrap px-2 pb-2 md:flex-col">
           <NotificationsLink />
+          <InstallAppButton />
         </div>
         <div className="hidden px-4 py-4 text-xs text-ink-muted md:absolute md:bottom-0 md:block md:w-full">
           <p className="truncate" title={email}>

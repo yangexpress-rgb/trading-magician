@@ -14,6 +14,13 @@ export default function manifest(): MetadataRoute.Manifest {
     description: 'Plan, test and run multi-asset trading strategies. Paper trading only.',
     start_url: '/strategy-lab',
     scope: '/',
+    // Browsers that offer tabbed app windows show tabs, so links can open
+    // beside the current page; the rest use a plain app window (N251).
+    // 'tabbed' is newer than Next.js's manifest type.
+    display_override: [
+      'tabbed',
+      'standalone',
+    ] as unknown as MetadataRoute.Manifest['display_override'],
     display: 'standalone',
     background_color: '#f6f7f9',
     theme_color: '#ffffff',
