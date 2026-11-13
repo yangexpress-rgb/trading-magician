@@ -8,6 +8,7 @@ const TOOLS = [
   { href: '/research', label: 'Price charts' },
   { href: '/research/screener', label: 'Stock screener' },
   { href: '/research/deals', label: 'Deals' },
+  { href: '/research/patterns', label: 'Patterns' },
 ];
 
 /** The tools of Quantitative Research (§11), one page each. */

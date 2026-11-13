@@ -43,6 +43,9 @@ describe('worker env', () => {
       EVENTS_FAKE: false,
       ML_SNAPSHOTS: 'on',
       ML_SNAPSHOT_POLL_MS: 600000,
+      PATTERN_SNAPSHOT_FROM: '2016-01-04',
+      PATTERN_SNAPSHOT_GROUPS: 'sp500,ndx,dji,sp400,sp600',
+      PATTERN_SNAPSHOT_POLL_MS: 300000,
       EARNINGS_CALENDAR_PROVIDER: 'fmp',
     });
   });
@@ -114,5 +117,18 @@ describe('events env (ADR 0058)', () => {
       'none',
     );
     expect(() => loadWorkerEnv({ EARNINGS_CALENDAR_PROVIDER: 'paid' })).toThrow();
+  });
+});
+
+describe('pattern snapshot switch (O161)', () => {
+  it('is on by default in Railway staging only; the variable wins', async () => {
+    const { patternSnapshotsOn } = await import('./env');
+    expect(patternSnapshotsOn({})).toBe(false);
+    expect(patternSnapshotsOn({ RAILWAY_ENVIRONMENT_NAME: 'production' })).toBe(false);
+    expect(patternSnapshotsOn({ RAILWAY_ENVIRONMENT_NAME: 'staging' })).toBe(true);
+    expect(
+      patternSnapshotsOn({ RAILWAY_ENVIRONMENT_NAME: 'staging', PATTERN_SNAPSHOT_ENABLED: 'off' }),
+    ).toBe(false);
+    expect(patternSnapshotsOn({ PATTERN_SNAPSHOT_ENABLED: 'on' })).toBe(true);
   });
 });

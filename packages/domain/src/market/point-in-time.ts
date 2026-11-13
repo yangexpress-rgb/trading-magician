@@ -32,6 +32,10 @@ export const FUNDAMENTAL_FIELDS = [
   'cash',
   /** Consecutive years of higher annual dividends per share, ending with the latest year. */
   'dividend_streak',
+  /** Net cash from operating activities, trailing twelve months (pattern brief §4: FCF margin). */
+  'ocf_ttm',
+  /** Payments to acquire property, plant and equipment, trailing twelve months. */
+  'capex_ttm',
 ] as const;
 export type FundamentalField = (typeof FUNDAMENTAL_FIELDS)[number];
 

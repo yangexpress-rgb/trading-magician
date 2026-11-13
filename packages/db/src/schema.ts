@@ -2856,3 +2856,53 @@ export const mlReports = pgTable('ml_report', {
   codeVersion: text('code_version').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ---------------------------------------------------------------------------
+// Pattern discovery (pattern brief 2026-11-13, ADR 0091)
+
+/**
+ * The point-in-time factor store (brief §3, N261): one row per instrument and
+ * trading day with that day's raw factor values as of its close (factor id →
+ * value; an unknown factor is left out, never 0) and the day's bar as ratios
+ * to the previous adjusted close, which the miner labels outcomes from and
+ * the event study reads. Global market data, like the options signals: only
+ * the worker writes it, insert-only (a row is never rewritten).
+ */
+export const factorSnapshots = pgTable(
+  'factor_snapshot',
+  {
+    asOf: date('as_of', { mode: 'string' }).notNull(),
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => instruments.id),
+    values: jsonb('values').notNull(),
+    /** Close ÷ previous close − 1 (adjusted); null on an instrument's first bar. */
+    closeRet: doublePrecision('close_ret'),
+    /** High ÷ previous close − 1. */
+    highRel: doublePrecision('high_rel'),
+    /** Low ÷ previous close − 1. */
+    lowRel: doublePrecision('low_rel'),
+    catalogueVersion: integer('catalogue_version').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.asOf, t.instrumentId] }),
+    index('factor_snapshot_instrument_idx').on(t.instrumentId, t.asOf),
+  ],
+);
+
+/**
+ * Known values per factor and day (brief §3 coverage report), kept as the
+ * snapshot job writes rows: the report and every scan's effective range per
+ * category read this instead of counting millions of snapshot rows. The
+ * factor `_rows` counts the day's snapshot rows.
+ */
+export const factorCoverage = pgTable(
+  'factor_coverage',
+  {
+    factor: text('factor').notNull(),
+    asOf: date('as_of', { mode: 'string' }).notNull(),
+    known: integer('known').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.factor, t.asOf] })],
+);
