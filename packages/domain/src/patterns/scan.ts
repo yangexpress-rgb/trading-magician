@@ -9,7 +9,7 @@ import {
 } from './factors';
 
 /**
- * Pattern scans (pattern brief §6–§8, N262–N264): the scan config the web
+ * Pattern scans (pattern brief §6–§8, N266–N268): the scan config the web
  * app queues and the miner reads, and the plain-words text every page shows.
  */
 

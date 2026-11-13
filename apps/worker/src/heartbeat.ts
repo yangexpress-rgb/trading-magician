@@ -1,5 +1,6 @@
 import {
   expireShares,
+  pruneAgentLog,
   pruneRateLimits,
   purgeDeletedAccounts,
   recordHeartbeat,
@@ -21,7 +22,8 @@ export interface HeartbeatOptions {
 /**
  * Marks the worker alive for the system health check, and about once an hour
  * clears old rate-limit windows (ADR 0025), purges accounts deleted 30 days
- * ago (§20 #14) and expires shares nobody answered in 30 days (ADR 0056).
+ * ago (§20 #14), expires shares nobody answered in 30 days (ADR 0056) and
+ * drops agent activity older than 90 days (ADR 0092).
  */
 export function startHeartbeatLoop(options: HeartbeatOptions): HeartbeatLoop {
   let running = true;
@@ -46,6 +48,8 @@ export function startHeartbeatLoop(options: HeartbeatOptions): HeartbeatLoop {
           if (purged > 0) options.logger.info({ purged }, 'purged deleted accounts');
           const expired = await expireShares(options.db);
           if (expired > 0) options.logger.info({ expired }, 'expired unanswered shares');
+          const calls = await pruneAgentLog(options.db);
+          if (calls > 0) options.logger.info({ calls }, 'pruned agent activity');
         }
       } catch (error) {
         const e = error as { name?: string; message?: string };

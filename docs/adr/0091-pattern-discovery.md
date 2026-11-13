@@ -55,16 +55,16 @@ Supporting choices:
   session factors only for the options universe (O158), fundamentals and prices further back.
 - Universes are today's members, so survivorship bias applies; the pattern pages say so.
 
-## Addendum: the miner, the pages, promotion and decay (N262–N266)
+## Addendum: the miner, the pages, promotion and decay (N266–N270)
 
 - The miner lives in the batch service (`apps/ml-trainer/miner/`) behind `PATTERN_MINER_ENABLED`.
   The web app writes the queued `pattern_scan` row itself, with the universe members and the
-  catalogue resolved then (O164), and the miner claims it with `for update skip locked`.
+  catalogue resolved then (O170), and the miner claims it with `for update skip locked`.
 - Patterns and occurrences are written once, in the scan's transaction. A trigger refuses any
   change to a pattern's rule, stats, status, scan, owner or rank; decay monitoring and
   Re-verify write only `decay_state`, `decay_stats` and `last_scored`, and add occurrences in
-  the `fresh` window (O166).
+  the `fresh` window (O172).
 - The binomial p-value treats occurrences as independent, which overlapping horizons and
-  correlated stocks make optimistic (O165); the pages say so.
+  correlated stocks make optimistic (O171); the pages say so.
 - Promotion reuses the Theory Library's own registration (T, daily, stocks), so numbering,
   sharing and editing need nothing new, and creates no Lab strategy (O159).

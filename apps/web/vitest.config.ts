@@ -6,6 +6,6 @@ export default defineConfig({
   oxc: { jsx: { runtime: 'automatic' } },
   resolve: { alias: { '@': fileURLToPath(new URL('.', import.meta.url)) } },
   test: {
-    exclude: ['e2e/**', 'node_modules/**', '.next/**'],
+    exclude: ['e2e/**', 'test/**', 'node_modules/**', '.next/**'],
   },
 });

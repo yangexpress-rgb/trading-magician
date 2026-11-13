@@ -649,8 +649,15 @@
     {
       "idx": 92,
       "version": "7",
-      "when": 1794584006583,
-      "tag": "0092_pattern_scans",
+      "when": 1794585151850,
+      "tag": "0092_agent_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1794588400102,
+      "tag": "0093_pattern_scans",
       "breakpoints": true
     }
   ]

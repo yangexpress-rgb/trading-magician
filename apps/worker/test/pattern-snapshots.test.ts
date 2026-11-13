@@ -174,7 +174,7 @@ beforeAll(async () => {
         }),
       ),
     );
-}, 120_000);
+});
 
 afterAll(async () => {
   await t?.drop();
@@ -230,7 +230,7 @@ describe('pattern factor snapshots', () => {
     const session = report.categories.find((c) => c.category === 'session');
     expect(session?.firstAny).toBe(FROM);
     expect(report.categories.find((c) => c.category === 'options')?.factorsWithData).toBe(0);
-  }, 60_000);
+  });
 
   it('leaks nothing: rows up to T are identical after every later input changes', async () => {
     const other = await createTestDatabase();
@@ -265,7 +265,8 @@ describe('pattern factor snapshots', () => {
     } finally {
       await other.drop();
     }
-  }, 120_000);
+    // Builds a second test database, which alone takes seconds.
+  }, 60_000);
 
   it('skips a member without bars until a new day closes', async () => {
     const attempts = new Map<string, string>();
@@ -299,5 +300,5 @@ describe('pattern factor snapshots', () => {
     };
     expect((await runPatternSnapshotPass(opts)).members).toBe(1);
     expect((await runPatternSnapshotPass(opts)).members).toBe(0);
-  }, 30_000);
+  });
 });

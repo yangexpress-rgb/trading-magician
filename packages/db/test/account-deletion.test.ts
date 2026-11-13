@@ -164,6 +164,10 @@ describe('account purge (design v1.1 D1)', () => {
       'pattern_scan',
       'pattern',
       'pattern_occurrence',
+      'agent_connection',
+      'agent_credential',
+      'agent_oauth_code',
+      'agent_call_log',
       // Kept with names and settings removed.
       'profile',
       'data_feed_connection',

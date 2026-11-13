@@ -162,7 +162,12 @@ BEGIN
     DELETE FROM custom_feed_test WHERE user_id = v_user.id;
     DELETE FROM custom_feed_cache WHERE user_id = v_user.id;
     DELETE FROM custom_feed_usage WHERE user_id = v_user.id;
-    -- Pattern discovery (0092): scans, with their patterns and occurrences, are research.
+    -- AI agent connections (0092): credentials, codes, activity and the connections.
+    DELETE FROM agent_credential WHERE user_id = v_user.id;
+    DELETE FROM agent_oauth_code WHERE user_id = v_user.id;
+    DELETE FROM agent_call_log WHERE user_id = v_user.id;
+    DELETE FROM agent_connection WHERE user_id = v_user.id;
+    -- Pattern discovery (0093): scans, with their patterns and occurrences, are research.
     DELETE FROM pattern_scan WHERE user_id = v_user.id;
     -- Shares (0071): names go; what the person sent and nobody took goes too.
     UPDATE strategy_share SET sender_name = NULL WHERE sender_id = v_user.id;
