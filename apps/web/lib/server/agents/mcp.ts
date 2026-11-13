@@ -308,7 +308,7 @@ async function callTool(
           error: {
             code: 'insufficient_scope',
             message:
-              'This connection is read only. To let this agent create and change strategies and run back tests, connect it again with "Read and operate" in Trading Magician › Settings › AI agents.',
+              'This connection is read only. To let this agent create and change strategies and run back tests, connect it again with "Can view and make changes" in Trading Magician › Settings › AI agents.',
           },
         },
         true,
