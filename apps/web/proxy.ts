@@ -19,7 +19,12 @@ export function proxy(request: NextRequest) {
   // Fast redirect for visitors without a session cookie. This is a convenience
   // only; every protected page and action re-checks the session on the server.
   if (!isPublic && !getSessionCookie(request)) {
-    return NextResponse.redirect(new URL('/sign-in', request.url));
+    const signIn = new URL('/sign-in', request.url);
+    // An AI agent's sign-in comes back to its consent screen afterwards (N263).
+    if (pathname === '/oauth/authorize') {
+      signIn.searchParams.set('next', `${pathname}${request.nextUrl.search}`);
+    }
+    return NextResponse.redirect(signIn);
   }
 
   const nonce = btoa(crypto.randomUUID());
@@ -39,8 +44,9 @@ export const config = {
     {
       // The manifest and app icons must load without a session: browsers fetch
       // them without cookies when installing the app (N250).
+      // OAuth discovery documents for AI agents are public too (ADR 0092).
       source:
-        '/((?!api/|_next/static|_next/image|favicon.ico|manifest.webmanifest|icon.svg|apple-icon.png|icons/).*)',
+        '/((?!api/|\\.well-known/|_next/static|_next/image|favicon.ico|manifest.webmanifest|icon.svg|apple-icon.png|icons/).*)',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },

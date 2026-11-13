@@ -60,6 +60,14 @@ export function loadServerEnv(source: Record<string, string | undefined> = proce
       SENTRY_ENVIRONMENT: z.string().max(40).optional(),
       RAILWAY_ENVIRONMENT_NAME: z.string().max(40).optional(),
       RAILWAY_GIT_COMMIT_SHA: z.string().max(64).optional(),
+      /**
+       * Agent connections (ADR 0092): the MCP endpoint, agent tokens and the
+       * OAuth sign-in for AI agents. Off until the live acceptance passes.
+       */
+      AGENT_API_ENABLED: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((v) => v === 'true'),
       /** Tests only: an in-process stand-in for Stripe with its own checkout and portal pages. */
       BILLING_FAKE: z
         .enum(['true', 'false'])

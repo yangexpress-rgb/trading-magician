@@ -2906,3 +2906,149 @@ export const factorCoverage = pgTable(
   },
   (t) => [primaryKey({ columns: [t.factor, t.asOf] })],
 );
+
+// ---------------------------------------------------------------------------
+// Agent connections (Bring your own AI agent brief, ADR 0092)
+// ---------------------------------------------------------------------------
+
+/** How an agent proves who it acts for: a pasted agent token, or an OAuth 2.1 sign-in. */
+export const agentAuthMethod = pgEnum('agent_auth_method', ['token', 'oauth']);
+/** What a connection's calls may do: read only, or read and the operate tools (brief §4). */
+export const agentScope = pgEnum('agent_scope', ['read', 'operate']);
+
+/**
+ * OAuth clients that registered themselves (RFC 7591) to reach the MCP
+ * endpoint, such as Claude's or ChatGPT's connector. Holds no user data.
+ */
+export const agentOAuthClients = pgTable(
+  'agent_oauth_client',
+  {
+    id: id(),
+    /** The public client id the agent sends; random, not the row id. */
+    clientId: text('client_id').notNull().unique(),
+    clientName: text('client_name').notNull(),
+    redirectUris: text('redirect_uris').array().notNull(),
+    /** SHA-256 of the client secret, for clients that asked for one; null for public clients. */
+    secretHash: char('secret_hash', { length: 64 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('agent_oauth_client_name', sql`char_length(${t.clientName}) BETWEEN 1 AND 200`),
+    check('agent_oauth_client_redirects', sql`cardinality(${t.redirectUris}) BETWEEN 1 AND 10`),
+  ],
+);
+
+/**
+ * One AI agent the person connected (brief §2b): a minted agent token, or an
+ * approved OAuth sign-in. Revoking it refuses every credential it issued.
+ */
+export const agentConnections = pgTable(
+  'agent_connection',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** The agent profile it was made for (apps/web/lib/agents/profiles.ts). */
+    profileId: text('profile_id').notNull(),
+    name: text('name').notNull(),
+    authMethod: agentAuthMethod('auth_method').notNull(),
+    scope: agentScope('scope').notNull().default('read'),
+    oauthClientId: uuid('oauth_client_id').references(() => agentOAuthClients.id, {
+      onDelete: 'set null',
+    }),
+    /** The token's prefix and last four characters, to tell tokens apart; never the token. */
+    tokenHint: text('token_hint'),
+    /** A token's expiry chosen at minting; null for none. */
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    ...timestamps(),
+  },
+  (t) => [
+    index('agent_connection_user_idx').on(t.userId, t.createdAt),
+    check('agent_connection_profile', sql`${t.profileId} ~ '^[a-z0-9-]{1,40}$'`),
+    check('agent_connection_name', sql`char_length(${t.name}) BETWEEN 1 AND 80`),
+  ],
+);
+
+/**
+ * The secrets a connection accepts, by SHA-256 only: an agent token, or an
+ * OAuth access or refresh token. The secrets themselves are never stored.
+ */
+export const agentCredentials = pgTable(
+  'agent_credential',
+  {
+    hash: char('hash', { length: 64 }).primaryKey(),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => agentConnections.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('agent_credential_connection_idx').on(t.connectionId),
+    check('agent_credential_kind', sql`${t.kind} IN ('token', 'access', 'refresh')`),
+  ],
+);
+
+/** OAuth authorization codes from the consent screen; single use, ten minutes. */
+export const agentOAuthCodes = pgTable(
+  'agent_oauth_code',
+  {
+    hash: char('hash', { length: 64 }).primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    clientId: uuid('client_id')
+      .notNull()
+      .references(() => agentOAuthClients.id, { onDelete: 'cascade' }),
+    redirectUri: text('redirect_uri').notNull(),
+    /** PKCE S256 challenge. */
+    codeChallenge: text('code_challenge').notNull(),
+    scope: agentScope('scope').notNull(),
+    profileId: text('profile_id').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    /** The connection the code made, so a replayed code can revoke it. */
+    connectionId: uuid('connection_id').references(() => agentConnections.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check('agent_oauth_code_profile', sql`${t.profileId} ~ '^[a-z0-9-]{1,40}$'`)],
+);
+
+/**
+ * Every MCP tool call an agent made, refused ones included (brief §5): the
+ * person's provenance record. Arguments are summarized, secrets left out.
+ * Kept 90 days.
+ */
+export const agentCallLog = pgTable(
+  'agent_call_log',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    connectionId: uuid('connection_id').references(() => agentConnections.id, {
+      onDelete: 'set null',
+    }),
+    tool: text('tool').notNull(),
+    args: jsonb('args').notNull().default({}),
+    outcome: text('outcome').notNull(),
+    errorClass: text('error_class'),
+    durationMs: integer('duration_ms').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('agent_call_log_user_idx').on(t.userId, t.createdAt),
+    index('agent_call_log_created_idx').on(t.createdAt),
+    check('agent_call_log_outcome', sql`${t.outcome} IN ('ok', 'error', 'refused')`),
+    check('agent_call_log_tool', sql`char_length(${t.tool}) BETWEEN 1 AND 80`),
+  ],
+);

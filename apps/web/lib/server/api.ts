@@ -1,27 +1,10 @@
 import 'server-only';
-import { BillingRequestError, BillingUnavailableError } from '@tm/billing';
-import {
-  API_ERROR_STATUS,
-  type ApiErrorBody,
-  type ApiErrorCode,
-  type ApiIssue,
-} from '@tm/contracts';
-import {
-  CredentialError,
-  IntegrationError,
-  LibraryError,
-  OrderError,
-  PlanLimitError,
-  SealError,
-  ShareError,
-  provisionWorkspace,
-  rateLimitHit,
-  StrategyError,
-  withTenant,
-  type Transaction,
-} from '@tm/db';
+import { BillingRequestError } from '@tm/billing';
+import { API_ERROR_STATUS, type ApiErrorBody, type ApiErrorCode } from '@tm/contracts';
+import { provisionWorkspace, rateLimitHit, withTenant, type Transaction } from '@tm/db';
 import { headers } from 'next/headers';
 import type { z } from 'zod';
+import { HttpError, knownError, toIssues } from './api-errors';
 import { auth } from './auth';
 import { appDb } from './db';
 import { serverEnv } from './env';
@@ -37,16 +20,7 @@ import { logger } from './log';
  *   with no internals in the response.
  */
 
-export class HttpError extends Error {
-  constructor(
-    public readonly code: ApiErrorCode,
-    message: string,
-    public readonly issues?: ApiIssue[],
-    public readonly details?: unknown,
-  ) {
-    super(message);
-  }
-}
+export { HttpError };
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 /** Changes per user per minute, counted across every web instance (ADR 0025). */
@@ -192,60 +166,17 @@ export function api<P extends Record<string, string> = Record<string, never>>(
         params,
       );
     } catch (error) {
-      if (error instanceof HttpError) {
-        return errorResponse(error.code, error.message, {
-          ...(error.issues ? { issues: error.issues } : {}),
-          ...(error.details !== undefined ? { details: error.details } : {}),
-        });
-      }
-      if (error instanceof BillingUnavailableError) {
-        return errorResponse(
-          'unavailable',
-          'Billing is not reachable right now. Try again shortly.',
-        );
-      }
       if (error instanceof BillingRequestError) {
         // The message carries no key.
         logger().warn(
           { status: error.status, reason: error.message },
           'Billing provider refused a request',
         );
-        return errorResponse(
-          'unavailable',
-          'Billing could not do that right now. Try again later.',
-        );
       }
-      if (error instanceof PlanLimitError) {
-        return errorResponse('plan_limit', error.message, { details: error.details });
-      }
-      if (error instanceof OrderError) return errorResponse(error.code, error.message);
-      if (error instanceof CredentialError) return errorResponse(error.code, error.message);
-      if (error instanceof IntegrationError) {
-        return errorResponse(
-          error.code,
-          error.message,
-          error.details !== undefined ? { details: error.details } : {},
-        );
-      }
-      if (error instanceof SealError) {
-        // A misconfigured key; the message names no secret.
-        return errorResponse('unavailable', 'Secure credential storage is not set up correctly');
-      }
-      if (error instanceof ShareError) return errorResponse(error.code, error.message);
-      if (error instanceof LibraryError) {
-        return errorResponse(error.code, error.message, {
-          ...(error.issues ? { issues: error.issues } : {}),
-          ...(error.details !== undefined ? { details: error.details } : {}),
-        });
-      }
-      if (error instanceof StrategyError) {
-        return errorResponse(error.code, error.message, {
-          ...(error.code === 'invalid_definition' && Array.isArray(error.details)
-            ? { issues: toIssues(error.details as z.core.$ZodIssue[]) }
-            : error.details !== undefined
-              ? { details: error.details }
-              : {}),
-        });
+      const known = knownError(error);
+      if (known) {
+        const { code, message, ...extra } = known;
+        return errorResponse(code, message, extra);
       }
       // Log the failure without request bodies or query parameters, which may hold user data.
       logger().error(
@@ -255,13 +186,6 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       return errorResponse('internal', 'Something went wrong. Try again.');
     }
   };
-}
-
-function toIssues(issues: readonly z.core.$ZodIssue[]): ApiIssue[] {
-  return issues.map((i) => ({
-    path: i.path.filter((p): p is string | number => typeof p !== 'symbol'),
-    message: i.message,
-  }));
 }
 
 export async function readJson<S extends z.ZodType>(
