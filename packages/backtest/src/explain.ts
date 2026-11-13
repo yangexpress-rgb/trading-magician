@@ -105,6 +105,8 @@ function calcInputs(
       if (p.checkCloseAt !== undefined) out[`${e.id}:closeAt`] = iso(p.checkCloseAt);
       if (e.field === 'days_held' && p.daysHeld !== undefined)
         out[`${e.id}:days`] = String(p.daysHeld);
+      if (e.field === 'minutes_held' && p.minutesHeld !== undefined)
+        out[`${e.id}:minutes`] = String(p.minutesHeld);
       // Gain and P/L read the latest close of the position's own bars.
       if (e.field === 'gain_pct' || e.field === 'pnl') {
         const mark = markExpr(e);

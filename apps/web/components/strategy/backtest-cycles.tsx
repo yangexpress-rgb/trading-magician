@@ -1042,6 +1042,13 @@ function ExitSignal({
     body = <div>The position reached its time limit.</div>;
   } else if (reason === 'rebalance') {
     body = <div>No longer selected at the round on this date.</div>;
+  } else if (reason === 'session_end') {
+    body = (
+      <div>
+        Still held at the session&rsquo;s last bar, so Flatten at session end closed it at that
+        bar&rsquo;s close.
+      </div>
+    );
   } else {
     body = <div className="text-ink-muted">No detail was recorded for this exit.</div>;
   }

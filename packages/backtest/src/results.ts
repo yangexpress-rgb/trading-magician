@@ -54,7 +54,13 @@ export interface BacktestTrade {
   returnPct: string | null;
   /** Which rule closed the cycle, for strategies using v1.2 rules. */
   exitReason?:
-    'condition' | 'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move' | 'trailing_stop';
+    | 'condition'
+    | 'rebalance'
+    | 'time_stop'
+    | 'atr_stop'
+    | 'expected_move'
+    | 'trailing_stop'
+    | 'session_end';
   /** Two-sided strategies (v1.2 item 8): the direction and entry group of the trade. */
   direction?: 'long' | 'short';
   group?: string;

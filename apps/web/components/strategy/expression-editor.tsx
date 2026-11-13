@@ -11,6 +11,7 @@ import {
   BUILDER_INDICATORS,
   isEventMetric,
   isMlMetric,
+  isSessionMetric,
   ML_SCORE_METRIC,
   isFundamentalMetric,
   isOptionsMetric,
@@ -52,6 +53,7 @@ const HOLDING_FIELDS: ReadonlySet<PositionExpr['field']> = new Set([
   'atrs_below_entry',
   'expected_moves_1d',
   'expected_moves_5d',
+  'minutes_held',
 ]);
 
 type Path = readonly (string | number)[];
@@ -60,7 +62,7 @@ type Kind = Expr['kind'];
  * The Type choices: fundamental (v1.2 item 6) and options (options brief v2 §6)
  * metrics are registry metrics listed on their own.
  */
-type UiKind = Kind | 'fundamental' | 'options' | 'events' | 'ml';
+type UiKind = Kind | 'fundamental' | 'options' | 'events' | 'ml' | 'session';
 
 const KIND_LABELS: Record<UiKind, string> = {
   constant: 'Fixed value',
@@ -73,10 +75,11 @@ const KIND_LABELS: Record<UiKind, string> = {
   options: 'Options metric (end-of-day)',
   events: 'Earnings, deals and rates (EDGAR, FRED)',
   ml: 'Machine learning (model scores)',
+  session: 'Session (intraday): VWAP, high/low, opening range',
   stat: 'Statistic (std. dev., z-score, Bollinger, BandWidth)',
 };
 
-type MetricCategoryFilter = 'price' | 'fundamental' | 'options' | 'events' | 'ml';
+type MetricCategoryFilter = 'price' | 'fundamental' | 'options' | 'events' | 'ml' | 'session';
 
 const categoryOf = (metric: string): MetricCategoryFilter =>
   isFundamentalMetric(metric)
@@ -87,7 +90,9 @@ const categoryOf = (metric: string): MetricCategoryFilter =>
         ? 'events'
         : isMlMetric(metric)
           ? 'ml'
-          : 'price';
+          : isSessionMetric(metric)
+            ? 'session'
+            : 'price';
 
 const uiKindOf = (expr: Expr): UiKind => {
   if (expr.kind !== 'metric') return expr.kind;
@@ -97,6 +102,9 @@ const uiKindOf = (expr: Expr): UiKind => {
 
 /** The options metric a new options value starts on: the 5-day expected move (brief §4.1). */
 const DEFAULT_OPTIONS_METRIC = 'options.expected_move_5d_pct';
+
+/** The session value a new intraday value starts on: the session VWAP (N254). */
+const DEFAULT_SESSION_METRIC = 'session.vwap';
 
 /** The event metric a new earnings/deals/rates value starts on: days since the last release (ADR 0058). */
 const DEFAULT_EVENT_METRIC = 'earnings.days_since_earnings';
@@ -275,6 +283,11 @@ export function ExpressionEditor({
                 ...ref,
                 params: { ...ref.params, ...(first ? { modelKey: first } : {}) },
               } as Expr);
+              return;
+            }
+            if (kind === 'session') {
+              const metric = newExpr('metric', fallbackInstrument, expr);
+              onChange({ ...metric, ...defaultMetricRef(DEFAULT_SESSION_METRIC) } as Expr);
               return;
             }
             if (kind === 'events') {
@@ -754,19 +767,21 @@ function PositionFields({
       <p className="col-span-full text-xs text-ink-muted">
         {expr.field === 'days_held'
           ? 'Trading days since Entry first filled, counting that day. "Is greater than or equal to 5" exits after five closes held: a holding-period exit.'
-          : expr.field === 'atrs_below_entry'
-            ? 'How far the latest close is below your entry price (above it, for a short), in ATRs as they were when Entry was decided. "Is greater than 2" is a stop 2 ATRs below entry: an ATR stop. Closes are read at the Check Exit bar size.'
-            : expr.field === 'expected_moves_1d' || expr.field === 'expected_moves_5d'
-              ? 'The move since your entry price, in expected moves from the options signal when Entry was decided; positive in your favour. "Is greater than 1" exits beyond one expected move up, "is less than -1" one down. Needs the options feed. Closes are read at the Check Exit bar size.'
-              : expr.field === 'off_peak_pct'
-                ? 'How far the latest close is below the best close since Entry filled (above the lowest, for a short), in percent; the best close starts at the entry price. "Is greater than 5" is a 5% trailing stop. Closes are read at the Check Exit bar size.'
-                : expr.field === 'gain_pct'
-                  ? 'Percent above your average Entry fill price (below it for a short), at each bar close.'
-                  : expr.field === 'entry_price'
-                    ? 'Your average Entry fill price in this cycle.'
-                    : expr.field === 'pnl'
-                      ? 'Unrealized profit or loss in dollars, at each bar close.'
-                      : 'Shares held in this cycle; negative when short.'}
+          : expr.field === 'minutes_held'
+            ? 'Whole minutes since Entry first filled, at the end of the bar being checked. "Is greater than or equal to 30" exits 30 minutes after the fill: an intraday time stop.'
+            : expr.field === 'atrs_below_entry'
+              ? 'How far the latest close is below your entry price (above it, for a short), in ATRs as they were when Entry was decided. "Is greater than 2" is a stop 2 ATRs below entry: an ATR stop. Closes are read at the Check Exit bar size.'
+              : expr.field === 'expected_moves_1d' || expr.field === 'expected_moves_5d'
+                ? 'The move since your entry price, in expected moves from the options signal when Entry was decided; positive in your favour. "Is greater than 1" exits beyond one expected move up, "is less than -1" one down. Needs the options feed. Closes are read at the Check Exit bar size.'
+                : expr.field === 'off_peak_pct'
+                  ? 'How far the latest close is below the best close since Entry filled (above the lowest, for a short), in percent; the best close starts at the entry price. "Is greater than 5" is a 5% trailing stop. Closes are read at the Check Exit bar size.'
+                  : expr.field === 'gain_pct'
+                    ? 'Percent above your average Entry fill price (below it for a short), at each bar close.'
+                    : expr.field === 'entry_price'
+                      ? 'Your average Entry fill price in this cycle.'
+                      : expr.field === 'pnl'
+                        ? 'Unrealized profit or loss in dollars, at each bar close.'
+                        : 'Shares held in this cycle; negative when short.'}
       </p>
     </>
   );
@@ -826,7 +841,9 @@ function MetricFields({
                 ? 'Event metric'
                 : category === 'ml'
                   ? 'ML metric'
-                  : 'Metric'
+                  : category === 'session'
+                    ? 'Session value'
+                    : 'Metric'
         }
         onChange={(ref) => onChange({ ...expr, metric: ref.metric, params: ref.params })}
       />
@@ -937,6 +954,10 @@ export function MetricRefFields({
       label: 'Machine learning (model scores)',
       metrics: offered.filter((m) => categoryOf(m.id) === 'ml'),
     },
+    {
+      label: 'Session (intraday)',
+      metrics: offered.filter((m) => categoryOf(m.id) === 'session'),
+    },
   ].filter((g) => g.metrics.length > 0);
   return (
     <>
@@ -1042,17 +1063,27 @@ export function MetricRefFields({
             ))}
           </MiniSelect>
         ) : (
-          <MiniInput
-            key={p.name}
-            id={id(`metric-${p.name}`)}
-            label={p.label}
-            type="number"
-            step={p.kind === 'int' ? 1 : 'any'}
-            min={p.min}
-            max={p.max}
-            value={String(v)}
-            onChange={(e) => setParam(e.target.value === '' ? '' : Number(e.target.value))}
-          />
+          <Fragment key={p.name}>
+            <MiniInput
+              id={id(`metric-${p.name}`)}
+              label={p.label}
+              type="number"
+              step={p.kind === 'int' ? 1 : 'any'}
+              min={p.min}
+              max={p.max}
+              value={String(v)}
+              list={p.presets ? id(`metric-${p.name}-presets`) : undefined}
+              onChange={(e) => setParam(e.target.value === '' ? '' : Number(e.target.value))}
+            />
+            {/* Preset choices (e.g. an opening range of 5, 15, 30 or 60 minutes); any value is allowed. */}
+            {p.presets && (
+              <datalist id={id(`metric-${p.name}-presets`)}>
+                {p.presets.map((n) => (
+                  <option key={n} value={n} />
+                ))}
+              </datalist>
+            )}
+          </Fragment>
         );
       })}
       {spec && <p className="col-span-full text-xs text-ink-muted">{spec.help}</p>}

@@ -631,6 +631,13 @@
       "when": 1794520599648,
       "tag": "0089_guide_video_done",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1794532906288,
+      "tag": "0090_session_end_exit",
+      "breakpoints": true
     }
   ]
 }

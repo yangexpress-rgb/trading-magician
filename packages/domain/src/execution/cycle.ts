@@ -61,7 +61,13 @@ export interface CycleState {
   slot?: StrategySlot | undefined;
   /** Why the current Exit round started, when not the Exit condition (v1.2). */
   exitReason?:
-    'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move' | 'trailing_stop' | undefined;
+    | 'rebalance'
+    | 'time_stop'
+    | 'atr_stop'
+    | 'expected_move'
+    | 'trailing_stop'
+    | 'session_end'
+    | undefined;
   /** The entry group that opened it (v1.2 item 8); absent for the strategy's own Entry. */
   group?: string | undefined;
   /** ATR stop (v1.2 item 9): the ATR when Entry was decided, fixing the stop level. */
@@ -129,6 +135,11 @@ export interface CycleInput {
   exitDue?: boolean | undefined;
   /** Exit now because a rebalance no longer selects this slot (v1.2 items 1, 2). */
   forceExit?: 'rebalance' | 'atr_stop' | 'expected_move' | 'trailing_stop' | undefined;
+  /**
+   * Flatten at session end (N256): this is the session's final pass, so
+   * whatever the cycle holds closes now with market orders, unconditionally.
+   */
+  sessionEnd?: boolean | undefined;
 }
 
 export interface CyclePlan {
@@ -137,7 +148,7 @@ export interface CyclePlan {
   submit: PlannedLeg[];
   /** Legs that will become due later, with their due time. */
   scheduled: PlannedLeg[];
-  cancel: { intentId: string; reason: 'leg_timeout' | 'leg_failed' }[];
+  cancel: { intentId: string; reason: 'leg_timeout' | 'leg_failed' | 'session_end' }[];
   /** Create closing orders for whatever the cycle still holds. */
   flatten: boolean;
   /** Notable things for the timeline and notifications. */
@@ -154,6 +165,7 @@ export type CycleNote =
   | 'exit_incomplete'
   | 'leg_failed'
   | 'flattening'
+  | 'session_end'
   | 'closed'
   | 'aborted';
 
@@ -460,6 +472,33 @@ export function planCycle(input: CycleInput): CyclePlan {
       cycle.exitReason = reason;
       plan.notes.push('exit_triggered');
     }
+  }
+  // Flatten at session end (N256), after Exit when: what is still held closes
+  // with market orders; legs not yet sent never go, and working ones are canceled.
+  if (
+    input.sessionEnd &&
+    !cycle.flattened &&
+    cycle.status !== 'closed' &&
+    cycle.status !== 'aborted' &&
+    !flat()
+  ) {
+    for (const s of [...allEntry, ...exitSlots()]) {
+      if (s.status === 'waiting') {
+        skipped.add(s.key);
+        s.status = 'skipped';
+      } else if (s.status === 'working' && s.record && !s.record.cancelRequested) {
+        if (!plan.cancel.some((c) => c.intentId === s.record?.intentId))
+          plan.cancel.push({ intentId: s.record.intentId, reason: 'session_end' });
+      }
+    }
+    plan.submit = plan.submit.filter((l) => !skipped.has(l.key));
+    plan.scheduled = plan.scheduled.filter((l) => !skipped.has(l.key));
+    cycle.flattened = true;
+    cycle.status = 'exit_working';
+    cycle.exitTriggeredAt ??= now;
+    cycle.exitReason = 'session_end';
+    plan.flatten = true;
+    plan.notes.push('session_end');
   }
   if (cycle.status === 'open' || cycle.status === 'exit_working') {
     const slots = exitSlots();

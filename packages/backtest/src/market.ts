@@ -22,12 +22,24 @@ import {
   type MlPoint,
   type MlPredictionData,
   predictionAt,
+  sessionBarsAt,
+  type SessionBars,
   type SeriesResolver,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { seriesKey } from './data';
 
 type SeriesExpr = MarketExpr | IndicatorExpr;
+
+/** Intraday bar sizes session values can read (N254); daily and weekly bars can't. */
+const SESSION_INTERVAL_MINUTES: Record<string, number> = {
+  '1m': 1,
+  '5m': 5,
+  '15m': 15,
+  '30m': 30,
+  '1h': 60,
+  '4h': 240,
+};
 
 /** Index of the last bar ending at or before `t`, or -1. Bars are sorted by end. */
 function lastEndingBy(bars: readonly Bar[], t: number, from: number): number {
@@ -56,6 +68,9 @@ export class MarketView implements SeriesResolver {
   private readonly expectedPointers = new Map<string, number>();
   private readonly indicators = new Map<string, IndicatorValues>();
   private now = Number.NEGATIVE_INFINITY;
+  /** The intraday series each instrument's session values read (N254), chosen once. */
+  private readonly sessionKeys = new Map<string, string | undefined>();
+  private readonly sessionCache = new Map<string, { at: number; bars: SessionBars | undefined }>();
 
   private readonly watchOnly: ReadonlySet<string>;
 
@@ -242,6 +257,49 @@ export class MarketView implements SeriesResolver {
     const prediction = predictionAt(list, asOf);
     if (!prediction || !Number.isFinite(prediction.score)) return undefined;
     return { value: new Decimal(prediction.score), modelKey, prediction };
+  }
+
+  /**
+   * Today's completed regular-session bars of an instrument, as of the bar
+   * `barsBack` bars before the current one (intraday pack brief §2, N254).
+   * They come from its finest loaded intraday series: the one the run steps
+   * on, or a finer one its rules read. Only bars that have ended count, so the
+   * values never see a later bar; a stale series reads unknown, as `value` does.
+   */
+  session(instrumentId: string, barsBack: number): SessionBars | undefined {
+    const key = this.sessionKey(instrumentId);
+    if (!key) return undefined;
+    if (this.staleKey(key, key.split('|')[1] ?? '')) return undefined;
+    const bars = this.series.get(key);
+    const at = (this.pointers.get(key) ?? -1) - barsBack;
+    if (!bars || at < 0) return undefined;
+    const cacheKey = `${key}|${barsBack}`;
+    const hit = this.sessionCache.get(cacheKey);
+    if (hit && hit.at === at) return hit.bars;
+    const out = sessionBarsAt(bars, at);
+    this.sessionCache.set(cacheKey, { at, bars: out });
+    return out;
+  }
+
+  private sessionKey(instrumentId: string): string | undefined {
+    if (this.sessionKeys.has(instrumentId)) return this.sessionKeys.get(instrumentId);
+    const rank = (key: string) => {
+      const [, interval = '', adjustment, session] = key.split('|');
+      // Finest bars first; then the run's own price basis, regular session.
+      return (
+        (SESSION_INTERVAL_MINUTES[interval] ?? Infinity) * 100 +
+        (adjustment === 'split_and_dividend' ? 0 : 10) +
+        (session === 'regular' ? 0 : 1)
+      );
+    };
+    let best: string | undefined;
+    for (const key of this.series.keys()) {
+      if (!key.startsWith(`${instrumentId}|`)) continue;
+      if (SESSION_INTERVAL_MINUTES[key.split('|')[1] ?? ''] === undefined) continue;
+      if (!best || rank(key) < rank(best)) best = key;
+    }
+    this.sessionKeys.set(instrumentId, best);
+    return best;
   }
 
   /** When the bar `value` reads ended (N224); undefined when there is none. */

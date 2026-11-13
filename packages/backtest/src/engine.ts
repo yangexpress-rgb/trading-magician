@@ -230,7 +230,13 @@ interface Cycle {
   group: GroupKey;
   /** Why the cycle exited, when v1.2 exit reasons apply. */
   exitReason?:
-    'condition' | 'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move' | 'trailing_stop';
+    | 'condition'
+    | 'rebalance'
+    | 'time_stop'
+    | 'atr_stop'
+    | 'expected_move'
+    | 'trailing_stop'
+    | 'session_end';
   state: 'entering' | 'open' | 'exiting' | 'closed' | 'aborted';
   entryTriggeredAt?: number;
   events: Map<PhaseEvent, number>;
@@ -351,7 +357,11 @@ export function simulate({
   /** A group's Enter when that reads "this stock" is checked per candidate (ADR 0073). */
   const perCandidateEntry = mode === 'selection' && readsThisInstrument(def.entry.condition);
   /** v1.2 features in use: results then say why each cycle exited. */
-  const v12 = mode !== 'none' || calendar || (def.exit.rules?.length ?? 0) > 0;
+  const v12 =
+    mode !== 'none' ||
+    calendar ||
+    (def.exit.rules?.length ?? 0) > 0 ||
+    def.execution.flattenAtSessionEnd === true;
   for (const w of data.warnings) warnings.add(`data:${w}`, w);
   const watchOnly = watchOnlyInstruments(instruments);
   const view = new MarketView(
@@ -401,6 +411,25 @@ export function simulate({
     }
   }
   const steps = [...stepSet].sort((a, b) => a - b);
+  /**
+   * Flatten at session end (N256): the last step of each regular session, at
+   * or before its close (13:00 on early-close days). The run's final day
+   * counts only when its last bar reaches the close.
+   */
+  const sessionEnds = new Set<number>();
+  if (def.execution.flattenAtSessionEnd) {
+    const lastByDay = new Map<string, number>();
+    for (const t of steps) {
+      const day = nyDate(iso(t - 1));
+      const session = regularSession(day);
+      if (session && t <= Date.parse(session.close)) lastByDay.set(day, t);
+    }
+    const finalDay = steps.length > 0 ? nyDate(iso((steps.at(-1) as number) - 1)) : '';
+    for (const [day, t] of lastByDay) {
+      const close = Date.parse(regularSession(day)?.close ?? '');
+      if (day !== finalDay || t === close) sessionEnds.add(t);
+    }
+  }
   if (steps.length === 0) warnings.add('no_bars', 'There are no bars in the selected dates');
   // A bar cadence finer than the run's bars can only check Entry once a run bar
   // (N184); a check after the open waits for the first run bar ending after it (N226).
@@ -506,6 +535,17 @@ export function simulate({
     return p;
   };
 
+  /**
+   * Minutes held (N255): whole minutes from the cycle's earliest Entry fill to
+   * the end of the bar being evaluated.
+   */
+  const minutesHeld = (c: Cycle): { minutesHeld?: number } => {
+    const opened = c.events.get('entry_partial_fill');
+    return opened === undefined || view.time < opened
+      ? {}
+      : { minutesHeld: Math.floor((view.time - opened) / 60_000) };
+  };
+
   /** The market view plus this cycle's positions, for Exit rules and Exit order prices. */
   const cycleView = (c: Cycle): SeriesResolver => {
     const r = withPositions(view, (id) => {
@@ -520,6 +560,7 @@ export function simulate({
         ...(k ? { peak: k.peak, checkClose: k.close, checkCloseAt: k.at } : {}),
         ...(c.firstFill === undefined ? {} : { openedAt: c.firstFill }),
         ...(c.daysHeld === undefined ? {} : { daysHeld: c.daysHeld }),
+        ...minutesHeld(c),
         ...(atr ? { atrAtEntry: atr } : {}),
         ...(move ? { moveAtEntry: move } : {}),
       };
@@ -1149,6 +1190,98 @@ export function simulate({
     }
   }
 
+  /**
+   * Flatten at session end (N256): after Exit when on the session's last bar,
+   * whatever the cycle still holds closes at that bar's close (with the run's
+   * slippage), unconditionally. Orders still working would trade after the
+   * close, so they are canceled first. The cycle closes with exit reason
+   * "Session end"; re-entry follows the strategy's setting from the next session.
+   */
+  function closeAtSessionEnd(c: Cycle, now: number) {
+    if (flat(c)) return;
+    for (const l of [...c.entryLegs, ...c.exitLegs, ...c.flattenLegs]) {
+      if (l.status === 'working')
+        endLeg(
+          l,
+          'canceled',
+          now,
+          'session_end_canceled',
+          'Orders still working at a session end were canceled when the position was flattened',
+        );
+      else if (l.status === 'waiting') endLeg(l, 'canceled', now);
+    }
+    let closed = false;
+    for (const [id, p] of c.positions) {
+      if (p.quantity.isZero()) continue;
+      const close = view.latest(execKey(id))?.close;
+      if (!close) continue;
+      const long = p.quantity.gt(0);
+      const quantity = p.quantity.abs();
+      const side: OrderSide = long ? 'sell' : 'buy_to_cover';
+      const direction: Direction = long ? 'sell' : 'buy';
+      const leg: LegState = {
+        cycle: c,
+        detail: {},
+        barsWorking: 0,
+        fillCount: 0,
+        decidedAt: now,
+        leg: {
+          id: `session-end-${id}`,
+          legLabel: `Close ${symbol(id)} at session end`,
+          instrumentId: id,
+          accountId: '',
+          side,
+          quantity: { type: 'units', value: quantity.toString(), rounding: 'down' },
+          orderType: 'market',
+          timeInForce: 'day',
+          timing: { mode: 'immediate' },
+        },
+        phase: 'flatten',
+        side,
+        status: 'working',
+        quantity,
+        filled: ZERO,
+        cost: ZERO,
+        reference: close,
+        submittedAt: now,
+        reason: 'session_end',
+      };
+      const order: Order = {
+        id: ++orderSeq,
+        cycle: c,
+        leg,
+        instrumentId: id,
+        direction,
+        type: 'market',
+        stopTriggered: false,
+        tif: 'day',
+        quantity,
+        filled: ZERO,
+        reference: close,
+        activeFrom: now,
+        firstBarSeen: true,
+        closing: true,
+      };
+      leg.order = order;
+      c.flattenLegs.push(leg);
+      allLegs.push(leg);
+      orders.push(order);
+      submitted += 1;
+      const slip = close.times(slippageBps.div(10_000)).times(long ? -1 : 1);
+      applyFill(order, quantity, close.plus(slip), close, now);
+      closed = true;
+    }
+    if (!closed) return;
+    warnings.add(
+      'session_end',
+      'Positions still open at a session end were closed at the last bar’s close (Flatten at session end)',
+    );
+    c.state = 'exiting';
+    c.exitReason = 'session_end';
+    if (!c.legEvents.has('exit:trigger')) c.legEvents.set('exit:trigger', now);
+    settle(c, now);
+  }
+
   /** Starts a cycle's Exit now, for a reason other than its Exit condition. */
   function forceExit(
     c: Cycle,
@@ -1616,6 +1749,8 @@ export function simulate({
       }
       settle(c, now);
     }
+    // Flatten at session end (N256), after Exit when on the session's last bar.
+    if (sessionEnds.has(now)) for (const c of activeCycles()) closeAtSessionEnd(c, now);
 
     const { gross, net } = positionValue();
     equity.push({
