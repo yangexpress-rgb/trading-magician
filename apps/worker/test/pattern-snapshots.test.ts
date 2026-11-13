@@ -265,7 +265,8 @@ describe('pattern factor snapshots', () => {
     } finally {
       await other.drop();
     }
-  });
+    // Builds a second test database, which alone takes seconds.
+  }, 60_000);
 
   it('skips a member without bars until a new day closes', async () => {
     const attempts = new Map<string, string>();

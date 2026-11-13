@@ -6,9 +6,18 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState, type FormEvent } from 'react';
 import { authClient } from '@/lib/auth-client';
 
+/**
+ * Where to go after signing in: back to the agent sign-in that sent the person
+ * here (N263), otherwise Strategy Lab. Only this app's own OAuth page.
+ */
+function nextPath(next: string | null): string {
+  return next && next.startsWith('/oauth/authorize?') ? next : '/strategy-lab';
+}
+
 function SignInForm() {
   const router = useRouter();
   const params = useSearchParams();
+  const next = nextPath(params.get('next'));
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);
 
@@ -20,7 +29,7 @@ function SignInForm() {
     const { error } = await authClient.signIn.email({
       email: String(form.get('email')),
       password: String(form.get('password')),
-      callbackURL: '/strategy-lab',
+      callbackURL: next,
     });
     setPending(false);
     if (error) {
@@ -35,7 +44,7 @@ function SignInForm() {
       );
       return;
     }
-    router.push('/strategy-lab');
+    router.push(next);
     router.refresh();
   }
 
@@ -46,6 +55,9 @@ function SignInForm() {
         <Alert tone="ok">Password changed. Sign in with your new password.</Alert>
       )}
       {params.get('deleted') === '1' && <Alert tone="ok">Your account was deleted.</Alert>}
+      {next !== '/strategy-lab' && (
+        <Alert tone="info">Sign in to connect your AI agent to Trading Magician.</Alert>
+      )}
       <TextField label="Email" name="email" type="email" autoComplete="email" required />
       <TextField
         label="Password"

@@ -49,7 +49,7 @@ test('settings sections, profile formats and notification preferences', async ({
   await signUpAndVerify(page, uniqueEmail('settings'));
   const headers = { origin: baseURL! };
 
-  // The five sections of §15.4, in order.
+  // The five sections of §15.4 plus AI agents (N262), in order.
   await page.goto('/settings/profile');
   await expect(
     page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link'),
@@ -58,6 +58,7 @@ test('settings sections, profile formats and notification preferences', async ({
     'Data feeds',
     'Trading platforms and accounts',
     'Subscription and billing',
+    'AI agents',
     'Notifications and security',
   ]);
 

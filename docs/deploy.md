@@ -122,6 +122,14 @@ Paper trading only, as everywhere else (`docs/adr/0002-paper-only-guard.md`).
    Resend address, using the code you minted. The verification email arrives from
    `onboarding@resend.dev`. With `EMAIL_VERIFICATION=off`, sign-up takes you straight in.
 
+### AI agent connections
+
+`AGENT_API_ENABLED=true` on web turns on agent connections (ADR 0092): the MCP endpoint at
+`/api/mcp`, Settings › AI agents token minting, and the OAuth sign-in for Claude and ChatGPT
+connectors (`/.well-known/oauth-*`, `/oauth/authorize`, `/api/oauth/*`). Unset, all of them
+answer that agent connections are off. `APP_URL` must be the public origin: it is the OAuth
+issuer and the endpoint URL agents are given.
+
 ### No mail service
 
 `EMAIL_VERIFICATION=off` on web makes the app work without any email: sign-up signs the person

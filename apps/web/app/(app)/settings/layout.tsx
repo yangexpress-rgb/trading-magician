@@ -7,6 +7,7 @@ const SECTIONS = [
   { href: '/settings/data-feeds', label: 'Data feeds' },
   { href: '/settings/accounts', label: 'Trading platforms and accounts' },
   { href: '/settings/billing', label: 'Subscription and billing' },
+  { href: '/settings/ai-agents', label: 'AI agents' },
   { href: '/settings/security', label: 'Notifications and security' },
 ];
 
