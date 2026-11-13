@@ -139,6 +139,18 @@ export function finestBarMinutes(def: StrategyDefinition): number {
 }
 
 /**
+ * Whether a rule reads an intraday market or indicator series: what a paper
+ * run loads bars for. Check Entry and Check Exit cadences don't count (O157, N260).
+ */
+export function rulesReadIntraday(def: StrategyDefinition): boolean {
+  return definitionExpressions(def).some(
+    (e) =>
+      (e.kind === 'market' || e.kind === 'indicator') &&
+      INTERVAL_MINUTES[e.interval] < INTERVAL_MINUTES['1d'],
+  );
+}
+
+/**
  * The schedule of a strategy that never picked one (N184): every bar of the
  * finest bars its rules read, so a stored strategy keeps checking Entry as
  * often as before. Under 5 minutes: every 1-minute bar; under an hour: every
