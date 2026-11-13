@@ -113,3 +113,4 @@ export * from './events';
 export * from './patterns';
 export * from './agents';
 export * from './screen-snapshots';
+export * from './ai-assistant';

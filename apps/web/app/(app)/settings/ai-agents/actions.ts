@@ -2,15 +2,19 @@
 
 import {
   AGENT_TOKEN_EXPIRIES,
+  clearAiAssistant,
   createTokenConnection,
   listAgentConnections,
   revokeAgentConnection,
+  saveAiAssistant,
   withTenant,
   type AgentConnectionSummary,
 } from '@tm/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { agentProfile } from '@/lib/agents/profiles';
+import { ASK_AI_PROVIDERS, validBaseUrl } from '@/lib/ask-ai';
+import { aiSealKey } from '@/lib/server/ai-key';
 import { appDb } from '@/lib/server/db';
 import { serverEnv } from '@/lib/server/env';
 import { requireTenant } from '@/lib/server/session';
@@ -109,4 +113,85 @@ export async function revokeAgent(id: string): Promise<void> {
   if (!z.uuid().safeParse(id).success) return;
   await withTenant(appDb(), tenant, (tx) => revokeAgentConnection(tx, tenant.userId, id));
   revalidatePath('/settings/ai-agents');
+}
+
+export interface AskAiAgentState {
+  status: 'idle' | 'error' | 'saved';
+  message?: string;
+}
+
+const askAiForm = z
+  .object({
+    provider: z.enum(['muse', 'anthropic', 'openai', 'openai_compatible'], {
+      message: 'Pick an agent',
+    }),
+    model: z.string().trim().max(120, 'Use 120 characters or fewer').optional(),
+    baseUrl: z.string().trim().max(500).optional(),
+    apiKey: z.string().trim().max(400, 'That key is too long').optional(),
+  })
+  .superRefine((v, ctx) => {
+    const provider = ASK_AI_PROVIDERS.find((p) => p.id === v.provider);
+    if (provider?.needsModel && !v.model) {
+      ctx.addIssue({ code: 'custom', path: ['model'], message: 'Name the model' });
+    }
+    if (v.provider === 'openai_compatible' && !(v.baseUrl && validBaseUrl(v.baseUrl))) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['baseUrl'],
+        message: 'Enter the API address, starting with https://',
+      });
+    }
+    if (v.apiKey && v.apiKey.length < 8) {
+      ctx.addIssue({ code: 'custom', path: ['apiKey'], message: 'That key is too short' });
+    }
+  });
+
+/** Chooses the person's one Ask AI agent (N274). */
+export async function saveAskAiAgent(
+  _prev: AskAiAgentState,
+  form: FormData,
+): Promise<AskAiAgentState> {
+  const tenant = await requireTenant();
+  const value = (k: string) => {
+    const v = form.get(k);
+    return typeof v === 'string' && v.trim() ? v : undefined;
+  };
+  const parsed = askAiForm.safeParse({
+    provider: value('provider'),
+    model: value('model'),
+    baseUrl: value('baseUrl'),
+    apiKey: value('apiKey'),
+  });
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form' };
+  }
+  try {
+    await withTenant(appDb(), tenant, (tx) =>
+      saveAiAssistant(
+        tx,
+        tenant.userId,
+        {
+          provider: parsed.data.provider,
+          model: parsed.data.model ?? null,
+          baseUrl: parsed.data.baseUrl ?? null,
+          ...(parsed.data.apiKey ? { apiKey: parsed.data.apiKey } : {}),
+        },
+        aiSealKey(),
+      ),
+    );
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'The agent could not be saved.',
+    };
+  }
+  revalidatePath('/', 'layout');
+  return { status: 'saved', message: 'Saved. Ask AI now uses this agent.' };
+}
+
+/** Forgets the person's Ask AI agent and its key (N274). */
+export async function clearAskAiAgent(): Promise<void> {
+  const tenant = await requireTenant();
+  await withTenant(appDb(), tenant, (tx) => clearAiAssistant(tx, tenant.userId));
+  revalidatePath('/', 'layout');
 }

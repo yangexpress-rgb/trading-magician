@@ -3188,3 +3188,42 @@ export const screenSnapshots = pgTable(
     check('screen_snapshot_question', sql`char_length(${t.question}) <= 4000`),
   ],
 );
+
+/**
+ * The one AI agent a person chats with in the Ask AI panel (N274, ADR 0094).
+ * API-key agents answer inside the panel; Muse has no API, so choosing it
+ * opens Muse with the question filled in. The key is sealed with a key only
+ * the web app holds (like invite codes, ADR 0085) and is never shown again.
+ */
+export const aiAssistants = pgTable(
+  'ai_assistant',
+  {
+    userId: uuid('user_id')
+      .primaryKey()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** muse, anthropic, openai or openai_compatible. */
+    provider: text('provider').notNull(),
+    model: text('model'),
+    /** OpenAI-compatible services only: the API's base URL. */
+    baseUrl: text('base_url'),
+    /** `v1.` + AES-256-GCM sealed API key; null for Muse. */
+    keySealed: text('key_sealed'),
+    /** The key's last four characters, to tell keys apart. */
+    keyHint: text('key_hint'),
+    ...timestamps(),
+  },
+  (t) => [
+    check(
+      'ai_assistant_provider',
+      sql`${t.provider} in ('muse', 'anthropic', 'openai', 'openai_compatible')`,
+    ),
+    check(
+      'ai_assistant_model',
+      sql`${t.model} is null or char_length(${t.model}) between 1 and 120`,
+    ),
+    check(
+      'ai_assistant_base_url',
+      sql`${t.baseUrl} is null or char_length(${t.baseUrl}) between 8 and 500`,
+    ),
+  ],
+);

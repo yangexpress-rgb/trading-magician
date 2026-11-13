@@ -1,46 +1,59 @@
 'use client';
 
-import { AskAiIcon, Button, cx } from '@tm/ui';
+import { AskAiIcon, Button } from '@tm/ui';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   askLink,
-  askTargets,
   buildPrompt,
-  COPY_TARGET,
   FOCUS_LABEL,
   focusFromUrl,
+  MAX_CHAT_MESSAGE,
+  MAX_CHAT_TURNS,
   MAX_PAGE_TEXT,
-  MAX_QUESTION,
   tidyText,
-  type AskTarget,
   type ScreenContent,
 } from '@/lib/ask-ai';
 
 /** Opens or closes the panel from anywhere, such as the sidebar button. */
 export const ASK_AI_EVENT = 'tm:ask-ai';
 const OPEN_KEY = 'tm.askAi.open';
-const TARGET_KEY = 'tm.askAi.target';
-/** Page text that goes into an agent's prefill link, to keep the link a sensible length. */
+const CHAT_KEY = 'tm.askAi.chat';
+const MUSE_ASK_URL = 'https://muse.ai/?prompt=';
+/** Page text that goes into Muse's prefill link, to keep the link a sensible length. */
 const LINK_TEXT_MAX = 2500;
 
-const store = {
-  get(key: string) {
-    try {
-      return window.localStorage.getItem(key);
-    } catch {
-      return null;
-    }
-  },
-  set(key: string, value: string) {
-    try {
-      window.localStorage.setItem(key, value);
-    } catch {
-      // Private windows may refuse storage; the panel still works.
-    }
-  },
-};
+/** The person's Ask AI agent, as the panel needs it (N274). */
+export type AskAgent =
+  { kind: 'chat'; label: string } | { kind: 'muse'; connected: boolean } | { kind: 'none' };
+
+interface Turn {
+  role: 'user' | 'assistant';
+  content: string;
+  steps?: { tool: string; ok: boolean }[];
+}
+
+function storage(kind: 'local' | 'session') {
+  return {
+    get(key: string) {
+      try {
+        return (kind === 'local' ? window.localStorage : window.sessionStorage).getItem(key);
+      } catch {
+        return null;
+      }
+    },
+    set(key: string, value: string) {
+      try {
+        (kind === 'local' ? window.localStorage : window.sessionStorage).setItem(key, value);
+      } catch {
+        // Private windows may refuse storage; the panel still works.
+      }
+    },
+  };
+}
+const local = storage('local');
+const session = storage('session');
 
 /** What the page shows now: its address, title, main heading and text. */
 function captureScreen(): ScreenContent {
@@ -59,40 +72,60 @@ function captureScreen(): ScreenContent {
   };
 }
 
-type Outcome =
-  | { kind: 'opened'; label: string; code?: string | undefined }
-  | { kind: 'copied'; code?: string | undefined }
-  | { kind: 'error'; message: string };
+const TOOL_WORDS: Record<string, string> = {
+  search_theories: 'searched theories',
+  get_theory: 'read a theory',
+  list_strategies: 'listed strategies',
+  get_strategy: 'read a strategy',
+  list_backtests: 'listed back tests',
+  get_backtest: 'read a back test',
+  screen_stocks: 'ran the screener',
+  get_paper_accounts: 'read paper accounts',
+  get_screen_context: 'read your screen',
+  create_strategy: 'created a strategy',
+  update_strategy: 'changed a strategy',
+  run_backtest: 'started a back test',
+  create_theory: 'created a theory',
+};
 
 /**
- * The Ask AI side panel (N272, ADR 0093): ask any AI agent about the screen
- * you are on. It shows what it picked up from the page, which you can trim,
- * and hands your question to the agent you pick. Connected agents read the
- * screen themselves through get_screen_context; others get it in the prompt.
+ * The Ask AI side panel (N272, N274; ADR 0093, 0094): a chat with the one AI
+ * agent the person chose in Settings › AI agents, beside whatever screen they
+ * are on. Each message carries the screen. Muse has no API, so with Muse the
+ * panel has one Ask Muse button that opens Muse with the question filled in.
  */
-export function AskAiPanel({ connectedProfiles }: { connectedProfiles: readonly string[] }) {
+export function AskAiPanel({ agent }: { agent: AskAgent }) {
   const [open, setOpen] = useState(false);
   const [screen, setScreen] = useState<ScreenContent | null>(null);
   const [includeText, setIncludeText] = useState(true);
-  const [showText, setShowText] = useState(false);
-  const [question, setQuestion] = useState('');
-  const targets = askTargets(connectedProfiles);
-  const [targetId, setTargetId] = useState(targets[0]?.id ?? COPY_TARGET.id);
+  const [draft, setDraft] = useState('');
+  const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const questionRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
   const refresh = useCallback(() => setScreen(captureScreen()), []);
 
-  // Remembered per browser: open or closed, and the agent last asked.
+  // Open or closed is remembered per browser; the chat for this browser tab.
   useEffect(() => {
-    if (store.get(OPEN_KEY) === '1') setOpen(true);
-    const saved = store.get(TARGET_KEY);
-    if (saved && askTargets(connectedProfiles).some((t) => t.id === saved)) setTargetId(saved);
-  }, [connectedProfiles]);
+    if (local.get(OPEN_KEY) === '1') setOpen(true);
+    try {
+      const saved = JSON.parse(session.get(CHAT_KEY) ?? '[]') as Turn[];
+      if (Array.isArray(saved)) setTurns(saved);
+    } catch {
+      // A damaged saved chat starts afresh.
+    }
+  }, []);
+
+  useEffect(() => {
+    session.set(CHAT_KEY, JSON.stringify(turns));
+    endRef.current?.scrollIntoView({ block: 'end' });
+  }, [turns]);
 
   useEffect(() => {
     const onToggle = (e: Event) => {
@@ -104,9 +137,9 @@ export function AskAiPanel({ connectedProfiles }: { connectedProfiles: readonly 
   }, []);
 
   useEffect(() => {
-    store.set(OPEN_KEY, open ? '1' : '0');
+    local.set(OPEN_KEY, open ? '1' : '0');
     document.documentElement.classList.toggle('ask-ai-open', open);
-    if (open) questionRef.current?.focus();
+    if (open) inputRef.current?.focus();
     return () => document.documentElement.classList.remove('ask-ai-open');
   }, [open]);
 
@@ -115,76 +148,98 @@ export function AskAiPanel({ connectedProfiles }: { connectedProfiles: readonly 
   useEffect(() => {
     if (!open) return;
     const t = window.setTimeout(refresh, 400);
-    setOutcome(null);
+    setNote(null);
     return () => window.clearTimeout(t);
   }, [open, pathname, searchParams, refresh]);
 
-  const target = targets.find((t) => t.id === targetId) ?? targets[0] ?? COPY_TARGET;
+  const shared = (): ScreenContent => {
+    const now = captureScreen();
+    // Keeps the person's trimmed text when the page has not changed.
+    const text =
+      screen && screen.path === now.path && screen.text !== undefined ? screen.text : now.text;
+    const s = { ...now, text };
+    setScreen(s);
+    return { ...s, text: includeText ? s.text : undefined };
+  };
 
-  const content = (): ScreenContent | null =>
-    screen && { ...screen, text: includeText ? screen.text : undefined };
-
-  async function saveSnapshot(c: ScreenContent): Promise<string> {
-    const res = await fetch('/api/v1/screen-snapshots', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: question.trim(), content: c }),
-    });
-    const body = (await res.json().catch(() => null)) as {
-      code?: string;
-      error?: { message?: string };
-    } | null;
-    if (!res.ok || !body?.code) {
-      throw new Error(body?.error?.message ?? 'The screen could not be saved for the agent.');
-    }
-    return body.code;
-  }
-
-  async function ask(t: AskTarget) {
-    const c = content();
-    if (!c || !question.trim()) return;
-    store.set(TARGET_KEY, t.id);
+  async function send() {
+    const question = draft.trim();
+    if (!question || busy) return;
+    setError(null);
+    const history = [...turns, { role: 'user' as const, content: question }];
+    setTurns(history);
+    setDraft('');
     setBusy(true);
-    setOutcome(null);
-    // Opened now, while the click still counts, so pop-up blockers allow it.
-    const win = t.askUrl ? window.open('about:blank', '_blank') : null;
     try {
-      const code = t.connected ? await saveSnapshot(c) : undefined;
-      if (t.askUrl) {
-        const prompt = buildPrompt({ question, content: c, code, inlineTextMax: LINK_TEXT_MAX });
-        const url = askLink(t, prompt);
-        if (win) {
-          win.opener = null;
-          win.location.href = url;
-        } else {
-          window.open(url, '_blank', 'noopener');
-        }
-        setOutcome({ kind: 'opened', label: t.label, code });
-      } else {
-        const connectedAny = connectedProfiles.length > 0;
-        const copyCode = connectedAny ? await saveSnapshot(c) : undefined;
-        // Copy prompt carries the whole screen, so it works with any agent;
-        // a connected agent can also read it by code.
-        const prompt = buildPrompt({ question, content: c, inlineTextMax: MAX_PAGE_TEXT });
-        const withCode = copyCode
-          ? `${prompt}\n\n(If you have the Trading Magician tools, get_screen_context code ${copyCode} has the same screen.)`
-          : prompt;
-        await navigator.clipboard.writeText(withCode);
-        setOutcome({ kind: 'copied', code: copyCode });
-      }
-    } catch (err) {
-      win?.close();
-      setOutcome({
-        kind: 'error',
-        message: err instanceof Error ? err.message : 'Something went wrong. Try again.',
+      const res = await fetch('/api/v1/ask-ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          turns: history
+            .slice(-MAX_CHAT_TURNS)
+            .map((t) => ({ role: t.role, content: t.content.slice(0, MAX_CHAT_MESSAGE) })),
+          screen: shared(),
+        }),
       });
+      const body = (await res.json().catch(() => null)) as {
+        reply?: string;
+        steps?: Turn['steps'];
+        error?: { message?: string };
+      } | null;
+      if (!res.ok || typeof body?.reply !== 'string') {
+        throw new Error(body?.error?.message ?? 'The agent did not answer. Try again.');
+      }
+      setTurns([...history, { role: 'assistant', content: body.reply, steps: body.steps ?? [] }]);
+    } catch (err) {
+      // The question goes back in the box, so nothing typed is lost.
+      setTurns(turns);
+      setDraft(question);
+      setError(err instanceof Error ? err.message : 'The agent did not answer. Try again.');
     } finally {
       setBusy(false);
+      inputRef.current?.focus();
+    }
+  }
+
+  async function askMuse() {
+    const question = draft.trim();
+    if (!question || agent.kind !== 'muse') return;
+    setError(null);
+    // Opened now, while the click still counts, so pop-up blockers allow it.
+    const win = window.open('about:blank', '_blank');
+    try {
+      const content = shared();
+      let code: string | undefined;
+      if (agent.connected) {
+        const res = await fetch('/api/v1/screen-snapshots', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question, content }),
+        });
+        const body = (await res.json().catch(() => null)) as { code?: string } | null;
+        code = body?.code;
+      }
+      const url = askLink(
+        { id: 'muse', label: 'Muse', askUrl: MUSE_ASK_URL, connected: agent.connected },
+        buildPrompt({ question, content, code, inlineTextMax: LINK_TEXT_MAX }),
+      );
+      if (win) {
+        win.opener = null;
+        win.location.href = url;
+      } else {
+        window.open(url, '_blank', 'noopener');
+      }
+      setNote('Muse opened in a new tab with your question. Send it there.');
+      setDraft('');
+    } catch {
+      win?.close();
+      setError('Muse could not be opened. Try again.');
     }
   }
 
   if (!open) return null;
   const textLength = screen?.text?.length ?? 0;
+  const label = agent.kind === 'chat' ? agent.label : agent.kind === 'muse' ? 'Muse' : 'AI';
 
   return (
     <aside
@@ -199,180 +254,152 @@ export function AskAiPanel({ connectedProfiles }: { connectedProfiles: readonly 
     >
       <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
         <h2 id={titleId} className="flex items-center gap-2 font-semibold">
-          <AskAiIcon /> Ask AI
+          <AskAiIcon /> Ask {label}
         </h2>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          className="rounded-md border border-line px-2 py-1 text-sm hover:bg-surface-2"
-        >
-          Close<span className="sr-only"> Ask AI</span>
-        </button>
-      </div>
-
-      <form
-        className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void ask(target);
-        }}
-      >
-        <section
-          aria-label="What the agent will see"
-          className="rounded-md bg-surface-2 p-3 text-sm"
-        >
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-xs text-ink-muted">From this screen</p>
-              <p className="truncate font-medium" title={screen?.heading ?? screen?.title}>
-                {screen?.heading ?? screen?.title ?? 'Reading the page…'}
-              </p>
-            </div>
+        <div className="flex items-center gap-2">
+          {agent.kind === 'chat' && turns.length > 0 && (
             <button
               type="button"
-              onClick={refresh}
-              className="shrink-0 text-xs text-ink-muted underline hover:text-ink"
+              onClick={() => {
+                setTurns([]);
+                setError(null);
+              }}
+              className="rounded-md px-2 py-1 text-sm text-ink-muted hover:bg-surface-2 hover:text-ink"
             >
-              Update
+              New chat
             </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="rounded-md border border-line px-2 py-1 text-sm hover:bg-surface-2"
+          >
+            Close<span className="sr-only"> Ask AI</span>
+          </button>
+        </div>
+      </div>
+
+      {agent.kind === 'none' ? (
+        <div className="space-y-3 px-4 py-4 text-sm">
+          <p>Choose the AI agent you want to talk to here.</p>
+          <p className="text-ink-muted">
+            Claude, ChatGPT or another service with an API key chats with you in this panel and sees
+            the screen you are on. Muse opens in its own tab with your question filled in.
+          </p>
+          <Link href="/settings/ai-agents#ask-ai" className="font-medium underline">
+            Choose your agent in Settings › AI agents
+          </Link>
+        </div>
+      ) : (
+        <>
+          <div
+            className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4"
+            aria-live="polite"
+            aria-label="Conversation"
+          >
+            {agent.kind === 'chat' && turns.length === 0 && (
+              <p className="text-sm text-ink-muted">
+                Ask {agent.label} about this screen: a strategy, a back test, a theory or the
+                screener. It sees the page and can look things up in your account.
+              </p>
+            )}
+            {agent.kind === 'muse' && (
+              <p className="text-sm text-ink-muted">
+                Muse has no way for apps to chat with it, so Ask Muse opens Muse in a new tab with
+                your question and this screen filled in.
+                {!agent.connected && (
+                  <>
+                    {' '}
+                    <Link href="/settings/ai-agents" className="underline">
+                      Connect Muse
+                    </Link>{' '}
+                    so it can read the whole screen.
+                  </>
+                )}
+              </p>
+            )}
+            {turns.map((t, i) => (
+              <div key={i} className={t.role === 'user' ? 'flex justify-end' : ''}>
+                <div
+                  className={
+                    t.role === 'user'
+                      ? 'max-w-[85%] rounded-lg bg-accent px-3 py-2 text-sm whitespace-pre-wrap text-white'
+                      : 'text-prose rounded-lg bg-surface-2 px-3 py-2 text-sm whitespace-pre-wrap'
+                  }
+                >
+                  {t.content}
+                  {t.steps && t.steps.length > 0 && (
+                    <span className="mt-2 block text-xs text-ink-muted">
+                      {[...new Set(t.steps.map((s) => TOOL_WORDS[s.tool] ?? s.tool))].join(', ')}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+            {busy && (
+              <p className="text-sm text-ink-muted" role="status">
+                {agent.kind === 'chat' ? agent.label : 'The agent'} is thinking…
+              </p>
+            )}
+            {error && <p className="rounded-md bg-surface-2 p-3 text-sm text-danger">{error}</p>}
+            {note && <p className="rounded-md bg-surface-2 p-3 text-sm">{note}</p>}
+            <div ref={endRef} />
           </div>
-          {screen && screen.focus.length > 0 && (
-            <ul className="mt-2 flex flex-wrap gap-1">
-              {screen.focus.map((f) => (
-                <li
+
+          <form
+            className="space-y-2 border-t border-line px-4 py-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void (agent.kind === 'chat' ? send() : askMuse());
+            }}
+          >
+            <div className="flex flex-wrap items-center gap-1 text-xs text-ink-muted">
+              <span>Sees:</span>
+              <span className="max-w-[60%] truncate font-medium text-ink" title={screen?.title}>
+                {screen?.heading ?? screen?.title ?? 'this page'}
+              </span>
+              {screen?.focus.map((f) => (
+                <span
                   key={`${f.kind}:${f.ref}`}
-                  className="rounded-full border border-line bg-surface px-2 py-0.5 text-xs"
+                  className="rounded-full border border-line px-2 py-0.5"
                 >
                   {FOCUS_LABEL[f.kind]} <span className="text-content">{f.ref}</span>
-                </li>
+                </span>
               ))}
-            </ul>
-          )}
-          <label className="mt-3 flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={includeText}
-              onChange={(e) => setIncludeText(e.target.checked)}
-            />
-            Include the text on this page
-            <span className="text-xs text-ink-muted">
-              ({textLength.toLocaleString()} characters)
-            </span>
-          </label>
-          {includeText && screen?.text && (
-            <div className="mt-1">
-              <button
-                type="button"
-                onClick={() => setShowText((s) => !s)}
-                className="text-xs text-ink-muted underline hover:text-ink"
-                aria-expanded={showText}
-              >
-                {showText ? 'Hide the text' : 'Check or trim the text'}
-              </button>
-              {showText && (
-                <textarea
-                  aria-label="Page text the agent will see"
-                  value={screen.text}
-                  onChange={(e) =>
-                    setScreen((s) => s && { ...s, text: e.target.value.slice(0, MAX_PAGE_TEXT) })
-                  }
-                  className="mt-2 h-48 w-full rounded-md border border-line bg-surface p-2 font-mono text-xs"
-                />
-              )}
             </div>
-          )}
-        </section>
-
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium">Your question</span>
-          <textarea
-            ref={questionRef}
-            value={question}
-            maxLength={MAX_QUESTION}
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                void ask(target);
+            <label className="flex items-center gap-2 text-xs text-ink-muted">
+              <input
+                type="checkbox"
+                checked={includeText}
+                onChange={(e) => setIncludeText(e.target.checked)}
+              />
+              Include the text on this page ({textLength.toLocaleString()} characters)
+            </label>
+            <textarea
+              ref={inputRef}
+              aria-label={`Message to ${label}`}
+              value={draft}
+              maxLength={MAX_CHAT_MESSAGE}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  void (agent.kind === 'chat' ? send() : askMuse());
+                }
+              }}
+              placeholder={
+                agent.kind === 'chat'
+                  ? 'Ask about this screen… (Enter sends, Shift+Enter for a new line)'
+                  : 'Your question for Muse'
               }
-            }}
-            placeholder="e.g. Why did this back test lose money in March?"
-            className="h-28 rounded-md border border-line bg-surface p-2"
-          />
-        </label>
-
-        <fieldset className="text-sm">
-          <legend className="mb-1 font-medium">Ask</legend>
-          <div className="flex flex-col gap-1">
-            {targets.map((t) => (
-              <label
-                key={t.id}
-                className={cx(
-                  'flex items-center gap-2 rounded-md border px-3 py-2',
-                  t.id === target.id ? 'border-accent bg-surface-2' : 'border-line',
-                )}
-              >
-                <input
-                  type="radio"
-                  name="ask-target"
-                  value={t.id}
-                  checked={t.id === target.id}
-                  onChange={() => setTargetId(t.id)}
-                />
-                <span className="flex-1">{t.label}</span>
-                <span className="text-xs text-ink-muted">
-                  {t.id === 'copy'
-                    ? 'Any other agent'
-                    : t.connected
-                      ? 'Connected'
-                      : 'Not connected'}
-                </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
-        <div>
-          <Button type="submit" variant="primary" disabled={busy || !question.trim() || !screen}>
-            {busy ? 'Getting ready…' : target.id === 'copy' ? 'Copy prompt' : `Ask ${target.label}`}
-          </Button>
-          <p className="mt-2 text-xs text-ink-muted">
-            {target.id === 'copy'
-              ? 'Copies your question and this screen, to paste into any AI agent.'
-              : target.connected
-                ? `Opens ${target.label} in a new tab with your question filled in. ${target.label} reads this screen through its Trading Magician connection. Nothing is sent until you send it there.`
-                : `Opens ${target.label} in a new tab with your question and this screen filled in. Nothing is sent until you send it there.`}
-          </p>
-          {!target.connected && target.id !== 'copy' && (
-            <p className="mt-1 text-xs text-ink-muted">
-              <Link href="/settings/ai-agents" className="underline">
-                Connect {target.label}
-              </Link>{' '}
-              so it can read the whole screen and look things up for you.
-            </p>
-          )}
-        </div>
-
-        <div aria-live="polite" className="text-sm">
-          {outcome?.kind === 'opened' && (
-            <p className="rounded-md bg-surface-2 p-3">
-              {outcome.label} opened in a new tab with your question. Check it and send it there.
-              {outcome.code && (
-                <span className="mt-1 block text-xs text-ink-muted">
-                  Screen code <span className="font-mono text-content">{outcome.code}</span>, kept
-                  for 24 hours.
-                </span>
-              )}
-            </p>
-          )}
-          {outcome?.kind === 'copied' && (
-            <p className="rounded-md bg-surface-2 p-3">Copied. Paste it into your AI agent.</p>
-          )}
-          {outcome?.kind === 'error' && (
-            <p className="rounded-md bg-surface-2 p-3 text-danger">{outcome.message}</p>
-          )}
-        </div>
-      </form>
+              className="h-20 w-full rounded-md border border-line bg-surface p-2 text-sm"
+            />
+            <Button type="submit" variant="primary" disabled={busy || !draft.trim()}>
+              {agent.kind === 'chat' ? 'Send' : 'Ask Muse'}
+            </Button>
+          </form>
+        </>
+      )}
     </aside>
   );
 }

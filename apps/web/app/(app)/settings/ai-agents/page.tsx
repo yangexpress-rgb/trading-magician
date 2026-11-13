@@ -1,4 +1,4 @@
-import { listAgentCalls, listAgentConnections, withTenant } from '@tm/db';
+import { getAiAssistant, listAgentCalls, listAgentConnections, withTenant } from '@tm/db';
 import { Alert, Card } from '@tm/ui';
 import type { Metadata } from 'next';
 import { AGENT_PROFILES, mcpEndpoint, museConnectUrl } from '@/lib/agents/profiles';
@@ -7,6 +7,7 @@ import { serverEnv } from '@/lib/server/env';
 import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
 import { AgentActivity, AgentList } from './agents-panels';
+import { AskAiAgentForm } from './ask-ai-agent';
 
 export const metadata: Metadata = { title: 'AI agents' };
 export const dynamic = 'force-dynamic';
@@ -20,13 +21,29 @@ export default async function AiAgentsPage() {
   const tenant = await requireTenant();
   const profile = await getProfile(tenant);
   const env = serverEnv();
-  const [connections, calls] = await withTenant(appDb(), tenant, async (tx) => [
-    await listAgentConnections(tx),
-    await listAgentCalls(tx, { limit: 200 }),
-  ]);
+  const [connections, calls, askAgent] = await withTenant(
+    appDb(),
+    tenant,
+    async (tx) =>
+      [
+        await listAgentConnections(tx),
+        await listAgentCalls(tx, { limit: 200 }),
+        await getAiAssistant(tx, tenant.userId),
+      ] as const,
+  );
   const prefs = { timeZone: profile.timezone, locale: profile.locale };
   return (
     <div className="space-y-6">
+      <Card aria-labelledby="ask-ai-agent-heading" id="ask-ai">
+        <h2 id="ask-ai-agent-heading" className="text-lg font-semibold">
+          Your agent for Ask AI
+        </h2>
+        <p className="mt-1 mb-4 text-sm text-ink-muted">
+          The one AI agent you chat with in the Ask AI panel, beside any screen. It sees what the
+          screen shows and can look things up in your account the same way connected agents can.
+        </p>
+        <AskAiAgentForm current={askAgent} />
+      </Card>
       <Card aria-labelledby="choose-agent-heading">
         <h2 id="choose-agent-heading" className="text-lg font-semibold">
           AI agents

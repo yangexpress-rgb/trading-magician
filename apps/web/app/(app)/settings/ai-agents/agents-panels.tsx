@@ -430,7 +430,7 @@ export function AgentActivity({
               {formatDateTime(c.at, prefs, { dateStyle: 'medium', timeStyle: 'medium' })}
             </Td>
             <Td>
-              {c.profileId ? profileName(c.profileId) : '—'}
+              {c.profileId ? profileName(c.profileId) : c.connectionId ? '—' : 'Ask AI panel'}
               {c.connectionName && <span className="block text-ink-muted">{c.connectionName}</span>}
             </Td>
             <Td className="font-mono text-xs text-content">{c.tool}</Td>
