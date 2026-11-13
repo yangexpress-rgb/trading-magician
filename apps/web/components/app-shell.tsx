@@ -10,7 +10,8 @@ import {
   SettingsIcon,
 } from '@tm/ui';
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import { Suspense, type ReactNode } from 'react';
+import { AskAiButton, AskAiPanel } from './ask-ai/ask-ai-panel';
 import { EscapeCloses } from './escape-closes';
 import { InstallAppButton } from './install-app-button';
 import { NavLink } from './nav-link';
@@ -51,12 +52,15 @@ export function AppShell({
   email,
   isAdmin = false,
   pendingShares = 0,
+  connectedAgents = [],
   children,
 }: {
   email: string;
   isAdmin?: boolean;
   /** Shares waiting for the person's answer (ADR 0056). */
   pendingShares?: number;
+  /** Agent profiles with a live connection, for the Ask AI panel (N272). */
+  connectedAgents?: readonly string[];
   children: ReactNode;
 }) {
   const nav: readonly NavItem[] = isAdmin ? [...PRIMARY_NAV, ADMIN_NAV] : PRIMARY_NAV;
@@ -99,6 +103,7 @@ export function AppShell({
           </ul>
         </nav>
         <div className="flex flex-wrap px-2 pb-2 md:flex-col">
+          <AskAiButton />
           <NotificationsLink />
           <InstallAppButton />
         </div>
@@ -111,7 +116,7 @@ export function AppShell({
           </div>
         </div>
       </aside>
-      <div className="min-w-0">
+      <div className="ask-ai-shift min-w-0">
         <div className="flex justify-end px-4 pt-3 md:hidden">
           <SignOutButton />
         </div>
@@ -128,6 +133,9 @@ export function AppShell({
           </p>
         </footer>
       </div>
+      <Suspense fallback={null}>
+        <AskAiPanel connectedProfiles={connectedAgents} />
+      </Suspense>
     </div>
   );
 }

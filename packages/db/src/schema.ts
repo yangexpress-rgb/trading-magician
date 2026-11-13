@@ -3158,3 +3158,33 @@ export const patternOccurrences = pgTable(
     check('pattern_occurrence_window', sql`${t.window} in ('discovery', 'holdout', 'fresh')`),
   ],
 );
+
+/**
+ * What the Ask AI panel saw on a screen (N272, ADR 0093): saved when the
+ * person asks an agent about the page, so the agent can read the whole
+ * snapshot through the get_screen_context tool from a short code in the
+ * prompt. The owner's only; kept a day.
+ */
+export const screenSnapshots = pgTable(
+  'screen_snapshot',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** Short code given to the agent, e.g. K7Q2MX9A. Unique per person. */
+    code: text('code').notNull(),
+    /** The person's question, as typed in the panel. */
+    question: text('question').notNull(),
+    /** Page title, path, focus items and the page text the person chose to share. */
+    content: jsonb('content').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    uniqueIndex('screen_snapshot_code_idx').on(t.userId, t.code),
+    index('screen_snapshot_user_idx').on(t.userId, t.createdAt),
+    check('screen_snapshot_code', sql`${t.code} ~ '^[A-Z0-9]{8}$'`),
+    check('screen_snapshot_question', sql`char_length(${t.question}) <= 4000`),
+  ],
+);

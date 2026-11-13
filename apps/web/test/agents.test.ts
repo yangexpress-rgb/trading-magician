@@ -1,8 +1,10 @@
 import {
   createTokenConnection,
+  getScreenSnapshot,
   hashAgentSecret,
   listAgentCalls,
   revokeAgentConnection,
+  saveScreenSnapshot,
   schema,
   sql,
   withTenant,
@@ -356,6 +358,43 @@ describe('tools', () => {
     expect(
       r.data.platforms.flatMap((p: { accounts: unknown[] }) => p.accounts).length,
     ).toBeGreaterThan(0);
+  });
+
+  it('reads the screen snapshot the person saved from Ask AI, and only theirs (N272)', async () => {
+    const content = {
+      title: 'Strategy Lab',
+      path: '/strategy-lab/x',
+      url: `${APP_URL}/strategy-lab/x`,
+      focus: [{ kind: 'strategy', ref: 'S00001-SD' }],
+      text: 'Back test: +4.2%',
+      capturedAt: '2026-11-13T18:00:00.000Z',
+    };
+    const older = await as(userA, (tx) =>
+      saveScreenSnapshot(tx, userA, { question: 'First?', content }),
+    );
+    const snap = await as(userA, (tx) =>
+      saveScreenSnapshot(tx, userA, { question: 'Why +4.2%?', content }),
+    );
+    expect(snap.code).toMatch(/^[A-Z0-9]{8}$/);
+    const { token } = await mint(userA, 'read');
+    const byCode = await call(token, 'get_screen_context', { code: older.code.toLowerCase() });
+    expect(byCode.data).toMatchObject({ code: older.code, question: 'First?', content });
+    const latest = await call(token, 'get_screen_context');
+    expect(latest.data).toMatchObject({ code: snap.code, question: 'Why +4.2%?' });
+
+    // Another person cannot read it, by code or as their latest.
+    const other = await mint(userB, 'read');
+    const refused = await call(other.token, 'get_screen_context', { code: snap.code });
+    expect(refused).toMatchObject({ isError: true, data: { error: { code: 'not_found' } } });
+    expect((await call(other.token, 'get_screen_context')).isError).toBe(true);
+    expect(await as(userB, (tx) => getScreenSnapshot(tx, userA, snap.code))).toBeNull();
+
+    // Snapshots expire after a day, and the next save clears expired ones.
+    const later = new Date(Date.now() + 25 * 3_600_000);
+    expect(await as(userA, (tx) => getScreenSnapshot(tx, userA, snap.code, later))).toBeNull();
+    await as(userA, (tx) => saveScreenSnapshot(tx, userA, { question: 'Q', content }, later));
+    const left = await as(userA, (tx) => tx.select().from(schema.screenSnapshots));
+    expect(left).toHaveLength(1);
   });
 
   it('answers a bad argument with the field and an unknown tool with a protocol error', async () => {

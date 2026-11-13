@@ -2,3 +2,10 @@
 @import '@tm/ui/styles.css';
 
 @source '../../../packages/ui/src';
+
+/* The Ask AI panel (N272) sits beside the page on wide screens instead of over it. */
+@media (min-width: 1280px) {
+  html.ask-ai-open .ask-ai-shift {
+    margin-right: 380px;
+  }
+}

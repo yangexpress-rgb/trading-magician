@@ -16,6 +16,7 @@ const CATALOGUE: Record<string, 'read' | 'operate'> = {
   get_backtest: 'read',
   screen_stocks: 'read',
   get_paper_accounts: 'read',
+  get_screen_context: 'read',
   create_strategy: 'operate',
   update_strategy: 'operate',
   run_backtest: 'operate',

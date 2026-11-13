@@ -116,3 +116,10 @@ export const AdminIcon = (p: IconProps) => (
     <path d="m9 12 2 2 4-4" />
   </Icon>
 );
+/** Ask AI (N272): a speech bubble with a spark. */
+export const AskAiIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" />
+    <path d="M12 8v3m0 0v3m0-3h3m-3 0H9" />
+  </Icon>
+);
