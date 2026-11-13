@@ -100,7 +100,7 @@ test('pages are served with a nonce-based Content Security Policy and run withou
   const response = await page.goto('/sign-in');
   const csp = response?.headers()['content-security-policy'] ?? '';
   expect(csp).toMatch(/script-src 'self' 'nonce-[^']+' 'strict-dynamic'/);
-  expect(csp).toContain("frame-ancestors 'none'");
+  expect(csp).toContain("frame-ancestors 'self'");
 
   // The page must hydrate under the policy: client-side validation and handlers work.
   await signUpAndVerify(page, uniqueEmail('csp'));

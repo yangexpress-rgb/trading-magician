@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-13
-- **Design refs:** design v1.2 N250, N252, §16.1 (CSP). Requested by Yong 2026-11-13.
+- **Design refs:** design v1.2 N250, N252, N253, §16.1 (CSP). Requested by Yong 2026-11-13.
 
 ## Context
 
@@ -56,3 +56,27 @@ desktop app (Electron or similar). Yong chose the second.
   show a tab strip; the others fall back to a plain app window, where Cmd-click (Mac) or
   Ctrl-click (Windows) on a link opens it in another app window. Links are ordinary `<a>`
   elements, so the browser's own new-tab and new-window handling applies.
+
+## Amendment 2026-11-13 (N253): tabs inside the app
+
+Browsers do not yet show tabs in installed app windows by default, so the app draws its own.
+
+- **Tab bar host** at `/tabs` (`apps/web/components/tabs/tab-host.tsx`, helpers in
+  `apps/web/lib/app-tabs.ts`). Each tab is a same-origin frame running the normal app with its
+  sidebar, so a hidden tab keeps its page, scroll and form state, like a browser tab. Tabs show
+  the page title, follow navigation inside the frame, close with × or a middle-click, and up to
+  12 can be open. "+" opens Strategy Lab. Open tabs are remembered per browser (localStorage,
+  addresses only) and come back when the app is opened again.
+- **New tabs from links.** On in-app links, Cmd-click, Ctrl-click and middle-click open a tab
+  behind the current one; `target="_blank"` opens one in front. Links to other sites keep the
+  browser's handling. API routes and `/tabs` itself never open as tabs.
+- **The app window opens into the tab bar.** The manifest `start_url` is `/tabs`. A page shown
+  in the installed app's own window (display-mode `standalone`/`tabbed`, or Safari's
+  `navigator.standalone`), not inside a frame, replaces itself with `/tabs?open=<its address>`,
+  so apps installed before this change get tabs too. Browser tabs are unchanged.
+- **Framing by this app only.** `X-Frame-Options` is now `SAMEORIGIN` and CSP
+  `frame-ancestors 'self'` (was `DENY`/`'none'`). Other sites still cannot frame the app.
+- **Icons moved to `/icons/v2/`.** Chrome and Edge compare icon addresses when they check the
+  manifest for updates, so a new address lets installed apps pick up a changed icon on their
+  own (within about a day). Safari keeps the icon from install time; re-adding it to the Dock
+  refreshes it.

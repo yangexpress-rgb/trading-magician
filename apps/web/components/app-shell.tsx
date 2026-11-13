@@ -16,6 +16,7 @@ import { InstallAppButton } from './install-app-button';
 import { NavLink } from './nav-link';
 import { NotificationsLink } from './notifications-link';
 import { SignOutButton } from './sign-out-button';
+import { AppWindowRedirect } from './tabs/app-window-redirect';
 
 /**
  * Primary navigation, in the order fixed by Design v1.0 §5. Trading Strategy
@@ -62,6 +63,7 @@ export function AppShell({
   return (
     <div className="min-h-screen md:grid md:grid-cols-[232px_1fr]">
       <EscapeCloses />
+      <AppWindowRedirect />
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-10 focus:rounded focus:bg-surface focus:px-3 focus:py-2"
