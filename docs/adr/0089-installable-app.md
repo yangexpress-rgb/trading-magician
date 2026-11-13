@@ -102,5 +102,5 @@ test adds a stand-in add-on that cancels right-clicks from every frame's start.
 ## Amendment 2026-11-13: brighter icon
 
 Yong found the indigo background too dark and chose a brighter one. The icon keeps the
-candles-and-spark design on a sky-blue gradient. Icons moved to `/icons/v3/`; every later icon
+candles-and-spark design on an orange-to-pink "Sunrise" gradient with white candles. Icons moved to `/icons/v3/`; every later icon
 change moves them to the next `/icons/vN/` so installed apps notice it.
