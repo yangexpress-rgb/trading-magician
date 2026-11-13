@@ -39,6 +39,9 @@ const CONCEPTS = {
     unit: 'USD',
   },
   netIncome: { tags: ['NetIncomeLoss'], unit: 'USD' },
+  /** Cash flow statement items, reported year to date: quarters come from the YTD chain. */
+  operatingCashFlow: { tags: ['NetCashProvidedByUsedInOperatingActivities'], unit: 'USD' },
+  capitalExpenditure: { tags: ['PaymentsToAcquirePropertyPlantAndEquipment'], unit: 'USD' },
   operatingIncome: { tags: ['OperatingIncomeLoss'], unit: 'USD' },
   depreciation: {
     tags: [
@@ -492,6 +495,8 @@ export function pointInTimeObservations(
     for (const [field, name] of [
       ['revenue_ttm', 'revenue'],
       ['net_income_ttm', 'netIncome'],
+      ['ocf_ttm', 'operatingCashFlow'],
+      ['capex_ttm', 'capitalExpenditure'],
     ] as const) {
       const t = ttm(name);
       if (t) emit(filing, field, t.value, t.periodEnd);

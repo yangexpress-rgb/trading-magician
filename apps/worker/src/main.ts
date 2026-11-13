@@ -8,7 +8,7 @@ import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
 import { resolveBuiltinUniverse } from './universes';
 import { startBacktestLoop, type BacktestLoop } from './backtests';
 import { startBillingLoop, type BillingLoop } from './billing-sync';
-import { loadWorkerEnv, shiftedClock } from './env';
+import { loadWorkerEnv, patternSnapshotsOn, shiftedClock } from './env';
 import { createHealthServer } from './health';
 import { loadCredentialKey } from './credential-key';
 import { startFeedCheckLoop, type FeedCheckLoop } from './feed-checks';
@@ -51,13 +51,14 @@ import {
   FakeEdgarEvents,
 } from '@tm/sec/testing';
 import { fetchTickers, SecClient } from '@tm/sec';
-import { saveRates, sharedFeedOwner } from '@tm/db';
-import { EVENT_HISTORY_FROM, type BuiltinUniverse } from '@tm/domain';
+import { listOptionUniverse, saveRates, sharedFeedOwner } from '@tm/db';
+import { EVENT_HISTORY_FROM, isStockGroupId, type BuiltinUniverse } from '@tm/domain';
 import { finnhubCalendar, fmpCalendar, type CalendarSource } from './events/calendar';
 import { adminCredentialField } from './events/keys';
 import { earningsFeedProvider } from './events/feed';
 import { startEventsLoop, type EventsLoop } from './events/loop';
 import { startMlSnapshotLoop, type MlSnapshotLoop } from './ml/loop';
+import { startPatternSnapshotLoop, type PatternSnapshotLoop } from './patterns/loop';
 
 const env = loadWorkerEnv();
 const reporter = createErrorReporter({
@@ -91,6 +92,7 @@ let optionsLoop: OptionsLoop | undefined;
 let liveChains: LiveChainLoop | undefined;
 let eventsLoop: EventsLoop | undefined;
 let mlSnapshots: MlSnapshotLoop | undefined;
+let patternSnapshots: PatternSnapshotLoop | undefined;
 let billing: BillingLoop | undefined;
 let heartbeat: HeartbeatLoop | undefined;
 let fakeTicker: ReturnType<typeof setInterval> | undefined;
@@ -488,6 +490,48 @@ if (databaseUrl) {
     });
     logger.info('ml snapshot job started');
   }
+  if (patternSnapshotsOn(env)) {
+    // Pattern discovery's factor store (ADR 0091), through the sharing admin's feeds.
+    const groups = env.PATTERN_SNAPSHOT_GROUPS.split(',')
+      .map((g) => g.trim())
+      .filter((g): g is BuiltinUniverse => isStockGroupId(g));
+    patternSnapshots = startPatternSnapshotLoop({
+      db,
+      history: (userId) =>
+        createMemberHistory({
+          db,
+          userId,
+          now: () => new Date(),
+          providers,
+          privateKey: credentialKey,
+          patient: true,
+          background: true,
+        }),
+      fundamentals: companyFilings,
+      members: async (userId) => {
+        const ids = new Set<string>();
+        for (const group of groups)
+          for (const id of (
+            await resolveBuiltinUniverse({
+              db,
+              userId,
+              group,
+              providers,
+              privateKey: credentialKey,
+              now: () => new Date(),
+            })
+          ).ids)
+            ids.add(id);
+        for (const u of await listOptionUniverse(db)) ids.add(u.underlyingId);
+        return [...ids];
+      },
+      sessionMembers: async () => (await listOptionUniverse(db)).map((u) => u.underlyingId),
+      from: env.PATTERN_SNAPSHOT_FROM,
+      logger,
+      pollMs: env.PATTERN_SNAPSHOT_POLL_MS,
+    });
+    logger.info({ groups }, 'pattern snapshot job started');
+  }
   companies = startCompanyReportLoop({
     db,
     fundamentals,
@@ -523,6 +567,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         liveChains?.stop(),
         eventsLoop?.stop(),
         mlSnapshots?.stop(),
+        patternSnapshots?.stop(),
         billing?.stop(),
         heartbeat?.stop(),
       ]);

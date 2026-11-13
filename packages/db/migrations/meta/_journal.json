@@ -638,6 +638,13 @@
       "when": 1794532906288,
       "tag": "0090_session_end_exit",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1794583165198,
+      "tag": "0091_pattern_factor_snapshots",
+      "breakpoints": true
     }
   ]
 }

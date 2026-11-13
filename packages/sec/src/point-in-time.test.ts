@@ -532,3 +532,47 @@ describe('point-in-time fundamentals from the fake EDGAR', () => {
     expect(await fetchPointInTime(client, 1234)).toBeUndefined();
   });
 });
+
+describe('cash flow (pattern brief §4: FCF margin)', () => {
+  // Cash flow statements report year to date: 3, 6, 9 and 12 months.
+  const ytd = (
+    accn: string,
+    form: string,
+    filed: string,
+    end: string,
+    ocf: number,
+    capex: number,
+  ) => ({
+    accn,
+    form,
+    filed,
+    facts: {
+      NetCashProvidedByUsedInOperatingActivities: [['2024-01-01', end, ocf]],
+      PaymentsToAcquirePropertyPlantAndEquipment: [['2024-01-01', end, capex]],
+    } as F['facts'],
+  });
+  const cash: F[] = [
+    ytd('C-Q1', '10-Q', '2024-05-01', '2024-03-31', 30, 5),
+    ytd('C-Q2', '10-Q', '2024-08-01', '2024-06-30', 70, 12),
+    ytd('C-Q3', '10-Q', '2024-11-01', '2024-09-30', 100, 20),
+    ytd('C-FY', '10-K', '2025-02-15', '2024-12-31', 150, 30),
+    {
+      accn: 'C-25Q1',
+      form: '10-Q',
+      filed: '2025-05-01',
+      facts: {
+        NetCashProvidedByUsedInOperatingActivities: [['2025-01-01', '2025-03-31', 40]],
+        PaymentsToAcquirePropertyPlantAndEquipment: [['2025-01-01', '2025-03-31', 6]],
+      },
+    },
+  ];
+  const obs = pointInTimeObservations(companyFacts(cash));
+  it('is the fiscal year when one just ended, else four quarters from the YTD chain', () => {
+    expect(asOf(obs, 'ocf_ttm', '2024-12-01')).toBeUndefined();
+    expect(asOf(obs, 'ocf_ttm', '2025-03-01')).toBe(150);
+    expect(asOf(obs, 'capex_ttm', '2025-03-01')).toBe(30);
+    // Q2–Q4 2024 (40 + 30 + 50) plus Q1 2025 (40).
+    expect(asOf(obs, 'ocf_ttm', '2025-05-02')).toBe(160);
+    expect(asOf(obs, 'capex_ttm', '2025-05-02')).toBe(31);
+  });
+});

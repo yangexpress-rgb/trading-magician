@@ -27,3 +27,4 @@ export * from './options';
 export * from './library';
 export * from './events';
 export * from './ml';
+export * from './patterns';

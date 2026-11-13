@@ -115,6 +115,21 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
       /** How often the ML snapshot job looks for dates to do; each pass does one chunk. */
       ML_SNAPSHOT_POLL_MS: z.coerce.number().int().min(1000).default(600_000),
       /**
+       * Pattern discovery's factor snapshots (pattern brief §3, ADR 0091): the
+       * kill switch. Unset, it is on in the Railway staging environment only
+       * (so the backfill and its coverage report can run there) and off
+       * everywhere else, production included.
+       */
+      PATTERN_SNAPSHOT_ENABLED: z.enum(['on', 'off']).optional(),
+      /** The first day a factor backfill snapshots; coverage starts where the feeds' data does. */
+      PATTERN_SNAPSHOT_FROM: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .default('2016-01-04'),
+      /** The stock groups whose members are snapshotted (comma-separated), plus the options universe. */
+      PATTERN_SNAPSHOT_GROUPS: z.string().max(200).default('sp500,ndx,dji,sp400,sp600'),
+      PATTERN_SNAPSHOT_POLL_MS: z.coerce.number().int().min(1000).default(300_000),
+      /**
        * The contact the SEC asks automated clients to name, for the global
        * EDGAR scans. Without it the worker uses the oldest platform admin's SEC
        * EDGAR feed contact; with neither, the scans wait.
@@ -182,6 +197,15 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
     throw new Error('SEC_FAKE is for tests only');
   }
   return env;
+}
+
+/** Whether the pattern snapshot job runs: the switch, or by default only on Railway staging. */
+export function patternSnapshotsOn(env: {
+  PATTERN_SNAPSHOT_ENABLED?: 'on' | 'off' | undefined;
+  RAILWAY_ENVIRONMENT_NAME?: string | undefined;
+}): boolean {
+  if (env.PATTERN_SNAPSHOT_ENABLED) return env.PATTERN_SNAPSHOT_ENABLED === 'on';
+  return env.RAILWAY_ENVIRONMENT_NAME === 'staging';
 }
 
 /** A clock that starts at `start` and advances with real time. */
