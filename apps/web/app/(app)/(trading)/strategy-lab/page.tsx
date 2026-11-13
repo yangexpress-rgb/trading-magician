@@ -15,6 +15,7 @@ import {
   ShareSelectedBar,
   ShareSelection,
 } from '@/components/sharing/share-selection';
+import { GuideVideoCard } from '@/components/guide/guide-video-card';
 import { UrlFilterBar } from '@/components/filters/url-filter-bar';
 import { StrategyNameLink } from '@/components/strategy/strategy-name';
 import { StrategyStatusBadge } from '@/components/strategy-status-badge';
@@ -165,6 +166,9 @@ export default async function StrategyLabPage({
         actions={<NewStrategyButton sources={copySources} initialCopyFrom={one('copy')} />}
       />
       <TradingStrategyNav />
+
+      {/* The new-user guide until it is dismissed or watched to the end (N248). */}
+      {profile.guideVideoDoneAt === null && <GuideVideoCard />}
 
       {/* Filters apply as they are picked; the rarer ones wait in the Filter menu (N195). */}
       <div className="mb-4">

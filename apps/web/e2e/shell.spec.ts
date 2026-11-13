@@ -8,6 +8,7 @@ const TABS = [
   { name: 'Orders', path: '/orders' },
   { name: 'Performance', path: '/performance' },
   { name: 'Settings', path: '/settings/profile' },
+  { name: 'Help', path: '/help' },
 ];
 
 const OTHER_PAGES = [
@@ -33,7 +34,7 @@ async function expectAccessible(page: Page) {
   ).toEqual([]);
 }
 
-test('shows the five tabs in the specified order and marks the current one', async ({ page }) => {
+test('shows the six tabs in the specified order and marks the current one', async ({ page }) => {
   await signUpAndVerify(page, uniqueEmail('nav'));
   const nav = page.getByRole('navigation', { name: 'Primary' });
   await expect(nav.getByRole('link')).toHaveText(TABS.map((t) => t.name));
