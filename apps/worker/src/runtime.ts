@@ -117,6 +117,7 @@ import {
   type StrategyDefinition,
   newCycleState,
   nyDate,
+  regularSession,
   planCycle,
   planEntry,
   rearmEntryTrigger,
@@ -225,6 +226,8 @@ export function createRuntimeCaches(
 }
 
 const ZERO = new Decimal(0);
+/** How long before the close the paper runtime flattens at session end (N255, O156). */
+export const SESSION_END_LEAD_MS = 5 * 60_000;
 
 /**
  * Safety defaults (§8.5, §8.6; ADR 0014), on the runtime's clock. They are
@@ -883,6 +886,23 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   const selection = selectionOf(def);
   const evaluate = (phase: PhaseName, r: SeriesResolver = view, d = def): Truth =>
     evaluateCondition(d[phase].condition, r);
+  /** Minutes held (N254): whole minutes from the cycle's earliest Entry fill to this pass. */
+  const minutesHeld = (c: ActiveCycle): { minutesHeld?: number } => {
+    const fills = c.legs
+      .filter((l) => l.phase === 'entry' && l.firstFillAt !== undefined)
+      .map((l) => l.firstFillAt as number);
+    if (fills.length === 0) return {};
+    const opened = Math.min(...fills);
+    return t < opened ? {} : { minutesHeld: Math.floor((t - opened) / 60_000) };
+  };
+  // Flatten at session end (N255): on paper, the session's final passes are its
+  // last five minutes, while closing orders can still trade before the close.
+  const sessionToday = regularSession(nyDate(now));
+  const sessionEnd =
+    def.execution.flattenAtSessionEnd === true &&
+    sessionToday !== undefined &&
+    t >= Date.parse(sessionToday.close) - SESSION_END_LEAD_MS &&
+    t < Date.parse(sessionToday.close);
   /** The view plus a cycle's positions, for Exit rules and Exit order prices. */
   const cycleView = (c: ActiveCycle): SeriesResolver => {
     const r = withPositions(view, (id) => {
@@ -899,6 +919,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         ...(k ? { peak: new Decimal(k.peak), checkClose: new Decimal(k.close) } : {}),
         ...(k?.at === undefined ? {} : { checkCloseAt: k.at }),
         ...(c.cycle.daysHeld === undefined ? {} : { daysHeld: c.cycle.daysHeld }),
+        ...minutesHeld(c),
         ...(atr ? { atrAtEntry: decimals(atr) } : {}),
         ...(move ? { moveAtEntry: decimals(move) } : {}),
       };
@@ -1281,6 +1302,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       now: t,
       exitTruth,
       exitDue,
+      sessionEnd,
       forceExit: rebalanceExits.has(c.id)
         ? 'rebalance'
         : atrStopFired
@@ -1313,7 +1335,9 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         'app',
         cancel.reason === 'leg_timeout'
           ? 'Leg timeout reached'
-          : 'Another leg of the plan did not fill',
+          : cancel.reason === 'session_end'
+            ? 'Session end: the position was flattened'
+            : 'Another leg of the plan did not fill',
       );
       if (target) {
         try {

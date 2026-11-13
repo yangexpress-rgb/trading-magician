@@ -70,6 +70,7 @@ export const POSITION_FIELD_LABELS = {
   atrs_below_entry: 'Below entry, in ATRs at entry',
   expected_moves_1d: 'Move since entry, in 1-day expected moves',
   expected_moves_5d: 'Move since entry, in 5-day expected moves',
+  minutes_held: 'Minutes held',
 } as const;
 
 export const INTERVAL_LABELS = {

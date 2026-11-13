@@ -917,13 +917,15 @@ function ScheduleBoxes({
           if (v === 'run') return onPick(undefined);
           const w = v as ScheduleWhich;
           // 1st, 2nd and last need an intraday bar: keep the size, else 5 minutes.
+          // They stay pickable on daily bars and from "Every bar the run steps on"
+          // (N256): picking one there switches the bar to 5 minutes.
           const bar = daily && w !== 'every' && w !== 'beforeOpen' ? '5m' : s.bar;
           onPick({ ...s, which: w, bar });
         }}
       >
         {runOption && <option value="run">Every bar the run steps on</option>}
         {SCHEDULE_WHICH.map((w) => (
-          <option key={w} value={w} disabled={daily && w !== 'every' && w !== 'beforeOpen'}>
+          <option key={w} value={w}>
             {SCHEDULE_WHICH_LABELS[w]}
           </option>
         ))}

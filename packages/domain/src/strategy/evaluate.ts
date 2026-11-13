@@ -10,6 +10,7 @@ import {
 import type { FundamentalField, FundamentalPoint } from '../market/point-in-time';
 import type { OptionSignalField } from '../options/signals';
 import type { EventMetricId, EventPoint } from '../events/signals';
+import type { SessionBars } from './session-metrics';
 import type {
   Comparison,
   ConditionNode,
@@ -61,6 +62,11 @@ export interface PositionSnapshot {
   openedAt?: number | undefined;
   /** Trading days since Entry first filled, counting that day (N221). */
   daysHeld?: number | undefined;
+  /**
+   * Whole minutes from the cycle's earliest Entry fill to the evaluation: the
+   * current bar's end in back tests, the pass time on paper (N254).
+   */
+  minutesHeld?: number | undefined;
   /** ATR(period) of daily bars when Entry was decided, by period (N221). */
   atrAtEntry?: Readonly<Record<number, Decimal>> | undefined;
   /** The options expected move (a fraction) over 1 or 5 days when Entry was decided (N221). */
@@ -106,6 +112,8 @@ export interface SeriesResolver {
   ml?(instrumentId: string, modelKey: string, barsBack: number): MlPoint | undefined;
   /** When the bar `value` reads ended (ms), for explaining a check (N224). */
   barEnd?(expr: SeriesExpr, barsBack: number): number | undefined;
+  /** Today's completed regular-session bars, for session values (N253). */
+  session?(instrumentId: string, barsBack: number): SessionBars | undefined;
 }
 
 /** The bar series a position expression is marked against: its interval's close. */
@@ -164,6 +172,9 @@ export function withContext(r: SeriesResolver, instrumentId: string): SeriesReso
           ml: (id: string, key: string, barsBack: number) => r.ml?.(bindId(id), key, barsBack),
         }
       : {}),
+    ...(r.session
+      ? { session: (id: string, barsBack: number) => r.session?.(bindId(id), barsBack) }
+      : {}),
     ...(r.position
       ? {
           position: (id: string) => r.position?.(id === CONTEXT_INSTRUMENT_ID ? instrumentId : id),
@@ -205,6 +216,7 @@ export function withPositions(
     ...(r.ml
       ? { ml: (id: string, key: string, barsBack: number) => r.ml?.(id, key, barsBack) }
       : {}),
+    ...(r.session ? { session: (id: string, barsBack: number) => r.session?.(id, barsBack) } : {}),
     position,
   };
 }
@@ -228,6 +240,9 @@ function positionValue(e: PositionExpr, r: SeriesResolver, barsBack: number): De
   // The holding-period exit as a value (N221).
   if (e.field === 'days_held')
     return held.daysHeld === undefined ? undefined : new Decimal(held.daysHeld);
+  // The intraday time stop as a value (N254).
+  if (e.field === 'minutes_held')
+    return held.minutesHeld === undefined ? undefined : new Decimal(held.minutesHeld);
   // The ATR stop as a value (N221): how far below the entry price, in ATRs at entry.
   if (e.field === 'atrs_below_entry') {
     const atr = held.atrAtEntry?.[e.period ?? DEFAULT_HOLDING_ATR_PERIOD];

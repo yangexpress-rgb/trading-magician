@@ -1430,3 +1430,79 @@ describe('paper runtime: kept-as-saved stops skip closes from before Entry fille
     expect(closeSinceFill(resolver(new Decimal(50), undefined), expr, end)).toBeUndefined();
   });
 });
+
+describe('paper runtime: intraday pack (N254, N255)', () => {
+  function single(): StrategyDefinition {
+    const def = createDefinition();
+    def.entry.condition = always('in');
+    def.entry.trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };
+    def.exit.condition = never();
+    def.entry.orders = [leg('buy', { legLabel: 'Buy A' })];
+    def.exit.orders = [leg('sell', { legLabel: 'Sell A', side: 'close' })];
+    return def;
+  }
+
+  it('flattens what is held in the session’s last five minutes, with reason "Session end"', async () => {
+    clock = Date.parse('2026-11-02T15:31:00Z'); // Monday 10:31 New York (EST)
+    const def = single();
+    def.execution.flattenAtSessionEnd = true;
+    const { runtimeId } = await startPaper('Flatten at session end', def);
+    await pass();
+    clock += 5_000;
+    await pass(); // filled
+    expect((await cycles(runtimeId))[0]!.status).toBe('open');
+    clock = Date.parse('2026-11-02T20:50:00Z'); // 15:50: not yet
+    await pass();
+    expect((await orders(runtimeId)).filter((x) => x.phase === 'flatten')).toHaveLength(0);
+    clock = Date.parse('2026-11-02T20:56:00Z'); // 15:56: the session's final passes
+    await pass();
+    const flatten = (await orders(runtimeId)).filter((x) => x.phase === 'flatten');
+    expect(flatten).toHaveLength(1);
+    expect(flatten[0]!.side).toBe('sell');
+    // Exit when never fired: no Exit leg was placed.
+    expect((await orders(runtimeId)).filter((x) => x.phase === 'exit')).toHaveLength(0);
+    clock += 5_000;
+    await pass();
+    const [c] = await cycles(runtimeId);
+    expect((c!.state as { exitReason?: string }).exitReason).toBe('session_end');
+    expect(c!.status).toBe('closed');
+    await stopAll();
+  });
+
+  it('exits on Minutes held, counted from the first Entry fill to the pass', async () => {
+    clock = Date.parse('2026-11-02T15:31:00Z');
+    const def = single();
+    def.exit.condition = {
+      kind: 'group',
+      id: 'mins-g',
+      op: 'and',
+      negate: false,
+      children: [
+        {
+          kind: 'comparison',
+          id: 'mins',
+          operator: 'gte',
+          left: {
+            kind: 'position',
+            id: 'mins-v',
+            instrumentId: demoA,
+            field: 'minutes_held',
+            interval: '1h',
+            adjustment: 'split_and_dividend',
+            session: 'regular',
+          },
+          right: { kind: 'constant', id: 'mins-k', value: '50' },
+        },
+      ],
+    };
+    const { runtimeId } = await startPaper('Minutes held', def);
+    await pass();
+    clock += 5_000;
+    await pass(); // filled at 10:31
+    expect((await orders(runtimeId)).filter((x) => x.phase === 'exit')).toHaveLength(0);
+    clock = Date.parse('2026-11-02T16:31:00Z'); // 11:31: the next hourly bar, ~60 minutes held
+    await pass();
+    expect((await orders(runtimeId)).filter((x) => x.phase === 'exit')).toHaveLength(1);
+    await stopAll();
+  });
+});

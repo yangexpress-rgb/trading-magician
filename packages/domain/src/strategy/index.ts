@@ -22,3 +22,4 @@ export * from './serialize';
 export * from './timing';
 export * from './tree';
 export * from './validate';
+export * from './session-metrics';

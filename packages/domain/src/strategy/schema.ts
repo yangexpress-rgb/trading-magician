@@ -78,6 +78,7 @@ export interface IndicatorExpr {
  * short). It is the trailing stop as an Exit when condition, read at the
  * Check Exit bar size like the stops (O144).
  */
+/** `minutes_held` (N254): whole minutes since the cycle's earliest Entry fill, the intraday time stop. */
 export const POSITION_FIELDS = [
   'entry_price',
   'gain_pct',
@@ -85,6 +86,7 @@ export const POSITION_FIELDS = [
   'quantity',
   'off_peak_pct',
   'days_held',
+  'minutes_held',
   'atrs_below_entry',
   'expected_moves_1d',
   'expected_moves_5d',
@@ -744,6 +746,12 @@ export const executionSchema = z.object({
    * an exact-timed Entry leg can open a cycle by itself (§6.8).
    */
   timingOnly: z.boolean().optional(),
+  /**
+   * "Flatten at session end" (N255): at the last bar of each regular session,
+   * after Exit when, anything still held closes at that bar's close with exit
+   * reason "Session end". Needs intraday bars; absent is off.
+   */
+  flattenAtSessionEnd: z.boolean().optional(),
 });
 export type ExecutionPolicy = z.infer<typeof executionSchema>;
 
