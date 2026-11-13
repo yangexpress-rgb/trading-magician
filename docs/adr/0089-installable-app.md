@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-13
-- **Design refs:** design v1.2 N250, §16.1 (CSP). Requested by Yong 2026-11-13.
+- **Design refs:** design v1.2 N250, N252, §16.1 (CSP). Requested by Yong 2026-11-13.
 
 ## Context
 
@@ -40,3 +40,19 @@ desktop app (Electron or similar). Yong chose the second.
   cookies in Chrome; a Safari web app keeps its own website data, so it may ask to sign in once.
 - e2e `install-app.spec.ts` checks the manifest and icons load signed out and that Chrome
   reports no installability errors.
+
+## Amendment 2026-11-13 (N252)
+
+- **New icon.** Yong picked "Candles + spark" from three designs: green and red candlesticks
+  climbing to a glowing spark on deep indigo. Same files and sizes as above.
+- **Sidebar "Install desktop app"** (`apps/web/components/install-app-button.tsx`), under
+  Notifications. Chrome and Edge fire `beforeinstallprompt`; the button keeps that event and
+  opens the browser's own install prompt. Where there is none (Safari, or Chrome after a
+  dismissed prompt or once installed) it opens a dialog with the menu steps for the browser in
+  use. It is hidden when the page runs as the installed app (`display-mode: standalone` or
+  `tabbed`, or `navigator.standalone`).
+- **Tabs in the app window where the browser offers them.** The manifest asks for
+  `display_override: ['tabbed', 'standalone']`. Chrome and Edge that support tabbed app windows
+  show a tab strip; the others fall back to a plain app window, where Cmd-click (Mac) or
+  Ctrl-click (Windows) on a link opens it in another app window. Links are ordinary `<a>`
+  elements, so the browser's own new-tab and new-window handling applies.

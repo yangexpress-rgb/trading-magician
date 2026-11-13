@@ -63,6 +63,12 @@ export const HelpIcon = (p: IconProps) => (
     <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01" />
   </Icon>
 );
+export const InstallIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="4" width="18" height="13" rx="2" />
+    <path d="M12 7v6m-3-3 3 3 3-3M8 21h8" />
+  </Icon>
+);
 export const PaperIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />

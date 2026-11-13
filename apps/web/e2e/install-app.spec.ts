@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { signUpAndVerify, test as appTest, uniqueEmail } from './fixtures';
 
 // N250: the app installs as its own window (Chrome "Install", Safari "Add to Dock").
 test.describe('installable app', () => {
@@ -34,4 +35,20 @@ test.describe('installable app', () => {
       })
       .toEqual([]);
   });
+});
+
+// N252: the sidebar offers the desktop app; without the browser's prompt it explains the steps.
+appTest('sidebar Install desktop app explains how to install', async ({ page }) => {
+  // Headless Chromium may offer its own install prompt; hide it to test the help path.
+  await page.addInitScript(() =>
+    window.addEventListener('beforeinstallprompt', (e) => e.stopImmediatePropagation(), true),
+  );
+  await signUpAndVerify(page, uniqueEmail('install'));
+  await page.goto('/strategy-lab');
+  await page.getByRole('button', { name: 'Install desktop app' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Install the desktop app' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('Chrome');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
 });
