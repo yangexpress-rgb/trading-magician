@@ -30,6 +30,14 @@ with prices and limits as placeholders he can change.
   change, after a per-user advisory lock so two requests can't both pass a limit. The API answers
   `403 plan_limit` with the limit, plan, allowance and current use in `details`. An account the
   worker discovers past the limit is added but left off, and turning it on is refused.
+- **Platform admins skip the saved-strategy cap (amended 2026-11-12, design v1.2 N249).** The person
+  testing and reviewing the product should not have to delete strategies, or hold a paid-tier
+  workaround, to make a new one. `assertWithinLimit` skips `savedStrategies` when the caller is a
+  platform admin (`is_platform_admin()`, ADR 0037: the one admin role, granted only by
+  `users:grant-admin`; never an email address). The exemption is a fixed set, `ADMIN_EXEMPT`, holding
+  that one limit: active strategies, back tests, accounts and the feature gates still apply to admins
+  as to anyone on their plan, and plans, entitlements and billing are unchanged. An admin's usage can
+  read above the plan's allowance on Settings › Subscription and billing.
 - **Lowering a limit never deletes anything.** Over-limit strategies and accounts stay; only new ones
   are refused. What a downgrade does to running strategies is ADR 0023's subject.
 - **Tests.** New workspaces can start on another plan through `SIGNUP_PLAN` (web), which end-to-end

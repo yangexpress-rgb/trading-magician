@@ -1,5 +1,6 @@
 import { resolveLimits, type CountLimit, type FeatureLimit, type PlanLimits } from '@tm/domain';
 import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
+import { isPlatformAdmin } from './admin';
 import { recordAudit } from './audit';
 import type { Transaction } from './client';
 import {
@@ -117,8 +118,17 @@ const FEATURE_MESSAGES: Record<FeatureLimit, (plan: string) => string> = {
 };
 
 /**
+ * Limits a platform admin (ADR 0037) is exempt from, so the person testing and
+ * reviewing the product never has to delete work to make room (N249, ADR 0022).
+ * Only the saved-strategy count: active strategies, back tests, accounts and
+ * every feature gate still apply to admins as to anyone on their plan.
+ */
+const ADMIN_EXEMPT: ReadonlySet<CountLimit> = new Set<CountLimit>(['savedStrategies']);
+
+/**
  * Throws unless the user can add `adding` more of `limit`. Takes a per-user
  * lock first, so two requests at once can't both squeeze past the limit.
+ * `tx` runs as `userId` (withTenant), which is who the admin check looks at.
  */
 export async function assertWithinLimit(
   tx: Transaction,
@@ -126,6 +136,7 @@ export async function assertWithinLimit(
   limit: CountLimit,
   adding = 1,
 ): Promise<void> {
+  if (ADMIN_EXEMPT.has(limit) && (await isPlatformAdmin(tx))) return;
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext('plan-limit:' || ${userId}))`);
   const { planCode, planName, limits } = await loadEntitlement(tx);
   const used = (await loadUsage(tx))[limit];

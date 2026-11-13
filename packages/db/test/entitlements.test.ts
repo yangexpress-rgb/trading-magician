@@ -7,6 +7,7 @@ import {
   recordPlatformCheck,
   updateAccount,
 } from '../src/brokers';
+import { setPlatformAdmin } from '../src/admin';
 import type { Transaction } from '../src/client';
 import { createCredential } from '../src/credentials';
 import { listOfferedPlans, loadEntitlement, loadUsage, PlanLimitError } from '../src/entitlements';
@@ -173,6 +174,66 @@ describe('plan catalog', () => {
         .set({ limits: { realIntegrations: true } })
         .where(eq(plans.code, 'pro')),
     ).rejects.toMatchObject({ cause: { constraint_name: 'plan_paper_only' } });
+  });
+});
+
+describe('platform admins and the saved-strategy cap (N249)', () => {
+  async function fill(userId: string, n: number) {
+    for (let i = 1; i <= n; i += 1) {
+      await as(userId, (tx) => createStrategy(tx, userId, { name: `Strategy ${i}` }));
+    }
+  }
+
+  it('refuses a non-admin Pro user a 26th strategy, with the usual message', async () => {
+    const user = await createUser('cap-pro@example.test');
+    await provisionWorkspace(t.app.db, { userId: user, displayName: 'Pro', planCode: 'pro' });
+    await fill(user, 25);
+    const e = await planLimit(as(user, (tx) => createStrategy(tx, user, { name: 'Strategy 26' })));
+    expect(e.details).toEqual({
+      limit: 'savedStrategies',
+      planCode: 'pro',
+      planName: 'Pro',
+      allowed: 25,
+      used: 25,
+    });
+    expect(e.message).toBe(
+      'The Pro plan keeps up to 25 strategies. Delete one, or upgrade. See Settings › Subscription and billing to upgrade.',
+    );
+  });
+
+  it('refuses a non-admin Free user a 4th strategy', async () => {
+    const user = await createUser('cap-free@example.test');
+    await provisionWorkspace(t.app.db, { userId: user, displayName: 'Free' });
+    await fill(user, 3);
+    const e = await planLimit(as(user, (tx) => createStrategy(tx, user, { name: 'Strategy 4' })));
+    expect(e.details).toMatchObject({ limit: 'savedStrategies', planCode: 'free', allowed: 3 });
+    expect(e.message).toMatch(/Free plan keeps up to 3 strategies\. Delete one, or upgrade\./);
+  });
+
+  it('lets an admin on Pro save a 26th and 27th strategy, numbered as usual', async () => {
+    const user = await createUser('cap-admin@example.test');
+    await provisionWorkspace(t.app.db, { userId: user, displayName: 'Admin', planCode: 'pro' });
+    await setPlatformAdmin(t.owner.db, t.auth.db, 'cap-admin@example.test', true);
+    await fill(user, 25);
+    const s26 = await as(user, (tx) => createStrategy(tx, user, { name: 'Strategy 26' }));
+    const s27 = await as(user, (tx) => duplicateStrategy(tx, user, s26.id));
+    expect((await as(user, loadUsage)).savedStrategies).toBe(27);
+    // Lab numbers come from one counter shared by everyone (ADR 0066), so the
+    // 26th and 27th simply take the next two, as anyone's would.
+    const seq = (n: string | null) => Number(/^S(\d{5})-/.exec(n ?? '')?.[1]);
+    expect(seq(s26.labNumber)).toBeGreaterThan(0);
+    expect(seq(s27.labNumber)).toBe(seq(s26.labNumber) + 1);
+  });
+
+  it('still holds an admin to the other limits, such as active strategies', async () => {
+    const user = await createUser('cap-admin-free@example.test');
+    await provisionWorkspace(t.app.db, { userId: user, displayName: 'Admin' });
+    await setPlatformAdmin(t.owner.db, t.auth.db, 'cap-admin-free@example.test', true);
+    await fill(user, 4); // past Free's 3: exempt
+    const account = (await as(user, (tx) => tx.select().from(tradingAccounts)))[0]!.id;
+    await start(user, 'Runner', account);
+    const e = await planLimit(start(user, 'Second runner', account));
+    expect(e.details).toMatchObject({ limit: 'activeStrategies', allowed: 1, used: 1 });
   });
 });
 
