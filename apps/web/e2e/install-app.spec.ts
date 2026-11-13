@@ -37,7 +37,7 @@ test.describe('installable app', () => {
   });
 });
 
-// N251: the sidebar offers the desktop app; without the browser's prompt it explains the steps.
+// N252: the sidebar offers the desktop app; without the browser's prompt it explains the steps.
 appTest('sidebar Install desktop app explains how to install', async ({ page }) => {
   // Headless Chromium may offer its own install prompt; hide it to test the help path.
   await page.addInitScript(() =>

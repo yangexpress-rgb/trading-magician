@@ -15,7 +15,7 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: '/strategy-lab',
     scope: '/',
     // Browsers that offer tabbed app windows show tabs, so links can open
-    // beside the current page; the rest use a plain app window (N251).
+    // beside the current page; the rest use a plain app window (N252).
     // 'tabbed' is newer than Next.js's manifest type.
     display_override: [
       'tabbed',

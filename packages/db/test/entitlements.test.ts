@@ -10,10 +10,24 @@ import {
 import { setPlatformAdmin } from '../src/admin';
 import type { Transaction } from '../src/client';
 import { createCredential } from '../src/credentials';
-import { listOfferedPlans, loadEntitlement, loadUsage, PlanLimitError } from '../src/entitlements';
+import {
+  assertWithinLimit,
+  listOfferedPlans,
+  loadEntitlement,
+  loadUsage,
+  PlanLimitError,
+} from '../src/entitlements';
+import { resumeRuntimeByUser } from '../src/order-views';
 import { createFeed } from '../src/feeds';
 import { provisionWorkspace } from '../src/provision';
-import { entitlements, instruments, plans, tradingAccounts, users } from '../src/schema';
+import {
+  entitlements,
+  instruments,
+  plans,
+  strategyRuntimes,
+  tradingAccounts,
+  users,
+} from '../src/schema';
 import { generateCredentialKeyPair } from '../src/sealed';
 import {
   createStrategy,
@@ -225,15 +239,61 @@ describe('platform admins and the saved-strategy cap (N249)', () => {
     expect(seq(s27.labNumber)).toBe(seq(s26.labNumber) + 1);
   });
 
-  it('still holds an admin to the other limits, such as active strategies', async () => {
+  it('lets an admin run more strategies at once than the plan allows, on Start and Resume (N250)', async () => {
     const user = await createUser('cap-admin-free@example.test');
     await provisionWorkspace(t.app.db, { userId: user, displayName: 'Admin' });
     await setPlatformAdmin(t.owner.db, t.auth.db, 'cap-admin-free@example.test', true);
     await fill(user, 4); // past Free's 3: exempt
     const account = (await as(user, (tx) => tx.select().from(tradingAccounts)))[0]!.id;
     await start(user, 'Runner', account);
-    const e = await planLimit(start(user, 'Second runner', account));
+    await start(user, 'Second runner', account); // past Free's 1 at a time: exempt
+    const running = await as(user, (tx) => tx.select().from(strategyRuntimes));
+    expect(running.filter((r) => r.status === 'running')).toHaveLength(2);
+
+    // Pause one (as a plan change would), start a third, then resume: still fine.
+    await t.owner.db
+      .update(strategyRuntimes)
+      .set({ status: 'paused', pauseReason: 'test' })
+      .where(eq(strategyRuntimes.id, running[0]!.id));
+    await start(user, 'Third runner', account);
+    await as(user, (tx) => resumeRuntimeByUser(tx, user, running[0]!.id));
+    const after = await as(user, (tx) => tx.select().from(strategyRuntimes));
+    expect(after.filter((r) => r.status === 'running')).toHaveLength(3);
+  });
+
+  it('still holds a non-admin to the plan on Resume', async () => {
+    const user = await createUser('cap-free-resume@example.test');
+    await provisionWorkspace(t.app.db, { userId: user, displayName: 'Free' });
+    const account = (await as(user, (tx) => tx.select().from(tradingAccounts)))[0]!.id;
+    const allow = (n: number) =>
+      t.owner.db
+        .update(entitlements)
+        .set({ overrides: { activeStrategies: n } })
+        .where(eq(entitlements.userId, user));
+    await allow(2);
+    await start(user, 'Runner', account);
+    await start(user, 'Second runner', account);
+    const [first] = await as(user, (tx) => tx.select().from(strategyRuntimes));
+    await t.owner.db
+      .update(strategyRuntimes)
+      .set({ status: 'paused', pauseReason: 'test' })
+      .where(eq(strategyRuntimes.id, first!.id));
+    await allow(1);
+    const e = await planLimit(as(user, (tx) => resumeRuntimeByUser(tx, user, first!.id)));
     expect(e.details).toMatchObject({ limit: 'activeStrategies', allowed: 1, used: 1 });
+    expect(e.message).toMatch(
+      /^The Free plan runs 1 strategy at a time\. Stop one first, or upgrade\./,
+    );
+  });
+
+  it('still holds an admin to the other limits, such as back tests a day', async () => {
+    const user = await createUser('cap-admin-backtests@example.test');
+    await provisionWorkspace(t.app.db, { userId: user, displayName: 'Admin' });
+    await setPlatformAdmin(t.owner.db, t.auth.db, 'cap-admin-backtests@example.test', true);
+    const e = await planLimit(
+      as(user, (tx) => assertWithinLimit(tx, user, 'backtestRunsPerDay', 11)),
+    );
+    expect(e.details).toMatchObject({ limit: 'backtestRunsPerDay', allowed: 10 });
   });
 });
 

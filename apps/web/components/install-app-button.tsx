@@ -27,7 +27,7 @@ function runningAsApp(): boolean {
 }
 
 /**
- * Sidebar "Install desktop app" (N251, ADR 0089). In Chrome and Edge it opens
+ * Sidebar "Install desktop app" (N252, ADR 0089). In Chrome and Edge it opens
  * the browser's own install prompt; elsewhere, or once that prompt is no
  * longer offered, it explains the menu steps. Hidden inside the installed app.
  */

@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-13
-- **Design refs:** design v1.2 N250, N251, §16.1 (CSP). Requested by Yong 2026-11-13.
+- **Design refs:** design v1.2 N250, N252, §16.1 (CSP). Requested by Yong 2026-11-13.
 
 ## Context
 
@@ -41,7 +41,7 @@ desktop app (Electron or similar). Yong chose the second.
 - e2e `install-app.spec.ts` checks the manifest and icons load signed out and that Chrome
   reports no installability errors.
 
-## Amendment 2026-11-13 (N251)
+## Amendment 2026-11-13 (N252)
 
 - **New icon.** Yong picked "Candles + spark" from three designs: green and red candlesticks
   climbing to a glowing spark on deep indigo. Same files and sizes as above.
