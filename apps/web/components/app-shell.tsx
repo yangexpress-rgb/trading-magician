@@ -11,7 +11,7 @@ import {
 } from '@tm/ui';
 import Link from 'next/link';
 import { Suspense, type ReactNode } from 'react';
-import { AskAiButton, AskAiPanel } from './ask-ai/ask-ai-panel';
+import { AskAiButton, AskAiPanel, type AskAgent } from './ask-ai/ask-ai-panel';
 import { EscapeCloses } from './escape-closes';
 import { InstallAppButton } from './install-app-button';
 import { NavLink } from './nav-link';
@@ -52,15 +52,15 @@ export function AppShell({
   email,
   isAdmin = false,
   pendingShares = 0,
-  connectedAgents = [],
+  askAgent = { kind: 'none' },
   children,
 }: {
   email: string;
   isAdmin?: boolean;
   /** Shares waiting for the person's answer (ADR 0056). */
   pendingShares?: number;
-  /** Agent profiles with a live connection, for the Ask AI panel (N272). */
-  connectedAgents?: readonly string[];
+  /** The one agent the Ask AI panel talks to (N274). */
+  askAgent?: AskAgent;
   children: ReactNode;
 }) {
   const nav: readonly NavItem[] = isAdmin ? [...PRIMARY_NAV, ADMIN_NAV] : PRIMARY_NAV;
@@ -134,7 +134,7 @@ export function AppShell({
         </footer>
       </div>
       <Suspense fallback={null}>
-        <AskAiPanel connectedProfiles={connectedAgents} />
+        <AskAiPanel agent={askAgent} />
       </Suspense>
     </div>
   );

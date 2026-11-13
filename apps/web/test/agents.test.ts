@@ -1,5 +1,10 @@
 import {
+  aiKeySealKey,
+  clearAiAssistant,
   createTokenConnection,
+  getAiAssistant,
+  loadAiAssistantSecret,
+  saveAiAssistant,
   getScreenSnapshot,
   hashAgentSecret,
   listAgentCalls,
@@ -395,6 +400,42 @@ describe('tools', () => {
     await as(userA, (tx) => saveScreenSnapshot(tx, userA, { question: 'Q', content }, later));
     const left = await as(userA, (tx) => tx.select().from(schema.screenSnapshots));
     expect(left).toHaveLength(1);
+  });
+
+  it('keeps one Ask AI agent per person with its key sealed, and only theirs (N274)', async () => {
+    const key = aiKeySealKey('test-secret-0123456789');
+    expect(await as(userA, (tx) => getAiAssistant(tx, userA))).toBeNull();
+    await expect(
+      as(userA, (tx) => saveAiAssistant(tx, userA, { provider: 'anthropic' }, key)),
+    ).rejects.toThrow(/API key/);
+    const saved = await as(userA, (tx) =>
+      saveAiAssistant(tx, userA, { provider: 'anthropic', apiKey: 'sk-ant-secret-WXYZ' }, key),
+    );
+    expect(saved).toMatchObject({ provider: 'anthropic', keyHint: 'WXYZ', model: null });
+    const [row] = await t.owner.db.select().from(schema.aiAssistants);
+    expect(row?.keySealed).toMatch(/^v1\./);
+    expect(row?.keySealed).not.toContain('secret');
+
+    // Saving again without a key keeps it; the key opens only with the same secret.
+    await as(userA, (tx) =>
+      saveAiAssistant(tx, userA, { provider: 'anthropic', model: 'claude-sonnet-5-5' }, key),
+    );
+    const opened = await as(userA, (tx) => loadAiAssistantSecret(tx, userA, key));
+    expect(opened).toMatchObject({ apiKey: 'sk-ant-secret-WXYZ', model: 'claude-sonnet-5-5' });
+    const wrong = await as(userA, (tx) =>
+      loadAiAssistantSecret(tx, userA, aiKeySealKey('another-secret-0000')),
+    );
+    expect(wrong?.apiKey).toBeNull();
+
+    // Another person sees none of it.
+    expect(await as(userB, (tx) => getAiAssistant(tx, userA))).toBeNull();
+    expect(await as(userB, (tx) => tx.select().from(schema.aiAssistants))).toEqual([]);
+
+    // Muse keeps no key; removing forgets the agent.
+    const muse = await as(userA, (tx) => saveAiAssistant(tx, userA, { provider: 'muse' }, key));
+    expect(muse).toMatchObject({ provider: 'muse', keyHint: null });
+    await as(userA, (tx) => clearAiAssistant(tx, userA));
+    expect(await as(userA, (tx) => getAiAssistant(tx, userA))).toBeNull();
   });
 
   it('answers a bad argument with the field and an unknown tool with a protocol error', async () => {

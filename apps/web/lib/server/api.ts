@@ -36,6 +36,8 @@ const EXTRA_LIMITS: { name: string; path: RegExp; perMinute: number }[] = [
   { name: 'stock-screen', path: /^\/api\/v1\/research\/stock-screens$/, perMinute: 10 },
   { name: 'company-report', path: /^\/api\/v1\/research\/company-reports$/, perMinute: 30 },
   { name: 'option-chain', path: /^\/api\/v1\/research\/option-chains$/, perMinute: 30 },
+  // Each message runs the person's own AI agent, with its tool calls (N274).
+  { name: 'ask-ai-chat', path: /^\/api\/v1\/ask-ai\/chat$/, perMinute: 12 },
   // Each test calls the person's provider twice (ADR 0041).
   { name: 'custom-feed-test', path: /^\/api\/v1\/data-feeds\/custom-tests$/, perMinute: 10 },
   {
