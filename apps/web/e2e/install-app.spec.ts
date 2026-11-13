@@ -88,6 +88,25 @@ appTest('installed app opens pages in tabs', async ({ page }) => {
     .click();
   await expect(tabs).toHaveCount(2);
 
+  // A browser add-on that grabs right-clicked links (as on Yong's Chrome) never sees
+  // clicks on in-app links inside a tab (N259): the app catches them first.
+  // The add-on's script loads in every frame before the page, like an extension's.
+  await page.addInitScript(() => {
+    if (window.top === window) return;
+    document.addEventListener(
+      'contextmenu',
+      (e) => {
+        e.preventDefault();
+        const top = window.top as Window & { __addonSaw?: number };
+        top.__addonSaw = (top.__addonSaw ?? 0) + 1;
+      },
+      true,
+    );
+  });
+  await page.reload();
+  await expect(tabs).toHaveCount(2);
+  await tabs.nth(1).click();
+
   // Right-click on a link opens it in a new tab in front (N258).
   const current = page.frameLocator('iframe[role="tabpanel"]:not(.invisible)');
   await current
@@ -97,6 +116,9 @@ appTest('installed app opens pages in tabs', async ({ page }) => {
   await expect(tabs).toHaveCount(3);
   await expect(tabs.nth(2)).toHaveText('Performance');
   await expect(tabs.nth(2)).toHaveAttribute('aria-selected', 'true');
+  expect(
+    await page.evaluate(() => (window as Window & { __addonSaw?: number }).__addonSaw),
+  ).toBeUndefined();
   await page.getByRole('button', { name: 'Close tab Performance' }).click();
   await expect(tabs).toHaveCount(2);
 
