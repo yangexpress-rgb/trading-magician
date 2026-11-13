@@ -4,6 +4,8 @@ The record for the invite-only, paper-only launch (pre-launch punch list, design
 deviations D9 and D10). Each row says what was done, where, when, and the result. A row is only
 "passed" when its acceptance check was seen to pass, not when code for it was merged.
 
+Status on 2026-11-13: Sections 1 and 2 passed; staging runs web, worker and ml-trainer from main with auto-deploy. Everything else below waits on Yong (accounts, go-aheads or licence reviews).
+
 Status on 2026-11-06: code for every item is merged. Web deployment was on hold from
 2026-11-05 16:03Z and resumed 2026-11-06 00:18Z (Yong: deploy to Railway); staging now exists,
 production does not.
@@ -20,10 +22,11 @@ they count as evidence about the providers, and are repeated in staging when dep
 
 ## Section 2. Credential key out of the environment
 
-| Date       | Environment | What was done                                                                                             | Result                                                                                   |
-| ---------- | ----------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| 2026-11-05 | Unit tests  | Value sealed by today's web code opened through a KMS stand-in (same format) and still by the PEM key     | Passed                                                                                   |
-| _pending_  | staging     | Add an Alpaca paper key in Settings, restart the worker, feed check still passes; no private-key variable | Needs an AWS account with the KMS key, and Railway staging (AWS KMS approved 2026-11-05) |
+| Date       | Environment | What was done                                                                                                                                                                                       | Result                                                                                                                                                                    |
+| ---------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-11-05 | Unit tests  | Value sealed by today's web code opened through a KMS stand-in (same format) and still by the PEM key                                                                                               | Passed                                                                                                                                                                    |
+| 2026-11-06 | staging     | AWS KMS key (us-east-2) created by Yong; web `CREDENTIALS_PUBLIC_KEY` from `kms-public-key`; Yong's Alpaca **paper** feed key and paper broker re-sealed into his staging account; worker restarted | Passed: worker logs `credential key loaded` keyId `9ca8bf65f1fe9a07` `source: aws-kms`; Alpaca-Paper and SEC EDGAR feeds healthy; worker has no `CREDENTIALS_PRIVATE_KEY` |
+| 2026-11-12 | staging     | Worker redeploys at 20:50Z and 21:15Z (after a settings mix-up was put right)                                                                                                                       | Passed again: `credential key loaded` `source: aws-kms`; `/api/health/system` 200 with worker ok; ML snapshot job read Alpaca bars for 485–497 S&P 500 members per pass   |
 
 ## Section 3. Recovery objectives and restore drill
 
@@ -82,7 +85,7 @@ real daily series ends at yesterday with no partial bar for today, and FakeAlpac
 Send no invite until every line is ticked.
 
 - [x] D6 closed (Section 1)
-- [ ] No credential master key in production variables (Section 2)
+- [ ] No credential master key in production variables (Section 2): passed on staging 2026-11-06; production check waits for production
 - [ ] RPO and RTO written down (done) and a staging restore from the real backup path succeeded
 - [ ] Sentry receives errors, uptime monitor green, scheduled backups exist (Section 4)
 - [ ] Production on Railway with the paper-only guard confirmed (Section 5)
