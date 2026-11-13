@@ -45,7 +45,7 @@ export function createDefinition(ids: IdFactory = randomId): StrategyDefinition 
     trade: { kind: 'assets' },
     entry: {
       condition: emptyGroup(ids),
-      // Fire when starts as "Immediately" (N272).
+      // Fire when starts as "Immediately" (N273).
       trigger: { ...IMMEDIATE_TRIGGER },
       orders: [],
     },

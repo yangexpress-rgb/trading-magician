@@ -226,7 +226,7 @@ export function StrategyEditor({
     [],
   );
 
-  // New conditions start on the stock or ETF in What to trade (N272).
+  // New conditions start on the stock or ETF in What to trade (N273).
   const defaultInstrumentId = trade.kind === 'assets' ? tradedAssets(definition)[0] : undefined;
 
   const ctx: EditorContextValue = useMemo(

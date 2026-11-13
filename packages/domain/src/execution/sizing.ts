@@ -103,7 +103,7 @@ export function sizeOrder({
     }
   }
   const lots = qty.div(lotSize);
-  // Round up (N272) buys at least one lot whenever the size is above zero.
+  // Round up (N273) buys at least one lot whenever the size is above zero.
   const rounding = order.quantity.rounding;
   qty = (
     rounding === 'up' ? lots.ceil() : rounding === 'nearest' ? lots.round() : lots.floor()

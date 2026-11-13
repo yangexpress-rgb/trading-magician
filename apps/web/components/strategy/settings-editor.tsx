@@ -41,7 +41,7 @@ const fireWhenOf = (t: Trigger): FireWhen =>
 /**
  * When a phase fires (§6.5, ADR 0049): one "Fire when" choice for the trigger
  * mode and confirmation together, and a cooldown counted in bars.
- * "Immediately" (N272, the default) fires on every check the condition is
+ * "Immediately" (N273, the default) fires on every check the condition is
  * true, so it shows no other fields until another choice is made.
  */
 export function TriggerSettings({

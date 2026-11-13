@@ -34,7 +34,7 @@ function v1(
     o.timingOnly = false;
   }
   for (const t of [def.entry.trigger, def.exit.trigger]) {
-    // Schema 1 had no "Immediately" (N272): its default fired on becoming true.
+    // Schema 1 had no "Immediately" (N273): its default fired on becoming true.
     t.mode = 'on_transition';
     delete t.cooldownBars;
     t.cooldownSec = 0;

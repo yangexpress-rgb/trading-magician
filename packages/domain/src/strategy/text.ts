@@ -320,7 +320,7 @@ export function describeIssueLocation(
   return 'Strategy';
 }
 
-/** Re-exported for pages that read trigger text from strategy-text (N272). */
+/** Re-exported for pages that read trigger text from strategy-text (N273). */
 export { isImmediateTrigger };
 
 export const TRIGGER_LABELS: Record<(typeof TRIGGER_MODES)[number], string> = {

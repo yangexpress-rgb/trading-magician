@@ -105,7 +105,7 @@ const BIG_RISK = {
 
 function baseDefinition(): StrategyDefinition {
   const def = createDefinition(sequentialIds('d'));
-  // These strategies fire as soon as a condition becomes true (before N272).
+  // These strategies fire as soon as a condition becomes true (before N273).
   def.entry.trigger = { ...DEFAULT_TRIGGER };
   def.exit.trigger = { ...DEFAULT_TRIGGER };
   def.risk = { ...def.risk, ...BIG_RISK };

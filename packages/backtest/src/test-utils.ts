@@ -124,7 +124,7 @@ export function strategy(
   exitLegs: PlannedOrder[],
 ): StrategyDefinition {
   const def = createDefinition(sequentialIds('g'));
-  // Engine tests cover "As soon as it becomes true", the default before N272.
+  // Engine tests cover "As soon as it becomes true", the default before N273.
   def.entry.trigger = { ...DEFAULT_TRIGGER };
   def.exit.trigger = { ...DEFAULT_TRIGGER };
   def.entry.condition.children = [entry];

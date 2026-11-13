@@ -147,7 +147,7 @@ describe('What to trade: specific assets (ADR 0073)', () => {
     expect(one.exit.orders.map((o) => o.instrumentId)).toEqual([B]);
   });
 
-  it('moves conditions made before the first asset onto it, and new legs round up (N272)', () => {
+  it('moves conditions made before the first asset onto it, and new legs round up (N273)', () => {
     const def = fixed();
     def.entry.orders = [];
     def.entry.condition.children = [

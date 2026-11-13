@@ -4,8 +4,8 @@ import { createDefinition } from './defaults';
 import { IMMEDIATE_TRIGGER, isImmediateTrigger, strategyDefinitionSchema } from './schema';
 import { describeTrigger } from './text';
 
-/** Builder defaults (N272): Fire when "Immediately" and round up. */
-describe('builder defaults (N272)', () => {
+/** Builder defaults (N273): Fire when "Immediately" and round up. */
+describe('builder defaults (N273)', () => {
   it('starts a new strategy with Fire when "Immediately" on Entry and Exit', () => {
     const def = createDefinition();
     expect(def.entry.trigger).toEqual(IMMEDIATE_TRIGGER);

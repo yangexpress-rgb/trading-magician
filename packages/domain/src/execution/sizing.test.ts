@@ -27,7 +27,7 @@ describe('sizeOrder', () => {
     expect(q(order('buy', 'notional', '1020'))).toBe('20');
     expect(q(order('buy', 'notional', '1020', 'nearest'))).toBe('20');
     expect(q(order('buy', 'notional', '1040', 'nearest'))).toBe('21');
-    // Round up (N272): any part of a unit buys a whole one, so never below 1.
+    // Round up (N273): any part of a unit buys a whole one, so never below 1.
     expect(q(order('buy', 'notional', '1020', 'up'))).toBe('21');
     expect(q(order('buy', 'notional', '1000', 'up'))).toBe('20');
     expect(q(order('buy', 'notional', '10', 'up'))).toBe('1');

@@ -90,7 +90,7 @@ export function replaceAsset(
 
 /**
  * Add an asset: an Entry leg that buys it, like the first leg if there is one.
- * The first asset also takes over `startedOn` (N272): the instrument new
+ * The first asset also takes over `startedOn` (N273): the instrument new
  * conditions started on before any asset was chosen, so they follow the asset.
  */
 export function addAsset(

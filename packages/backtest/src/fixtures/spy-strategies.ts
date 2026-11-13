@@ -82,7 +82,7 @@ const order = (legId: string, side: PlannedOrder['side']): PlannedOrder => ({
 
 function build(entry: Comparison, exit: Comparison): StrategyDefinition {
   const def = createDefinition(sequentialIds('g'));
-  // Saved v1.1 strategies fire as soon as a condition becomes true (before N272).
+  // Saved v1.1 strategies fire as soon as a condition becomes true (before N273).
   def.entry.trigger = { ...DEFAULT_TRIGGER };
   def.exit.trigger = { ...DEFAULT_TRIGGER };
   def.entry.condition.children = [entry];

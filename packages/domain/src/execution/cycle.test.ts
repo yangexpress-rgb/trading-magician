@@ -23,7 +23,7 @@ const T0 = Date.parse('2026-10-06T14:00:00Z');
 const s = (n: number) => T0 + n * 1000;
 const d = (v: number | string) => new Decimal(v);
 
-/** These tests cover "As soon as it becomes true", the default before N272. */
+/** These tests cover "As soon as it becomes true", the default before N273. */
 function onTransition(): StrategyDefinition {
   const def = createDefinition();
   def.entry.trigger = { ...DEFAULT_TRIGGER };

@@ -404,7 +404,7 @@ export const plannedOrderSchema = z.object({
     value: positiveDecimalString,
     /**
      * How a fractional size becomes whole lots. `up` (the builder's default
-     * since N272) rounds up, so a size below one unit buys one. Absent still
+     * since N273) rounds up, so a size below one unit buys one. Absent still
      * parses as `down`, so saved strategies keep sizing as before.
      */
     rounding: z.enum(QUANTITY_ROUNDINGS).default('down'),
@@ -452,7 +452,7 @@ export const DEFAULT_TRIGGER: Trigger = {
 };
 
 /**
- * "Immediately" (N272): fires on every check the condition is true, with
+ * "Immediately" (N273): fires on every check the condition is true, with
  * nothing to confirm or wait for. The Fire when a new strategy, phase or
  * entry group starts with; the builder hides the other Fire when fields.
  */

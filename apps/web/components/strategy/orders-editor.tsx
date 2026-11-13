@@ -112,7 +112,7 @@ export function OrdersEditor({
     const leg: PlannedOrder = {
       id: randomId(),
       legLabel: uniqueLabel(definition, phase),
-      // A new leg starts on the stock or ETF in What to trade (N272).
+      // A new leg starts on the stock or ETF in What to trade (N273).
       instrumentId: defaultInstrumentOf(editor),
       accountId: account?.id ?? '',
       side: phase === 'entry' ? 'buy' : 'close',

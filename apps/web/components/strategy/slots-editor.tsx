@@ -168,7 +168,7 @@ function AssetsEditor({
           onChange={(id) =>
             id &&
             onChange(
-              // Conditions added before the asset follow it (N272).
+              // Conditions added before the asset follow it (N273).
               addAsset(definition, id, account?.id ?? '', defaultInstrumentOf(editor)),
             )
           }

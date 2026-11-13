@@ -41,7 +41,7 @@ export interface AccountOption {
 export interface EditorContextValue {
   instruments: readonly InstrumentOption[];
   /**
-   * The instrument new conditions, values and legs start on (N272): the
+   * The instrument new conditions, values and legs start on (N273): the
    * stock or ETF in What to trade when it names one. Absent for a group or
    * before an asset is chosen; pickers then start on the first instrument.
    */
@@ -80,7 +80,7 @@ export function useEditor(): EditorContextValue {
   return ctx;
 }
 
-/** The instrument a new condition, value or leg starts on (N272). */
+/** The instrument a new condition, value or leg starts on (N273). */
 export const defaultInstrumentOf = (ctx: EditorContextValue): string =>
   ctx.defaultInstrumentId ?? ctx.instruments[0]?.id ?? '';
 
