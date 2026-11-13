@@ -78,7 +78,7 @@ export interface IndicatorExpr {
  * short). It is the trailing stop as an Exit when condition, read at the
  * Check Exit bar size like the stops (O144).
  */
-/** `minutes_held` (N254): whole minutes since the cycle's earliest Entry fill, the intraday time stop. */
+/** `minutes_held` (N255): whole minutes since the cycle's earliest Entry fill, the intraday time stop. */
 export const POSITION_FIELDS = [
   'entry_price',
   'gain_pct',
@@ -747,7 +747,7 @@ export const executionSchema = z.object({
    */
   timingOnly: z.boolean().optional(),
   /**
-   * "Flatten at session end" (N255): at the last bar of each regular session,
+   * "Flatten at session end" (N256): at the last bar of each regular session,
    * after Exit when, anything still held closes at that bar's close with exit
    * reason "Session end". Needs intraday bars; absent is off.
    */

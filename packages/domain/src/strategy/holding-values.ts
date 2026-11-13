@@ -70,7 +70,7 @@ export function holdingSeries(
   const out: (ReturnType<typeof stopCloseExpr> | ReturnType<typeof atrExpr>)[] = [];
   const seen = new Set<string>();
   for (const e of holdingExprs(def)) {
-    // Minutes held reads the clock, not closes (N254).
+    // Minutes held reads the clock, not closes (N255).
     if (e.field === 'minutes_held') continue;
     const close = stopCloseExpr(e.instrumentId, adjustment, stopInterval(def));
     if (!seen.has(close.id)) out.push(close);

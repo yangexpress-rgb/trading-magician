@@ -85,7 +85,7 @@ export interface MetricReader {
   /**
    * Today's completed regular-session bars of the instrument's finest loaded
    * intraday series, as of the bar `barsBack` bars before the current one
-   * (intraday pack, N253); absent or undefined without intraday bars.
+   * (intraday pack, N254); absent or undefined without intraday bars.
    */
   session?(instrumentId: string, barsBack: number): SessionBars | undefined;
 }
@@ -832,7 +832,7 @@ const ML_METRICS: readonly MetricSpec[] = [
 ];
 
 /**
- * Session-anchored values (intraday pack brief §3, N253, ADR 0090): worked
+ * Session-anchored values (intraday pack brief §3, N254, ADR 0090): worked
  * out when evaluated from today's completed regular-session bars of the
  * intraday series the run already steps on. They read no extra bars, so they
  * add nothing to a run's plan or its bar estimate (brief §8). Bars ago is not
@@ -897,7 +897,7 @@ export const METRICS: readonly MetricSpec[] = [
   ...SESSION_METRICS,
 ];
 
-/** Whether a metric is a session-anchored intraday value (N253). */
+/** Whether a metric is a session-anchored intraday value (N254). */
 export function isSessionMetric(id: string): boolean {
   return getMetric(id)?.category === 'session';
 }

@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-13
-- **Design refs:** design v1.2 N253–N256, O156, O157. Intraday pack brief (2026-11-12),
+- **Design refs:** design v1.2 N254–N257, O156, O157. Intraday pack brief (2026-11-12),
   requested by Yong.
 
 ## Context

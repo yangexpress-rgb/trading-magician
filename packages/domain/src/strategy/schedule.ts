@@ -123,7 +123,7 @@ const INTERVAL_MINUTES: Record<BarInterval, number> = {
  * The finest bar size, in minutes, a strategy's runs step on: the shortest
  * bars its rules read, or a finer Check Entry or Check Exit bar cadence, as
  * back tests pick their bars. 1440 (daily) when nothing is intraday. Session
- * values and Flatten at session end need it intraday (N253, N255).
+ * values and Flatten at session end need it intraday (N254, N256).
  */
 export function finestBarMinutes(def: StrategyDefinition): number {
   let finest = INTERVAL_MINUTES['1d'];

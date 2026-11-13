@@ -1431,7 +1431,7 @@ describe('paper runtime: kept-as-saved stops skip closes from before Entry fille
   });
 });
 
-describe('paper runtime: intraday pack (N254, N255)', () => {
+describe('paper runtime: intraday pack (N255, N256)', () => {
   function single(): StrategyDefinition {
     const def = createDefinition();
     def.entry.condition = always('in');

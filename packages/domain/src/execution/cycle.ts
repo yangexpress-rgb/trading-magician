@@ -136,7 +136,7 @@ export interface CycleInput {
   /** Exit now because a rebalance no longer selects this slot (v1.2 items 1, 2). */
   forceExit?: 'rebalance' | 'atr_stop' | 'expected_move' | 'trailing_stop' | undefined;
   /**
-   * Flatten at session end (N255): this is the session's final pass, so
+   * Flatten at session end (N256): this is the session's final pass, so
    * whatever the cycle holds closes now with market orders, unconditionally.
    */
   sessionEnd?: boolean | undefined;
@@ -473,7 +473,7 @@ export function planCycle(input: CycleInput): CyclePlan {
       plan.notes.push('exit_triggered');
     }
   }
-  // Flatten at session end (N255), after Exit when: what is still held closes
+  // Flatten at session end (N256), after Exit when: what is still held closes
   // with market orders; legs not yet sent never go, and working ones are canceled.
   if (
     input.sessionEnd &&

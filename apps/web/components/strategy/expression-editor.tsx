@@ -103,7 +103,7 @@ const uiKindOf = (expr: Expr): UiKind => {
 /** The options metric a new options value starts on: the 5-day expected move (brief §4.1). */
 const DEFAULT_OPTIONS_METRIC = 'options.expected_move_5d_pct';
 
-/** The session value a new intraday value starts on: the session VWAP (N253). */
+/** The session value a new intraday value starts on: the session VWAP (N254). */
 const DEFAULT_SESSION_METRIC = 'session.vwap';
 
 /** The event metric a new earnings/deals/rates value starts on: days since the last release (ADR 0058). */

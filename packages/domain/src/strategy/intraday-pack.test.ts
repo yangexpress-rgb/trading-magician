@@ -38,7 +38,7 @@ function readingVwap(interval: '5m' | '1d'): StrategyDefinition {
   return def;
 }
 
-describe('session values in the registry (N253)', () => {
+describe('session values in the registry (N254)', () => {
   it('lists five session metrics, read no bars and take only a range parameter', () => {
     const ids = [
       'session.vwap',
@@ -101,7 +101,7 @@ describe('session values in the registry (N253)', () => {
   });
 });
 
-describe('Minutes held (N254)', () => {
+describe('Minutes held (N255)', () => {
   const minutes = position('p-min', { field: 'minutes_held' });
   const resolver = (minutesHeld: number | undefined): SeriesResolver =>
     withPositions({ value: () => undefined, isStale: () => false }, () => ({
@@ -124,7 +124,7 @@ describe('Minutes held (N254)', () => {
   });
 });
 
-describe('Flatten at session end (N255)', () => {
+describe('Flatten at session end (N256)', () => {
   it('is an optional execution setting, off when absent', () => {
     const def = validDefinition();
     expect(def.execution.flattenAtSessionEnd).toBeUndefined();

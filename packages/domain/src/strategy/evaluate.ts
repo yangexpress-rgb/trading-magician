@@ -64,7 +64,7 @@ export interface PositionSnapshot {
   daysHeld?: number | undefined;
   /**
    * Whole minutes from the cycle's earliest Entry fill to the evaluation: the
-   * current bar's end in back tests, the pass time on paper (N254).
+   * current bar's end in back tests, the pass time on paper (N255).
    */
   minutesHeld?: number | undefined;
   /** ATR(period) of daily bars when Entry was decided, by period (N221). */
@@ -112,7 +112,7 @@ export interface SeriesResolver {
   ml?(instrumentId: string, modelKey: string, barsBack: number): MlPoint | undefined;
   /** When the bar `value` reads ended (ms), for explaining a check (N224). */
   barEnd?(expr: SeriesExpr, barsBack: number): number | undefined;
-  /** Today's completed regular-session bars, for session values (N253). */
+  /** Today's completed regular-session bars, for session values (N254). */
   session?(instrumentId: string, barsBack: number): SessionBars | undefined;
 }
 
@@ -240,7 +240,7 @@ function positionValue(e: PositionExpr, r: SeriesResolver, barsBack: number): De
   // The holding-period exit as a value (N221).
   if (e.field === 'days_held')
     return held.daysHeld === undefined ? undefined : new Decimal(held.daysHeld);
-  // The intraday time stop as a value (N254).
+  // The intraday time stop as a value (N255).
   if (e.field === 'minutes_held')
     return held.minutesHeld === undefined ? undefined : new Decimal(held.minutesHeld);
   // The ATR stop as a value (N221): how far below the entry price, in ATRs at entry.

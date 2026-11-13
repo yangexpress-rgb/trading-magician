@@ -20,7 +20,7 @@ import { MarketView } from './market';
 import { A, INSTRUMENTS, compare, constant, inputs, leg, type Row } from './test-utils';
 
 /**
- * Intraday pack acceptance fixtures (brief §7, N253–N255): session values,
+ * Intraday pack acceptance fixtures (brief §7, N254–N256): session values,
  * Minutes held and Flatten at session end, with no lookahead.
  */
 

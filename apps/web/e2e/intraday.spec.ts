@@ -3,11 +3,11 @@ import { createTestedStrategy } from './backtest-fixtures';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 /**
- * The intraday pack (N253–N256): Check Exit "Last" from the default state in
+ * The intraday pack (N254–N257): Check Exit "Last" from the default state in
  * one step, the session values in the picker, Minutes held, and the
  * Flatten at session end toggle.
  */
-test('Check Exit picks Last from the default state in one step (N256)', async ({
+test('Check Exit picks Last from the default state in one step (N257)', async ({
   page,
   baseURL,
 }) => {

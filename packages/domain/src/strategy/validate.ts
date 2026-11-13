@@ -1754,7 +1754,7 @@ export const RISK_LABELS: Record<(typeof REQUIRED_RISK_LIMITS)[number], string> 
 
 /**
  * Session values and Flatten at session end read today's intraday bars
- * (intraday pack brief §§3, 6a; N253, N255): on daily bars a session value is
+ * (intraday pack brief §§3, 6a; N254, N256): on daily bars a session value is
  * always unknown, and flattening would close every position every day.
  */
 function checkSessionValues(def: StrategyDefinition, add: Add) {

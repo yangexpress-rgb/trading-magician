@@ -3,7 +3,7 @@ import type { Bar } from '../market/bars';
 import { nyDate, regularSession } from '../market/calendar';
 
 /**
- * Session-anchored values (intraday pack brief §§2–4, N253, ADR 0090): the
+ * Session-anchored values (intraday pack brief §§2–4, N254, ADR 0090): the
  * cumulative session VWAP, the session high and low so far, and the
  * opening-range high and low. They are worked out when a condition is
  * evaluated, from the instrument's intraday bars the run already loads; no

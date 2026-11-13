@@ -412,7 +412,7 @@ export function simulate({
   }
   const steps = [...stepSet].sort((a, b) => a - b);
   /**
-   * Flatten at session end (N255): the last step of each regular session, at
+   * Flatten at session end (N256): the last step of each regular session, at
    * or before its close (13:00 on early-close days). The run's final day
    * counts only when its last bar reaches the close.
    */
@@ -536,7 +536,7 @@ export function simulate({
   };
 
   /**
-   * Minutes held (N254): whole minutes from the cycle's earliest Entry fill to
+   * Minutes held (N255): whole minutes from the cycle's earliest Entry fill to
    * the end of the bar being evaluated.
    */
   const minutesHeld = (c: Cycle): { minutesHeld?: number } => {
@@ -1191,7 +1191,7 @@ export function simulate({
   }
 
   /**
-   * Flatten at session end (N255): after Exit when on the session's last bar,
+   * Flatten at session end (N256): after Exit when on the session's last bar,
    * whatever the cycle still holds closes at that bar's close (with the run's
    * slippage), unconditionally. Orders still working would trade after the
    * close, so they are canceled first. The cycle closes with exit reason
@@ -1749,7 +1749,7 @@ export function simulate({
       }
       settle(c, now);
     }
-    // Flatten at session end (N255), after Exit when on the session's last bar.
+    // Flatten at session end (N256), after Exit when on the session's last bar.
     if (sessionEnds.has(now)) for (const c of activeCycles()) closeAtSessionEnd(c, now);
 
     const { gross, net } = positionValue();

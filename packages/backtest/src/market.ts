@@ -31,7 +31,7 @@ import { seriesKey } from './data';
 
 type SeriesExpr = MarketExpr | IndicatorExpr;
 
-/** Intraday bar sizes session values can read (N253); daily and weekly bars can't. */
+/** Intraday bar sizes session values can read (N254); daily and weekly bars can't. */
 const SESSION_INTERVAL_MINUTES: Record<string, number> = {
   '1m': 1,
   '5m': 5,
@@ -68,7 +68,7 @@ export class MarketView implements SeriesResolver {
   private readonly expectedPointers = new Map<string, number>();
   private readonly indicators = new Map<string, IndicatorValues>();
   private now = Number.NEGATIVE_INFINITY;
-  /** The intraday series each instrument's session values read (N253), chosen once. */
+  /** The intraday series each instrument's session values read (N254), chosen once. */
   private readonly sessionKeys = new Map<string, string | undefined>();
   private readonly sessionCache = new Map<string, { at: number; bars: SessionBars | undefined }>();
 
@@ -261,7 +261,7 @@ export class MarketView implements SeriesResolver {
 
   /**
    * Today's completed regular-session bars of an instrument, as of the bar
-   * `barsBack` bars before the current one (intraday pack brief §2, N253).
+   * `barsBack` bars before the current one (intraday pack brief §2, N254).
    * They come from its finest loaded intraday series: the one the run steps
    * on, or a finer one its rules read. Only bars that have ended count, so the
    * values never see a later bar; a stale series reads unknown, as `value` does.

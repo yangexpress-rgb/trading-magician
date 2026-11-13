@@ -226,7 +226,7 @@ export function createRuntimeCaches(
 }
 
 const ZERO = new Decimal(0);
-/** How long before the close the paper runtime flattens at session end (N255, O156). */
+/** How long before the close the paper runtime flattens at session end (N256, O156). */
 export const SESSION_END_LEAD_MS = 5 * 60_000;
 
 /**
@@ -886,7 +886,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   const selection = selectionOf(def);
   const evaluate = (phase: PhaseName, r: SeriesResolver = view, d = def): Truth =>
     evaluateCondition(d[phase].condition, r);
-  /** Minutes held (N254): whole minutes from the cycle's earliest Entry fill to this pass. */
+  /** Minutes held (N255): whole minutes from the cycle's earliest Entry fill to this pass. */
   const minutesHeld = (c: ActiveCycle): { minutesHeld?: number } => {
     const fills = c.legs
       .filter((l) => l.phase === 'entry' && l.firstFillAt !== undefined)
@@ -895,7 +895,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     const opened = Math.min(...fills);
     return t < opened ? {} : { minutesHeld: Math.floor((t - opened) / 60_000) };
   };
-  // Flatten at session end (N255): on paper, the session's final passes are its
+  // Flatten at session end (N256): on paper, the session's final passes are its
   // last five minutes, while closing orders can still trade before the close.
   const sessionToday = regularSession(nyDate(now));
   const sessionEnd =
