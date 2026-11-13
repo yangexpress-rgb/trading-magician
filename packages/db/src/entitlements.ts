@@ -119,11 +119,15 @@ const FEATURE_MESSAGES: Record<FeatureLimit, (plan: string) => string> = {
 
 /**
  * Limits a platform admin (ADR 0037) is exempt from, so the person testing and
- * reviewing the product never has to delete work to make room (N249, ADR 0022).
- * Only the saved-strategy count: active strategies, back tests, accounts and
- * every feature gate still apply to admins as to anyone on their plan.
+ * reviewing the product never has to delete or stop work to make room: the
+ * saved-strategy count (N249) and how many strategies run at once (N250), on
+ * Start and on Resume (ADR 0022). Back tests, accounts, every feature gate and
+ * the paper risk limits still apply to admins as to anyone on their plan.
  */
-const ADMIN_EXEMPT: ReadonlySet<CountLimit> = new Set<CountLimit>(['savedStrategies']);
+const ADMIN_EXEMPT: ReadonlySet<CountLimit> = new Set<CountLimit>([
+  'savedStrategies',
+  'activeStrategies',
+]);
 
 /**
  * Throws unless the user can add `adding` more of `limit`. Takes a per-user
@@ -329,6 +333,7 @@ export async function assertCanResume(tx: Transaction, runtimeId: string): Promi
       });
     }
   }
+  if (ADMIN_EXEMPT.has('activeStrategies') && (await isPlatformAdmin(tx))) return;
   const used = (await runningStrategies(tx, 'running')).length;
   if (used >= limits.activeStrategies) {
     throw new PlanLimitError(COUNT_MESSAGES.activeStrategies(planName, limits.activeStrategies), {
