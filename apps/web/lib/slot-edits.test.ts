@@ -147,6 +147,37 @@ describe('What to trade: specific assets (ADR 0073)', () => {
     expect(one.exit.orders.map((o) => o.instrumentId)).toEqual([B]);
   });
 
+  it('moves conditions made before the first asset onto it, and new legs round up (N273)', () => {
+    const def = fixed();
+    def.entry.orders = [];
+    def.entry.condition.children = [
+      {
+        kind: 'comparison',
+        id: 'c',
+        operator: 'gt',
+        left: {
+          kind: 'market',
+          id: 'px',
+          instrumentId: A,
+          field: 'close',
+          interval: '1d',
+          adjustment: 'split_and_dividend',
+          session: 'regular',
+          offset: 0,
+        },
+        right: { kind: 'constant', id: 'k', value: '1' },
+      },
+    ];
+    const first = addAsset(def, B, ACCOUNT, A);
+    expect(tradedAssets(first)).toEqual([B]);
+    expect(JSON.stringify(first.entry.condition)).toContain(B);
+    expect(JSON.stringify(first.entry.condition)).not.toContain(A);
+    expect(first.entry.orders[0]?.quantity.rounding).toBe('up');
+    // A second asset leaves conditions alone.
+    const second = addAsset(first, A, ACCOUNT, A);
+    expect(JSON.stringify(second.entry.condition)).not.toContain(A);
+  });
+
   it('stops ranking legs kept from schema 2, keeping each leg', () => {
     const start = fixed();
     start.entry.rankedLegs = {

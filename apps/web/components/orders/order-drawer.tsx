@@ -22,6 +22,7 @@ import {
   SIDE_LABELS,
   TIF_LABELS,
   TRIGGER_LABELS,
+  isImmediateTrigger,
 } from '@/lib/strategy-text';
 
 const WORKING = new Set(['ready', 'submitted', 'acknowledged', 'partially_filled']);
@@ -246,7 +247,14 @@ export function OrderDrawer({
                     `${PHASE_LABELS[d.phase]} conditions`,
                     rule?.condition ? describeCondition(rule.condition, symbol) : '—',
                   ],
-                  ['Trigger', rule?.trigger ? TRIGGER_LABELS[rule.trigger.mode] : '—'],
+                  [
+                    'Trigger',
+                    rule?.trigger
+                      ? isImmediateTrigger(rule.trigger)
+                        ? 'Immediately'
+                        : TRIGGER_LABELS[rule.trigger.mode]
+                      : '—',
+                  ],
                 ]}
               />
             )}

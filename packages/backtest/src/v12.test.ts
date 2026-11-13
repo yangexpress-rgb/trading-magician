@@ -2,6 +2,7 @@ import { scheduleFrom } from '@tm/domain';
 import {
   CONTEXT_INSTRUMENT_ID,
   createDefinition,
+  DEFAULT_TRIGGER,
   parseDefinition,
   nyDate,
   sequentialIds,
@@ -104,6 +105,9 @@ const BIG_RISK = {
 
 function baseDefinition(): StrategyDefinition {
   const def = createDefinition(sequentialIds('d'));
+  // These strategies fire as soon as a condition becomes true (before N273).
+  def.entry.trigger = { ...DEFAULT_TRIGGER };
+  def.exit.trigger = { ...DEFAULT_TRIGGER };
   def.risk = { ...def.risk, ...BIG_RISK };
   return def;
 }

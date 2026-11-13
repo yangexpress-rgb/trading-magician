@@ -1,6 +1,6 @@
 import {
   CONTEXT_INSTRUMENT_ID,
-  DEFAULT_TRIGGER,
+  IMMEDIATE_TRIGGER,
   getMetric,
   holdingCondition,
   offPeakCondition,
@@ -88,12 +88,21 @@ export function replaceAsset(
   return walk(def) as StrategyDefinition;
 }
 
-/** Add an asset: an Entry leg that buys it, like the first leg if there is one. */
+/**
+ * Add an asset: an Entry leg that buys it, like the first leg if there is one.
+ * The first asset also takes over `startedOn` (N273): the instrument new
+ * conditions started on before any asset was chosen, so they follow the asset.
+ */
 export function addAsset(
-  def: StrategyDefinition,
+  input: StrategyDefinition,
   instrumentId: string,
   accountId = '',
+  startedOn?: string,
 ): StrategyDefinition {
+  const def =
+    startedOn && startedOn !== instrumentId && tradedAssets(input).length === 0
+      ? replaceAsset(input, startedOn, instrumentId)
+      : input;
   const first = def.entry.orders[0];
   const taken = new Set(def.entry.orders.map((o) => o.legLabel.toLowerCase()));
   let n = def.entry.orders.length + 1;
@@ -106,7 +115,7 @@ export function addAsset(
     side: first?.side ?? 'buy',
     quantity: first
       ? { ...first.quantity }
-      : { type: 'notional', value: DEFAULT_ASSET_NOTIONAL, rounding: 'down' },
+      : { type: 'notional', value: DEFAULT_ASSET_NOTIONAL, rounding: 'up' },
     orderType: 'market',
     timeInForce: 'day',
     timing: { mode: 'immediate' },
@@ -145,7 +154,7 @@ export function fromLegsSelection(def: StrategyDefinition): StrategyDefinition {
   return {
     ...def,
     entry,
-    exit: { ...def.exit, trigger: def.exit.trigger ?? { ...DEFAULT_TRIGGER } },
+    exit: { ...def.exit, trigger: def.exit.trigger ?? { ...IMMEDIATE_TRIGGER } },
   };
 }
 
@@ -164,7 +173,7 @@ export function toGroup(
   const quantity: PlannedOrder['quantity'] =
     first && first.quantity.type !== 'units'
       ? first.quantity
-      : { type: 'notional', value: DEFAULT_PICK_NOTIONAL, rounding: 'down' };
+      : { type: 'notional', value: DEFAULT_PICK_NOTIONAL, rounding: 'up' };
   const template: PlannedOrder = {
     ...(first ?? {
       id: randomId(),
@@ -221,7 +230,7 @@ export function toAssets(def: StrategyDefinition, instrumentId: string): Strateg
     exit: {
       ...exit,
       ...(rules.length > 0 ? { rules } : {}),
-      trigger: def.exit.trigger ?? { ...DEFAULT_TRIGGER },
+      trigger: def.exit.trigger ?? { ...IMMEDIATE_TRIGGER },
       mirrorEntry: true,
     },
   });

@@ -1,5 +1,6 @@
 import { randomId, type IdFactory } from './ids';
 import {
+  IMMEDIATE_TRIGGER,
   STRATEGY_SCHEMA_VERSION,
   type ConditionGroup,
   type ExecutionPolicy,
@@ -44,12 +45,13 @@ export function createDefinition(ids: IdFactory = randomId): StrategyDefinition 
     trade: { kind: 'assets' },
     entry: {
       condition: emptyGroup(ids),
-      trigger: { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 },
+      // Fire when starts as "Immediately" (N273).
+      trigger: { ...IMMEDIATE_TRIGGER },
       orders: [],
     },
     exit: {
       condition: emptyGroup(ids),
-      trigger: { mode: 'on_transition', cooldownBars: 0, confirmationBars: 0 },
+      trigger: { ...IMMEDIATE_TRIGGER },
       orders: [],
       // A new strategy's Exit legs mirror Entry until the user turns it off (ADR 0049).
       mirrorEntry: true,

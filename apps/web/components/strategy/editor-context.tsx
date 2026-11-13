@@ -41,6 +41,12 @@ export interface AccountOption {
 export interface EditorContextValue {
   instruments: readonly InstrumentOption[];
   /**
+   * The instrument new conditions, values and legs start on (N273): the
+   * stock or ETF in What to trade when it names one. Absent for a group or
+   * before an asset is chosen; pickers then start on the first instrument.
+   */
+  defaultInstrumentId?: string | undefined;
+  /**
    * Adds an instrument a picker just looked up (N190), so every picker offers
    * it. Absent where the editor can't look symbols up.
    */
@@ -73,5 +79,9 @@ export function useEditor(): EditorContextValue {
   if (!ctx) throw new Error('useEditor must be used inside the strategy editor');
   return ctx;
 }
+
+/** The instrument a new condition, value or leg starts on (N273). */
+export const defaultInstrumentOf = (ctx: EditorContextValue): string =>
+  ctx.defaultInstrumentId ?? ctx.instruments[0]?.id ?? '';
 
 export const pathKey = (path: readonly (string | number)[]) => path.join('.');

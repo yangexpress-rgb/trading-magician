@@ -1,6 +1,8 @@
 'use client';
 
 import {
+  IMMEDIATE_TRIGGER,
+  isImmediateTrigger,
   REQUIRED_RISK_LIMITS,
   slotModeOf,
   type ExecutionPolicy,
@@ -10,27 +12,37 @@ import {
   type Trigger,
 } from '@tm/domain';
 import { Card } from '@tm/ui';
+import { useState } from 'react';
 import { RISK_FIELDS } from '@/lib/strategy-text';
 import { useEditor } from './editor-context';
 import { MiniInput, MiniSelect, RowButton } from './fields';
 
 const intOrNaN = (v: string) => (v === '' ? Number.NaN : Number(v));
 
-type FireWhen = 'becomes_true' | 'after_bars' | 'while_true' | 'once_per_cycle';
+type FireWhen = 'immediately' | 'becomes_true' | 'after_bars' | 'while_true' | 'once_per_cycle';
 
 const FIRE_WHEN_LABELS: Record<FireWhen, string> = {
-  becomes_true: 'As soon as it becomes true (default)',
+  immediately: 'Immediately (default)',
+  becomes_true: 'As soon as it becomes true',
   after_bars: 'After it has been true for N bars',
-  while_true: 'Repeatedly while true',
+  while_true: 'Repeatedly while true, with a wait',
   once_per_cycle: 'Once per cycle, when it becomes true',
 };
 
 const fireWhenOf = (t: Trigger): FireWhen =>
-  t.mode === 'on_transition' ? (t.confirmationBars > 0 ? 'after_bars' : 'becomes_true') : t.mode;
+  isImmediateTrigger(t)
+    ? 'immediately'
+    : t.mode === 'on_transition'
+      ? t.confirmationBars > 0
+        ? 'after_bars'
+        : 'becomes_true'
+      : t.mode;
 
 /**
  * When a phase fires (§6.5, ADR 0049): one "Fire when" choice for the trigger
  * mode and confirmation together, and a cooldown counted in bars.
+ * "Immediately" (N273, the default) fires on every check the condition is
+ * true, so it shows no other fields until another choice is made.
  */
 export function TriggerSettings({
   phase,
@@ -46,7 +58,11 @@ export function TriggerSettings({
 }) {
   const { issueAt, editable } = useEditor();
   const err = (k: string) => issueAt([phase, 'trigger', k]);
-  const when = fireWhenOf(value);
+  const derived = fireWhenOf(value);
+  // "Repeatedly while true" with no wait yet is the same trigger as
+  // "Immediately"; remember the choice so its wait field stays open.
+  const [picked, setPicked] = useState<FireWhen | null>(null);
+  const when = picked === 'while_true' && derived === 'immediately' ? 'while_true' : derived;
   const showBars = when === 'after_bars' || value.confirmationBars > 0;
   return (
     <fieldset disabled={!editable} className="mt-3 grid-fields-wide gap-2">
@@ -55,19 +71,24 @@ export function TriggerSettings({
         id={`${idPrefix}${phase}-trigger-mode`}
         label="Fire when"
         value={when}
-        error={err('confirmationBars')}
+        error={
+          err('confirmationBars') ?? (when === 'immediately' ? err('cooldownBars') : undefined)
+        }
         onChange={(e) => {
           const next = e.target.value as FireWhen;
+          setPicked(next);
           onChange(
-            next === 'becomes_true'
-              ? { ...value, mode: 'on_transition', confirmationBars: 0 }
-              : next === 'after_bars'
-                ? {
-                    ...value,
-                    mode: 'on_transition',
-                    confirmationBars: Math.max(1, value.confirmationBars),
-                  }
-                : { ...value, mode: next, confirmationBars: 0 },
+            next === 'immediately'
+              ? { ...IMMEDIATE_TRIGGER }
+              : next === 'becomes_true'
+                ? { ...value, mode: 'on_transition', confirmationBars: 0 }
+                : next === 'after_bars'
+                  ? {
+                      ...value,
+                      mode: 'on_transition',
+                      confirmationBars: Math.max(1, value.confirmationBars),
+                    }
+                  : { ...value, mode: next, confirmationBars: 0 },
           );
         }}
       >
@@ -77,33 +98,43 @@ export function TriggerSettings({
           </option>
         ))}
       </MiniSelect>
-      {showBars && (
-        <MiniInput
-          id={`${idPrefix}${phase}-trigger-confirm`}
-          label="N: bars true in a row"
-          type="number"
-          min={when === 'after_bars' ? 2 : 1}
-          step={1}
-          value={Number.isFinite(value.confirmationBars) ? String(value.confirmationBars + 1) : ''}
-          onChange={(e) =>
-            onChange({
-              ...value,
-              confirmationBars:
-                e.target.value === '' ? Number.NaN : Math.max(0, Number(e.target.value) - 1),
-            })
-          }
-        />
+      {when === 'immediately' ? (
+        <p className="self-end pb-1.5 text-xs text-ink-muted">
+          Fires on every check the condition is true: nothing to confirm or wait for.
+        </p>
+      ) : (
+        <>
+          {showBars && (
+            <MiniInput
+              id={`${idPrefix}${phase}-trigger-confirm`}
+              label="N: bars true in a row"
+              type="number"
+              min={when === 'after_bars' ? 2 : 1}
+              step={1}
+              value={
+                Number.isFinite(value.confirmationBars) ? String(value.confirmationBars + 1) : ''
+              }
+              onChange={(e) =>
+                onChange({
+                  ...value,
+                  confirmationBars:
+                    e.target.value === '' ? Number.NaN : Math.max(0, Number(e.target.value) - 1),
+                })
+              }
+            />
+          )}
+          <MiniInput
+            id={`${idPrefix}${phase}-trigger-cooldown`}
+            label="Then wait (bars) before firing again"
+            type="number"
+            min={0}
+            step={1}
+            value={Number.isFinite(value.cooldownBars) ? String(value.cooldownBars) : ''}
+            error={err('cooldownBars')}
+            onChange={(e) => onChange({ ...value, cooldownBars: intOrNaN(e.target.value) })}
+          />
+        </>
       )}
-      <MiniInput
-        id={`${idPrefix}${phase}-trigger-cooldown`}
-        label="Then wait (bars) before firing again"
-        type="number"
-        min={0}
-        step={1}
-        value={Number.isFinite(value.cooldownBars) ? String(value.cooldownBars) : ''}
-        error={err('cooldownBars')}
-        onChange={(e) => onChange({ ...value, cooldownBars: intOrNaN(e.target.value) })}
-      />
     </fieldset>
   );
 }

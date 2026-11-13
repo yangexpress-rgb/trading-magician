@@ -42,7 +42,7 @@ import {
   INTERVAL_LABELS,
   POSITION_FIELD_LABELS,
 } from '@/lib/strategy-text';
-import { useEditor } from './editor-context';
+import { defaultInstrumentOf, useEditor } from './editor-context';
 import { MiniInput, MiniSelect, RowButton } from './fields';
 import { InstrumentSelect } from './instrument-select';
 
@@ -234,16 +234,10 @@ export function ExpressionEditor({
   path: Path;
   depth?: number;
 }) {
-  const {
-    instruments,
-    issueAt,
-    editable,
-    slotMode,
-    optionUnderlyings = [],
-    mlModels = [],
-  } = useEditor();
+  const editor = useEditor();
+  const { issueAt, editable, slotMode, optionUnderlyings = [], mlModels = [] } = editor;
   const fallbackInstrument =
-    slotMode !== 'none' ? CONTEXT_INSTRUMENT_ID : (instruments[0]?.id ?? '');
+    slotMode !== 'none' ? CONTEXT_INSTRUMENT_ID : defaultInstrumentOf(editor);
   const id = (field: string) => `${expr.id}-${field}`;
   const err = (...rest: (string | number)[]) => issueAt([...path, ...rest]);
   // Position values exist only once Entry has filled, so only Exit offers them.

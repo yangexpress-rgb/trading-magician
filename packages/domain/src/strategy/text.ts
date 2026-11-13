@@ -2,6 +2,7 @@ import {
   CONTEXT_INSTRUMENT_ID,
   getIndicator,
   getMetric,
+  isImmediateTrigger,
   type ComparisonOperator,
   type ConditionNode,
   type Expr,
@@ -319,8 +320,11 @@ export function describeIssueLocation(
   return 'Strategy';
 }
 
+/** Re-exported for pages that read trigger text from strategy-text (N273). */
+export { isImmediateTrigger };
+
 export const TRIGGER_LABELS: Record<(typeof TRIGGER_MODES)[number], string> = {
-  on_transition: 'When it becomes true (default)',
+  on_transition: 'When it becomes true',
   while_true: 'Repeatedly while true, after the cooldown',
   once_per_cycle: 'Once per strategy cycle',
 };
@@ -328,6 +332,7 @@ export const TRIGGER_LABELS: Record<(typeof TRIGGER_MODES)[number], string> = {
 /** "Fire when" in words (ADR 0049); no trigger means a slot's Exit, checked directly. */
 export function describeTrigger(t: Trigger | undefined): string {
   if (!t) return 'On every bar the condition is true';
+  if (isImmediateTrigger(t)) return 'Immediately, on every check it is true';
   const n = t.confirmationBars + 1;
   const when =
     t.mode === 'on_transition'
