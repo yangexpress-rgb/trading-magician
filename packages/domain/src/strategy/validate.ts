@@ -284,7 +284,8 @@ function checkCondition(
       def[phase].orders.length > 0 &&
       def[phase].orders.every((o) => o.timing.mode !== 'immediate');
     // A Selection group or per-leg conditions decide entries themselves, and an
-    // exit rule such as the time stop can be the only exit (v1.2).
+    // exit rule such as the time stop, or Flatten at session end, can be the
+    // only exit (v1.2, N256).
     // A rebalance (Selection group, or per-leg conditions on a calendar
     // schedule) exits what is no longer selected.
     const mode = slotModeOf(def);
@@ -292,6 +293,8 @@ function checkCondition(
       phase === 'entry'
         ? mode !== 'none'
         : (def.exit.rules?.length ?? 0) > 0 ||
+          // Flatten at session end is an exit by itself (N256, brief §6a).
+          !!def.execution.flattenAtSessionEnd ||
           mode === 'selection' ||
           (mode === 'legs' &&
             def.entry.schedule !== undefined &&
