@@ -88,6 +88,18 @@ appTest('installed app opens pages in tabs', async ({ page }) => {
     .click();
   await expect(tabs).toHaveCount(2);
 
+  // Right-click on a link opens it in a new tab in front (N258).
+  const current = page.frameLocator('iframe[role="tabpanel"]:not(.invisible)');
+  await current
+    .getByRole('navigation', { name: 'Primary' })
+    .getByRole('link', { name: 'Performance' })
+    .click({ button: 'right' });
+  await expect(tabs).toHaveCount(3);
+  await expect(tabs.nth(2)).toHaveText('Performance');
+  await expect(tabs.nth(2)).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: 'Close tab Performance' }).click();
+  await expect(tabs).toHaveCount(2);
+
   // Tabs come back when the app is opened again.
   await page.goto('/tabs');
   await expect(tabs).toHaveCount(2);
