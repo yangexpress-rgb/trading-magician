@@ -434,6 +434,12 @@ describe('tools', () => {
     // Muse keeps no key; removing forgets the agent.
     const muse = await as(userA, (tx) => saveAiAssistant(tx, userA, { provider: 'muse' }, key));
     expect(muse).toMatchObject({ provider: 'muse', keyHint: null });
+    // So does Claude on the person's claude.ai plan (N275), even when sent one.
+    const plan = await as(userA, (tx) =>
+      saveAiAssistant(tx, userA, { provider: 'claude_ai', apiKey: 'sk-ignored-1234' }, key),
+    );
+    expect(plan).toMatchObject({ provider: 'claude_ai', model: null, keyHint: null });
+    expect((await as(userA, (tx) => loadAiAssistantSecret(tx, userA, key)))?.apiKey).toBeNull();
     await as(userA, (tx) => clearAiAssistant(tx, userA));
     expect(await as(userA, (tx) => getAiAssistant(tx, userA))).toBeNull();
   });

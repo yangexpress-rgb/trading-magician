@@ -3201,7 +3201,7 @@ export const aiAssistants = pgTable(
     userId: uuid('user_id')
       .primaryKey()
       .references(() => users.id, { onDelete: 'cascade' }),
-    /** muse, anthropic, openai or openai_compatible. */
+    /** muse, claude_ai, anthropic, openai or openai_compatible. */
     provider: text('provider').notNull(),
     model: text('model'),
     /** OpenAI-compatible services only: the API's base URL. */
@@ -3215,7 +3215,7 @@ export const aiAssistants = pgTable(
   (t) => [
     check(
       'ai_assistant_provider',
-      sql`${t.provider} in ('muse', 'anthropic', 'openai', 'openai_compatible')`,
+      sql`${t.provider} in ('muse', 'claude_ai', 'anthropic', 'openai', 'openai_compatible')`,
     ),
     check(
       'ai_assistant_model',

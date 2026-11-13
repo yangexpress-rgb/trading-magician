@@ -10,8 +10,24 @@ import { aiAssistants } from './schema';
  * a leaked database reveals no key, and the key is never shown again.
  */
 
-export const AI_PROVIDERS = ['muse', 'anthropic', 'openai', 'openai_compatible'] as const;
+export const AI_PROVIDERS = [
+  'muse',
+  'claude_ai',
+  'anthropic',
+  'openai',
+  'openai_compatible',
+] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
+
+/**
+ * Agents the app cannot call, so Ask AI opens them in their own tab with the
+ * question filled in (ADR 0093, ADR 0095). They store no key or model:
+ * Muse, and Claude through the person's own claude.ai plan.
+ */
+export const LINK_PROVIDERS = ['muse', 'claude_ai'] as const;
+export type LinkProvider = (typeof LINK_PROVIDERS)[number];
+export const isLinkProvider = (p: AiProvider): p is LinkProvider =>
+  (LINK_PROVIDERS as readonly string[]).includes(p);
 
 export function aiKeySealKey(secret: string): Buffer {
   return Buffer.from(hkdfSync('sha256', secret, 'tm-ai-assistant', 'ai assistant key v1', 32));
@@ -48,7 +64,7 @@ export interface AiAssistantSummary {
 }
 
 export interface AiAssistantSecret extends AiAssistantSummary {
-  /** The API key; null for Muse, or when the key no longer opens. */
+  /** The API key; null for Muse and claude.ai, or when the key no longer opens. */
   apiKey: string | null;
 }
 
@@ -88,7 +104,7 @@ export async function loadAiAssistantSecret(
 
 /**
  * Chooses the person's Ask AI agent. An omitted `apiKey` keeps the stored key
- * when the provider is unchanged; Muse stores no key.
+ * when the provider is unchanged; Muse and claude.ai store no key.
  */
 export async function saveAiAssistant(
   tx: Transaction,
@@ -98,7 +114,7 @@ export async function saveAiAssistant(
 ): Promise<AiAssistantSummary> {
   const [existing] = await tx.select().from(aiAssistants).where(eq(aiAssistants.userId, userId));
   const keepKey = existing && existing.provider === input.provider && !input.apiKey;
-  const muse = input.provider === 'muse';
+  const muse = isLinkProvider(input.provider);
   const keySealed = muse
     ? null
     : input.apiKey

@@ -20,13 +20,18 @@ import {
 export const ASK_AI_EVENT = 'tm:ask-ai';
 const OPEN_KEY = 'tm.askAi.open';
 const CHAT_KEY = 'tm.askAi.chat';
-const MUSE_ASK_URL = 'https://muse.ai/?prompt=';
-/** Page text that goes into Muse's prefill link, to keep the link a sensible length. */
+/** Page text that goes into a prefill link, to keep the link a sensible length. */
 const LINK_TEXT_MAX = 2500;
 
-/** The person's Ask AI agent, as the panel needs it (N274). */
+/**
+ * The person's Ask AI agent, as the panel needs it: one it chats with (N274),
+ * or one it opens in its own tab with the question filled in, Muse or Claude
+ * on the person's claude.ai plan (N275).
+ */
 export type AskAgent =
-  { kind: 'chat'; label: string } | { kind: 'muse'; connected: boolean } | { kind: 'none' };
+  | { kind: 'chat'; label: string }
+  | { kind: 'link'; name: string; askUrl: string; connected: boolean }
+  | { kind: 'none' };
 
 interface Turn {
   role: 'user' | 'assistant';
@@ -89,10 +94,11 @@ const TOOL_WORDS: Record<string, string> = {
 };
 
 /**
- * The Ask AI side panel (N272, N274; ADR 0093, 0094): a chat with the one AI
- * agent the person chose in Settings › AI agents, beside whatever screen they
- * are on. Each message carries the screen. Muse has no API, so with Muse the
- * panel has one Ask Muse button that opens Muse with the question filled in.
+ * The Ask AI side panel (N272, N274, N275; ADR 0093–0095): a chat with the one
+ * AI agent the person chose in Settings › AI agents, beside whatever screen they
+ * are on. Each message carries the screen. Muse and Claude on a claude.ai plan
+ * have no API for the app, so for them the panel has one Ask button that opens
+ * the agent with the question filled in.
  */
 export function AskAiPanel({ agent }: { agent: AskAgent }) {
   const [open, setOpen] = useState(false);
@@ -201,9 +207,9 @@ export function AskAiPanel({ agent }: { agent: AskAgent }) {
     }
   }
 
-  async function askMuse() {
+  async function askInTab() {
     const question = draft.trim();
-    if (!question || agent.kind !== 'muse') return;
+    if (!question || agent.kind !== 'link') return;
     setError(null);
     // Opened now, while the click still counts, so pop-up blockers allow it.
     const win = window.open('about:blank', '_blank');
@@ -220,7 +226,7 @@ export function AskAiPanel({ agent }: { agent: AskAgent }) {
         code = body?.code;
       }
       const url = askLink(
-        { id: 'muse', label: 'Muse', askUrl: MUSE_ASK_URL, connected: agent.connected },
+        { id: agent.name, label: agent.name, askUrl: agent.askUrl, connected: agent.connected },
         buildPrompt({ question, content, code, inlineTextMax: LINK_TEXT_MAX }),
       );
       if (win) {
@@ -229,17 +235,17 @@ export function AskAiPanel({ agent }: { agent: AskAgent }) {
       } else {
         window.open(url, '_blank', 'noopener');
       }
-      setNote('Muse opened in a new tab with your question. Send it there.');
+      setNote(`${agent.name} opened in a new tab with your question. Send it there.`);
       setDraft('');
     } catch {
       win?.close();
-      setError('Muse could not be opened. Try again.');
+      setError(`${agent.name} could not be opened. Try again.`);
     }
   }
 
   if (!open) return null;
   const textLength = screen?.text?.length ?? 0;
-  const label = agent.kind === 'chat' ? agent.label : agent.kind === 'muse' ? 'Muse' : 'AI';
+  const label = agent.kind === 'chat' ? agent.label : agent.kind === 'link' ? agent.name : 'AI';
 
   return (
     <aside
@@ -283,8 +289,8 @@ export function AskAiPanel({ agent }: { agent: AskAgent }) {
         <div className="space-y-3 px-4 py-4 text-sm">
           <p>Choose the AI agent you want to talk to here.</p>
           <p className="text-ink-muted">
-            Claude, ChatGPT or another service with an API key chats with you in this panel and sees
-            the screen you are on. Muse opens in its own tab with your question filled in.
+            Claude on your claude.ai plan or Muse opens in its own tab with your question and this
+            screen filled in. An agent with an API key chats with you right here.
           </p>
           <Link href="/settings/ai-agents#ask-ai" className="font-medium underline">
             Choose your agent in Settings › AI agents
@@ -303,15 +309,17 @@ export function AskAiPanel({ agent }: { agent: AskAgent }) {
                 screener. It sees the page and can look things up in your account.
               </p>
             )}
-            {agent.kind === 'muse' && (
+            {agent.kind === 'link' && (
               <p className="text-sm text-ink-muted">
-                Muse has no way for apps to chat with it, so Ask Muse opens Muse in a new tab with
-                your question and this screen filled in.
-                {!agent.connected && (
+                Ask {agent.name} opens {agent.name} in a new tab with your question and this screen
+                filled in, and the answer appears there.
+                {agent.connected ? (
+                  <> {agent.name} reads the whole screen through your Trading Magician connector.</>
+                ) : (
                   <>
                     {' '}
                     <Link href="/settings/ai-agents" className="underline">
-                      Connect Muse
+                      Connect {agent.name}
                     </Link>{' '}
                     so it can read the whole screen.
                   </>
@@ -350,7 +358,7 @@ export function AskAiPanel({ agent }: { agent: AskAgent }) {
             className="space-y-2 border-t border-line px-4 py-3"
             onSubmit={(e) => {
               e.preventDefault();
-              void (agent.kind === 'chat' ? send() : askMuse());
+              void (agent.kind === 'chat' ? send() : askInTab());
             }}
           >
             <div className="flex flex-wrap items-center gap-1 text-xs text-ink-muted">
@@ -384,18 +392,18 @@ export function AskAiPanel({ agent }: { agent: AskAgent }) {
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
-                  void (agent.kind === 'chat' ? send() : askMuse());
+                  void (agent.kind === 'chat' ? send() : askInTab());
                 }
               }}
               placeholder={
                 agent.kind === 'chat'
                   ? 'Ask about this screen… (Enter sends, Shift+Enter for a new line)'
-                  : 'Your question for Muse'
+                  : `Your question for ${label}`
               }
               className="h-20 w-full rounded-md border border-line bg-surface p-2 text-sm"
             />
             <Button type="submit" variant="primary" disabled={busy || !draft.trim()}>
-              {agent.kind === 'chat' ? 'Send' : 'Ask Muse'}
+              {agent.kind === 'chat' ? 'Send' : `Ask ${label}`}
             </Button>
           </form>
         </>

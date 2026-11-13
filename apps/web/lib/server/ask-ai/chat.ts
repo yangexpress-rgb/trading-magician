@@ -1,12 +1,12 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { AiProvider } from '@tm/db';
+import type { AiProvider, LinkProvider } from '@tm/db';
 
 /**
  * The Ask AI chat loop (N274, ADR 0094): one turn of a conversation with the
  * person's own AI agent, which may call the app's agent tools (ADR 0092)
  * before it answers. Anthropic goes through the official SDK; OpenAI and
- * OpenAI-compatible services through their Chat Completions API. Muse has no
- * API, so it never reaches this loop.
+ * OpenAI-compatible services through their Chat Completions API. Muse and the
+ * claude.ai plan have no API for the app, so they never reach this loop.
  */
 
 export interface ChatTurn {
@@ -37,7 +37,7 @@ export interface ChatTools {
 }
 
 export interface ChatAgent {
-  provider: Exclude<AiProvider, 'muse'>;
+  provider: Exclude<AiProvider, LinkProvider>;
   model: string;
   apiKey: string;
   baseUrl?: string | null;

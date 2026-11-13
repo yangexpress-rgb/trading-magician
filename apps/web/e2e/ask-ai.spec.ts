@@ -84,7 +84,7 @@ test('chats with the chosen agent about the screen, using the app tools', async 
   await expect(card.getByText('Saved. Ask AI now uses this agent.')).toBeVisible();
 
   await page.goto('/library/T00001-SD');
-  panel = page.getByRole('complementary', { name: 'Ask Another AI service' });
+  panel = page.getByRole('complementary', { name: 'Ask your agent' });
   await expect(panel).toBeVisible();
   await expect(panel.getByText('Theory T00001-SD')).toBeVisible();
   await panel.getByLabel(/Message to/).fill('How many strategies do I have?');
@@ -121,9 +121,8 @@ test('chats with the chosen agent about the screen, using the app tools', async 
   await expect(panel.getByText('How many strategies do I have?')).toHaveCount(0);
 });
 
-test('with Muse chosen, Ask Muse opens Muse with the question filled in', async ({ page }) => {
-  // Muse's page is not loaded in tests: the new tab is stood in for, and the
-  // address the panel sends it to is kept.
+/** Stands in for the new tab: keeps the address the panel sends it to. */
+async function standInForNewTab(page: Page) {
   await page.addInitScript(() => {
     const w = window as unknown as { sentTo: string[] };
     w.sentTo = [];
@@ -140,25 +139,46 @@ test('with Muse chosen, Ask Muse opens Muse with the question filled in', async 
       } as unknown as Window;
     }) as typeof window.open;
   });
-  await signUpAndVerify(page, uniqueEmail('askai-muse'));
-  await page.goto('/settings/ai-agents');
-  const card = page.locator('#ask-ai');
-  await card.getByRole('radio', { name: /Muse/ }).check();
-  await card.getByRole('button', { name: 'Save' }).click();
-  await expect(card.getByText('Saved. Ask AI now uses this agent.')).toBeVisible();
+}
 
-  await page.goto('/strategy-lab');
-  const panel = await openPanel(page);
-  await expect(panel.getByRole('heading', { name: 'Ask Muse' })).toBeVisible();
-  await panel.getByLabel(/Message to/).fill('Which strategy should I test next?');
-  await panel.getByRole('button', { name: 'Ask Muse' }).click();
-  await expect(panel.getByText(/Muse opened in a new tab/)).toBeVisible();
+const linkAgents = [
+  { name: 'Muse', radio: /^Muse/, origin: 'https://muse.ai', param: 'prompt' },
+  { name: 'Claude', radio: /my claude\.ai plan/, origin: 'https://claude.ai', param: 'q' },
+];
 
-  const sentTo = await page.evaluate(() => (window as unknown as { sentTo: string[] }).sentTo);
-  expect(sentTo).toHaveLength(1);
-  const url = new URL(sentTo[0] ?? '');
-  expect(url.origin).toBe('https://muse.ai');
-  const prompt = url.searchParams.get('prompt') ?? '';
-  expect(prompt).toContain('Which strategy should I test next?');
-  expect(prompt).toContain('What I am looking at in Trading Magician');
-});
+for (const agent of linkAgents) {
+  test(`with ${agent.name} chosen, Ask ${agent.name} opens it with the question filled in`, async ({
+    page,
+  }) => {
+    // The agent's own page is not loaded in tests.
+    await standInForNewTab(page);
+    await signUpAndVerify(page, uniqueEmail(`askai-${agent.name.toLowerCase()}`));
+    await page.goto('/settings/ai-agents');
+    const card = page.locator('#ask-ai');
+    await expect(async () => {
+      await card.getByRole('radio', { name: agent.radio }).check();
+      await expect(card.getByRole('textbox', { name: /API key/ })).toHaveCount(0, {
+        timeout: 1000,
+      });
+    }).toPass();
+    await card.getByRole('button', { name: 'Save' }).click();
+    await expect(card.getByText('Saved. Ask AI now uses this agent.')).toBeVisible();
+    // No key is asked for or kept.
+    await expect(card.getByText(/Saved key ending/)).toHaveCount(0);
+
+    await page.goto('/strategy-lab');
+    const panel = await openPanel(page);
+    await expect(panel.getByRole('heading', { name: `Ask ${agent.name}` })).toBeVisible();
+    await panel.getByLabel(/Message to/).fill('Which strategy should I test next?');
+    await panel.getByRole('button', { name: `Ask ${agent.name}` }).click();
+    await expect(panel.getByText(`${agent.name} opened in a new tab`)).toBeVisible();
+
+    const sentTo = await page.evaluate(() => (window as unknown as { sentTo: string[] }).sentTo);
+    expect(sentTo).toHaveLength(1);
+    const url = new URL(sentTo[0] ?? '');
+    expect(url.origin).toBe(agent.origin);
+    const prompt = url.searchParams.get(agent.param) ?? '';
+    expect(prompt).toContain('Which strategy should I test next?');
+    expect(prompt).toContain('What I am looking at in Trading Magician');
+  });
+}
