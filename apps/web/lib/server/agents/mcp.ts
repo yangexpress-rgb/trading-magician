@@ -101,11 +101,14 @@ function unauthorized(appUrl: string, id: JsonRpcId, message: string, invalid: b
     'Bearer realm="trading-magician"',
     `resource_metadata="${resourceMetadataUrl(appUrl)}"`,
     // Header values are ASCII: the full message is in the body.
-    ...(invalid
-      ? ['error="invalid_token"', `error_description="${message.replace(/[^\x20-\x7e]|"/g, '')}"`]
-      : []),
+    ...(invalid ? ['error="invalid_token"', `error_description="${headerText(message)}"`] : []),
   ].join(', ');
   return json(rpcError(id, -32001, message), 401, { 'www-authenticate': challenge });
+}
+
+/** "Settings › AI agents" → "Settings > AI agents": headers carry ASCII only, no quotes. */
+export function headerText(message: string): string {
+  return message.replace(/›/g, '>').replace(/[^\x20-\x7e]|"/g, '');
 }
 
 const REFUSALS: Record<Exclude<ResolvedAgentCredential['state'], 'ok'>, string> = {

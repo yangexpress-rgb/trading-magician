@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeArgs } from './mcp';
+import { headerText, summarizeArgs } from './mcp';
 import { AGENT_TOOLS, toolListing } from './tools';
 
 /**
@@ -77,5 +77,14 @@ describe('activity argument summaries', () => {
       note: `${'z'.repeat(77)}…`,
     });
     expect(summarizeArgs(null)).toEqual({});
+  });
+});
+
+describe('headerText', () => {
+  it('keeps WWW-Authenticate descriptions ASCII and readable', () => {
+    expect(headerText('Connect again in Trading Magician › Settings › AI agents.')).toBe(
+      'Connect again in Trading Magician > Settings > AI agents.',
+    );
+    expect(headerText('say "hi" — ok')).toBe('say hi  ok');
   });
 });
