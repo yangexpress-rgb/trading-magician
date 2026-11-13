@@ -46,6 +46,7 @@ describe('the Alpaca request budget', () => {
       perMinute: 10,
       reserve: 4,
       backgroundPerMinute: 10,
+      backgroundFloor: 0,
       now: c.now,
       sleep: c.sleep,
     });
@@ -58,6 +59,24 @@ describe('the Alpaca request budget', () => {
     const before = c.slept.length;
     await budget.take('other', true);
     expect(c.slept.length).toBe(before);
+  });
+
+  it('lets a few background requests through while strategies keep the reserve busy', async () => {
+    const c = clock();
+    const budget = new AlpacaRequestBudget({ now: c.now, sleep: c.sleep });
+    // Running strategies send 150 a minute: past the 120 background may use, under 200.
+    for (let i = 0; i < 150; i++) await budget.take('k', false);
+    for (let i = 0; i < 10; i++) await budget.take('k', true);
+    expect(c.slept).toEqual([]);
+    // The floor is per minute; the eleventh waits.
+    await budget.take('k', true);
+    expect(c.slept.length).toBeGreaterThan(0);
+    // At Alpaca's limit nothing background goes.
+    const full = new AlpacaRequestBudget({ now: c.now, sleep: c.sleep });
+    for (let i = 0; i < 199; i++) await full.take('f', false);
+    const before = c.slept.length;
+    await full.take('f', true);
+    expect(c.slept.length).toBeGreaterThan(before);
   });
 
   it('stands background requests aside after a 429', async () => {

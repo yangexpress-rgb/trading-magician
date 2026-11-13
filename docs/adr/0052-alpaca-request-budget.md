@@ -34,3 +34,12 @@ load then got HTTP 429 ("Alpaca is over its request limit for this key") and fai
 - The budget is per worker process. Two workers on one key, or the web app's own Alpaca calls
   (search, feed checks), are not counted against each other. That is fine for one worker today and
   is open point O70.
+
+## Amendment (2026-11-13): a background floor
+
+Running strategies (paper runtimes, foreground) can keep a key above the 120 requests a minute
+that background work may share, for as long as they run. A 5-minute back test asks for its bars
+as background work, so on staging it waited in `load_bars` without making a single call until a
+redeploy restarted the worker. Now up to 10 background requests a minute (`backgroundFloor`,
+never more than the background share) go while the key is still under Alpaca's 200, even inside
+the reserve. Foreground requests can lose at most those 10 of their 80 reserved.

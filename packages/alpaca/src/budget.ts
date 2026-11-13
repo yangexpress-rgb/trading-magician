@@ -15,6 +15,11 @@ export interface RequestBudgetOptions {
   backgroundPerMinute?: number;
   /** Room in each minute that background requests never take. */
   reserve?: number;
+  /**
+   * Background requests that may go each minute even into the reserve, while
+   * the key is under Alpaca's limit, so busy strategies can't starve them.
+   */
+  backgroundFloor?: number;
   /** How long background requests stand aside after a 429 that gave no time. */
   pauseAfterThrottleMs?: number;
   now?: () => number;
@@ -33,6 +38,7 @@ export class AlpacaRequestBudget {
   private readonly perMinute: number;
   private readonly backgroundPerMinute: number;
   private readonly reserve: number;
+  private readonly backgroundFloor: number;
   private readonly pauseMs: number;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -42,6 +48,7 @@ export class AlpacaRequestBudget {
     this.perMinute = options.perMinute ?? 200;
     this.backgroundPerMinute = options.backgroundPerMinute ?? 60;
     this.reserve = options.reserve ?? 80;
+    this.backgroundFloor = Math.min(options.backgroundFloor ?? 10, this.backgroundPerMinute);
     this.pauseMs = options.pauseAfterThrottleMs ?? MINUTE;
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -87,6 +94,10 @@ export class AlpacaRequestBudget {
       return oldest ? oldest.at + MINUTE - now + 1 : 0;
     };
     const bg = s.sent.filter((r) => r.background);
+    // A few background requests a minute always go while the key is under
+    // Alpaca's limit: foreground traffic that keeps the minute past the reserve
+    // (running strategies) would otherwise hold a back test's bars forever.
+    if (bg.length < this.backgroundFloor && s.sent.length < this.perMinute - 1) return 0;
     return Math.max(
       until(s.sent, Math.max(1, this.perMinute - this.reserve)),
       until(bg, Math.max(1, this.backgroundPerMinute)),
