@@ -360,7 +360,7 @@ Entry and Exit each have a schedule (`entry.schedule`, `exit.schedule`), edited 
 | Days     | Every trading day, or the last trading day of each week, month, quarter or year (NYSE calendar) |
 
 - "Every 1-day bar" is once a day after the close; on daily bars 1st, 2nd and Last mean the same.
-- **Before the open** checks one bar (at most an hour) before 09:30 in paper runs and at the prior close in back tests: same data, same fill at the open (Yong's reading of "before", 2026-11-11).
+- **Before the open** is meant to check one bar (at most an hour) before 09:30 in paper runs and at the prior close in back tests: same data, same fill at the open (Yong's reading of "before", 2026-11-11). **Known deviation (N227, not yet fixed):** the paper runtime has no upper bound on that window (`apps/worker/src/runtime.ts`, the `beforeOpen` branch fires whenever data exists), so a runtime that starts mid-session still fires the check that day. Back tests behave as designed. A code fix is owed (§25).
 - Every bar of a size can be limited to calendar days (for example every hourly bar on month-end days).
 - Back tests check at the first run bar ending at least that long after the open and warn when the run steps on coarser bars; paper runs check when that bar is in, or by the clock when the rules read only daily bars (N226).
 - Picking 1st, 2nd or Last from "every bar the run steps on" or on daily bars sets the bar size to 5 minutes in one step. "Last" only times when Exit when is checked; it closes nothing by itself (N257; flatten is §8.6).
@@ -586,7 +586,7 @@ A back test is **not required to start on paper**: a missing or out-of-date one 
 
 ### 12.1 Start and stop
 
-- **Start** (from the Execution section) validates the strategy, snapshots the version, creates a runtime and links to Orders with the new run highlighted. Start refuses a strategy whose bars would exceed **400,000** (`MAX_PAPER_BARS`), naming what drives the size (N245). Built-in groups and lists of any length run on paper (N13, O17 closed).
+- **Start** (from the Execution section) validates the strategy, snapshots the version, creates a runtime and links to Orders with the new run highlighted. Start refuses a strategy whose bars would exceed **400,000** (`MAX_PAPER_BARS`), naming what drives the size (N245). Built-in groups and lists of any length can run on paper (N13, N245). Removing the old S&P 500 back-test-only cap still needs Yong's confirmation (O17, open, §25).
 - **Stop** stops new strategy orders. It offers two separate choices, both off by default: cancel working orders, and close positions. It never silently cancels or liquidates (C33).
 - **Kill switch** (Orders): pauses every running strategy and cancels nothing; cancel-all is a second, separately confirmed action; releasing the switch resumes nothing, and each strategy is resumed on purpose.
 - **Closing a position by hand** creates a user-sourced market order and is allowed only once the strategy is stopped, because a running strategy's Exit owns its positions.
@@ -681,7 +681,7 @@ For stocks and ETFs, with an options data feed (ADR 0048):
 - **Live chain on demand.** Opening a symbol asks the worker for its delayed CBOE chain; the worker prices every contract with the app's own model against the file's underlying price, the FRED rate and the dividend yield, derives the figures and keeps the view for 15 minutes for everyone (`option_live_chain`); Refresh asks again after that. Any US stock or ETF can be shown; asking does not add it to the daily recording (N60, O42 to O44).
 - **Figures row**: IV30, IV rank and percentile, expected move (1 and 5 days, % and $), straddle move, IV / realised volatility, skew, term structure, put/call volume and OI ratios, net gamma exposure, call wall, put wall and max pain, each with its registry help.
 - **Charts**: for a chosen expiry, the IV smile and the chain table (the app's computed IV, delta and gamma with open interest and volume; strikes within 30% of the price; ATM row shaded); term structure; open interest and gamma by strike (one expiry or all); recorded IV30 history with rebuilt days lighter. Every chart has a table view and keyboard readout (N61).
-- Under it: the feed, chain time (about 15 minutes delayed), pricing inputs and Cboe's attribution. CBOE's own quotes, IVs and greeks are never shown (N65, O45).
+- Under it: the feed, chain time (about 15 minutes delayed), pricing inputs and Cboe's attribution. CBOE's own quotes, IVs and greeks are never shown (N65). Showing CBOE's open interest and volume is not yet confirmed by Yong and is on the launch gate (O45, open, §20.4).
 
 ### 14.5 Earnings
 
@@ -819,7 +819,7 @@ Every Alpaca client in the worker counts requests per key over the last minute. 
 - **Model series** (`ml_model`; first `mf-ranker-ridge` on the S&P 500) are trained outside the request path; each refit (`ml_model_run`) serves one monthly prediction date and writes one score per member (`ml_prediction`). Predictions are immutable (triggers refuse update and delete); a bad run is superseded and replaced, and superseded runs are never read. A series may name a theory; saving or copying a strategy never creates a model. Series are platform-wide (per-user series are open, O151) (N239, ADR 0086).
 - **Feature snapshots and labels** (worker job, on unless `ML_SNAPSHOTS=off`): for each prediction date (the last trading day of each month), resolve the universe as a back test would and compute the eleven v1 features as of that close through the back test's own market view (registry metrics on daily bars, the EDGAR replay, the events store), so a feature equals what a condition read that day. Missing means null. Each feature is winsorised at the 1st/99th percentile and z-scored (sample SD); the earliest date with 90 % coverage is reported per feature (O150). Once a date's 21 trading days have passed, each member's realised forward return is stored (`ml_label`, O152). Uses the sharing admin's feeds; chunks of 24 dates; resumable; RSI history always loads from the model's first date (O153) (N242).
 - **Trainer** (`apps/ml-trainer`, Python and scikit-learn, off unless `ML_TRAINER_ENABLED=on`, run by Railway cron, O149): for every prediction date T, ridge regression on the z-scored features → label (21-day forward return minus the universe median), using only cross-sections whose label window ended before T (an embargo), from the latest feature-availability date, expanding window, at least 18 cross-sections; alpha from {0.1, 1, 10, 100} by the best mean Spearman IC on the last six eligible cross-sections. Each refit records its window, `max_label_end`, alpha and coefficients; members with a null feature get no score. One command catches every model up date by date, so backfill and the monthly run are the same (N243, N244).
-- **Evaluation**: once labels realise, rank IC, decile spread and coverage are stored (`ml_evaluation`), and a Markdown report per series (`ml_report`) gives the monthly IC series, decile spread, coverage, the binding feature, the latest coefficients and the survivorship caveat (N244). Yong reviewed the first results on 2026-11-13 and asked for no changes; the model scores monthly on its own.
+- **Evaluation**: once labels realise, rank IC, decile spread and coverage are stored (`ml_evaluation`), and a Markdown report per series (`ml_report`) gives the monthly IC series, decile spread, coverage, the binding feature, the latest coefficients and the survivorship caveat (N244). Yong's review of the first results (the report and the S00035-SM experiment, 2026-11-13) is still owed; until then the model keeps scoring monthly on its own (§25).
 - **Use**: the `ml.score` metric (§8.7.1) with model provenance on the cycle card (§11.3).
 
 ### 16.7 Pattern factor store and miner
@@ -839,7 +839,7 @@ Every Alpaca client in the worker counts requests per key over the last minute. 
 | Database and ORM    | PostgreSQL 16 with Drizzle and hand-reviewed SQL migrations (latest 0096).                                                                                                                                                                                                                                        |
 | Queue and scheduler | Postgres tables claimed by `SECURITY DEFINER` functions with `FOR UPDATE SKIP LOCKED` and leases (back tests, runtimes, feed and broker checks, lookups, charts, screens, company reports, valuations, billing syncs, option chains, pattern scans); durable `scheduled_action` rows for timing. No Redis (C27).  |
 | Streaming           | Server-sent events from the web app, fed by `pg_notify('tm_execution', user_id)`; tabs also refresh every 30 s.                                                                                                                                                                                                   |
-| Object storage      | Not used by the app; back-test results are JSON in Postgres and CSVs are generated on request. Nightly backups go to Cloudflare R2 (C28).                                                                                                                                                                         |
+| Object storage      | Not used by the app; back-test results are JSON in Postgres and CSVs are generated on request. Nightly backups to Cloudflare R2 are designed and configured (C28, `deploy/railway/backup.json`) but not yet running: they need Yong's R2 and Railway accounts (§21.3).                                            |
 | Design system       | Hand-written accessible primitives in `packages/ui` on Tailwind CSS v4 tokens, SVG charts, nonce-based CSP with no third-party origins (C29).                                                                                                                                                                     |
 | Auth                | Better Auth, self-hosted; agent OAuth 2.1 server for MCP (§19.3).                                                                                                                                                                                                                                                 |
 | Billing             | Stripe Billing over its REST API, test mode only.                                                                                                                                                                                                                                                                 |
@@ -958,7 +958,7 @@ The app states that it is a user-directed trading tool and that back tests do no
 - FMP and Finnhub terms re-checked before charging subscribers, or the calendar set to `none` (O110).
 - Custom feeds: each person is responsible for their provider's terms (N23).
 
-Raw CBOE quotes, IVs and greeks never leave the worker; Research shows the app's computed values with open interest and volume (N65).
+Raw CBOE quotes, IVs and greeks never leave the worker; Research shows the app's computed values with open interest and volume (N65). Whether showing CBOE's open interest and volume is acceptable is still open (O45) and is part of the Cboe terms review above.
 
 ---
 
@@ -974,7 +974,7 @@ Load target (approved 2026-10-05): 20 users with 5 running strategies each and 1
 
 ### 21.3 Availability and recovery
 
-Nightly `pg_dump` to Cloudflare R2 at 07:30 UTC, kept 30 days, with `restore-check.sh` as a monthly runbook step. Recovery objectives: **RPO 24 hours, RTO 4 hours** (`docs/deploy.md`). Runbooks in `docs/runbooks`: incidents, backups and restore, key rotation, billing webhooks, a stuck worker, feed or broker trouble. The restore drill, uptime monitor and R2 backups on staging wait on Yong's accounts (`docs/launch-checks.md`).
+Designed, not yet running: nightly `pg_dump` to Cloudflare R2 at 07:30 UTC, kept 30 days, with `restore-check.sh` as a monthly runbook step. Recovery objectives: **RPO 24 hours, RTO 4 hours** (`docs/deploy.md`). Runbooks in `docs/runbooks`: incidents, backups and restore, key rotation, billing webhooks, a stuck worker, feed or broker trouble. The R2 backups, restore drill and uptime monitor on staging wait on Yong's accounts (`docs/launch-checks.md`).
 
 ### 21.4 Testing
 
@@ -1055,6 +1055,14 @@ Every open point O1 to O176 is listed with its proposal and outcome in `v1.2-dev
 
 **Waiting on Yong's decision**
 
+- O17: removing the S&P 500 back-test-only cap on paper. The capability is built (N245, ADR 0087), but Yong has not confirmed it.
+- O45: what Research shows from CBOE (open interest and volume beside the app's own IV and greeks); also on the launch gate (§20.4).
+- ML first results (§16.6): Yong's review of the report and the S00035-SM experiment, with the asks it raised (more months of data or feature set v2, the S00035-SM loss limit, O149 to O153).
+
+**Fixes owed**
+
+- N227 before-open check: the paper runtime fires it with no upper bound, so a runtime started mid-session still fires it that day (§8.4). A code fix is owed.
+
 - O137: Earnings window look-ahead in back tests (the actual release date stands in before the calendar listed a stock) — confirm, or keep pre-release windows unknown.
 - O138: renaming a running strategy is allowed while its theory cannot change until stopped — confirm.
 - O135: add 1-minute bars to the Alpaca feed and back tests, if wanted.
@@ -1071,7 +1079,7 @@ Every open point O1 to O176 is listed with its proposal and outcome in `v1.2-dev
 - O150: the earliest usable fundamentals date, from the staging ML backfill.
 - O149: whether the trainer stays a Railway cron service.
 - The pattern backfill review before scans are switched on (`PATTERN_MINER_ENABLED`, O161).
-- k6 load test, restore drill, uptime monitor (§22.2).
+- k6 load test, restore drill, uptime monitor, R2 nightly backups (§22.2).
 
 **Known limitations, accepted for now**
 
