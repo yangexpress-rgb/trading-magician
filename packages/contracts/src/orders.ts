@@ -177,6 +177,11 @@ export interface RuntimeSummaryDto {
   startedAt: string;
   stoppedAt: string | null;
   workingOrders: number;
+  /**
+   * This run's cycles by outcome (N280): completed (Exit closed it), active (Entry filled,
+   * not yet exited), rejected (ended with nothing filled), entering (Entry still working).
+   */
+  cycles: { completed: number; active: number; rejected: number; entering: number };
 }
 
 export const INCIDENT_KINDS = [

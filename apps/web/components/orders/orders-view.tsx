@@ -7,6 +7,7 @@ import {
   type IncidentDto,
   type OrderRowDto,
   type PositionDto,
+  type RuntimeSummaryDto,
   type ScheduledRowDto,
 } from '@tm/contracts';
 import { formatDateTime, type DisplayPreferences } from '@tm/domain';
@@ -384,6 +385,7 @@ function Runtimes({
                 Started {when(r.startedAt)} ·{' '}
                 {r.workingOrders === 1 ? '1 working order' : `${r.workingOrders} working orders`}
               </p>
+              <CycleCounts cycles={r.cycles} />
               <Button size="sm" variant="ghost" className="mt-1 -ml-3" onClick={() => onShow(r.id)}>
                 Show its orders
               </Button>
@@ -392,6 +394,32 @@ function Runtimes({
         })}
       </ul>
     </section>
+  );
+}
+
+/** This run's cycles by outcome, on one compact line (N280). */
+function CycleCounts({ cycles }: { cycles: RuntimeSummaryDto['cycles'] }) {
+  const parts: { n: number; label: string; hint: string }[] = [
+    { n: cycles.completed, label: 'completed', hint: 'Entry filled and Exit closed the position' },
+    { n: cycles.active, label: 'active', hint: 'Entry filled; the position is open or exiting' },
+    {
+      n: cycles.rejected,
+      label: 'rejected',
+      hint: 'Never started: nothing filled (refused by a risk limit, rejected, canceled or expired)',
+    },
+  ];
+  if (cycles.entering > 0)
+    parts.push({ n: cycles.entering, label: 'entering', hint: 'Entry orders still working' });
+  return (
+    <p className="mt-1 text-ink-muted" aria-label="Cycles this run">
+      Cycles:{' '}
+      {parts.map((p, i) => (
+        <span key={p.label} title={p.hint}>
+          {i > 0 && ' · '}
+          <span className="font-medium text-content tabular-nums">{p.n}</span> {p.label}
+        </span>
+      ))}
+    </p>
   );
 }
 
