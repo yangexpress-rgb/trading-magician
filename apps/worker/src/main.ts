@@ -52,14 +52,21 @@ import {
   FakeEdgarEvents,
 } from '@tm/sec/testing';
 import { fetchTickers, SecClient } from '@tm/sec';
-import { listOptionUniverse, saveRates, sharedFeedOwner } from '@tm/db';
-import { EVENT_HISTORY_FROM, isStockGroupId, type BuiltinUniverse } from '@tm/domain';
+import { listOptionUniverse, priceRangeMembers, saveRates, sharedFeedOwner } from '@tm/db';
+import {
+  AVAILABLE_STOCK_GROUPS,
+  EVENT_HISTORY_FROM,
+  isStockGroupId,
+  nyDate,
+  type BuiltinUniverse,
+} from '@tm/domain';
 import { finnhubCalendar, fmpCalendar, type CalendarSource } from './events/calendar';
 import { adminCredentialField } from './events/keys';
 import { earningsFeedProvider } from './events/feed';
 import { startEventsLoop, type EventsLoop } from './events/loop';
 import { startMlSnapshotLoop, type MlSnapshotLoop } from './ml/loop';
 import { startPatternSnapshotLoop, type PatternSnapshotLoop } from './patterns/loop';
+import { startPriceRangeLoop, type PriceRangeLoop } from './price-ranges';
 
 const env = loadWorkerEnv();
 const reporter = createErrorReporter({
@@ -94,6 +101,7 @@ let liveChains: LiveChainLoop | undefined;
 let eventsLoop: EventsLoop | undefined;
 let mlSnapshots: MlSnapshotLoop | undefined;
 let patternSnapshots: PatternSnapshotLoop | undefined;
+let priceRanges: PriceRangeLoop | undefined;
 let billing: BillingLoop | undefined;
 let heartbeat: HeartbeatLoop | undefined;
 let fakeTicker: ReturnType<typeof setInterval> | undefined;
@@ -535,6 +543,44 @@ if (databaseUrl) {
     });
     logger.info({ groups }, 'pattern snapshot job started');
   }
+  if (env.PRICE_RANGES === 'on') {
+    // 52-week lows and highs (N290, ADR 0099), through the sharing admin's feeds.
+    let groupsResolvedOn = '';
+    priceRanges = startPriceRangeLoop({
+      db,
+      history: (userId) =>
+        createMemberHistory({
+          db,
+          userId,
+          now: () => new Date(),
+          providers,
+          privateKey: credentialKey,
+          patient: true,
+          background: true,
+        }),
+      members: async (userId) => {
+        // Once a day, make sure every built-in group's members are registered.
+        const today = nyDate(new Date());
+        if (groupsResolvedOn !== today) {
+          // Sector groups are S&P 500 members, already covered.
+          for (const group of AVAILABLE_STOCK_GROUPS.filter((g) => g.kind !== 'sector'))
+            await resolveBuiltinUniverse({
+              db,
+              userId,
+              group: group.id as BuiltinUniverse,
+              providers,
+              privateKey: credentialKey,
+              now: () => new Date(),
+            });
+          groupsResolvedOn = today;
+        }
+        return db.transaction((tx) => priceRangeMembers(tx));
+      },
+      logger,
+      pollMs: env.PRICE_RANGE_POLL_MS,
+    });
+    logger.info('52-week range job started');
+  }
   companies = startCompanyReportLoop({
     db,
     fundamentals,
@@ -571,6 +617,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         eventsLoop?.stop(),
         mlSnapshots?.stop(),
         patternSnapshots?.stop(),
+        priceRanges?.stop(),
         billing?.stop(),
         heartbeat?.stop(),
       ]);

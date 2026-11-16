@@ -53,6 +53,8 @@ import {
 export const BARS_PER_MONTH = 21;
 /** Trading days in a year, for annualising daily volatility. */
 export const TRADING_DAYS_PER_YEAR = 252;
+/** Trading sessions in "52 weeks": the window of the 52-week low and high. */
+export const YEAR_RANGE_SESSIONS = 252;
 
 /** Reads a daily series value `barsBack` bars before the bar being evaluated. */
 export interface MetricReader {
@@ -145,6 +147,8 @@ export type DailySeries = MarketExpr | IndicatorExpr;
 
 /** Price metrics read daily closes, which indices have too (v1.2 item 5). */
 const PRICE_CLASSES = ['stock', 'etf', 'index'] as const;
+/** Indices come as daily closes only, without lows and highs. */
+const YEAR_RANGE_CLASSES = ['stock', 'etf'] as const;
 
 /** The daily close series of an instrument, `offset` bars back. */
 export function dailyClose(
@@ -351,7 +355,74 @@ const PRICE_METRICS: readonly MetricSpec[] = [
     requirements: (id, p) => [rsiSeries(id, p)],
     compute: (id, p, r, barsBack) => r.value(rsiSeries(id, p), barsBack),
   },
+  ...yearRangeMetrics('low'),
+  ...yearRangeMetrics('high'),
 ];
+
+// ---------------------------------------------------------------------------
+// 52-week low and high (N290)
+
+/**
+ * A daily series of a 52-week metric: split-adjusted (not dividend-adjusted)
+ * regular-session bars, as quoted 52-week lows and highs are, and as the
+ * stored figures on the screener and Price charts are worked out (N290).
+ */
+function yearRangeSeries(
+  instrumentId: string,
+  name: 'LOWEST' | 'HIGHEST' | 'LOWEST_AGO' | 'HIGHEST_AGO',
+  field: 'low' | 'high',
+): IndicatorExpr {
+  return {
+    kind: 'indicator',
+    id: `metric:${name}:52w:${instrumentId}`,
+    name,
+    params: { period: YEAR_RANGE_SESSIONS },
+    instrumentId,
+    field,
+    interval: '1d',
+    adjustment: 'split_only',
+    session: 'regular',
+    offset: 0,
+  };
+}
+
+function yearRangeMetrics(side: 'low' | 'high'): MetricSpec[] {
+  const extreme = side === 'low' ? 'LOWEST' : 'HIGHEST';
+  const word = side === 'low' ? 'lowest daily low' : 'highest daily high';
+  const level = (id: string) => yearRangeSeries(id, extreme, side);
+  const ago = (id: string) => yearRangeSeries(id, `${extreme}_AGO`, side);
+  return [
+    {
+      id: `from_52w_${side}`,
+      label: side === 'low' ? 'Above 52-week low' : 'From 52-week high',
+      help:
+        `close / the ${word} of the last 252 daily bars (today's included) − 1, split-adjusted. ` +
+        (side === 'low' ? '0.25 is 25% above the low.' : '−0.10 is 10% below the high.'),
+      category: 'price',
+      unit: 'fraction',
+      params: [],
+      assetClasses: YEAR_RANGE_CLASSES,
+      requirements: (id) => [level(id), ago(id), dailyClose(id, 0, 'split_only')],
+      compute: (id, _p, r, barsBack) => {
+        const close = r.value(dailyClose(id, 0, 'split_only'), barsBack);
+        const at = r.value(level(id), barsBack);
+        if (!close || !at || at.lte(0)) return undefined;
+        return close.div(at).minus(1);
+      },
+    },
+    {
+      id: `days_since_52w_${side}`,
+      label: `Days since 52-week ${side}`,
+      help: `Trading days since the ${word} of the last 252 daily bars, split-adjusted: 0 when today's bar set it. A tie counts from the latest day.`,
+      category: 'price',
+      unit: 'number',
+      params: [],
+      assetClasses: YEAR_RANGE_CLASSES,
+      requirements: (id) => [ago(id)],
+      compute: (id, _p, r, barsBack) => r.value(ago(id), barsBack),
+    },
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // Fundamental metrics (v1.2 item 6, ADR 0043)

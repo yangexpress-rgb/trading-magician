@@ -9,3 +9,4 @@ export * from './fundamentals';
 export * from './indices';
 export * from './point-in-time';
 export * from './stock-groups';
+export * from './range-52w';

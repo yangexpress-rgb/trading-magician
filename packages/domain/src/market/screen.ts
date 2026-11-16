@@ -1,5 +1,6 @@
 import type { OptionSignalField } from '../options/signals';
 import { SCREEN_FUNDAMENTAL_COLUMNS, type ScreenFundamentalColumn } from './fundamentals';
+import type { YearRangeView } from './range-52w';
 
 /**
  * The stock screener in Quantitative Research (ADR 0030): one row of key
@@ -75,15 +76,34 @@ export const SCREEN_OPTION_COLUMNS = [
 ] as const;
 export type ScreenOptionColumn = (typeof SCREEN_OPTION_COLUMNS)[number];
 
-/** Every numeric column: the price ones, the company ones (ADR 0031), then the options ones. */
+/**
+ * 52-week columns (N290, ADR 0099), read from the stored figures when the
+ * screen's rows are fetched and rolled forward with today's prices: the low
+ * and high, the last price against each in percent, and trading days since each.
+ */
+export const SCREEN_RANGE_COLUMNS = [
+  'low52w',
+  'fromLow52wPct',
+  /** Trading days since the 52-week low (0: today). */
+  'lowAge',
+  'high52w',
+  'fromHigh52wPct',
+  /** Trading days since the 52-week high. */
+  'highAge',
+] as const;
+export type ScreenRangeColumn = (typeof SCREEN_RANGE_COLUMNS)[number];
+
+/** Every numeric column: the price ones, the company ones (ADR 0031), the options ones, then the 52-week ones. */
 export const SCREEN_NUMBER_COLUMNS = [
   ...SCREEN_PRICE_COLUMNS,
   ...SCREEN_FUNDAMENTAL_COLUMNS,
   ...SCREEN_OPTION_COLUMNS,
+  ...SCREEN_RANGE_COLUMNS,
 ] as const;
 export type ScreenTextColumn = (typeof SCREEN_TEXT_COLUMNS)[number];
 export type ScreenPriceColumn = (typeof SCREEN_PRICE_COLUMNS)[number];
-export type ScreenNumberColumn = ScreenPriceColumn | ScreenFundamentalColumn | ScreenOptionColumn;
+export type ScreenNumberColumn =
+  ScreenPriceColumn | ScreenFundamentalColumn | ScreenOptionColumn | ScreenRangeColumn;
 export type ScreenColumn = ScreenTextColumn | ScreenNumberColumn;
 
 export type ScreenRow = Record<ScreenTextColumn, string> &
@@ -168,6 +188,7 @@ export function screenRow(source: ScreenSource, session: string): ScreenRow {
     instrumentId: source.instrumentId ?? null,
     ...NO_FUNDAMENTALS,
     ...NO_OPTIONS,
+    ...NO_RANGE,
   };
 }
 
@@ -205,7 +226,42 @@ export function withScreenOptions(
     SCREEN_FUNDAMENTAL_COLUMNS.length;
   const out = tuple.slice(0, base);
   while (out.length < base) out.push(null);
-  return [...out, ...SCREEN_OPTION_COLUMNS.map((c) => cols[c])];
+  // Any 52-week columns after the options ones stay.
+  const after = tuple.slice(base + SCREEN_OPTION_COLUMNS.length);
+  return [...out, ...SCREEN_OPTION_COLUMNS.map((c) => cols[c]), ...after];
+}
+
+const NO_RANGE = Object.fromEntries(SCREEN_RANGE_COLUMNS.map((c) => [c, null])) as Record<
+  ScreenRangeColumn,
+  null
+>;
+
+/** A stock's 52-week figures as screener columns. */
+export function screenRangeColumns(v: YearRangeView): Record<ScreenRangeColumn, number> {
+  return {
+    low52w: round(v.low.price, 4),
+    fromLow52wPct: v.fromLowPct,
+    lowAge: v.low.days,
+    high52w: round(v.high.price, 4),
+    fromHigh52wPct: v.fromHighPct,
+    highAge: v.high.days,
+  };
+}
+
+/** Sets a wire row's 52-week columns, padding a row that ends before them. */
+export function withScreenRange(
+  tuple: ScreenRowTuple,
+  cols: Record<ScreenRangeColumn, number | null>,
+): ScreenRowTuple {
+  const base =
+    SCREEN_TEXT_COLUMNS.length +
+    SCREEN_PRICE_COLUMNS.length +
+    2 +
+    SCREEN_FUNDAMENTAL_COLUMNS.length +
+    SCREEN_OPTION_COLUMNS.length;
+  const out = tuple.slice(0, base);
+  while (out.length < base) out.push(null);
+  return [...out, ...SCREEN_RANGE_COLUMNS.map((c) => cols[c])];
 }
 
 const NO_FUNDAMENTALS = Object.fromEntries(
@@ -230,6 +286,7 @@ export function toScreenTuple(row: ScreenRow): ScreenRowTuple {
     row.instrumentId,
     ...SCREEN_FUNDAMENTAL_COLUMNS.map((c) => row[c]),
     ...SCREEN_OPTION_COLUMNS.map((c) => row[c]),
+    ...SCREEN_RANGE_COLUMNS.map((c) => row[c]),
   ];
 }
 
@@ -245,5 +302,6 @@ export function fromScreenTuple(tuple: ScreenRowTuple): ScreenRow {
   row.instrumentId = typeof instrumentId === 'string' ? instrumentId : null;
   for (const c of SCREEN_FUNDAMENTAL_COLUMNS) row[c] = num(tuple[i++]);
   for (const c of SCREEN_OPTION_COLUMNS) row[c] = num(tuple[i++]);
+  for (const c of SCREEN_RANGE_COLUMNS) row[c] = num(tuple[i++]);
   return row;
 }
