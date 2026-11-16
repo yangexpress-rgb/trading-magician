@@ -28,6 +28,8 @@ const inputs = { ...DEFAULT_BACKTEST_INPUTS, from: '2023-01-03', to: '2023-12-29
 /** Long DEMO-A while its close is above its 20-day average. */
 function crossover(interval: '1d' | '5m' = '1d'): StrategyDefinition {
   const def = createDefinition();
+  // These check the run's stored results; the strategy trailing stop (ADR 0100) is tested on its own.
+  delete def.risk.trailingStopPct;
   const px = {
     instrumentId: demoA,
     field: 'close' as const,

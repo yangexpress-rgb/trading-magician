@@ -1,4 +1,4 @@
-import { createDefinition, type StrategyDefinition } from '@tm/domain';
+import { createDefinition, STRATEGY_SCHEMA_VERSION, type StrategyDefinition } from '@tm/domain';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Transaction } from '../src/client';
@@ -541,7 +541,7 @@ describe('Strategy Lab simplification: migration report (ADR 0049)', () => {
 
     // It still reads, and still validates, as the current schema.
     const loaded = await asA((tx) => getStrategy(tx, s.id));
-    expect(loaded.definition.schemaVersion).toBe(5);
+    expect(loaded.definition.schemaVersion).toBe(STRATEGY_SCHEMA_VERSION);
     expect(loaded.definition.exit.orders[0]!.orderType).toBe('stop');
 
     const report = await strategyMigrationReport(t.owner.db);

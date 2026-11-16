@@ -67,6 +67,7 @@ export interface CycleState {
     | 'expected_move'
     | 'trailing_stop'
     | 'session_end'
+    | 'strategy_trailing_stop'
     | undefined;
   /** The entry group that opened it (v1.2 item 8); absent for the strategy's own Entry. */
   group?: string | undefined;
@@ -140,6 +141,11 @@ export interface CycleInput {
    * whatever the cycle holds closes now with market orders, unconditionally.
    */
   sessionEnd?: boolean | undefined;
+  /**
+   * The strategy trailing stop fired (N290, ADR 0099): close whatever the
+   * cycle holds now, the same way as at session end.
+   */
+  strategyStop?: boolean | undefined;
 }
 
 export interface CyclePlan {
@@ -148,7 +154,10 @@ export interface CyclePlan {
   submit: PlannedLeg[];
   /** Legs that will become due later, with their due time. */
   scheduled: PlannedLeg[];
-  cancel: { intentId: string; reason: 'leg_timeout' | 'leg_failed' | 'session_end' }[];
+  cancel: {
+    intentId: string;
+    reason: 'leg_timeout' | 'leg_failed' | 'session_end' | 'strategy_trailing_stop';
+  }[];
   /** Create closing orders for whatever the cycle still holds. */
   flatten: boolean;
   /** Notable things for the timeline and notifications. */
@@ -166,6 +175,7 @@ export type CycleNote =
   | 'leg_failed'
   | 'flattening'
   | 'session_end'
+  | 'strategy_trailing_stop'
   | 'closed'
   | 'aborted';
 
@@ -475,8 +485,14 @@ export function planCycle(input: CycleInput): CyclePlan {
   }
   // Flatten at session end (N256), after Exit when: what is still held closes
   // with market orders; legs not yet sent never go, and working ones are canceled.
+  // The strategy trailing stop (N290) closes everything the same way.
+  const flattenReason = input.sessionEnd
+    ? ('session_end' as const)
+    : input.strategyStop
+      ? ('strategy_trailing_stop' as const)
+      : undefined;
   if (
-    input.sessionEnd &&
+    flattenReason &&
     !cycle.flattened &&
     cycle.status !== 'closed' &&
     cycle.status !== 'aborted' &&
@@ -488,7 +504,7 @@ export function planCycle(input: CycleInput): CyclePlan {
         s.status = 'skipped';
       } else if (s.status === 'working' && s.record && !s.record.cancelRequested) {
         if (!plan.cancel.some((c) => c.intentId === s.record?.intentId))
-          plan.cancel.push({ intentId: s.record.intentId, reason: 'session_end' });
+          plan.cancel.push({ intentId: s.record.intentId, reason: flattenReason });
       }
     }
     plan.submit = plan.submit.filter((l) => !skipped.has(l.key));
@@ -496,9 +512,22 @@ export function planCycle(input: CycleInput): CyclePlan {
     cycle.flattened = true;
     cycle.status = 'exit_working';
     cycle.exitTriggeredAt ??= now;
-    cycle.exitReason = 'session_end';
+    cycle.exitReason = flattenReason;
     plan.flatten = true;
-    plan.notes.push('session_end');
+    plan.notes.push(flattenReason);
+  } else if (input.strategyStop && cycle.status === 'entry_working' && flat()) {
+    // Nothing filled yet: the stop also keeps this cycle's Entry from opening a position.
+    for (const s of allEntry) {
+      if (s.status === 'waiting') {
+        skipped.add(s.key);
+        s.status = 'skipped';
+      } else if (s.status === 'working' && s.record && !s.record.cancelRequested) {
+        if (!plan.cancel.some((c) => c.intentId === s.record?.intentId))
+          plan.cancel.push({ intentId: s.record.intentId, reason: 'strategy_trailing_stop' });
+      }
+    }
+    plan.submit = plan.submit.filter((l) => !skipped.has(l.key));
+    plan.scheduled = plan.scheduled.filter((l) => !skipped.has(l.key));
   }
   if (cycle.status === 'open' || cycle.status === 'exit_working') {
     const slots = exitSlots();

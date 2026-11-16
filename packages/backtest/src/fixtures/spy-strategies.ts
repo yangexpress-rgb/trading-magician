@@ -82,6 +82,8 @@ const order = (legId: string, side: PlannedOrder['side']): PlannedOrder => ({
 
 function build(entry: Comparison, exit: Comparison): StrategyDefinition {
   const def = createDefinition(sequentialIds('g'));
+  // The strategy trailing stop (ADR 0099) has its own tests; fixtures test the other rules.
+  delete def.risk.trailingStopPct;
   // Saved v1.1 strategies fire as soon as a condition becomes true (before N273).
   def.entry.trigger = { ...DEFAULT_TRIGGER };
   def.exit.trigger = { ...DEFAULT_TRIGGER };

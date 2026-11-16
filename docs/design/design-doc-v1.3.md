@@ -467,7 +467,7 @@ Each leg has one timing mode: **immediate** (when its phase qualifies), **exact 
 
 ### 8.11 Risk limits
 
-Required before Start and simulated in back tests: max order notional, max strategy exposure, max active orders, daily loss limit and price collar. Optional: maximum drawdown and **Maximum instruments held** (`maxInstrumentsHeld`, instruments with a position). Paper defaults: $10,000 per order, $25,000 strategy exposure, 10 active orders, $1,000 daily loss, 5% price collar, 60 s stale data. No leverage: exposure may not exceed strategy equity (C16, N82). The checks themselves are in §12.3.
+Required before Start and simulated in back tests: max order notional, max strategy exposure, max active orders, daily loss limit and price collar. Optional: maximum drawdown and **Maximum instruments held** (`maxInstrumentsHeld`, instruments with a position). Also optional, but 1% on new and existing strategies: the **Trailing stop** (`trailingStopPct`): once the strategy holds positions, every position closes with market orders when the strategy's equity falls more than that % of the money in its positions (the largest gross position value while holding) below its best since it went from flat to holding; no new Entry until flat again, the strategy is not paused, and it is a trigger level, not a guaranteed maximum loss (N291, ADR 0100). Paper defaults: $10,000 per order, $25,000 strategy exposure, 10 active orders, $1,000 daily loss, 5% price collar, 60 s stale data. No leverage: exposure may not exceed strategy equity (C16, N82). The checks themselves are in §12.3.
 
 ### 8.12 Validation
 

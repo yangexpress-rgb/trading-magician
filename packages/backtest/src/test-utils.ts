@@ -4,6 +4,7 @@
 import {
   createDefinition,
   DEFAULT_TRIGGER,
+  parseDefinition,
   regularSession,
   sequentialIds,
   tradingDays,
@@ -17,6 +18,16 @@ import {
 import Decimal from 'decimal.js';
 import { seriesKey, type InstrumentRef, type LoadedData } from './data';
 import { DEFAULT_BACKTEST_INPUTS, type BacktestInputs } from './inputs';
+
+/**
+ * Reads a stored definition as the engine would, without the strategy trailing
+ * stop that schema 6 adds to older ones (ADR 0099): these tests compare other rules.
+ */
+export function parseWithoutStrategyTrail(doc: unknown): StrategyDefinition {
+  const def = parseDefinition(doc);
+  delete def.risk.trailingStopPct;
+  return def;
+}
 
 export const A = '00000000-0000-4000-8000-00000000000a';
 export const B = '00000000-0000-4000-8000-00000000000b';
@@ -124,6 +135,8 @@ export function strategy(
   exitLegs: PlannedOrder[],
 ): StrategyDefinition {
   const def = createDefinition(sequentialIds('g'));
+  // The strategy trailing stop (ADR 0099) has its own tests; fixtures test the other rules.
+  delete def.risk.trailingStopPct;
   // Engine tests cover "As soon as it becomes true", the default before N273.
   def.entry.trigger = { ...DEFAULT_TRIGGER };
   def.exit.trigger = { ...DEFAULT_TRIGGER };

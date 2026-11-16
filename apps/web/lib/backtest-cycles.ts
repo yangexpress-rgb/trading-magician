@@ -305,7 +305,12 @@ export function skippedSignals(result: Result): Partial<Record<string, number>> 
   const reports = [result.conditions?.entry, ...(result.groupConditions ?? []).map((g) => g.entry)];
   for (const r of reports) {
     for (const b of r?.bars ?? []) {
-      if (b.outcome === 'cycle_open' || b.outcome === 'daily_loss' || b.outcome === 'drawdown')
+      if (
+        b.outcome === 'cycle_open' ||
+        b.outcome === 'daily_loss' ||
+        b.outcome === 'drawdown' ||
+        b.outcome === 'trailing_stop'
+      )
         out[b.outcome] = (out[b.outcome] ?? 0) + 1;
     }
   }

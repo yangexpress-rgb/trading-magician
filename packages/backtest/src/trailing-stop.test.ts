@@ -1,5 +1,4 @@
 import {
-  parseDefinition,
   regularSession,
   tradingDays,
   type Bar,
@@ -22,6 +21,7 @@ import {
   inputs,
   leg,
   loaded,
+  parseWithoutStrategyTrail,
   strategy,
 } from './test-utils';
 import type { InstrumentRef } from './index';
@@ -114,11 +114,11 @@ describe('the trailing stop as an Exit when condition (N217, ADR 0074)', () => {
   it('reads a saved rule as "Off best close since entry % > N" and exits on the same closes', () => {
     for (const percent of ['1', '3']) {
       const doc = saved(percent);
-      const asCondition = parseDefinition(doc);
+      const asCondition = parseWithoutStrategyTrail(doc);
       expect(asCondition.exit.rules ?? []).toEqual([]);
       expect(JSON.stringify(asCondition.exit.condition)).toContain('off_peak_pct');
       // The rule as it ran before: the same strategy, rule kept, read as schema 4.
-      const asRule = parseDefinition({ ...doc, schemaVersion: 4 });
+      const asRule = parseWithoutStrategyTrail({ ...doc, schemaVersion: 4 });
       expect(asRule.exit.rules?.[0]?.kind).toBe('trailingStop');
       const a = run(asRule);
       const b = run(asCondition);
@@ -137,7 +137,7 @@ describe('the trailing stop as an Exit when condition (N217, ADR 0074)', () => {
       cooldownBars: 0,
       confirmationBars: 0,
     };
-    expect(parseDefinition(doc).exit.rules?.[0]?.kind).toBe('trailingStop');
+    expect(parseWithoutStrategyTrail(doc).exit.rules?.[0]?.kind).toBe('trailingStop');
   });
 });
 

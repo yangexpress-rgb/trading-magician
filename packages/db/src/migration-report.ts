@@ -3,6 +3,7 @@ import {
   migrateV2,
   migrateV3,
   migrateV4,
+  migrateV5,
   parseDefinition,
   STRATEGY_SCHEMA_VERSION,
   validateStrategy,
@@ -59,7 +60,13 @@ export function migrationNotes(doc: Record<string, unknown>): MigrationNote[] {
     d = r.doc;
   }
   // The holding-period, ATR and expected-move exits move into Exit when (ADR 0076).
-  if (d.schemaVersion === 4) notes.push(...migrateV4(d).notes);
+  if (d.schemaVersion === 4) {
+    const r = migrateV4(d);
+    notes.push(...r.notes);
+    d = r.doc;
+  }
+  // The strategy trailing stop risk limit, 1% on existing strategies (ADR 0099).
+  if (d.schemaVersion === 5) notes.push(...migrateV5(d).notes);
   return notes;
 }
 

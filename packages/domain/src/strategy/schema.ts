@@ -12,7 +12,7 @@ import { BAR_INTERVALS, MARKET_FIELDS, PRICE_ADJUSTMENTS, SESSIONS } from './cat
  * rules that need outside context (instruments, accounts, feeds) live in
  * validate.ts. Older documents are migrated on read (migrate-v1.ts, migrate-v2.ts).
  */
-export const STRATEGY_SCHEMA_VERSION = 5 as const;
+export const STRATEGY_SCHEMA_VERSION = 6 as const;
 
 /** Decimal values travel as strings so no precision is lost (§17.1). */
 export const decimalString = z
@@ -787,6 +787,13 @@ export const riskProfileSchema = z.object({
   /** How many instruments may be held at once (not orders: see maxActiveOrders). */
   maxInstrumentsHeld: z.number().int().min(1).max(1000).optional(),
   maxDrawdownPct: positiveDecimalString.optional(),
+  /**
+   * Strategy trailing stop (N290, ADR 0099): once the strategy holds
+   * positions, every position closes when the strategy's value falls more than
+   * this % of the money in its positions below its best since entry. Absent is
+   * off; new strategies start at 1%.
+   */
+  trailingStopPct: positiveDecimalString.optional(),
 });
 export type RiskProfile = z.infer<typeof riskProfileSchema>;
 

@@ -421,6 +421,7 @@ const SKIPPED_LABELS: Record<string, string> = {
   cycle_open: 'while a cycle was already open',
   daily_loss: 'stopped by the daily loss limit',
   drawdown: 'stopped by the maximum drawdown',
+  trailing_stop: 'stopped by the trailing stop',
 };
 
 // ---------------------------------------------------------------------------
@@ -1046,6 +1047,13 @@ function ExitSignal({
       <div>
         Still held at the session&rsquo;s last bar, so Flatten at session end closed it at that
         bar&rsquo;s close.
+      </div>
+    );
+  } else if (reason === 'strategy_trailing_stop') {
+    body = (
+      <div>
+        The strategy fell below its best since entry by more than its Trailing stop (Risk limits),
+        so every position closed at that bar&rsquo;s close.
       </div>
     );
   } else {

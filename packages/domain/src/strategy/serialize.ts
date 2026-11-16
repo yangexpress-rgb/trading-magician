@@ -2,6 +2,7 @@ import { migrateV1 } from './migrate-v1';
 import { migrateV2 } from './migrate-v2';
 import { migrateV3 } from './migrate-v3';
 import { migrateV4 } from './migrate-v4';
+import { migrateV5 } from './migrate-v5';
 import {
   STRATEGY_SCHEMA_VERSION,
   strategyDefinitionSchema,
@@ -42,6 +43,8 @@ const MIGRATIONS: Record<number, Migration> = {
   3: (doc) => migrateV3(doc).doc,
   // The holding-period, ATR and expected-move exits move into Exit when (ADR 0076).
   4: (doc) => migrateV4(doc).doc,
+  // The strategy trailing stop risk limit, 1% on existing strategies (ADR 0099).
+  5: (doc) => migrateV5(doc).doc,
 };
 
 /** Parses a stored or submitted definition, migrating older schema versions first. */
