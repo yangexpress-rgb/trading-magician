@@ -57,7 +57,8 @@ beforeAll(async () => {
         providerId: `${symbol}-test`,
       }),
     );
-});
+  // Making the test database can take over 10 seconds on a busy CI runner.
+}, 60_000);
 
 afterAll(async () => {
   await t?.drop();
@@ -112,5 +113,5 @@ describe('52-week ranges job', () => {
     const all = await t.app.db.transaction((tx) => loadPriceRanges(tx));
     expect(all.bySymbol.get('RNGA')?.asOf).toBe('2025-11-17');
     expect(all.bySymbol.get('RNGA')?.low.days).toBe(a!.low.days + 1);
-  });
+  }, 30_000);
 });
