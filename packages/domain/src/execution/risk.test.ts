@@ -112,7 +112,7 @@ describe('price collar on orders that fill at the open (§7.2)', () => {
   });
 });
 
-describe('riskRefusalText (N285)', () => {
+describe('riskRefusalText (N287)', () => {
   it('names the check that refused the order, with its figures', () => {
     const refused = (failed: { code: string; limit?: string; value?: string }) =>
       riskRefusalText({

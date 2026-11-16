@@ -415,7 +415,7 @@ export function StrikeBars({
             <tbody className="tabular-nums">
               {bars.map((b) => (
                 <tr key={b.strike}>
-                  <Td>{b.strike}</Td>
+                  <Td>${b.strike}</Td>
                   <Td numeric>{format(b.call)}</Td>
                   <Td numeric>{format(b.put)}</Td>
                   {net && <Td numeric>{format(b.call - b.put)}</Td>}

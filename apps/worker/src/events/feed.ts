@@ -59,7 +59,7 @@ export function earningsFeedProvider(provider: 'fmp' | 'finnhub'): EarningsFeedP
           ok: false,
           entitlement: 'entitled',
           realtime: false,
-          // Say since when, so a stalled worker reads differently from a refused key (N286).
+          // Say since when, so a stalled worker reads differently from a refused key (N288).
           error: state.lastOkAt
             ? `No calendar has been fetched for two days: the last fetch that worked was ${nyTime(state.lastOkAt)} New York time${
                 state.lastRunAt && state.lastRunAt > state.lastOkAt

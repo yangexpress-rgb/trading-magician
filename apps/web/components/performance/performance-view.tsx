@@ -36,7 +36,6 @@ import {
   performanceTiles,
   type PerformanceFilters,
 } from '@/lib/performance-text';
-import { bare } from '@/lib/units';
 
 /**
  * The Performance tab (Design v1.0 §10, §15.3; ADR 0021): filters, headline
@@ -100,6 +99,11 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       {children}
     </section>
   );
+}
+
+/** A strategy's own S number in its own column (N284); a dash when it has none. */
+function StrategyNumberCell({ number }: { number: string | null }) {
+  return <Td className="whitespace-nowrap font-mono text-xs">{number ?? '—'}</Td>;
 }
 
 function Charts({ series }: { series: PerformanceTimeseriesDto }) {
@@ -203,8 +207,8 @@ function DataQuality({
               <tr>
                 <Th>Close</Th>
                 <Th>Account</Th>
-                <Th numeric>App equity $</Th>
-                <Th numeric>Broker equity $</Th>
+                <Th numeric>App equity</Th>
+                <Th numeric>Broker equity</Th>
                 <Th>Holdings</Th>
               </tr>
             </thead>
@@ -213,9 +217,9 @@ function DataQuality({
                 <tr key={`${d.accountId}-${d.sessionDate}`}>
                   <Td className="whitespace-nowrap text-content">{formatDay(d.sessionDate)}</Td>
                   <Td>{d.accountName}</Td>
-                  <Td numeric>{d.appEquity ? bare(formatMoney(d.appEquity)) : '—'}</Td>
+                  <Td numeric>{d.appEquity ? formatMoney(d.appEquity) : '—'}</Td>
                   <Td numeric>
-                    {d.brokerEquity ? bare(formatMoney(d.brokerEquity)) : 'Not reported'}
+                    {d.brokerEquity ? formatMoney(d.brokerEquity) : 'Not reported'}
                     {d.equityDifference && Math.abs(Number(d.equityDifference)) > 1 && (
                       <div className="text-xs">
                         {formatSignedMoney(d.equityDifference)} against the app
@@ -252,7 +256,12 @@ export function PerformanceView({
   prefs: DisplayPreferences;
   initialFilters: PerformanceFilters;
   accounts: { id: string; name: string }[];
-  strategies: { id: string; name: string; versions: { id: string; versionNo: number }[] }[];
+  strategies: {
+    id: string;
+    name: string;
+    labNumber: string | null;
+    versions: { id: string; versionNo: number }[];
+  }[];
 }) {
   const [filters, setFilters] = useState<PerformanceFilters>(initialFilters);
   const { data, error } = usePerformance(filters);
@@ -336,7 +345,7 @@ export function PerformanceView({
           <option value="">All strategies</option>
           {strategies.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.name}
+              {s.labNumber ? `${s.labNumber} ${s.name}` : s.name}
             </option>
           ))}
         </SelectField>
@@ -416,20 +425,22 @@ export function PerformanceView({
                 <Table label="Contribution by strategy">
                   <thead>
                     <tr>
+                      <Th>Number</Th>
                       <Th>Strategy</Th>
                       <Th numeric>Closed trades</Th>
-                      <Th numeric>Net P/L $</Th>
-                      <Th numeric>Return on peak capital %</Th>
+                      <Th numeric>Net P/L</Th>
+                      <Th numeric>Return on peak capital</Th>
                     </tr>
                   </thead>
                   <tbody>
                     {summary.byStrategy.map((s) => (
                       <tr key={s.strategyId}>
+                        <StrategyNumberCell number={s.strategyNumber} />
                         <Td className="font-medium">{s.strategyName}</Td>
                         <Td numeric>{s.closedTrades}</Td>
-                        <Td numeric>{bare(formatSignedMoney(s.net))}</Td>
+                        <Td numeric>{formatSignedMoney(s.net)}</Td>
                         <Td numeric>
-                          {bare(formatPct(s.returnOnPeakCapitalPct, true))}
+                          {formatPct(s.returnOnPeakCapitalPct, true)}
                           <div className="text-xs text-ink-muted">
                             of {formatMoney(s.peakCapital)}
                           </div>
@@ -449,7 +460,7 @@ export function PerformanceView({
                     <tr>
                       <Th>Instrument</Th>
                       <Th>Asset class</Th>
-                      <Th numeric>Net P/L $</Th>
+                      <Th numeric>Net P/L</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -457,7 +468,7 @@ export function PerformanceView({
                       <tr key={a.instrumentId}>
                         <Td className="font-medium">{a.symbol}</Td>
                         <Td>{ASSET_CLASS_LABELS[a.assetClass] ?? a.assetClass}</Td>
-                        <Td numeric>{bare(formatSignedMoney(a.net))}</Td>
+                        <Td numeric>{formatSignedMoney(a.net)}</Td>
                       </tr>
                     ))}
                   </tbody>
@@ -473,17 +484,19 @@ export function PerformanceView({
               <Table label="Trades">
                 <thead>
                   <tr>
+                    <Th>Number</Th>
                     <Th>Strategy cycle</Th>
                     <Th>Opened</Th>
                     <Th>Closed</Th>
                     <Th>Legs</Th>
-                    <Th numeric>Net P/L $</Th>
-                    <Th numeric>Return %</Th>
+                    <Th numeric>Net P/L</Th>
+                    <Th numeric>Return</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.trades.map((t) => (
                     <tr key={t.cycleId}>
+                      <StrategyNumberCell number={t.strategyNumber} />
                       <Td>
                         <div className="font-medium">{t.strategyName}</div>
                         <div className="text-xs text-ink-muted">
@@ -498,14 +511,14 @@ export function PerformanceView({
                         <Legs trade={t} />
                       </Td>
                       <Td numeric>
-                        {bare(formatSignedMoney(t.net))}
+                        {formatSignedMoney(t.net)}
                         {Number(t.fees) > 0 && (
                           <div className="text-xs text-ink-muted">
                             after {formatMoney(t.fees)} fees
                           </div>
                         )}
                       </Td>
-                      <Td numeric>{bare(formatPct(t.returnPct, true))}</Td>
+                      <Td numeric>{formatPct(t.returnPct, true)}</Td>
                     </tr>
                   ))}
                 </tbody>
@@ -524,22 +537,24 @@ export function PerformanceView({
               <Table label="Open positions">
                 <thead>
                   <tr>
+                    <Th>Number</Th>
                     <Th>Strategy</Th>
                     <Th>Instrument</Th>
                     <Th>Account</Th>
                     <Th numeric>Quantity</Th>
-                    <Th numeric>Average cost $</Th>
+                    <Th numeric>Average cost</Th>
                     <Th>Strategy status</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {positions.map((p) => (
                     <tr key={`${p.runtimeId}-${p.instrumentId}`}>
+                      <StrategyNumberCell number={p.strategyNumber} />
                       <Td className="font-medium">{p.strategyName}</Td>
                       <Td>{p.symbol}</Td>
                       <Td>{p.accountName}</Td>
                       <Td numeric>{p.quantity}</Td>
-                      <Td numeric>{p.averageCost ? bare(formatMoney(p.averageCost)) : '—'}</Td>
+                      <Td numeric>{p.averageCost ? formatMoney(p.averageCost) : '—'}</Td>
                       <Td>
                         {p.runtimeStatus === 'running'
                           ? 'Running'

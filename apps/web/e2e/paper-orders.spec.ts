@@ -207,8 +207,13 @@ test('start on paper, watch Entry fill live, read its timeline, cancel, stop and
   await page.getByRole('link', { name: /^Notifications/ }).click();
   await expect(page).toHaveURL(/\/notifications$/);
   const notices = page.getByRole('list', { name: 'Notifications' });
-  for (const title of ['Paper buyer started on paper', 'Buy A filled', 'Paper buyer stopped']) {
-    await expect(notices.getByRole('listitem', { name: `${title}, unread` })).toBeVisible();
+  // Strategy notices name the strategy with its S number first (N284).
+  for (const title of [
+    /^(S\S+ )?Paper buyer started on paper, unread$/,
+    /^Buy A filled, unread$/,
+    /^(S\S+ )?Paper buyer stopped, unread$/,
+  ]) {
+    await expect(notices.getByRole('listitem', { name: title })).toBeVisible();
   }
   await page.getByRole('button', { name: 'Mark all as read' }).click();
   await expect(notices.getByRole('listitem', { name: 'Buy A filled' })).toBeVisible();

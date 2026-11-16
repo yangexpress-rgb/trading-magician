@@ -182,7 +182,13 @@ test('shows a paper strategy’s cycles, figures and data quality', async ({ pag
   await page
     .getByLabel('Asset class', { exact: true })
     .selectOption({ label: 'All asset classes' });
-  await page.getByLabel('Strategy', { exact: true }).selectOption({ label: 'Cycler' });
+  // Strategies read with their S number first (N284).
+  const strategyFilter = page.getByLabel('Strategy', { exact: true });
+  await strategyFilter.selectOption({
+    label: (await strategyFilter
+      .locator('option', { hasText: /^(S\S+ )?Cycler$/ })
+      .textContent())!.trim(),
+  });
   await expect(page).toHaveURL(/strategy=/);
   await expect(tiles.getByText('Return on peak capital')).toBeVisible();
   await page.getByLabel('Mode', { exact: true }).selectOption({ label: 'Live' });

@@ -34,6 +34,7 @@ import {
   strategyVersions,
   triggerEvents,
 } from './schema';
+import { strategyLabelSql } from './strategy-label';
 
 /**
  * Durable state of paper runtimes (Design v1.0 §6.5–6.9, §8.1, §13.3; ADR 0012).
@@ -355,7 +356,7 @@ export async function loadRuntimeWork(
     .select({
       runtime: strategyRuntimes,
       definition: strategyVersions.definition,
-      strategyName: strategies.name,
+      strategyName: strategyLabelSql,
     })
     .from(strategyRuntimes)
     .innerJoin(strategyVersions, eq(strategyVersions.id, strategyRuntimes.versionId))
@@ -759,7 +760,7 @@ export async function requestCancel(
       payload: { kind: 'canceled_before_submit', reason },
     });
     // The app's own cancels (the price collar at the open) are announced with
-    // their reason (N285); a person's cancel is not.
+    // their reason (N287); a person's cancel is not.
     await announceOrderChange(tx, intentId, 'ready', to, reason);
     return undefined;
   }

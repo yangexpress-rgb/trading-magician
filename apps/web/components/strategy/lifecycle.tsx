@@ -504,7 +504,7 @@ function Check({ ok, children }: { ok: boolean | 'warn'; children: ReactNode }) 
 }
 
 /**
- * A paused run (N284): the same reason the Orders banner and the pause
+ * A paused run (N286): the same reason the Orders banner and the pause
  * notification give, and the same Resume the Orders page offers.
  */
 function PausedPanel({ strategyId, run }: { strategyId: string; run: StrategyRunStateDto }) {
@@ -569,7 +569,7 @@ export function ExecutionSection({
   strategyId: string;
   strategyName: string;
   status: StrategyStatus;
-  /** Its paper run; a pause shows here with its reason and a Resume button (N284). */
+  /** Its paper run; a pause shows here with its reason and a Resume button (N286). */
   run?: StrategyRunStateDto | null;
   rowVersion: number;
   dirty: boolean;

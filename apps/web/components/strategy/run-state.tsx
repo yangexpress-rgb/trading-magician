@@ -3,7 +3,7 @@ import { Badge } from '@tm/ui';
 import Link from 'next/link';
 
 /**
- * A strategy's paper run beside its business status (N284). "Actively executing"
+ * A strategy's paper run beside its business status (N286). "Actively executing"
  * stays the status while a run is paused, so a pause must show next to it, with
  * the reason the Orders banner and the pause notification give.
  */
@@ -12,7 +12,7 @@ export function RunStateBadge({ run }: { run: Pick<StrategyRunStateDto, 'status'
   return <Badge tone="warn">Paused</Badge>;
 }
 
-/** The Strategy Lab list's status cell: the status, then Paused and why (N284). */
+/** The Strategy Lab list's status cell: the status, then Paused and why (N286). */
 export function PausedNote({
   strategyId,
   run,

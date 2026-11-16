@@ -176,7 +176,7 @@ export function collarBreach(
   return { movePct, breached: reference.gt(0) && movePct.gt(collarPct) };
 }
 
-/** Each pre-trade check in words, for notifications (N285). */
+/** Each pre-trade check in words, for notifications (N287). */
 export const RISK_CHECK_TEXT: Record<RiskCheckCode, string> = {
   risk_active_orders: 'Active orders',
   risk_order_size: 'Order size',
@@ -201,7 +201,7 @@ const dollars = (v: string) =>
 
 /**
  * Why the risk check refused an order, in words, with the figures it compared
- * (N285), e.g. "Active orders: 20 already working, limit 20". Null when it passed.
+ * (N287), e.g. "Active orders: 20 already working, limit 20". Null when it passed.
  */
 export function riskRefusalText(
   result: Pick<RiskCheckResult, 'ok' | 'code' | 'checks'> | null | undefined,

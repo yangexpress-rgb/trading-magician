@@ -575,9 +575,9 @@ describe('paper runtime: price collar on orders decided while closed (§7.2, §8
     expect(order!.reason).toMatch(
       /The price opened at \$[\d.]+, [\d.]+% from \$[\d.]+ when the order was decided\. The price collar allows 0\.0001%\./,
     );
-    // The notification names the actual outcome, the collar cancel, not a rejection (N285).
+    // The notification names the actual outcome, the collar cancel, not a rejection (N287).
     const notes = (await asUser((tx) => listNotifications(tx, { limit: 200 }))).notifications;
-    const mine = notes.filter((n) => n.body.includes(' for Tight collar '));
+    const mine = notes.filter((n) => n.body.includes('Tight collar '));
     const collar = mine.filter((n) => n.kind === 'order_canceled');
     expect(collar).toHaveLength(1);
     expect(collar[0]!.title).toMatch(/\(DEMO-[A-Z]\) canceled by the app$/);
@@ -785,10 +785,12 @@ describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', (
     expect(await runtimeStatus(runtimeId)).toMatchObject({ status: 'paused' });
     expect((await incidents()).map((i) => i.kind)).toEqual(['repeated_rejects']);
     expect(await notificationKinds()).toContain('order_rejected');
-    // Each rejection names the check that refused it, with its figures (N285).
+    // Each rejection names the check that refused it, with its figures (N287).
     const rejected = (
       await asUser((tx) => listNotifications(tx, { limit: 200 }))
-    ).notifications.filter((n) => n.kind === 'order_rejected' && n.body.includes(' for Rejected '));
+    ).notifications.filter(
+      (n) => n.kind === 'order_rejected' && n.body.includes(' Rejected was never sent'),
+    );
     expect(rejected.length).toBeGreaterThan(0);
     for (const n of rejected) {
       expect(n.title).toMatch(/refused by the risk check$/);
@@ -797,7 +799,7 @@ describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', (
     }
 
     // The pause shows on the Lab list and the strategy page from the same run
-    // the Orders page reads (N284).
+    // the Orders page reads (N286).
     const { strategyId, ordersRun } = await asUser(async (tx) => {
       const exec = await getExecutionStatus(tx);
       const r = exec.runtimes.find((x) => x.id === runtimeId)!;
@@ -824,7 +826,7 @@ describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', (
     clock += 60_000;
     await pass();
     expect((await runtimeStatus(runtimeId))?.status).toBe('running');
-    // Resumed: the Lab shows it running again, with no reason (N284).
+    // Resumed: the Lab shows it running again, with no reason (N286).
     expect((await asUser((tx) => getStrategy(tx, strategyId))).run).toEqual({
       runtimeId,
       status: 'running',

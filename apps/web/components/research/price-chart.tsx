@@ -31,7 +31,6 @@ import {
   timeTickIndexes,
   type Bar,
 } from '@/lib/research-text';
-import { bare } from '@/lib/units';
 
 export type ChartStyle = 'line' | 'candles';
 
@@ -878,14 +877,14 @@ export function PriceChart({
             <thead>
               <tr>
                 <Th>Time</Th>
-                <Th numeric>Open $</Th>
-                <Th numeric>High $</Th>
-                <Th numeric>Low $</Th>
-                <Th numeric>Close $</Th>
+                <Th numeric>Open</Th>
+                <Th numeric>High</Th>
+                <Th numeric>Low</Th>
+                <Th numeric>Close</Th>
                 <Th numeric>Volume</Th>
                 {lines.map((l) => (
                   <Th key={l.id} numeric>
-                    {l.symbol} close $
+                    {l.symbol} close
                   </Th>
                 ))}
               </tr>
@@ -897,16 +896,16 @@ export function PriceChart({
                 .map(({ b, i }) => (
                   <tr key={b.t}>
                     <Td className="text-content">{formatBarTime(b.t, interval)}</Td>
-                    <Td numeric>{bare(formatPrice(b.open))}</Td>
-                    <Td numeric>{bare(formatPrice(b.high))}</Td>
-                    <Td numeric>{bare(formatPrice(b.low))}</Td>
-                    <Td numeric>{bare(formatPrice(b.close))}</Td>
+                    <Td numeric>{formatPrice(b.open)}</Td>
+                    <Td numeric>{formatPrice(b.high)}</Td>
+                    <Td numeric>{formatPrice(b.low)}</Td>
+                    <Td numeric>{formatPrice(b.close)}</Td>
                     <Td numeric>{formatVolume(b.volume)}</Td>
                     {lines.map((l) => {
                       const o = l.aligned[i];
                       return (
                         <Td key={l.id} numeric>
-                          {o ? bare(formatPrice(o.close)) : '—'}
+                          {o ? formatPrice(o.close) : '—'}
                         </Td>
                       );
                     })}

@@ -72,6 +72,7 @@ import {
   strategyVersions,
   tradingAccounts,
 } from './schema';
+import { strategyLabelOf } from './strategy-label';
 
 /**
  * Strategy persistence (Design v1.0 §6.1–6.3, §14.1). Every function runs
@@ -176,7 +177,7 @@ export interface StrategySummary {
   latestBacktest: StrategyLatestBacktest | null;
   /** A copy received by sharing (ADR 0056): the list shows a Shared badge. */
   shared: boolean;
-  /** Its paper run while it has one: running, or paused with the reason (N284). */
+  /** Its paper run while it has one: running, or paused with the reason (N286). */
   run: StrategyRunState | null;
   archivedAt: Date | null;
   createdAt: Date;
@@ -193,7 +194,7 @@ export interface StrategyLatestBacktest {
 }
 
 /**
- * A strategy's paper run (N284). The business status stays "Actively executing"
+ * A strategy's paper run (N286). The business status stays "Actively executing"
  * while a run is paused; the pause lives on the run, the same row the Orders
  * page and the pause notifications read, so every page shows it from there.
  */
@@ -393,7 +394,7 @@ export interface StrategyDetail {
   description: string;
   tags: string[];
   status: StrategyStatus;
-  /** Its paper run while it has one: running, or paused with the reason (N284). */
+  /** Its paper run while it has one: running, or paused with the reason (N286). */
   run: StrategyRunState | null;
   hasBeenActive: boolean;
   definition: StrategyDefinition;
@@ -1114,7 +1115,7 @@ export async function startStrategy(
   await notify(tx, {
     userId,
     kind: 'strategy_started',
-    title: `${row.name} started on paper`,
+    title: `${strategyLabelOf(row)} started on paper`,
     body: 'New orders appear in Orders as its rules trigger.',
     link: `/orders?started=${id}`,
     resourceType: 'strategy_runtime',
@@ -1189,7 +1190,7 @@ export async function stopStrategy(
     await notify(tx, {
       userId,
       kind: 'strategy_stopped',
-      title: `${row.name} stopped`,
+      title: `${strategyLabelOf(row)} stopped`,
       body: choices.length
         ? `No new orders. ${choices.join('; ')}.`
         : 'No new orders. Working orders and positions were left as they are.',

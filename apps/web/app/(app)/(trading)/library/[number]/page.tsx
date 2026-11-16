@@ -393,7 +393,9 @@ function BuiltLink({ entry }: { entry: NonNullable<Awaited<ReturnType<typeof get
         <ul className="space-y-1">
           {mine.map((s) => (
             <li key={s.id}>
-              <Link href={`/strategy-lab/${s.id}`}>{s.name}</Link>
+              <Link href={`/strategy-lab/${s.id}`}>
+                {s.labNumber ? `${s.labNumber} ${s.name}` : s.name}
+              </Link>
               {s.archived && <span className="text-ink-muted"> (archived)</span>}
             </li>
           ))}
@@ -402,7 +404,9 @@ function BuiltLink({ entry }: { entry: NonNullable<Awaited<ReturnType<typeof get
         <Muted>Not built.</Muted>
       ) : b.visibility === 'yours' ? (
         <p>
-          <Link href={`/strategy-lab/${b.id}`}>{b.name}</Link>
+          <Link href={`/strategy-lab/${b.id}`}>
+            {b.labNumber ? `${b.labNumber} ${b.name}` : b.name}
+          </Link>
           {b.archived && <span className="text-ink-muted"> (archived)</span>}
         </p>
       ) : b.visibility === 'yours_deleted' ? (

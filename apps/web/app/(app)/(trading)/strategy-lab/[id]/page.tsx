@@ -181,7 +181,7 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
       )}
       <StrategyEditor
         strategyId={strategy.id}
-        strategyName={strategy.name}
+        strategyName={strategy.labNumber ? `${strategy.labNumber} ${strategy.name}` : strategy.name}
         status={strategy.status}
         run={strategy.run}
         initialDefinition={strategy.definition}

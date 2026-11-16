@@ -98,6 +98,8 @@ interface BookRow {
   instrumentId: string;
   strategyId: string;
   strategyName: string;
+  /** The strategy's own S number (ADR 0066); null if it has none. */
+  strategyNumber: string | null;
   symbol: string;
   assetClass: string;
   sessionDate: string;
@@ -124,6 +126,7 @@ async function loadBooks(tx: Transaction, scope: Scope, to: string | undefined) 
       instrumentId: bookValuations.instrumentId,
       strategyId: strategyRuntimes.strategyId,
       strategyName: strategies.name,
+      strategyNumber: strategies.labNumber,
       symbol: instruments.symbol,
       assetClass: instruments.assetClass,
       sessionDate: bookValuations.sessionDate,
@@ -374,6 +377,7 @@ export interface PerformanceSummary {
   byStrategy: {
     strategyId: string;
     strategyName: string;
+    strategyNumber: string | null;
     net: string;
     closedTrades: number;
     peakCapital: string;
@@ -512,6 +516,7 @@ export async function performanceSummary(
     return {
       strategyId: id,
       strategyName: g.rows[0]?.strategyName ?? '',
+      strategyNumber: g.rows[0]?.strategyNumber ?? null,
       net: money(t.net),
       closedTrades: own.filter((tr) => tr.closedAt !== null).length,
       peakCapital: money(peak),

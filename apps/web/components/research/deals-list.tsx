@@ -12,9 +12,9 @@ const STATUS: Record<DealListDto['deals'][number]['status'], string> = {
   withdrawn: 'Withdrawn',
 };
 
-const money = (v: number | null) => (v === null ? '—' : v.toFixed(2));
+const money = (v: number | null) => (v === null ? '—' : `$${v.toFixed(2)}`);
 const spread = (v: number | null) =>
-  v === null ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v * 100).toFixed(2)}`;
+  v === null ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v * 100).toFixed(2)}%`;
 
 /**
  * Research › Deals (free data feeds brief v1 §4; ADR 0058). The spread is
@@ -74,9 +74,9 @@ export function DealsList() {
                   <Th>Announced</Th>
                   <Th>Status</Th>
                   <Th>Paid in</Th>
-                  <Th numeric>Offer $</Th>
-                  <Th numeric>Close $</Th>
-                  <Th numeric>Spread %</Th>
+                  <Th numeric>Offer</Th>
+                  <Th numeric>Close</Th>
+                  <Th numeric>Spread</Th>
                 </tr>
               </thead>
               <tbody className="tabular-nums">

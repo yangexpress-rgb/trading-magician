@@ -64,7 +64,7 @@ interface Props {
   strategyId: string;
   strategyName: string;
   status: StrategyStatus;
-  /** Its paper run while it has one; paused shows in the Execution section (N284). */
+  /** Its paper run while it has one; paused shows in the Execution section (N286). */
   run?: StrategyRunStateDto | null;
   initialDefinition: StrategyDefinition;
   initialRowVersion: number;

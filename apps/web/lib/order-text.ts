@@ -126,6 +126,16 @@ function riskLabel(code: string): string {
   return RISK_CHECK_LABELS[code as RiskCheckCode] ?? code;
 }
 
+const MONEY_CHECKS = new Set<string>(['risk_order_size', 'risk_exposure', 'buying_power']);
+
+/** A risk check's figure with its unit (N284): dollars, percent or seconds. */
+export function riskFigure(code: string, value: string): string {
+  if (MONEY_CHECKS.has(code)) return formatPrice(value);
+  if (code === 'risk_collar') return `${value}%`;
+  if (code === 'stale_data') return `${value} s`;
+  return value;
+}
+
 export { riskLabel };
 
 /** Quantity with sign words, e.g. "Long 10" or "Short 5". */
@@ -134,12 +144,15 @@ export function describeHolding(quantity: string): string {
   return n < 0 ? `Short ${String(-n)}` : `Long ${quantity}`;
 }
 
+/** A price in dollars, "$123.45" (N284: units on the value). */
 export function formatPrice(value: string | null): string {
   if (value === null) return '—';
-  return Number(value).toLocaleString('en-US', {
+  const n = Number(value);
+  const body = Math.abs(n).toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 4,
   });
+  return n < 0 ? `−$${body}` : `$${body}`;
 }
 
 export const INCIDENT_LABELS: Record<IncidentKindDto, string> = {

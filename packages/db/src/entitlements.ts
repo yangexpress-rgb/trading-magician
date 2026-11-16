@@ -13,6 +13,7 @@ import {
   tradingAccounts,
 } from './schema';
 import { definitionAccounts } from './strategy-accounts';
+import { strategyLabelSql } from './strategy-label';
 
 /**
  * Plan limits, enforced on the server (Design v1.0 §4.3, §19.8; ADR 0022).
@@ -237,7 +238,7 @@ async function runningStrategies(
   const rows = await tx
     .select({
       runtimeId: strategyRuntimes.id,
-      strategyName: strategies.name,
+      strategyName: strategyLabelSql,
       definition: strategies.draftDefinition,
     })
     .from(strategyRuntimes)
@@ -250,7 +251,7 @@ async function runningStrategies(
     .orderBy(asc(strategyRuntimes.startedAt), asc(strategyRuntimes.id));
   return rows.map((r) => ({
     runtimeId: r.runtimeId,
-    strategyName: r.strategyName,
+    strategyName: r.strategyName ?? '',
     accounts: definitionAccounts(r.definition),
   }));
 }

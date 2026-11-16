@@ -1865,7 +1865,7 @@ export const NOTIFICATION_KINDS = [
   'strategy_stopped',
   'triggered',
   'order_rejected',
-  // An order the app canceled itself, e.g. the price collar at the open (N285).
+  // An order the app canceled itself, e.g. the price collar at the open (N287).
   'order_canceled',
   'partial_fill',
   'filled',

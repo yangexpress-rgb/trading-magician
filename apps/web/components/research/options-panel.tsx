@@ -29,7 +29,6 @@ import {
   optionFigureLabel,
 } from '@/lib/options-text';
 import { MiniLine, StrikeBars } from './options-charts';
-import { bare } from '@/lib/units';
 import { ResearchSection } from './research-section';
 
 const POLL_MS = 1000;
@@ -174,7 +173,7 @@ export function OptionsPanel({
             <footer className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
               <Badge>{`Options from ${optionsFeed}`}</Badge>
               <span>
-                Chain at {formatChainTime(view.chainTime)} (about 15 minutes delayed), priced at{' '}
+                Chain at {formatChainTime(view.chainTime)} (about 15 minutes delayed), priced at $
                 {view.underlyingPrice.toFixed(2)}
                 {view.priceSource === 'close' ? ' (last close)' : ''}. IV, delta and gamma are the
                 app’s own (Black–Scholes–Merton, risk-free {formatPct(view.riskFreeRate, 2)},
@@ -201,7 +200,7 @@ function ChainView({ view, history }: { view: LiveChainView; history: OptionHist
         // The out-of-the-money side's IV; the in-the-money side carries the same value.
         const iv =
           s.strike >= view.underlyingPrice ? (s.call?.iv ?? s.put?.iv) : (s.put?.iv ?? s.call?.iv);
-        return { x: s.strike, y: iv ?? null, label: String(s.strike) };
+        return { x: s.strike, y: iv ?? null, label: `$${s.strike}` };
       }),
     [chosen, view.underlyingPrice],
   );
@@ -388,13 +387,13 @@ function ChainView({ view, history }: { view: LiveChainView; history: OptionHist
             <Table label={`${view.symbol} options expiring ${chosen.expiry}`}>
               <thead>
                 <tr>
-                  <Th numeric>Call IV %</Th>
+                  <Th numeric>Call IV</Th>
                   <Th numeric>Delta</Th>
                   <Th numeric>Gamma</Th>
                   <Th numeric>OI</Th>
                   <Th numeric>Volume</Th>
                   <Th numeric>Strike</Th>
-                  <Th numeric>Put IV %</Th>
+                  <Th numeric>Put IV</Th>
                   <Th numeric>Delta</Th>
                   <Th numeric>Gamma</Th>
                   <Th numeric>OI</Th>
@@ -409,18 +408,18 @@ function ChainView({ view, history }: { view: LiveChainView; history: OptionHist
                       s.strike === chosen.atmStrike ? 'bg-surface-2 font-medium' : undefined
                     }
                   >
-                    <Td numeric>{bare(formatPct(s.call?.iv))}</Td>
+                    <Td numeric>{formatPct(s.call?.iv)}</Td>
                     <Td numeric>{formatGreek(s.call?.delta, 2)}</Td>
                     <Td numeric>{formatGreek(s.call?.gamma, 4)}</Td>
                     <Td numeric>{formatCount(s.call?.openInterest)}</Td>
                     <Td numeric>{formatCount(s.call?.volume)}</Td>
                     <Td numeric className="font-semibold">
-                      {s.strike}
+                      ${s.strike}
                       {s.strike === chosen.atmStrike && (
                         <span className="sr-only"> (at the money)</span>
                       )}
                     </Td>
-                    <Td numeric>{bare(formatPct(s.put?.iv))}</Td>
+                    <Td numeric>{formatPct(s.put?.iv)}</Td>
                     <Td numeric>{formatGreek(s.put?.delta, 2)}</Td>
                     <Td numeric>{formatGreek(s.put?.gamma, 4)}</Td>
                     <Td numeric>{formatCount(s.put?.openInterest)}</Td>

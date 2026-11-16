@@ -37,7 +37,7 @@ export interface EventsLoopOptions {
    * the deal targets' closes (N151); absent without a key.
    */
   dealBars?: DailyBars | undefined;
-  /** Tests: the deal closes' time limit in place of DEAL_CLOSES_DEADLINE_MS (N286). */
+  /** Tests: the deal closes' time limit in place of DEAL_CLOSES_DEADLINE_MS (N288). */
   dealClosesDeadlineMs?: number;
   /** Fetches DTB3 through the options market inputs, which store it in rates_daily. */
   refreshRates: (today: string) => Promise<unknown>;
@@ -90,7 +90,7 @@ export async function runEventsPass(o: EventsLoopOptions): Promise<void> {
       o.logger.warn({ job: name, err: shortError(e) }, 'event job failed');
     }
   };
-  // The calendar goes first (N286): it needs no Alpaca or EDGAR call, so a
+  // The calendar goes first (N288): it needs no Alpaca or EDGAR call, so a
   // step that waits on a busy shared key (deal closes) can't hold it back, as
   // happened Nov 14-16 2026 when the Friday and Saturday fetches never ran.
   if (eveningDue(now)) {

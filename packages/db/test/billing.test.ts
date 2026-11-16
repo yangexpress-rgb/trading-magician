@@ -331,7 +331,7 @@ describe('a failed payment and running strategies (ADR 0024)', () => {
       )
     ).filter((n) => n.title === 'You are now on the Free plan');
     expect(last?.body).toBe(
-      "Your payment was not made within the grace period. Paused because the plan doesn't cover them: Second, Third. Resume them in Orders when your plan allows.",
+      "Your payment was not made within the grace period. Paused because the plan doesn't cover them: S00002-SD Second, S00003-SD Third. Resume them in Orders when your plan allows.",
     );
     const paused = await as(userC, (tx) =>
       tx.select().from(auditEvents).where(eq(auditEvents.action, 'runtime.paused')),

@@ -583,7 +583,7 @@ describe('back tests of the Lab fixtures', () => {
   });
 });
 
-describe('the earnings calendar is not held back by a busy Alpaca key (N286)', () => {
+describe('the earnings calendar is not held back by a busy Alpaca key (N288)', () => {
   it('fetches the calendar first and stops the deal closes at their time limit', async () => {
     // Monday evening, the day after the setup pass: both jobs are due.
     const monday = new Date('2026-11-09T23:45:00Z');

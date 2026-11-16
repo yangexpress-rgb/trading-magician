@@ -16,6 +16,7 @@ import { recordAudit } from './audit';
 import type { Transaction } from './client';
 import { notify } from './notifications';
 import { brokerOrders, fills, instruments, orderEvents, orderIntents, strategies } from './schema';
+import { strategyLabelSql } from './strategy-label';
 
 /**
  * Order intents and their broker-side state (Design v1.0 §8.2–8.5; ADR 0010).
@@ -130,7 +131,7 @@ export async function recordOrderIntent(
     payload: { kind: 'risk_check', risk: intent.risk },
   });
   if (state === 'rejected') {
-    // The notification gives the check that refused it, in words with its figures (N285).
+    // The notification gives the check that refused it, in words with its figures (N287).
     await announceOrderChange(
       tx,
       row.id,
@@ -331,14 +332,14 @@ const ANNOUNCED: Partial<
   filled: 'filled',
   rejected: 'order_rejected',
   failed: 'order_rejected',
-  // Only a cancel the app asked for, e.g. the price collar at the open (N285).
+  // Only a cancel the app asked for, e.g. the price collar at the open (N287).
   canceled: 'order_canceled',
   expired: null,
 };
 
 /**
  * The reason the app gave when it canceled an order itself (the price collar,
- * a timeout), or null when a person canceled it or the broker did (N285).
+ * a timeout), or null when a person canceled it or the broker did (N287).
  */
 async function appCancelReason(tx: Transaction, intentId: string): Promise<string | null> {
   const [row] = await tx
@@ -362,7 +363,7 @@ async function appCancelReason(tx: Transaction, intentId: string): Promise<strin
 /**
  * Audit record and in-app notification for an order reaching a state people
  * care about (§16.2, §16.3): fills, rejections, failures, cancels, expiry.
- * The notification names the order's actual outcome (N285): refused by the
+ * The notification names the order's actual outcome (N287): refused by the
  * risk check (with the check and its figures), rejected by the broker, not
  * sent, or canceled by the app (with the app's reason, e.g. the price collar).
  */
@@ -380,7 +381,7 @@ export async function announceOrderChange(
     .select({
       userId: orderIntents.userId,
       strategyId: orderIntents.strategyId,
-      strategyName: strategies.name,
+      strategyName: strategyLabelSql,
       legLabel: orderIntents.legLabel,
       symbol: instruments.symbol,
       quantity: orderIntents.quantity,
@@ -406,7 +407,7 @@ export async function announceOrderChange(
   if (!kind) return;
   const leg = `${o.legLabel} (${o.symbol ?? 'order'})`;
   const what = `${leg} for ${o.strategyName ?? 'a strategy'}`;
-  const price = o.averagePrice ? ` at an average of ${o.averagePrice}` : '';
+  const price = o.averagePrice ? ` at an average of $${o.averagePrice}` : '';
   const why = (reasonText ?? reason)?.slice(0, 300);
   let title: string;
   let body: string;

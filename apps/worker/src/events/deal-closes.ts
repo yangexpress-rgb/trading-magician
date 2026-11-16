@@ -19,7 +19,7 @@ export interface DealClosesOptions {
   logger: Pick<Logger, 'info' | 'warn'>;
   now: Date;
   /**
-   * The most the run may wait on bars (N286). The bars come from a key the
+   * The most the run may wait on bars (N288). The bars come from a key the
    * running strategies share, and its background requests wait while they
    * use the minute; without a limit one run held the whole events loop, the
    * earnings calendar included, from Nov 14 to Nov 16 2026.
