@@ -14,6 +14,15 @@ export interface EarningsFeedProvider {
 
 const DAY = 86_400_000;
 
+const nyTime = (d: Date) =>
+  d.toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+
 export function earningsFeedProvider(provider: 'fmp' | 'finnhub'): EarningsFeedProvider {
   return {
     needsCredential: false,
@@ -50,7 +59,14 @@ export function earningsFeedProvider(provider: 'fmp' | 'finnhub'): EarningsFeedP
           ok: false,
           entitlement: 'entitled',
           realtime: false,
-          error: 'No calendar has been fetched for two days',
+          // Say since when, so a stalled worker reads differently from a refused key (N286).
+          error: state.lastOkAt
+            ? `No calendar has been fetched for two days: the last fetch that worked was ${nyTime(state.lastOkAt)} New York time${
+                state.lastRunAt && state.lastRunAt > state.lastOkAt
+                  ? `, the last try started ${nyTime(state.lastRunAt)}`
+                  : ', and no fetch has been tried since'
+              }`
+            : 'No calendar has been fetched for two days',
         };
       // Healthy whichever provider answered: the other is the fallback (brief §5.1).
       void provider;

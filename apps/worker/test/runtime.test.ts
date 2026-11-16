@@ -6,8 +6,11 @@ import {
   saveOptionSignal,
   createStrategy,
   eq,
+  getExecutionStatus,
+  getStrategy,
   isNull,
   listCycleTrades,
+  listStrategies,
   listNotifications,
   listPositions,
   resumeRuntime,
@@ -572,6 +575,14 @@ describe('paper runtime: price collar on orders decided while closed (§7.2, §8
     expect(order!.reason).toMatch(
       /The price opened at \$[\d.]+, [\d.]+% from \$[\d.]+ when the order was decided\. The price collar allows 0\.0001%\./,
     );
+    // The notification names the actual outcome, the collar cancel, not a rejection (N285).
+    const notes = (await asUser((tx) => listNotifications(tx, { limit: 200 }))).notifications;
+    const mine = notes.filter((n) => n.body.includes(' for Tight collar '));
+    const collar = mine.filter((n) => n.kind === 'order_canceled');
+    expect(collar).toHaveLength(1);
+    expect(collar[0]!.title).toMatch(/\(DEMO-[A-Z]\) canceled by the app$/);
+    expect(collar[0]!.body).toMatch(/The price collar allows 0\.0001%\./);
+    expect(mine.some((n) => n.kind === 'order_rejected')).toBe(false);
     await stopAll();
   });
 });
@@ -774,6 +785,38 @@ describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', (
     expect(await runtimeStatus(runtimeId)).toMatchObject({ status: 'paused' });
     expect((await incidents()).map((i) => i.kind)).toEqual(['repeated_rejects']);
     expect(await notificationKinds()).toContain('order_rejected');
+    // Each rejection names the check that refused it, with its figures (N285).
+    const rejected = (
+      await asUser((tx) => listNotifications(tx, { limit: 200 }))
+    ).notifications.filter((n) => n.kind === 'order_rejected' && n.body.includes(' for Rejected '));
+    expect(rejected.length).toBeGreaterThan(0);
+    for (const n of rejected) {
+      expect(n.title).toMatch(/refused by the risk check$/);
+      expect(n.body).toMatch(/was never sent\. Risk check: Order size: \$[\d,.]+, limit \$1\.$/);
+      expect(n.body).not.toContain('Active orders');
+    }
+
+    // The pause shows on the Lab list and the strategy page from the same run
+    // the Orders page reads (N284).
+    const { strategyId, ordersRun } = await asUser(async (tx) => {
+      const exec = await getExecutionStatus(tx);
+      const r = exec.runtimes.find((x) => x.id === runtimeId)!;
+      return { strategyId: r.strategyId, ordersRun: r };
+    });
+    expect(ordersRun.status).toBe('paused');
+    const { listed, detail } = await asUser(async (tx) => ({
+      listed: (await listStrategies(tx, { limit: 200 })).items.find((s) => s.id === strategyId),
+      detail: await getStrategy(tx, strategyId),
+    }));
+    for (const run of [listed!.run, detail.run]) {
+      expect(run).toEqual({
+        runtimeId,
+        status: 'paused',
+        pauseReason: ordersRun.pauseReason,
+      });
+    }
+    expect(ordersRun.pauseReason).toMatch(/rejected/);
+    expect(listed!.status).toBe('actively_executing');
 
     // Resuming starts a fresh count: the old rejections do not pause it again at once.
     await t.ownerSql`update execution_incident set resolved_at = now(), resolved_by = 'user' where resolved_at is null`;
@@ -781,7 +824,15 @@ describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', (
     clock += 60_000;
     await pass();
     expect((await runtimeStatus(runtimeId))?.status).toBe('running');
+    // Resumed: the Lab shows it running again, with no reason (N284).
+    expect((await asUser((tx) => getStrategy(tx, strategyId))).run).toEqual({
+      runtimeId,
+      status: 'running',
+      pauseReason: null,
+    });
     await stopAll();
+    // Stopped: no run to show.
+    expect((await asUser((tx) => getStrategy(tx, strategyId))).run).toBeNull();
   });
 
   it('flags stale prices at once and pauses if they stay stale; clears when current', async () => {

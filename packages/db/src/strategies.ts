@@ -32,6 +32,7 @@ import {
   gte,
   lt,
   max,
+  ne,
   or,
   sql,
   type SQL,
@@ -66,6 +67,7 @@ import {
   strategies,
   strategyInstruments,
   strategyLibraryEntries,
+  strategyRuntimes,
   strategyStatusChanges,
   strategyVersions,
   tradingAccounts,
@@ -174,6 +176,8 @@ export interface StrategySummary {
   latestBacktest: StrategyLatestBacktest | null;
   /** A copy received by sharing (ADR 0056): the list shows a Shared badge. */
   shared: boolean;
+  /** Its paper run while it has one: running, or paused with the reason (N284). */
+  run: StrategyRunState | null;
   archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -186,6 +190,50 @@ export interface StrategyLatestBacktest {
   /** Net return in percent, for a completed run. */
   netReturnPct: string | null;
   finishedAt: Date | null;
+}
+
+/**
+ * A strategy's paper run (N284). The business status stays "Actively executing"
+ * while a run is paused; the pause lives on the run, the same row the Orders
+ * page and the pause notifications read, so every page shows it from there.
+ */
+export interface StrategyRunState {
+  runtimeId: string;
+  status: 'running' | 'paused';
+  /** Why it is paused, as the Orders banner and the notification say it. */
+  pauseReason: string | null;
+}
+
+/** The run of each strategy that has one that is not stopped (at most one, by index). */
+export async function activeRunStates(
+  tx: Transaction,
+  strategyIds: readonly string[],
+): Promise<Map<string, StrategyRunState>> {
+  if (strategyIds.length === 0) return new Map();
+  const rows = await tx
+    .select({
+      strategyId: strategyRuntimes.strategyId,
+      runtimeId: strategyRuntimes.id,
+      status: strategyRuntimes.status,
+      pauseReason: strategyRuntimes.pauseReason,
+    })
+    .from(strategyRuntimes)
+    .where(
+      and(
+        inArray(strategyRuntimes.strategyId, [...strategyIds]),
+        ne(strategyRuntimes.status, 'stopped'),
+      ),
+    );
+  const out = new Map<string, StrategyRunState>();
+  for (const r of rows) {
+    if (r.status === 'stopped') continue;
+    out.set(r.strategyId, {
+      runtimeId: r.runtimeId,
+      status: r.status,
+      pauseReason: r.status === 'paused' ? r.pauseReason : null,
+    });
+  }
+  return out;
 }
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
@@ -293,6 +341,7 @@ export async function listStrategies(
         .orderBy(backtestRuns.strategyId, desc(backtestRuns.createdAt))
     : [];
   const latestByStrategy = new Map(latestRuns.map(({ strategyId, ...run }) => [strategyId, run]));
+  const runs = await activeRunStates(tx, ids);
   const numbers = await libraryNumbers(
     tx,
     rows.flatMap((r) => (r.s.libraryEntryId ? [r.s.libraryEntryId] : [])),
@@ -316,6 +365,7 @@ export async function listStrategies(
         .map((u) => ({ id: u.id, symbol: u.symbol })),
       latestBacktest: latestByStrategy.get(s.id) ?? null,
       shared: s.receivedShareId !== null,
+      run: runs.get(s.id) ?? null,
       archivedAt: s.archivedAt,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
@@ -343,6 +393,8 @@ export interface StrategyDetail {
   description: string;
   tags: string[];
   status: StrategyStatus;
+  /** Its paper run while it has one: running, or paused with the reason (N284). */
+  run: StrategyRunState | null;
   hasBeenActive: boolean;
   definition: StrategyDefinition;
   definitionHash: string;
@@ -413,6 +465,7 @@ export async function getStrategy(tx: Transaction, id: string): Promise<Strategy
     description: row.description,
     tags: row.tags,
     status: row.status,
+    run: (await activeRunStates(tx, [row.id])).get(row.id) ?? null,
     hasBeenActive: row.hasBeenActive,
     definition: parseOrThrow(row.draftDefinition),
     definitionHash: row.draftHash,

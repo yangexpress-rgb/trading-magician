@@ -1,6 +1,11 @@
 'use client';
 
-import { ApiError, type StrategyDetailDto, type ValidateStrategyDto } from '@tm/contracts';
+import {
+  ApiError,
+  type StrategyDetailDto,
+  type StrategyRunStateDto,
+  type ValidateStrategyDto,
+} from '@tm/contracts';
 import {
   STATUS_LABELS,
   type StrategyDefinition,
@@ -10,6 +15,7 @@ import {
 import { Alert, Button, Card, cx, Dialog } from '@tm/ui';
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api-client';
 import { describeHolding } from '@/lib/order-text';
 import { describeIssueLocation, LEG_FAILURE_LABELS, MULTI_LEG_LABELS } from '@/lib/strategy-text';
@@ -498,6 +504,51 @@ function Check({ ok, children }: { ok: boolean | 'warn'; children: ReactNode }) 
 }
 
 /**
+ * A paused run (N284): the same reason the Orders banner and the pause
+ * notification give, and the same Resume the Orders page offers.
+ */
+function PausedPanel({ strategyId, run }: { strategyId: string; run: StrategyRunStateDto }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="mt-2">
+      <Alert tone="warn">
+        <span className="font-semibold">Paused.</span>{' '}
+        {run.pauseReason ?? 'No reason was recorded.'} It sends no new orders until it is resumed.
+        <span className="mt-2 flex flex-wrap items-center gap-3">
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              setError(null);
+              apiClient.execution.resume(run.runtimeId).then(
+                () => router.refresh(),
+                (e: unknown) => {
+                  setError(errorMessage(e, 'Could not resume it. Try again from Orders.'));
+                  setBusy(false);
+                },
+              );
+            }}
+          >
+            {busy ? 'Resuming…' : 'Resume'}
+          </Button>
+          <Link href={`/orders?strategy=${strategyId}`} className="underline">
+            See it in Orders
+          </Link>
+        </span>
+      </Alert>
+      {error && (
+        <div className="mt-2">
+          <Alert>{error}</Alert>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Section 3 (N176): readiness, status, Start and Stop (§5.2, §7.4), where it
  * runs on paper, and the versions and status history passed in by the page.
  */
@@ -505,6 +556,7 @@ export function ExecutionSection({
   strategyId,
   strategyName,
   status,
+  run = null,
   rowVersion,
   dirty,
   definition,
@@ -517,6 +569,8 @@ export function ExecutionSection({
   strategyId: string;
   strategyName: string;
   status: StrategyStatus;
+  /** Its paper run; a pause shows here with its reason and a Resume button (N284). */
+  run?: StrategyRunStateDto | null;
   rowVersion: number;
   dirty: boolean;
   definition: StrategyDefinition;
@@ -576,6 +630,7 @@ export function ExecutionSection({
     act('status', () => apiClient.strategies.update(strategyId, { rowVersion, status: to }));
 
   const running = status === 'actively_executing';
+  const paused = running && run?.status === 'paused';
   const canStart = status === 'under_testing' || status === 'off';
   const startBlocked =
     status === 'created'
@@ -595,8 +650,9 @@ export function ExecutionSection({
       <div className="grid gap-6 lg:grid-cols-2">
         <Card aria-labelledby="lifecycle-heading">
           <h2 id="lifecycle-heading" className="text-lg font-semibold">
-            {running ? 'Running on paper' : 'Ready to start'}
+            {paused ? 'Paused on paper' : running ? 'Running on paper' : 'Ready to start'}
           </h2>
+          {paused && run && <PausedPanel strategyId={strategyId} run={run} />}
           {!running && (
             <ul className="mt-2 space-y-1 text-sm" aria-label="Before starting">
               <Check ok={canStart}>
@@ -649,6 +705,12 @@ export function ExecutionSection({
           )}
           <p className="mt-3 text-sm">
             Status: <span className="font-medium">{STATUS_LABELS[status]}</span>
+            {paused && (
+              <>
+                {' · '}
+                <span className="font-medium text-warn">Paused</span>
+              </>
+            )}
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {running ? (

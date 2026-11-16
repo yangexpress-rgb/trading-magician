@@ -18,6 +18,23 @@ export interface DealClosesOptions {
   bars: DailyBars | undefined;
   logger: Pick<Logger, 'info' | 'warn'>;
   now: Date;
+  /**
+   * The most the run may wait on bars (N286). The bars come from a key the
+   * running strategies share, and its background requests wait while they
+   * use the minute; without a limit one run held the whole events loop, the
+   * earnings calendar included, from Nov 14 to Nov 16 2026.
+   */
+  deadlineMs?: number;
+}
+
+/** Default time limit for one run of the deal closes. */
+export const DEAL_CLOSES_DEADLINE_MS = 10 * 60_000;
+
+export class DealClosesTimeout extends Error {
+  constructor(minutes: number) {
+    super(`Stopped after ${minutes} minutes waiting for Alpaca bars (the shared key is busy)`);
+    this.name = 'DealClosesTimeout';
+  }
 }
 
 /** Enough calendar days back to span a long weekend and a holiday. */
@@ -52,9 +69,25 @@ export async function refreshDealCloses(o: DealClosesOptions) {
     return { stored: 0, none: 0, failed: 0 };
   }
   const counts = { stored: 0, none: 0, failed: 0 };
+  const limitMs = o.deadlineMs ?? DEAL_CLOSES_DEADLINE_MS;
+  const deadline = Date.now() + limitMs;
+  const bars = o.bars;
+  const timeout = () => new DealClosesTimeout(Math.round(limitMs / 60_000));
+  // Each request races what is left of the run; one that loses is left to finish on its own.
+  const barsBefore = (symbol: string) => {
+    const left = deadline - Date.now();
+    if (left <= 0) return Promise.reject(timeout());
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      bars(symbol, addDays(today, -LOOKBACK_DAYS), today),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(timeout()), left);
+      }),
+    ]).finally(() => clearTimeout(timer));
+  };
   for (const symbol of await dealCloseSymbols(o.db)) {
     try {
-      const last = latestClose(await o.bars(symbol, addDays(today, -LOOKBACK_DAYS), today), o.now);
+      const last = latestClose(await barsBefore(symbol), o.now);
       if (!last) {
         counts.none++;
         continue;
@@ -62,6 +95,8 @@ export async function refreshDealCloses(o: DealClosesOptions) {
       await saveDealClose(o.db, symbol, last.close, last.date);
       counts.stored++;
     } catch (e) {
+      // Out of time: the run stops here and the loop moves on; it retries in an hour.
+      if (e instanceof DealClosesTimeout) throw e;
       counts.failed++;
       o.logger.warn({ symbol, err: shortError(e) }, 'deal target close unavailable');
     }

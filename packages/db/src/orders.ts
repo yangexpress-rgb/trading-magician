@@ -3,6 +3,7 @@ import {
   deriveBrokerOrder,
   idempotencySeed,
   isTerminalOrderState,
+  riskRefusalText,
   transitionOrder,
   type BrokerUpdate,
   type IdempotencyParts,
@@ -10,7 +11,7 @@ import {
   type OrderState,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Transaction } from './client';
 import { notify } from './notifications';
@@ -129,12 +130,14 @@ export async function recordOrderIntent(
     payload: { kind: 'risk_check', risk: intent.risk },
   });
   if (state === 'rejected') {
+    // The notification gives the check that refused it, in words with its figures (N285).
     await announceOrderChange(
       tx,
       row.id,
       'pending_risk',
       state,
       `Risk check failed: ${intent.risk.code ?? 'unknown'}`,
+      riskRefusalText(intent.risk) ?? undefined,
     );
   }
   await recordAudit(tx, {
@@ -321,26 +324,56 @@ export async function applyBrokerUpdates(
   return { state: view.state, applied };
 }
 
-const ANNOUNCED: Partial<Record<OrderState, 'filled' | 'partial_fill' | 'order_rejected' | null>> =
-  {
-    partially_filled: 'partial_fill',
-    filled: 'filled',
-    rejected: 'order_rejected',
-    failed: 'order_rejected',
-    canceled: null,
-    expired: null,
-  };
+const ANNOUNCED: Partial<
+  Record<OrderState, 'filled' | 'partial_fill' | 'order_rejected' | 'order_canceled' | null>
+> = {
+  partially_filled: 'partial_fill',
+  filled: 'filled',
+  rejected: 'order_rejected',
+  failed: 'order_rejected',
+  // Only a cancel the app asked for, e.g. the price collar at the open (N285).
+  canceled: 'order_canceled',
+  expired: null,
+};
+
+/**
+ * The reason the app gave when it canceled an order itself (the price collar,
+ * a timeout), or null when a person canceled it or the broker did (N285).
+ */
+async function appCancelReason(tx: Transaction, intentId: string): Promise<string | null> {
+  const [row] = await tx
+    .select({ reason: sql<string | null>`${orderEvents.payload} ->> 'reason'` })
+    .from(orderEvents)
+    .where(
+      and(
+        eq(orderEvents.intentId, intentId),
+        eq(orderEvents.source, 'app'),
+        inArray(sql<string>`${orderEvents.payload} ->> 'kind'`, [
+          'cancel_requested',
+          'canceled_before_submit',
+        ]),
+      ),
+    )
+    .orderBy(desc(orderEvents.receivedAt))
+    .limit(1);
+  return row ? (row.reason ?? 'The app canceled it.') : null;
+}
 
 /**
  * Audit record and in-app notification for an order reaching a state people
  * care about (§16.2, §16.3): fills, rejections, failures, cancels, expiry.
+ * The notification names the order's actual outcome (N285): refused by the
+ * risk check (with the check and its figures), rejected by the broker, not
+ * sent, or canceled by the app (with the app's reason, e.g. the price collar).
  */
-async function announceOrderChange(
+export async function announceOrderChange(
   tx: Transaction,
   intentId: string,
   from: OrderState,
   to: OrderState,
   reason?: string | undefined,
+  /** The reason in words for the notification, when `reason` is a code. */
+  reasonText?: string | undefined,
 ): Promise<void> {
   if (!(to in ANNOUNCED)) return;
   const [o] = await tx
@@ -371,20 +404,34 @@ async function announceOrderChange(
   });
   const kind = ANNOUNCED[to];
   if (!kind) return;
-  const what = `${o.legLabel} (${o.symbol ?? 'order'}) for ${o.strategyName ?? 'a strategy'}`;
+  const leg = `${o.legLabel} (${o.symbol ?? 'order'})`;
+  const what = `${leg} for ${o.strategyName ?? 'a strategy'}`;
   const price = o.averagePrice ? ` at an average of ${o.averagePrice}` : '';
-  const title =
-    kind === 'filled'
-      ? `${o.legLabel} filled`
-      : kind === 'partial_fill'
-        ? `${o.legLabel} partly filled`
-        : `${o.legLabel} ${to === 'failed' ? 'could not be sent' : 'rejected'}`;
-  const body =
-    kind === 'filled'
-      ? `${what}: ${o.filled} filled${price}.`
-      : kind === 'partial_fill'
-        ? `${what}: ${o.filled} of ${o.quantity} filled so far${price}.`
-        : `${what}${reason ? `: ${reason.slice(0, 300)}` : '.'}`;
+  const why = (reasonText ?? reason)?.slice(0, 300);
+  let title: string;
+  let body: string;
+  if (kind === 'filled') {
+    title = `${o.legLabel} filled`;
+    body = `${what}: ${o.filled} filled${price}.`;
+  } else if (kind === 'partial_fill') {
+    title = `${o.legLabel} partly filled`;
+    body = `${what}: ${o.filled} of ${o.quantity} filled so far${price}.`;
+  } else if (kind === 'order_canceled') {
+    const appReason = await appCancelReason(tx, intentId);
+    // A person's own cancel, or one the broker made, is not announced.
+    if (appReason === null) return;
+    title = `${leg} canceled by the app`;
+    body = `${what} was canceled before it filled: ${appReason.slice(0, 300)}`;
+  } else if (to === 'failed') {
+    title = `${leg} could not be sent`;
+    body = `${what}${why ? `: ${why}` : '.'}`;
+  } else if (from === 'pending_risk') {
+    title = `${leg} refused by the risk check`;
+    body = `${what} was never sent. ${why ? `Risk check: ${why}.` : ''}`.trim();
+  } else {
+    title = `${leg} rejected by the broker`;
+    body = `${what}${why ? `: ${why}` : '.'}`;
+  }
   await notify(tx, {
     userId: o.userId,
     kind,

@@ -21,6 +21,7 @@ import { RowVersionProvider } from '@/components/strategy/row-version';
 import { StrategyNameHeading } from '@/components/strategy/strategy-name';
 import { StrategyTheoryLine } from '@/components/strategy/strategy-theory';
 import { StrategyStatusBadge } from '@/components/strategy-status-badge';
+import { RunStateBadge } from '@/components/strategy/run-state';
 import { isAdmin } from '@/lib/server/admin';
 import { appDb } from '@/lib/server/db';
 import { getProfile } from '@/lib/server/profile';
@@ -153,6 +154,7 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
             )}
             {strategy.currentVersion && <Badge>Version {strategy.currentVersion.versionNo}</Badge>}
             <StrategyStatusBadge status={strategy.status} />
+            <RunStateBadge run={strategy.run} />
             <ModeBadge mode="paper" />
             <Link
               href={`/strategy-lab?copy=${strategy.id}`}
@@ -181,6 +183,7 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
         strategyId={strategy.id}
         strategyName={strategy.name}
         status={strategy.status}
+        run={strategy.run}
         initialDefinition={strategy.definition}
         initialRowVersion={strategy.rowVersion}
         instruments={instruments}

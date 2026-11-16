@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N284, O177, ADR 0098 and migration 0097** (N276 to N283 and ADR 0096 to 0097 were taken on 2026-11-16); other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N287, O177, ADR 0098 and migration 0098** (N276 to N286, ADR 0096 to 0097 and migration 0097 were taken on 2026-11-16); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -276,6 +276,7 @@ Records auto-created from strategies before N205 stay in the register with their
 - Columns: Number, Name, Theory, Status, Assets, Version, Account, Latest back test %, Updated; sorted by strategy number ascending by default (page and list API); every header sorts (N167, N187, N188).
 - Pill filters for text, status, asset, updated date, archived and Shared; the search finds strategies by S number and by theory number (N103, N121, N195).
 - A tick box on each numbered strategy selects it for sharing (N125).
+- A strategy whose paper run is paused shows **Paused** beside its status, with the pause reason and a link to resume it in Orders. The status stays Actively executing; the pause is read from the run, the same record the Orders page and the pause notification use. The strategy page shows the same badge in its header, and its Execution section reads "Paused on paper" with the reason and a Resume button (N284).
 - New strategy (blank or a copy of any strategy, archived included), Make a copy, Rename, Archive and Delete (C8).
 
 Users can create, save, open, rename, copy, archive and delete strategies. **Rename** also works by double-clicking the name (or F2) on the strategy page or in the list: Enter or leaving the field saves, Esc cancels, an empty name is refused; a single click in the list still opens the strategy. Only the name changes, so a running strategy can be renamed (N190, O138).
@@ -606,7 +607,7 @@ Not yet built and required before real trading: account-level, per-symbol and pe
 
 ### 12.4 Automatic pauses
 
-A strategy pauses itself after 3 rejected or failed orders in a row since the last resume, one instrument's price stale or missing 60 s past the threshold (each instrument timed on its own; an unchanged price on a live feed is not stale, N276), the broker not answering for 60 s, a reconciliation mismatch, or a daily loss or drawdown hit. Each pause is audited and notified; resolving an incident never resumes a strategy (C17). Alpaca's "too many requests" answer is throttling, not silence: it pauses only after 5 minutes (N282). A pause for broker silence, throttling or lost live prices lifts itself once the cause has been clear for 30 s, after 1, 3 then 10 minutes, at most 3 times a New York day, audited and notified; a pause whose reason has changed, or a runtime with an open reconciliation mismatch or repeated-rejects incident, waits for a person (N283, ADR 0097).
+A strategy pauses itself after 3 rejected or failed orders in a row since the last resume, one instrument's price stale or missing 60 s past the threshold (each instrument timed on its own; an unchanged price on a live feed is not stale, N276), the broker not answering for 60 s, a reconciliation mismatch, or a daily loss or drawdown hit. Each pause is audited and notified; resolving an incident never resumes a strategy (C17). Order notifications name the order's actual outcome (N285): refused by the risk check (with the check and its figures, e.g. "Active orders: 20 already working, limit 20"), rejected by the broker, not sent, or canceled by the app with its reason (the price collar at the open; kind `order_canceled`, migration 0097). A person's own cancel is not notified. Alpaca's "too many requests" answer is throttling, not silence: it pauses only after 5 minutes (N282). A pause for broker silence, throttling or lost live prices lifts itself once the cause has been clear for 30 s, after 1, 3 then 10 minutes, at most 3 times a New York day, audited and notified; a pause whose reason has changed, or a runtime with an open reconciliation mismatch or repeated-rejects incident, waits for a person (N283, ADR 0097).
 
 ### 12.5 Order intents and states
 
@@ -734,7 +735,7 @@ Settings › Data feeds lists feeds by kind, each with its name, provider, cover
 
 **Options data feeds**: CBOE delayed options (daily), free and keyless, no routes. Turning it on lets the person's strategies read options metrics and turns on Research › Options and the screener's options columns; the recording itself runs once for everyone (§16.2) (N51, ADR 0047).
 
-**Earnings calendar**: providers FMP and Finnhub (a free key, sealed). The worker fetches 90 days of dates nightly (FMP first, Finnhub as fallback) with keys from `FMP_API_KEY` / `FINNHUB_API_KEY` or the oldest admin's feed; `EARNINGS_CALENDAR_PROVIDER` (`fmp` default, `finnhub`, `none`) is the kill switch. With no key the app runs EDGAR-only and says so (N138, O106).
+**Earnings calendar**: providers FMP and Finnhub (a free key, sealed). The worker fetches 90 days of dates nightly (FMP first, Finnhub as fallback) with keys from `FMP_API_KEY` / `FINNHUB_API_KEY` or the oldest admin's feed; `EARNINGS_CALENDAR_PROVIDER` (`fmp` default, `finnhub`, `none`) is the kill switch. With no key the app runs EDGAR-only and says so (N138, O106). The evening pass fetches the calendar before any job that reads Alpaca bars, and the deal closes stop after 10 minutes, so a busy shared Alpaca key cannot hold the calendar back; a stale calendar feed says when the last fetch worked (N286).
 
 **Shared admin feeds.** A member with no active feed of a kind (prices, company data, options data) uses the active feeds of that kind of the oldest admin who shares, so testers need not register their own. Kinds are separate, and a member's own feed of a kind replaces the admin's for that kind. Members see the shared feeds' names and providers, never keys or settings; the worker opens the admin's keys in the admin's tenant, so the admin's limits, caches and failover apply. On by default; the admin turns it off with "Share my data feeds with all members" (audited) (N237, ADR 0084).
 
