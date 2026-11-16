@@ -113,6 +113,7 @@ export * from './library-backfill-v2';
 export { LIBRARY_V2_BACKFILL } from './library-backfill-v2-data';
 export * from './events';
 export * from './patterns';
+export * from './price-ranges';
 export * from './agents';
 export * from './screen-snapshots';
 export * from './ai-assistant';

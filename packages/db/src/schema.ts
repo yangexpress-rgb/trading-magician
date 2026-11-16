@@ -2894,6 +2894,43 @@ export const factorSnapshots = pgTable(
 );
 
 /**
+ * Each stock's 52-week low and high with the trading days since each (N290,
+ * ADR 0099): worked out by the worker after every close from a year of
+ * split-adjusted daily bars, one row per instrument, replaced as each new
+ * session closes. The tail columns are the latest 251 sessions' low and
+ * high, so the screener and Price charts can roll the figures forward with
+ * today's live prices. Global market data: only the worker writes it.
+ */
+export const priceRanges52w = pgTable(
+  'price_range_52w',
+  {
+    instrumentId: uuid('instrument_id')
+      .primaryKey()
+      .references(() => instruments.id),
+    /** The session the figures are as of (the last one closed when worked out). */
+    asOf: date('as_of', { mode: 'string' }).notNull(),
+    close: doublePrecision('close').notNull(),
+    low: doublePrecision('low').notNull(),
+    lowOn: date('low_on', { mode: 'string' }).notNull(),
+    lowDays: integer('low_days').notNull(),
+    high: doublePrecision('high').notNull(),
+    highOn: date('high_on', { mode: 'string' }).notNull(),
+    highDays: integer('high_days').notNull(),
+    tailLow: doublePrecision('tail_low').notNull(),
+    tailLowOn: date('tail_low_on', { mode: 'string' }).notNull(),
+    tailLowDays: integer('tail_low_days').notNull(),
+    tailHigh: doublePrecision('tail_high').notNull(),
+    tailHighOn: date('tail_high_on', { mode: 'string' }).notNull(),
+    tailHighDays: integer('tail_high_days').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('price_range_52w_order', sql`${t.low} > 0 AND ${t.low} <= ${t.high}`),
+    check('price_range_52w_days', sql`${t.lowDays} >= 0 AND ${t.highDays} >= 0`),
+  ],
+);
+
+/**
  * Known values per factor and day (brief §3 coverage report), kept as the
  * snapshot job writes rows: the report and every scan's effective range per
  * category read this instead of counting millions of snapshot rows. The

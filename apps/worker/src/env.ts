@@ -130,6 +130,12 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
       PATTERN_SNAPSHOT_GROUPS: z.string().max(200).default('sp500,ndx,dji,sp400,sp600'),
       PATTERN_SNAPSHOT_POLL_MS: z.coerce.number().int().min(1000).default(300_000),
       /**
+       * Stored 52-week lows and highs (N290, ADR 0099): 'off' stops the job
+       * that works them out after each close for every registered US stock and ETF.
+       */
+      PRICE_RANGES: z.enum(['on', 'off']).default('on'),
+      PRICE_RANGE_POLL_MS: z.coerce.number().int().min(1000).default(300_000),
+      /**
        * The contact the SEC asks automated clients to name, for the global
        * EDGAR scans. Without it the worker uses the oldest platform admin's SEC
        * EDGAR feed contact; with neither, the scans wait.

@@ -168,6 +168,21 @@ export const INDICATORS: readonly IndicatorSpec[] = [
     help: (p, offset) => extremeHelp('lowest', p, offset),
   },
   {
+    // Behind the "Days since 52-week low/high" metrics (N290); the builder offers the metrics.
+    name: 'LOWEST_AGO',
+    label: 'Bars since lowest',
+    params: [period(252)],
+    defaultField: 'low',
+    lookback: (p) => Number(p.period),
+  },
+  {
+    name: 'HIGHEST_AGO',
+    label: 'Bars since highest',
+    params: [period(252)],
+    defaultField: 'high',
+    lookback: (p) => Number(p.period),
+  },
+  {
     name: 'ROC',
     label: 'Rate of change (%)',
     params: [period(10)],
@@ -185,7 +200,13 @@ const BY_NAME = new Map(INDICATORS.map((i) => [i.name, i]));
  * migrated, for an unusual field or session) still runs, but the builder
  * never offers them, so each computation is offered once.
  */
-export const INDICATORS_WITH_A_METRIC: ReadonlySet<string> = new Set(['RSI', 'BBANDS']);
+export const INDICATORS_WITH_A_METRIC: ReadonlySet<string> = new Set([
+  'RSI',
+  'BBANDS',
+  // The 52-week metrics' building blocks (N290).
+  'LOWEST_AGO',
+  'HIGHEST_AGO',
+]);
 
 /** The indicators the builder offers: those with no metric or statistic equivalent. */
 export const BUILDER_INDICATORS: readonly IndicatorSpec[] = INDICATORS.filter(

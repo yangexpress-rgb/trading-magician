@@ -119,6 +119,32 @@ function rolling(xs: readonly Decimal[], n: number, pick: 'max' | 'min'): Indica
 export const highest = (xs: readonly Decimal[], n: number) => rolling(xs, n, 'max');
 export const lowest = (xs: readonly Decimal[], n: number) => rolling(xs, n, 'min');
 
+/**
+ * Bars since the lowest (or highest) value of the last `n` bars, the current
+ * bar included: 0 when the current bar is the extreme. Ties go to the most
+ * recent bar. One pass with a monotonic queue, so a 252-bar window over
+ * years of daily bars stays cheap (52-week low and high, N290).
+ */
+export function barsSinceExtreme(
+  xs: readonly Decimal[],
+  n: number,
+  pick: 'max' | 'min',
+): IndicatorValues {
+  const out: IndicatorValues = [];
+  // Indices whose values strictly improve from back to front; the front is the extreme.
+  const queue: number[] = [];
+  let head = 0;
+  const beaten = (older: Decimal, x: Decimal) => (pick === 'min' ? older.gte(x) : older.lte(x));
+  xs.forEach((x, i) => {
+    while (queue.length > head && beaten(xs[queue[queue.length - 1] as number] as Decimal, x))
+      queue.pop();
+    queue.push(i);
+    while ((queue[head] as number) <= i - n) head++;
+    out.push(i < n - 1 ? undefined : new Decimal(i - (queue[head] as number)));
+  });
+  return out;
+}
+
 /** Percentage change over `n` bars. */
 export function roc(xs: readonly Decimal[], n: number): IndicatorValues {
   return xs.map((x, i) => {
@@ -161,6 +187,10 @@ export function indicatorSeries(
       return lowest(xs, n);
     case 'ROC':
       return roc(xs, n);
+    case 'LOWEST_AGO':
+      return barsSinceExtreme(xs, n, 'min');
+    case 'HIGHEST_AGO':
+      return barsSinceExtreme(xs, n, 'max');
     default:
       throw new Error(`No implementation for indicator ${name}`);
   }

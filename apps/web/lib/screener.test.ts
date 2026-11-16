@@ -59,6 +59,12 @@ function row(symbol: string, values: Partial<ScreenRow> = {}): ScreenRow {
     skewPts: null,
     termStructure: null,
     putCallOi: null,
+    low52w: null,
+    fromLow52wPct: null,
+    lowAge: null,
+    high52w: null,
+    fromHigh52wPct: null,
+    highAge: null,
     avgVolume20: 1000,
     relVolume: 1,
     lastAt: null,
@@ -163,6 +169,8 @@ describe('screener formatting and export', () => {
     expect(formatCell(1_500_000, 'volume')).toBe('1.5M');
     expect(formatCell(2_000_000_000, 'money')).toBe('$2B');
     expect(formatCell(1.234, 'ratio')).toBe('1.23×');
+    expect(formatCell(1, 'days')).toBe('1 day');
+    expect(formatCell(172, 'days')).toBe('172 days');
     expect(formatCell(0.1234, 'price')).toBe('$0.1234');
     expect(formatCell(null, 'price')).toBe('—');
   });

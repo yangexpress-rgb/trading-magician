@@ -56,6 +56,7 @@ import type {
   CreateStockScreenRequest,
   DealListDto,
   EarningsDto,
+  YearRangeDto,
   PriceChartDto,
   StockScreenDataDto,
   StockScreenDto,
@@ -341,6 +342,9 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
         call<OptionHistoryDto>('GET', `/research/option-chains/${enc(symbol)}/history`),
       /** A symbol's earnings releases and SUE from EDGAR, and the next scheduled date (ADR 0058). */
       earnings: (symbol: string) => call<EarningsDto>('GET', `/research/earnings/${enc(symbol)}`),
+      /** A stock's stored 52-week low and high (N290). */
+      yearRange: (instrumentId: string) =>
+        call<YearRangeDto>('GET', `/research/year-ranges/${enc(instrumentId)}`),
       /** The deal tracker's deals; active ones only unless `all`. */
       deals: (all = false) => call<DealListDto>('GET', `/research/deals${all ? '?all=1' : ''}`),
     },

@@ -38,6 +38,7 @@ import { OptionsPanel } from './options-panel';
 import { PriceChart, type ChartStyle, type ComparedSeries } from './price-chart';
 import { StockPicker } from './stock-picker';
 import { useChartHistory } from './use-chart-history';
+import { YearRangeLine } from './year-range-line';
 
 /** Every stock or ETF opens on its latest session: 5-minute bars, as candles (N203). */
 const OPENING_VIEW = { range: '1d', interval: '5m', style: 'candles' } as const;
@@ -376,6 +377,13 @@ export function ResearchWorkspace({
                         ? 'Demo instrument, simulated prices'
                         : selected.venue}
                     </p>
+                    {!dailyOnly && selected.venue !== 'DEMO' && (
+                      <YearRangeLine
+                        instrumentId={selected.id}
+                        bars={showing ? bars : []}
+                        latest={!sel.end}
+                      />
+                    )}
                   </div>
                   {summary && showing && (
                     <div className="text-right tabular-nums" data-testid="chart-summary">
