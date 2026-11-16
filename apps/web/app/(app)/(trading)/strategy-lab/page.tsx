@@ -19,6 +19,7 @@ import { GuideVideoCard } from '@/components/guide/guide-video-card';
 import { UrlFilterBar } from '@/components/filters/url-filter-bar';
 import { StrategyNameLink } from '@/components/strategy/strategy-name';
 import { StrategyStatusBadge } from '@/components/strategy-status-badge';
+import { PausedNote, RunStateBadge } from '@/components/strategy/run-state';
 import { formatPct } from '@/lib/backtest-text';
 import { isAdmin } from '@/lib/server/admin';
 import { appDb } from '@/lib/server/db';
@@ -330,7 +331,12 @@ export default async function StrategyLabPage({
                       )}
                     </Td>
                     <Td>
-                      <StrategyStatusBadge status={s.status} />
+                      {/* A paused run shows here too, with its reason (N286). */}
+                      <span className="inline-flex flex-wrap gap-1">
+                        <StrategyStatusBadge status={s.status} />
+                        <RunStateBadge run={s.run} />
+                      </span>
+                      <PausedNote strategyId={s.id} run={s.run} />
                     </Td>
                     <Td className="text-xs">
                       {s.instruments.length ? s.instruments.map((i) => i.symbol).join(', ') : '—'}

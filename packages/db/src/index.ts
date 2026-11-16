@@ -50,6 +50,8 @@ export {
   type StrategyListQuery,
   type StrategySort,
   type StrategySummary,
+  type StrategyRunState,
+  activeRunStates,
   type StrategyVersionSummary,
   type UpdateStrategyInput,
 } from './strategies';

@@ -50,6 +50,7 @@ import { refreshDealCloses } from '../src/events/deal-closes';
 import { scanDeals } from '../src/events/deals-tracker';
 import { runEarningsBackfill } from '../src/events/earnings-scan';
 import { dealClosesDue, runEventsPass } from '../src/events/loop';
+import type { CalendarSource } from '../src/events/calendar';
 
 /**
  * Earnings, deals and rates end to end (free data feeds brief v1 §10): the
@@ -579,5 +580,48 @@ describe('back tests of the Lab fixtures', () => {
     expect(data.deals.get(tgt)?.[0]?.offerPrice).toBe(50);
     expect(data.rates.at(-1)).toEqual({ date: '2026-11-08', tbill3m: 0.0412 });
     expect(data.dealsFrom).toBe('2024-02-01');
+  });
+});
+
+describe('the earnings calendar is not held back by a busy Alpaca key (N288)', () => {
+  it('fetches the calendar first and stops the deal closes at their time limit', async () => {
+    // Monday evening, the day after the setup pass: both jobs are due.
+    const monday = new Date('2026-11-09T23:45:00Z');
+    let calls = 0;
+    const source: CalendarSource = {
+      provider: 'fmp',
+      fetchRange: async (from) => {
+        calls++;
+        return from === '2026-11-09'
+          ? [{ symbol: 'XYZ', date: '2026-11-20', timeHint: 'amc', estimatedEps: 1.2 }]
+          : [];
+      },
+    };
+    // Bars that never come, as when background requests wait on a key whose
+    // minute the running strategies fill (Nov 14-16 2026).
+    const stuck = () => new Promise<never>(() => undefined);
+    const started = Date.now();
+    await runEventsPass({
+      db: t.worker.db,
+      client: undefined,
+      tickers: (c) => fetchTickers(c),
+      calendar: async () => [source],
+      refreshRates: async () => undefined,
+      logger: quiet,
+      now: () => monday,
+      dealBars: stuck,
+      dealClosesDeadlineMs: 200,
+    });
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(calls).toBe(3);
+    const states = await listScanStates(t.app.db);
+    expect(states.find((s) => s.job === 'calendar')).toMatchObject({
+      status: 'done',
+      coveredFrom: '2026-11-09',
+      note: '1 scheduled releases from fmp',
+    });
+    const closes = states.find((s) => s.job === 'deal_closes');
+    expect(closes?.status).toBe('failed');
+    expect(closes?.lastError).toMatch(/waiting for Alpaca bars/);
   });
 });

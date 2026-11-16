@@ -224,6 +224,7 @@ export const NOTIFICATION_KINDS = [
   'strategy_stopped',
   'triggered',
   'order_rejected',
+  'order_canceled',
   'partial_fill',
   'filled',
   'disconnect',

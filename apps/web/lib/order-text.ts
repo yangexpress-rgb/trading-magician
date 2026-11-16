@@ -168,6 +168,7 @@ export const NOTIFICATION_LABELS: Record<NotificationKindDto, { label: string; t
   strategy_stopped: { label: 'Stopped', tone: 'neutral' },
   triggered: { label: 'Triggered', tone: 'info' },
   order_rejected: { label: 'Rejected', tone: 'danger' },
+  order_canceled: { label: 'Canceled', tone: 'warn' },
   partial_fill: { label: 'Partly filled', tone: 'warn' },
   filled: { label: 'Filled', tone: 'ok' },
   disconnect: { label: 'Disconnected', tone: 'danger' },

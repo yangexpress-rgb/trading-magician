@@ -139,6 +139,13 @@ export type StopStrategyRequest = z.input<typeof stopStrategyRequest>;
 // ---------------------------------------------------------------------------
 // Responses
 
+/** A strategy's paper run (N286): paused shows with its reason everywhere it is listed. */
+export interface StrategyRunStateDto {
+  runtimeId: string;
+  status: 'running' | 'paused';
+  pauseReason: string | null;
+}
+
 export interface StrategySummaryDto {
   id: string;
   name: string;
@@ -161,6 +168,8 @@ export interface StrategySummaryDto {
   } | null;
   /** A copy received by sharing (ADR 0056). */
   shared: boolean;
+  /** Its paper run while it has one (N286). */
+  run: StrategyRunStateDto | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -199,6 +208,8 @@ export interface StrategyDetailDto {
   description: string;
   tags: string[];
   status: StrategyStatus;
+  /** Its paper run while it has one (N286). */
+  run: StrategyRunStateDto | null;
   hasBeenActive: boolean;
   definition: StrategyDefinition;
   definitionHash: string;

@@ -16,6 +16,7 @@ const KIND_TEXT: Record<NotificationKindDto, string> = {
   strategy_stopped: 'A strategy stops',
   triggered: 'Entry or Exit rules trigger',
   order_rejected: 'An order is rejected',
+  order_canceled: 'The app cancels an order, e.g. at the price collar',
   partial_fill: 'An order is partly filled',
   filled: 'An order is filled',
   stale_data: 'Prices go stale',

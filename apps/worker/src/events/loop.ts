@@ -37,6 +37,8 @@ export interface EventsLoopOptions {
    * the deal targets' closes (N151); absent without a key.
    */
   dealBars?: DailyBars | undefined;
+  /** Tests: the deal closes' time limit in place of DEAL_CLOSES_DEADLINE_MS (N288). */
+  dealClosesDeadlineMs?: number;
   /** Fetches DTB3 through the options market inputs, which store it in rates_daily. */
   refreshRates: (today: string) => Promise<unknown>;
   logger: Pick<Logger, 'info' | 'warn'>;
@@ -88,6 +90,46 @@ export async function runEventsPass(o: EventsLoopOptions): Promise<void> {
       o.logger.warn({ job: name, err: shortError(e) }, 'event job failed');
     }
   };
+  // The calendar goes first (N288): it needs no Alpaca or EDGAR call, so a
+  // step that waits on a busy shared key (deal closes) can't hold it back, as
+  // happened Nov 14-16 2026 when the Friday and Saturday fetches never ran.
+  if (eveningDue(now)) {
+    const cs = await getScanState(o.db, 'calendar');
+    if (cs?.coveredFrom !== today) {
+      const sources = await o.calendar().catch(() => []);
+      if (sources.length === 0) {
+        await setScanState(o.db, 'calendar', {
+          status: 'skipped',
+          coveredFrom: today,
+          lastRunAt: now,
+          note: 'EDGAR-only mode: no calendar key, or EARNINGS_CALENDAR_PROVIDER is none',
+        });
+      } else
+        await step('calendar', async () => {
+          await setScanState(o.db, 'calendar', { status: 'running', lastRunAt: now });
+          try {
+            const got = await fetchCalendar(sources, today);
+            await saveCalendar(o.db, got.provider, got.rows, now);
+            await setScanState(o.db, 'calendar', {
+              status: 'done',
+              coveredFrom: today,
+              coveredTo: addDays(today, 89),
+              lastOkAt: now,
+              lastError: null,
+              note: `${got.rows.length} scheduled releases from ${got.provider}`,
+            });
+          } catch (e) {
+            // Stay in EDGAR-only mode for the day; never crash the worker.
+            await setScanState(o.db, 'calendar', {
+              status: 'failed',
+              coveredFrom: today,
+              lastError: shortError(e),
+            });
+            throw e;
+          }
+        });
+    }
+  }
   const client = o.client;
   if (!client) {
     for (const job of ['earnings_scan', 'deals_scan'] as const) {
@@ -154,48 +196,19 @@ export async function runEventsPass(o: EventsLoopOptions): Promise<void> {
   if (dealClosesDue(await getScanState(o.db, 'deal_closes'), now))
     await step('deal_closes', async () => {
       try {
-        await refreshDealCloses({ db: o.db, bars: o.dealBars, logger: o.logger, now });
+        await refreshDealCloses({
+          db: o.db,
+          bars: o.dealBars,
+          logger: o.logger,
+          now,
+          ...(o.dealClosesDeadlineMs === undefined ? {} : { deadlineMs: o.dealClosesDeadlineMs }),
+        });
       } catch (e) {
         await setScanState(o.db, 'deal_closes', { status: 'failed', lastError: shortError(e) });
         throw e;
       }
     });
   if (eveningDue(now)) {
-    const cs = await getScanState(o.db, 'calendar');
-    if (cs?.coveredFrom !== today) {
-      const sources = await o.calendar().catch(() => []);
-      if (sources.length === 0) {
-        await setScanState(o.db, 'calendar', {
-          status: 'skipped',
-          coveredFrom: today,
-          lastRunAt: now,
-          note: 'EDGAR-only mode: no calendar key, or EARNINGS_CALENDAR_PROVIDER is none',
-        });
-      } else
-        await step('calendar', async () => {
-          await setScanState(o.db, 'calendar', { status: 'running', lastRunAt: now });
-          try {
-            const got = await fetchCalendar(sources, today);
-            await saveCalendar(o.db, got.provider, got.rows, now);
-            await setScanState(o.db, 'calendar', {
-              status: 'done',
-              coveredFrom: today,
-              coveredTo: addDays(today, 89),
-              lastOkAt: now,
-              lastError: null,
-              note: `${got.rows.length} scheduled releases from ${got.provider}`,
-            });
-          } catch (e) {
-            // Stay in EDGAR-only mode for the day; never crash the worker.
-            await setScanState(o.db, 'calendar', {
-              status: 'failed',
-              coveredFrom: today,
-              lastError: shortError(e),
-            });
-            throw e;
-          }
-        });
-    }
     await step('rates', () => o.refreshRates(today));
   }
 }

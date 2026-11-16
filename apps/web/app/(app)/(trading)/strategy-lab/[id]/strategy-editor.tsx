@@ -1,6 +1,6 @@
 'use client';
 
-import { ApiError } from '@tm/contracts';
+import { ApiError, type StrategyRunStateDto } from '@tm/contracts';
 import {
   canonicalJson,
   DEFAULT_TRIGGER,
@@ -64,6 +64,8 @@ interface Props {
   strategyId: string;
   strategyName: string;
   status: StrategyStatus;
+  /** Its paper run while it has one; paused shows in the Execution section (N286). */
+  run?: StrategyRunStateDto | null;
   initialDefinition: StrategyDefinition;
   initialRowVersion: number;
   instruments: InstrumentOption[];
@@ -104,6 +106,7 @@ export function StrategyEditor({
   strategyId,
   strategyName,
   status,
+  run = null,
   initialDefinition,
   initialRowVersion,
   instruments: initialInstruments,
@@ -279,7 +282,7 @@ export function StrategyEditor({
           states={{
             strategy: dirty ? 'unsaved changes' : strategyState(validation),
             'back-test': BACKTEST_STATE[draftTested],
-            execution: STATUS_LABELS[status],
+            execution: run?.status === 'paused' ? 'Paused' : STATUS_LABELS[status],
           }}
         />
         {editable && (
@@ -402,6 +405,7 @@ export function StrategyEditor({
             strategyId={strategyId}
             strategyName={strategyName}
             status={status}
+            run={run}
             rowVersion={rowVersion}
             dirty={rulesDirty}
             definition={definition}

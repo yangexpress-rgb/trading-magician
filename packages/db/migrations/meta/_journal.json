@@ -680,6 +680,13 @@
       "when": 1794600020258,
       "tag": "0096_ai_assistant_claude_ai",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1794859540154,
+      "tag": "0097_order_canceled_notification",
+      "breakpoints": true
     }
   ]
 }

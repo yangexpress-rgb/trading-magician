@@ -17,7 +17,7 @@ import Decimal from 'decimal.js';
 import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
-import { OrderError } from './orders';
+import { announceOrderChange, OrderError } from './orders';
 import {
   brokerOrders,
   brokerSyncs,
@@ -759,6 +759,9 @@ export async function requestCancel(
       toState: to,
       payload: { kind: 'canceled_before_submit', reason },
     });
+    // The app's own cancels (the price collar at the open) are announced with
+    // their reason (N287); a person's cancel is not.
+    await announceOrderChange(tx, intentId, 'ready', to, reason);
     return undefined;
   }
   if (!row.cancelRequestedAt) {

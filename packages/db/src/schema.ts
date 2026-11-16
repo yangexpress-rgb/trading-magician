@@ -1865,6 +1865,8 @@ export const NOTIFICATION_KINDS = [
   'strategy_stopped',
   'triggered',
   'order_rejected',
+  // An order the app canceled itself, e.g. the price collar at the open (N287).
+  'order_canceled',
   'partial_fill',
   'filled',
   'disconnect',
@@ -1906,7 +1908,7 @@ export const notifications = pgTable(
       .where(sql`${t.readAt} is null`),
     check(
       'notification_kind',
-      sql`${t.kind} in ('strategy_started', 'strategy_stopped', 'triggered', 'order_rejected', 'partial_fill', 'filled', 'disconnect', 'stale_data', 'risk_pause', 'reconciliation_mismatch', 'billing', 'share_received', 'share_accepted', 'share_declined')`,
+      sql`${t.kind} in ('strategy_started', 'strategy_stopped', 'triggered', 'order_rejected', 'order_canceled', 'partial_fill', 'filled', 'disconnect', 'stale_data', 'risk_pause', 'reconciliation_mismatch', 'billing', 'share_received', 'share_accepted', 'share_declined')`,
     ),
     check('notification_title_length', sql`char_length(${t.title}) <= 200`),
     check('notification_body_length', sql`char_length(${t.body}) <= 1000`),

@@ -1,6 +1,12 @@
 import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
-import { checkPreTradeRisk, collarBreach, holdsForOpenCollar, type RiskCheckInput } from './risk';
+import {
+  checkPreTradeRisk,
+  collarBreach,
+  holdsForOpenCollar,
+  riskRefusalText,
+  type RiskCheckInput,
+} from './risk';
 
 const d = (v: string | number) => new Decimal(v);
 /** The paper limits approved on 2026-10-04. */
@@ -103,5 +109,28 @@ describe('price collar on orders that fill at the open (§7.2)', () => {
     expect(r.breached).toBe(true);
     expect(collarBreach(new Decimal('70'), new Decimal('66.6'), '5').breached).toBe(false);
     expect(collarBreach(new Decimal('0'), new Decimal('10'), '5').breached).toBe(false);
+  });
+});
+
+describe('riskRefusalText (N287)', () => {
+  it('names the check that refused the order, with its figures', () => {
+    const refused = (failed: { code: string; limit?: string; value?: string }) =>
+      riskRefusalText({
+        ok: false,
+        code: failed.code as never,
+        checks: [{ code: 'stale_data', passed: true }, { ...failed, passed: false } as never],
+      });
+    expect(refused({ code: 'risk_active_orders', limit: '20', value: '20' })).toBe(
+      'Active orders: 20 already working, limit 20',
+    );
+    expect(refused({ code: 'risk_order_size', limit: '10000', value: '12500.5' })).toBe(
+      'Order size: $12,500.5, limit $10,000',
+    );
+    expect(refused({ code: 'risk_daily_loss' })).toBe('Daily loss');
+  });
+
+  it('is null for an order that passed', () => {
+    expect(riskRefusalText({ ok: true, checks: [] })).toBeNull();
+    expect(riskRefusalText(undefined)).toBeNull();
   });
 });
