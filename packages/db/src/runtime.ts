@@ -14,7 +14,7 @@ import {
   type StrategyDefinition,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
-import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
 import { OrderError } from './orders';
@@ -22,6 +22,7 @@ import {
   brokerOrders,
   brokerSyncs,
   executionControls,
+  executionIncidents,
   fills,
   instruments,
   orderEvents,
@@ -59,6 +60,20 @@ export interface RuntimeState {
   staleSince?: number | undefined;
   /** Each watched instrument's own stale-or-missing start, epoch ms (N276); one quiet stock no longer adds to another's. */
   staleSinceBy?: Record<string, number> | undefined;
+  /** Since when the broker has kept answering "too many requests", epoch ms (N282). */
+  throttledSince?: number | undefined;
+  /** A pause for a passing outage, which lifts itself once the cause clears (N283). */
+  autoPause?:
+    | {
+        kind: 'broker_disconnected' | 'broker_throttled' | 'feed_loss';
+        reason: string;
+        at: number;
+        healthySince?: number | undefined;
+        gaveUp?: boolean | undefined;
+      }
+    | undefined;
+  /** Automatic resumes on one New York day (N283). */
+  autoResumes?: { day: string; count: number } | undefined;
   /** The calendar period last evaluated on a non-daily schedule, e.g. "2026-03" (v1.2 item 4). */
   lastSchedulePeriod?: string | undefined;
   /** The period Check Exit last evaluated (ADR 0073), as `lastSchedulePeriod` is for Entry. */
@@ -195,6 +210,46 @@ export async function pauseRuntime(
     .update(strategyRuntimes)
     .set({ status: 'paused', pauseReason: reason.slice(0, 500) })
     .where(and(eq(strategyRuntimes.id, runtimeId), eq(strategyRuntimes.status, 'running')));
+}
+
+/** The reason a runtime was paused, or null. */
+export async function runtimePauseReason(
+  tx: Transaction,
+  runtimeId: string,
+): Promise<string | null> {
+  const [row] = await tx
+    .select({ reason: strategyRuntimes.pauseReason })
+    .from(strategyRuntimes)
+    .where(eq(strategyRuntimes.id, runtimeId));
+  return row?.reason ?? null;
+}
+
+/**
+ * Whether an incident that needs a person is open on the runtime or its
+ * accounts: a reconciliation mismatch or repeated rejects (N283).
+ */
+export async function hasBlockingIncident(
+  tx: Transaction,
+  runtimeId: string,
+  accountIds: readonly string[],
+): Promise<boolean> {
+  const rows = await tx
+    .select({ id: executionIncidents.id })
+    .from(executionIncidents)
+    .where(
+      and(
+        isNull(executionIncidents.resolvedAt),
+        inArray(executionIncidents.kind, ['reconciliation_mismatch', 'repeated_rejects']),
+        accountIds.length > 0
+          ? or(
+              eq(executionIncidents.runtimeId, runtimeId),
+              inArray(executionIncidents.accountId, [...accountIds]),
+            )
+          : eq(executionIncidents.runtimeId, runtimeId),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 /** Resumes a paused runtime, unless the kill switch is still engaged. */

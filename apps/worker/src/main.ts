@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { AccountSyncGate } from './account-sync';
 import { hostname } from 'node:os';
 import { FAKE_ALPACA_DATA_URL, FAKE_ALPACA_TRADING_URL, FakeAlpaca } from '@tm/alpaca/testing';
 import { FAKE_SEC_DATA_URL, FAKE_SEC_WWW_URL, FakeSec } from '@tm/sec/testing';
@@ -215,6 +216,8 @@ if (databaseUrl) {
     logger,
     pollMs: env.RUNTIME_POLL_MS,
     passEveryMs: env.RUNTIME_PASS_EVERY_MS,
+    // One broker-account sync shared by the strategies on an account (N282).
+    accountSync: new AccountSyncGate(env.RUNTIME_PASS_EVERY_MS),
   });
   logger.info({ workerId }, 'paper strategy runtimes started');
   feedChecks = startFeedCheckLoop({

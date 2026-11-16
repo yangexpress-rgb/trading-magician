@@ -16,6 +16,9 @@ import {
   finishScheduled,
   getReconciledAt,
   heartbeatInstrumentId,
+  hasBlockingIncident,
+  resumeRuntime,
+  runtimePauseReason,
   idempotencyKey,
   insertCycle,
   intentsByClientOrderId,
@@ -152,7 +155,14 @@ import { createRoutedHistory } from './routed-history';
 import { createRoutedQuotes } from './routed-quotes';
 import { NO_COMPANY_FEED, type FundamentalsLoader } from './fundamentals';
 import { equityLimits } from './equity-limits';
-import { effectivePriceAgeSec, feedVerdict, type WatchedPrice } from './feed-watch';
+import {
+  effectivePriceAgeSec,
+  feedVerdict,
+  type FeedVerdict,
+  type WatchedPrice,
+} from './feed-watch';
+import { isThrottled, type AccountSyncGate } from './account-sync';
+import { AUTO_RESUME, autoResumeStep, type AutoPause, type AutoPauseKind } from './auto-resume';
 
 /**
  * The paper runtime (Design v1.0 §6.5–6.9, §8; ADR 0012). Each pass over a
@@ -201,6 +211,11 @@ export interface RuntimeWorkerOptions {
    * it at 0 and drive passes themselves.
    */
   passEveryMs?: number;
+  /**
+   * One account sync shared by the strategies on an account (N282, ADR 0097).
+   * The worker always has it; tests leave it out and every pass syncs.
+   */
+  accountSync?: AccountSyncGate;
   /** A built-in stock group's members, as back tests resolve them (ADR 0080, 0087). */
   resolveUniverse?: (
     userId: string,
@@ -244,11 +259,15 @@ export const SAFETY = {
   brokerDownPauseMs: 60_000,
   /** How long prices may stay stale or missing, after the staleness threshold, before a pause. */
   feedLossPauseMs: 60_000,
+  /** How long Alpaca may keep answering "too many requests" before a pause (N282). */
+  throttledPauseMs: 300_000,
 } as const;
 
 /** What went wrong with the broker during a pass. */
 interface PassHealth {
   brokerDown: boolean;
+  /** The broker answered "too many requests": it is there, the key is over its limit (N282). */
+  throttled?: boolean;
   /** Whether the price feed gave a fresh price this pass (N276); quiet quotes then count as current. */
   feedLive?: boolean;
 }
@@ -360,7 +379,7 @@ export async function runRuntimePass(
     await paper.tick();
     await sendCancels(broker, work, health);
     await submitReady(tx, { work, broker, quotes, now, logger, health, accounts });
-    const sync = await syncUpdates(tx, broker, work, health);
+    const sync = await syncUpdates(tx, broker, work, health, now, options.accountSync);
     // 3. Periodic reconciliation against the broker (§8.5).
     const healed = sync.complete ? await reconcile(tx, broker, work, now, sync.unknown, health) : 0;
     if (sync.changed || healed > 0)
@@ -370,6 +389,10 @@ export async function runRuntimePass(
     work = await watchBroker(tx, work, now, health);
     if (work.status === 'running')
       work = await watchFeed(tx, work, quotes, now, new Set(members), health);
+    // A pause for a passing outage lifts itself once the cause has cleared (N283).
+    else if (work.status === 'paused' && work.state.autoPause)
+      work = await autoResume(tx, work, quotes, now, new Set(members), health);
+    if (work.status === 'running' && work.state.autoPause) work.state.autoPause = undefined;
 
     if (work.status !== 'stopped') {
       await planPass(tx, {
@@ -406,11 +429,34 @@ async function syncUpdates(
   broker: BrokerAdapter,
   work: RuntimeWork,
   health: PassHealth,
+  now: Date,
+  gate?: AccountSyncGate,
 ) {
   let changed = false;
   let complete = true;
   const unknown = new Map<string, string[]>();
   for (const accountId of work.accounts) {
+    const t = now.getTime();
+    // Another strategy on the account synced it moments ago: its updates are
+    // already applied, so read its outcome instead of asking again (N282).
+    if (gate && !gate.due(accountId, t)) {
+      const last = gate.outcome(accountId);
+      if (last?.brokerDown) health.brokerDown = true;
+      if (last?.throttled) health.throttled = true;
+      if (last?.brokerDown || last?.throttled) complete = false;
+      continue;
+    }
+    const before = { brokerDown: health.brokerDown, throttled: health.throttled ?? false };
+    health.brokerDown = false;
+    health.throttled = false;
+    await syncAccount(accountId);
+    gate?.record(accountId, t, { brokerDown: health.brokerDown, throttled: health.throttled });
+    health.brokerDown ||= before.brokerDown;
+    health.throttled ||= before.throttled;
+  }
+  return { changed, complete, unknown };
+
+  async function syncAccount(accountId: string) {
     let cursor = await getSyncCursor(tx, accountId);
     let done = false;
     for (let page = 0; page < 20 && !done; page++) {
@@ -419,7 +465,7 @@ async function syncUpdates(
         result = await broker.updates(accountId, cursor);
       } catch (e) {
         if (!(e instanceof BrokerUnavailableError)) throw e;
-        health.brokerDown = true;
+        markUnavailable(health, e);
         complete = false;
         break;
       }
@@ -445,7 +491,12 @@ async function syncUpdates(
     if (!done) complete = false;
     await setSyncCursor(tx, work.userId, accountId, cursor);
   }
-  return { changed, complete, unknown };
+}
+
+/** Notes a broker request that failed: throttled is not silent (N282). */
+function markUnavailable(health: PassHealth, e: unknown) {
+  if (isThrottled(e)) health.throttled = true;
+  else health.brokerDown = true;
 }
 
 /** Reconciles each account that is due, or at once when the stream showed unknown orders. */
@@ -473,13 +524,16 @@ async function reconcile(
       healed += r.healed + (r.incidentId ? 1 : 0);
     } catch (e) {
       if (!(e instanceof BrokerUnavailableError)) throw e;
-      health.brokerDown = true;
+      markUnavailable(health, e);
     }
   }
   return healed;
 }
 
-/** Pauses the runtime once the broker has not answered for a while; clears when it does. */
+/**
+ * Pauses the runtime once the broker has not answered for a while, or has
+ * kept answering "too many requests" for longer (N282); clears when it answers.
+ */
 async function watchBroker(
   tx: Transaction,
   work: RuntimeWork,
@@ -487,7 +541,9 @@ async function watchBroker(
   health: PassHealth,
 ): Promise<RuntimeWork> {
   const t = now.getTime();
-  if (!health.brokerDown) {
+  if (!health.throttled) work.state.throttledSince = undefined;
+  else work.state.throttledSince ??= t;
+  if (!health.brokerDown && !health.throttled) {
     if (work.state.brokerDownSince === undefined) return work;
     work.state.brokerDownSince = undefined;
     await resolveIncidentsOf(
@@ -499,18 +555,31 @@ async function watchBroker(
     );
     return work;
   }
-  work.state.brokerDownSince ??= t;
-  if (work.status !== 'running' || t - work.state.brokerDownSince < SAFETY.brokerDownPauseMs) {
+  if (health.brokerDown) work.state.brokerDownSince ??= t;
+  if (work.status !== 'running') return work;
+  const silentFor = work.state.brokerDownSince === undefined ? 0 : t - work.state.brokerDownSince;
+  const throttledFor = work.state.throttledSince === undefined ? 0 : t - work.state.throttledSince;
+  let kind: AutoPauseKind;
+  let summary: string;
+  if (health.brokerDown && silentFor >= SAFETY.brokerDownPauseMs) {
+    kind = 'broker_disconnected';
+    summary = `The paper broker has not answered for ${Math.round(silentFor / 1000)} seconds.`;
+  } else if (health.throttled && throttledFor >= SAFETY.throttledPauseMs) {
+    kind = 'broker_throttled';
+    summary = `Alpaca has refused requests as over its limit for ${Math.round(throttledFor / 60_000)} minutes.`;
+  } else {
     return work;
   }
+  // Data incidents and their pauses use the broker_disconnected kind (no new incident kind).
   await openIncident(tx, {
     userId: work.userId,
     kind: 'broker_disconnected',
     runtimeId: work.id,
-    summary: `The paper broker has not answered for ${Math.round((t - work.state.brokerDownSince) / 1000)} seconds.`,
+    summary,
     pause: [work.id],
     link: `/orders?strategy=${work.strategyId}`,
   });
+  work.state.autoPause = { kind, reason: summary.slice(0, 500), at: t };
   return { ...work, status: 'paused' };
 }
 
@@ -529,6 +598,48 @@ async function watchFeed(
   health?: PassHealth,
 ): Promise<RuntimeWork> {
   const t = now.getTime();
+  const limit = work.definition.execution.staleDataSec;
+  const verdict = await readFeed(tx, work, quotes, now, members);
+  if (health) health.feedLive = verdict.feedLive;
+  work.state.staleSinceBy = verdict.staleSince;
+  if (verdict.bad.length === 0) {
+    if (work.state.staleSince === undefined) return work;
+    work.state.staleSince = undefined;
+    await resolveIncidentsOf(tx, work.userId, 'stale_data', work.id, 'Prices are current again');
+    return work;
+  }
+  work.state.staleSince ??= t;
+  const link = `/orders?strategy=${work.strategyId}`;
+  await openIncident(tx, {
+    userId: work.userId,
+    kind: 'stale_data',
+    runtimeId: work.id,
+    summary: `Prices older than ${limit} seconds or missing for ${verdict.bad.join(', ')}; no new orders are sent until they are current.`,
+    link,
+  });
+  if (verdict.lost.length === 0) return work;
+  const longest = Math.max(...verdict.lost.map((l) => l.seconds));
+  const lostSummary = `Live prices for ${verdict.lost.map((l) => l.symbol).join(', ')} have been unavailable for ${longest} seconds.`;
+  await openIncident(tx, {
+    userId: work.userId,
+    kind: 'feed_loss',
+    runtimeId: work.id,
+    summary: lostSummary,
+    pause: [work.id],
+    link,
+  });
+  work.state.autoPause = { kind: 'feed_loss', reason: lostSummary.slice(0, 500), at: t };
+  return { ...work, status: 'paused' };
+}
+
+/** The watched prices' verdict this pass (N276), without opening incidents. */
+async function readFeed(
+  tx: Transaction,
+  work: RuntimeWork,
+  quotes: LiveQuoteProvider,
+  now: Date,
+  members: ReadonlySet<string>,
+): Promise<FeedVerdict> {
   const limit = work.definition.execution.staleDataSec;
   const prices: WatchedPrice[] = [];
   for (const { instrumentId, symbol } of watchedInstruments(work, members)) {
@@ -551,34 +662,114 @@ async function watchFeed(
     pauseAfterMs: SAFETY.feedLossPauseMs,
     staleSince: work.state.staleSinceBy ?? {},
   });
-  if (health) health.feedLive = verdict.feedLive;
-  work.state.staleSinceBy = verdict.staleSince;
-  if (verdict.bad.length === 0) {
-    if (work.state.staleSince === undefined) return work;
-    work.state.staleSince = undefined;
-    await resolveIncidentsOf(tx, work.userId, 'stale_data', work.id, 'Prices are current again');
+  return verdict;
+}
+
+/**
+ * Lifts a pause for a passing outage once its cause has cleared (N283, ADR
+ * 0097): the broker answers again, or the prices are current. Only while the
+ * runtime is still paused for that reason and nothing that needs a person is
+ * open on it.
+ */
+async function autoResume(
+  tx: Transaction,
+  work: RuntimeWork,
+  quotes: LiveQuoteProvider,
+  now: Date,
+  members: ReadonlySet<string>,
+  health: PassHealth,
+): Promise<RuntimeWork> {
+  const pause = work.state.autoPause;
+  if (!pause) return work;
+  const t = now.getTime();
+  if (!(await stillAutoPaused(tx, work, pause))) {
+    work.state.autoPause = undefined;
     return work;
   }
-  work.state.staleSince ??= t;
+  let healthy: boolean;
+  if (pause.kind === 'feed_loss') {
+    const verdict = await readFeed(tx, work, quotes, now, members);
+    work.state.staleSinceBy = verdict.staleSince;
+    healthy = verdict.bad.length === 0;
+  } else {
+    healthy = !health.brokerDown && !health.throttled;
+  }
+  const step = autoResumeStep({
+    pause,
+    counts: work.state.autoResumes,
+    today: nyDate(now),
+    healthy,
+    now: t,
+  });
   const link = `/orders?strategy=${work.strategyId}`;
-  await openIncident(tx, {
+  if (step.action === 'wait') {
+    work.state.autoPause = step.pause;
+    return work;
+  }
+  if (step.action === 'give_up') {
+    work.state.autoPause = step.pause;
+    await notify(tx, {
+      userId: work.userId,
+      kind: 'disconnect',
+      title: `${work.strategyName} stays paused`,
+      body: `It already resumed on its own ${AUTO_RESUME.perDay} times today after short outages. Resume it from Orders when you are ready.`,
+      link,
+      resourceType: 'strategy_runtime',
+      resourceId: work.id,
+      dedupeKey: `auto_resume_cap:${work.id}:${nyDate(now)}`,
+    });
+    return work;
+  }
+  if (!(await resumeRuntime(tx, work.userId, work.id))) return work;
+  await resolveIncidentsOf(
+    tx,
+    work.userId,
+    pause.kind === 'feed_loss' ? 'feed_loss' : 'broker_disconnected',
+    work.id,
+    'Resumed on its own after the outage cleared',
+  );
+  if (pause.kind === 'feed_loss')
+    await resolveIncidentsOf(tx, work.userId, 'stale_data', work.id, 'Prices are current again');
+  await recordAudit(tx, {
     userId: work.userId,
-    kind: 'stale_data',
-    runtimeId: work.id,
-    summary: `Prices older than ${limit} seconds or missing for ${verdict.bad.join(', ')}; no new orders are sent until they are current.`,
-    link,
+    actorType: 'system',
+    action: 'runtime.resumed',
+    resourceType: 'strategy_runtime',
+    resourceId: work.id,
+    context: {
+      auto: true,
+      cause: pause.kind,
+      attempt: step.attempt,
+      pausedAt: new Date(pause.at).toISOString(),
+    },
   });
-  if (verdict.lost.length === 0) return work;
-  const longest = Math.max(...verdict.lost.map((l) => l.seconds));
-  await openIncident(tx, {
+  await notify(tx, {
     userId: work.userId,
-    kind: 'feed_loss',
-    runtimeId: work.id,
-    summary: `Live prices for ${verdict.lost.map((l) => l.symbol).join(', ')} have been unavailable for ${longest} seconds.`,
-    pause: [work.id],
+    kind: 'disconnect',
+    title: `${work.strategyName} resumed on its own`,
+    body: `${pause.reason} That has cleared, so it is running again (automatic resume ${step.attempt} of ${AUTO_RESUME.perDay} today).`,
     link,
+    resourceType: 'strategy_runtime',
+    resourceId: work.id,
+    dedupeKey: `auto_resume:${work.id}:${t}`,
   });
-  return { ...work, status: 'paused' };
+  work.state.autoPause = undefined;
+  work.state.autoResumes = step.count;
+  work.state.brokerDownSince = undefined;
+  work.state.throttledSince = undefined;
+  work.state.staleSince = undefined;
+  return { ...work, status: 'running', activeSince: now };
+}
+
+/**
+ * Whether the runtime is still paused for this outage alone: its pause reason
+ * is the one the outage gave, and no reconciliation mismatch or repeated
+ * rejects incident is open on it or its accounts.
+ */
+async function stillAutoPaused(tx: Transaction, work: RuntimeWork, pause: AutoPause) {
+  const reason = await runtimePauseReason(tx, work.id);
+  if (reason !== pause.reason) return false;
+  return !(await hasBlockingIncident(tx, work.id, work.accounts));
 }
 
 /** A liquid ETF the feed always prices, to tell a quiet stock from a silent feed. */
@@ -641,7 +832,7 @@ async function sendCancels(broker: BrokerAdapter, work: RuntimeWork, health: Pas
       await broker.cancelOrder(o.intent.accountId, o.brokerOrderId);
     } catch (e) {
       if (!(e instanceof BrokerUnavailableError)) throw e;
-      health.brokerDown = true;
+      markUnavailable(health, e);
     }
   }
 }
@@ -1738,7 +1929,7 @@ async function submit(
     if (e instanceof BrokerUnavailableError) {
       // The intent stays ready; the next pass submits it again with the same key.
       ctx.logger.warn({ intentId }, 'broker unavailable; will retry');
-      ctx.health.brokerDown = true;
+      markUnavailable(ctx.health, e);
       return false;
     }
     throw e;
