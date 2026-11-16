@@ -57,7 +57,8 @@ export function autoResumeStep(input: {
   }
   const healthySince = input.healthy ? (pause.healthySince ?? now) : undefined;
   const next = { ...pause, healthySince };
-  const delay = AUTO_RESUME.delaysMs[Math.min(used, AUTO_RESUME.delaysMs.length - 1)]!;
+  const delays: readonly number[] = AUTO_RESUME.delaysMs;
+  const delay = delays[Math.min(used, delays.length - 1)] ?? 0;
   if (
     healthySince !== undefined &&
     now - pause.at >= delay &&

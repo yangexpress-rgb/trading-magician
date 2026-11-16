@@ -679,7 +679,8 @@ async function autoResume(
   members: ReadonlySet<string>,
   health: PassHealth,
 ): Promise<RuntimeWork> {
-  const pause = work.state.autoPause!;
+  const pause = work.state.autoPause;
+  if (!pause) return work;
   const t = now.getTime();
   if (!(await stillAutoPaused(tx, work, pause))) {
     work.state.autoPause = undefined;
