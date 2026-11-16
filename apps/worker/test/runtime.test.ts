@@ -31,6 +31,8 @@ import {
   type SeriesResolver,
   type StrategyDefinition,
 } from '@tm/domain';
+import { AlpacaRateLimitError } from '@tm/alpaca';
+import { AUTO_RESUME } from '../src/auto-resume';
 import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
 
 import Decimal from 'decimal.js';
@@ -59,6 +61,7 @@ let clock = T0;
 /** Test hooks: stale prices and a broker that stops answering. */
 let quoteDelayMs = 0;
 let brokerDown = false;
+let brokerThrottled = false;
 /** Test hook: DEMO-A daily closes replaced by the date the bar ended, for the N225 stop checks. */
 const dailyCloses = new Map<string, string>();
 /** Bars kept between passes, as the worker keeps them (ADR 0087); fresh for each test. */
@@ -114,6 +117,7 @@ const options = (workerId: string): RuntimeWorkerOptions => ({
     positions: (a) => broker.positions(a),
     updates: (a, c) => {
       if (brokerDown) throw new BrokerUnavailableError('test: broker down');
+      if (brokerThrottled) throw new AlpacaRateLimitError(undefined);
       return broker.updates(a, c);
     },
   }),
@@ -827,6 +831,81 @@ describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', (
     clock += 10_000;
     await pass();
     expect(await incidents()).toEqual([]);
+    await stopAll();
+  });
+});
+
+describe('paper runtime: automatic resume after passing outages (N280, N281)', () => {
+  it('resumes on its own once the broker has answered again for a while', async () => {
+    clock = T0 + 18 * 86_400_000;
+    const def = pairDefinition();
+    def.exit.condition = never();
+    const { runtimeId } = await startPaper('Comes back', def);
+    await pass();
+    brokerDown = true;
+    clock += 10_000;
+    await pass();
+    clock += SAFETY.brokerDownPauseMs;
+    await pass();
+    expect((await runtimeStatus(runtimeId))?.status).toBe('paused');
+
+    brokerDown = false;
+    clock += 10_000;
+    await pass();
+    // Healthy, but the first wait (1 minute) and 30 s of health have not passed.
+    expect((await runtimeStatus(runtimeId))?.status).toBe('paused');
+    clock += AUTO_RESUME.delaysMs[0];
+    await pass();
+    expect((await runtimeStatus(runtimeId))?.status).toBe('running');
+    expect(await incidents()).toEqual([]);
+    const notes = await t.ownerSql<
+      { title: string }[]
+    >`select title from notification where title like '%resumed on its own'`;
+    expect(notes.length).toBe(1);
+    await stopAll();
+  });
+
+  it('never resumes a pause that needs a person', async () => {
+    clock = T0 + 19 * 86_400_000;
+    const def = pairDefinition();
+    def.exit.condition = never();
+    const { runtimeId } = await startPaper('Needs a person', def);
+    await pass();
+    brokerDown = true;
+    clock += 10_000;
+    await pass();
+    clock += SAFETY.brokerDownPauseMs;
+    await pass();
+    expect((await runtimeStatus(runtimeId))?.status).toBe('paused');
+    // Someone (or something) pauses it for another reason meanwhile.
+    await t.ownerSql`update strategy_runtime set pause_reason = 'Paused by a person' where id = ${runtimeId}`;
+    brokerDown = false;
+    clock += AUTO_RESUME.delaysMs[2] + 60_000;
+    await pass();
+    clock += 60_000;
+    await pass();
+    expect((await runtimeStatus(runtimeId))?.status).toBe('paused');
+    await stopAll();
+  });
+
+  it('treats "too many requests" as throttling, not silence, and pauses only after 5 minutes', async () => {
+    clock = T0 + 20 * 86_400_000;
+    const def = pairDefinition();
+    def.exit.condition = never();
+    const { runtimeId } = await startPaper('Throttled', def);
+    await pass();
+    brokerThrottled = true;
+    clock += 10_000;
+    await pass();
+    clock += SAFETY.brokerDownPauseMs + 10_000;
+    await pass();
+    expect((await runtimeStatus(runtimeId))?.status).toBe('running');
+    expect(await incidents()).toEqual([]);
+    clock += SAFETY.throttledPauseMs;
+    await pass();
+    expect((await runtimeStatus(runtimeId))?.status).toBe('paused');
+    expect((await incidents()).map((i) => i.kind)).toEqual(['broker_disconnected']);
+    brokerThrottled = false;
     await stopAll();
   });
 });
