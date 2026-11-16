@@ -38,7 +38,11 @@ function rebuild(run: Run): SimulationInput {
         ]),
       };
   const input = decode({ ...run.input, data }) as SimulationInput;
-  return { ...input, definition: parseDefinition(run.input.definition) };
+  const definition = parseDefinition(run.input.definition);
+  // Schema 6 gives every stored strategy the 1% strategy trailing stop (ADR 0099), on
+  // purpose; with it switched off, everything else must still behave exactly as before.
+  delete definition.risk.trailingStopPct;
+  return { ...input, definition };
 }
 
 /** Runs whose result changes on purpose, with the reason (see docs/adr). */

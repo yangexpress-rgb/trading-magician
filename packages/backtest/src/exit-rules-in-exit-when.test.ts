@@ -1,6 +1,5 @@
 import {
   OPTION_SIGNAL_FIELDS,
-  parseDefinition,
   type ExitRule,
   type OptionSignal,
   type OptionSignalValues,
@@ -9,7 +8,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import { simulate } from './engine';
 import { riskAtrTrend, SPY, spyBars } from './fixtures/spy-strategies';
-import { inputs, loaded } from './test-utils';
+import { inputs, loaded, parseWithoutStrategyTrail } from './test-utils';
 import type { InstrumentRef } from './index';
 
 /**
@@ -69,10 +68,10 @@ const fills = (r: ReturnType<typeof run>) =>
   r.fills.map((f) => [f.time, f.side, f.quantity, f.price]);
 
 function sameExits(doc: Record<string, unknown>, reason: string) {
-  const asCondition = parseDefinition(doc);
+  const asCondition = parseWithoutStrategyTrail(doc);
   expect(asCondition.exit.rules ?? []).toEqual([]);
   // The rule as it ran before: the same strategy, rule kept, read as schema 5.
-  const asRule = parseDefinition({ ...doc, schemaVersion: 5 });
+  const asRule = parseWithoutStrategyTrail({ ...doc, schemaVersion: 5 });
   expect(asRule.exit.rules?.length).toBeGreaterThan(0);
   const a = run(asRule);
   const b = run(asCondition);
@@ -92,7 +91,7 @@ describe('exit rules read as Exit when conditions (N221, ADR 0076)', () => {
       'atr_stop',
     );
     // With no override it reads the Entry's risk distance.
-    const doc = parseDefinition(saved([{ kind: 'atrStop', id: 'a' }]));
+    const doc = parseWithoutStrategyTrail(saved([{ kind: 'atrStop', id: 'a' }]));
     expect(JSON.stringify(doc.exit.condition)).toContain('"period":20');
   });
 
@@ -110,8 +109,8 @@ describe('exit rules read as Exit when conditions (N221, ADR 0076)', () => {
       { kind: 'atrStop', id: 'a', override: { atrPeriod: 14, atrMultiple: '1' } },
       { kind: 'expectedMove', id: 'em', horizon: 1, multiple: '1', side: 'either' },
     ]);
-    const asCondition = parseDefinition(doc);
-    const asRule = parseDefinition({ ...doc, schemaVersion: 5 });
+    const asCondition = parseWithoutStrategyTrail(doc);
+    const asRule = parseWithoutStrategyTrail({ ...doc, schemaVersion: 5 });
     expect(fills(run(asCondition))).toEqual(fills(run(asRule)));
   });
 });

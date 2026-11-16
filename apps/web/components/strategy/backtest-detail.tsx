@@ -480,6 +480,7 @@ export const EXIT_REASON_LABELS: Record<NonNullable<BacktestTradeDto['exitReason
   trailing_stop: 'Trailing stop',
   rebalance: 'Left the group: no longer selected',
   session_end: 'Session end',
+  strategy_trailing_stop: 'Trailing stop (whole strategy)',
 };
 
 /** A metric's name with its parameters, e.g. "Return (lookback 6, skip 0)". */

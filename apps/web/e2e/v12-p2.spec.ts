@@ -234,6 +234,10 @@ test('risk % of equity sized from ATR, with an ATR stop, explained per trade', a
   await expect(distance.getByLabel('ATR period (daily bars)')).toHaveValue('20');
   await distance.getByLabel('ATRs from the entry price').fill('1');
   await expect(page.getByLabel(/Use the Entry.s risk distance \(1 × ATR\(20\)\)/)).toBeChecked();
+  // This checks the per-trade ATR stop, so the whole-strategy trailing stop (1% by default,
+  // ADR 0100) is left blank: it would close the trades first.
+  await expect(page.locator('#risk-trailingStopPct')).toHaveValue('1');
+  await page.locator('#risk-trailingStopPct').fill('');
   await page.getByRole('button', { name: 'Save draft' }).click();
   await expect(page.locator('#save-state')).toHaveText('All changes saved');
   const v = await (

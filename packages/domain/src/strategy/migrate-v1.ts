@@ -55,7 +55,9 @@ export interface MigrationNote {
     | 'trailing_stop_in_exit_when'
     | 'exit_rule_in_exit_when'
     | 'exit_rule_kept'
-    | 'trailing_stop_kept';
+    | 'trailing_stop_kept'
+    // Schema 5 → 6 (migrate-v5.ts, ADR 0099).
+    | 'strategy_trailing_stop';
   effect: MigrationEffect;
   message: string;
   /** Where in the definition, e.g. "entry.orders[0]" or "groups[0].exit.rules". */

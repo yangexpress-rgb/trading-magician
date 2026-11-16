@@ -174,6 +174,7 @@ describe('strategy definition', () => {
       maxActiveOrders: 10,
       dailyLossLimit: '1000',
       priceCollarPct: '5',
+      trailingStopPct: '1',
     });
     expect(def.execution).toMatchObject({
       multiLegPolicy: 'concurrent',
@@ -201,7 +202,7 @@ describe('strategy definition', () => {
 
   it('rejects unknown schema versions', () => {
     expect(
-      strategyDefinitionSchema.safeParse({ ...validDefinition(), schemaVersion: 6 }).success,
+      strategyDefinitionSchema.safeParse({ ...validDefinition(), schemaVersion: 7 }).success,
     ).toBe(false);
   });
 });

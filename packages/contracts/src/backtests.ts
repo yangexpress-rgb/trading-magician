@@ -88,7 +88,8 @@ export interface BacktestTradeDto {
     | 'atr_stop'
     | 'expected_move'
     | 'trailing_stop'
-    | 'session_end';
+    | 'session_end'
+    | 'strategy_trailing_stop';
   /** Two-sided strategies (v1.2 item 8): long or short, and the entry group's name. */
   direction?: 'long' | 'short';
   group?: string;

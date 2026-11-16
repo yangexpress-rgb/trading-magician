@@ -1,5 +1,7 @@
 import {
   checkPreTradeRisk,
+  stepStrategyTrail,
+  type StrategyTrailState,
   atrExpr,
   atrStopHit,
   atrStopInstrument,
@@ -236,7 +238,8 @@ interface Cycle {
     | 'atr_stop'
     | 'expected_move'
     | 'trailing_stop'
-    | 'session_end';
+    | 'session_end'
+    | 'strategy_trailing_stop';
   state: 'entering' | 'open' | 'exiting' | 'closed' | 'aborted';
   entryTriggeredAt?: number;
   events: Map<PhaseEvent, number>;
@@ -361,7 +364,8 @@ export function simulate({
     mode !== 'none' ||
     calendar ||
     (def.exit.rules?.length ?? 0) > 0 ||
-    def.execution.flattenAtSessionEnd === true;
+    def.execution.flattenAtSessionEnd === true ||
+    !!def.risk.trailingStopPct;
   for (const w of data.warnings) warnings.add(`data:${w}`, w);
   const watchOnly = watchOnlyInstruments(instruments);
   const view = new MarketView(
@@ -499,6 +503,10 @@ export function simulate({
   let dailyHalt = false;
   let drawdownHalt = false;
   let peak = initial;
+  /** The strategy trailing stop (N290, ADR 0099): its best while holding. */
+  let trail: StrategyTrailState | undefined;
+  /** Whether the stop fired on this step: no new Entry then. */
+  let trailHalt = false;
   let unknownEntrySteps = 0;
   let staleSteps = 0;
 
@@ -1197,18 +1205,30 @@ export function simulate({
    * close, so they are canceled first. The cycle closes with exit reason
    * "Session end"; re-entry follows the strategy's setting from the next session.
    */
-  function closeAtSessionEnd(c: Cycle, now: number) {
-    if (flat(c)) return;
+  function closeAtSessionEnd(
+    c: Cycle,
+    now: number,
+    reason: 'session_end' | 'strategy_trailing_stop' = 'session_end',
+  ) {
+    const stop = reason === 'strategy_trailing_stop';
+    // The trailing stop also keeps a cycle with nothing filled yet from opening (N290).
+    if (flat(c) && !(stop && c.state === 'entering')) return;
     for (const l of [...c.entryLegs, ...c.exitLegs, ...c.flattenLegs]) {
       if (l.status === 'working')
         endLeg(
           l,
           'canceled',
           now,
-          'session_end_canceled',
-          'Orders still working at a session end were canceled when the position was flattened',
+          stop ? 'strategy_trailing_stop_canceled' : 'session_end_canceled',
+          stop
+            ? 'Orders still working when the trailing stop fired were canceled'
+            : 'Orders still working at a session end were canceled when the position was flattened',
         );
       else if (l.status === 'waiting') endLeg(l, 'canceled', now);
+    }
+    if (flat(c)) {
+      settle(c, now);
+      return;
     }
     let closed = false;
     for (const [id, p] of c.positions) {
@@ -1226,8 +1246,10 @@ export function simulate({
         fillCount: 0,
         decidedAt: now,
         leg: {
-          id: `session-end-${id}`,
-          legLabel: `Close ${symbol(id)} at session end`,
+          id: stop ? `trailing-stop-${id}` : `session-end-${id}`,
+          legLabel: stop
+            ? `Close ${symbol(id)}: trailing stop`
+            : `Close ${symbol(id)} at session end`,
           instrumentId: id,
           accountId: '',
           side,
@@ -1244,7 +1266,7 @@ export function simulate({
         cost: ZERO,
         reference: close,
         submittedAt: now,
-        reason: 'session_end',
+        reason,
       };
       const order: Order = {
         id: ++orderSeq,
@@ -1272,12 +1294,18 @@ export function simulate({
       closed = true;
     }
     if (!closed) return;
-    warnings.add(
-      'session_end',
-      'Positions still open at a session end were closed at the last bar’s close (Flatten at session end)',
-    );
+    if (stop)
+      warnings.add(
+        'strategy_trailing_stop',
+        `The trailing stop closed every position at the bar’s close when the strategy fell more than ${risk.trailingStopPct ?? ''}% of the money in its positions below its best since entry`,
+      );
+    else
+      warnings.add(
+        'session_end',
+        'Positions still open at a session end were closed at the last bar’s close (Flatten at session end)',
+      );
     c.state = 'exiting';
-    c.exitReason = 'session_end';
+    c.exitReason = reason;
     if (!c.legEvents.has('exit:trigger')) c.legEvents.set('exit:trigger', now);
     settle(c, now);
   }
@@ -1426,7 +1454,7 @@ export function simulate({
   /** One evaluation of a Selection group or per-leg conditions (v1.2 items 1, 2). */
   function selectSlots(now: number, period: string) {
     if (mode === 'none') return;
-    const halted = dailyHalt || drawdownHalt;
+    const halted = dailyHalt || drawdownHalt || trailHalt;
     let candidates: Slot[] = [];
     let count = 1;
     const round: SelectionRound = { time: iso(now), period, rows: [], entered: [], exited: [] };
@@ -1596,6 +1624,21 @@ export function simulate({
         'The maximum drawdown stopped new entries for the rest of the test',
       );
     }
+    // The strategy trailing stop (N290, ADR 0099), shared with paper: on the
+    // whole strategy; when it fires, every cycle closes at this bar's close.
+    const stepTrail = stepStrategyTrail({
+      limitPct: risk.trailingStopPct,
+      state: trail,
+      equity: eq,
+      gross: positionValue().gross,
+      holding: cycles.some((c) => !flat(c)),
+      now,
+    });
+    trailHalt = stepTrail.fired;
+    if (stepTrail.fired)
+      for (const c of activeCycles()) closeAtSessionEnd(c, now, 'strategy_trailing_stop');
+    // Closed at once, so tracking starts afresh with the next position.
+    trail = stepTrail.fired ? undefined : stepTrail.state;
 
     // 3. Expiry and leg timeouts, then settle every cycle.
     for (const order of working()) {
@@ -1654,7 +1697,7 @@ export function simulate({
         if (entryRow && entryTruth === undefined && g.key === null) unknownEntrySteps += 1;
         const before = { ...g.entry.entryTrigger };
         const active = activeCycles();
-        const halted = dailyHalt || drawdownHalt;
+        const halted = dailyHalt || drawdownHalt || trailHalt;
         const planned = planEntry({
           definition: gdef,
           state: g.entry,
@@ -1680,10 +1723,10 @@ export function simulate({
         if (!entryRow) continue;
         // The cycle this firing opened, added to or triggered (N166).
         const fireOpens = !(d.kind === 'none' || (d.kind === 'new_cycle' && !d.triggered));
-        if (planned.fired && !dailyHalt && !drawdownHalt && fireOpens && opened)
-          entryRow.cycle = opened.no;
+        if (planned.fired && !halted && fireOpens && opened) entryRow.cycle = opened.no;
         if (planned.fired && dailyHalt) g.entryRec.markFired(entryRow, 'daily_loss');
         else if (planned.fired && drawdownHalt) g.entryRec.markFired(entryRow, 'drawdown');
+        else if (planned.fired && trailHalt) g.entryRec.markFired(entryRow, 'trailing_stop');
         else if (planned.fired)
           g.entryRec.markFired(
             entryRow,

@@ -75,6 +75,8 @@ import {
   BrokerRejectedError,
   BrokerUnavailableError,
   checkPreTradeRisk,
+  stepStrategyTrail,
+  strategyTrailText,
   evaluateCondition,
   evaluateExpr,
   hasComparisons,
@@ -1036,6 +1038,43 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     });
   }
 
+  // Strategy trailing stop (N290, ADR 0099): measured on the whole strategy,
+  // only when every holding has a mark; once fired, every cycle closes.
+  let trailClosing = state.strategyTrail?.firedAt !== undefined;
+  if (limits.complete) {
+    const holding = [...work.book.positions.values()].some((q) => !q.isZero());
+    const trail = stepStrategyTrail({
+      limitPct: def.risk.trailingStopPct,
+      state: state.strategyTrail,
+      equity,
+      gross,
+      holding,
+      now: t,
+    });
+    state.strategyTrail = trail.state;
+    trailClosing = trail.closing;
+    if (trail.fired && trail.state && def.risk.trailingStopPct) {
+      await notify(tx, {
+        userId: work.userId,
+        kind: 'triggered',
+        title: `${work.strategyName}: Trailing stop reached`,
+        body: strategyTrailText(def.risk.trailingStopPct, trail.state),
+        link: `/orders?strategy=${work.strategyId}`,
+        resourceType: 'strategy_runtime',
+        resourceId: work.id,
+        dedupeKey: `strategy_trail:${work.id}:${t}`,
+      });
+      await recordAudit(tx, {
+        userId: work.userId,
+        actorType: 'system',
+        action: 'runtime.strategy_trailing_stop',
+        resourceType: 'strategy_runtime',
+        resourceId: work.id,
+        context: { ...trail.state, limitPct: def.risk.trailingStopPct },
+      });
+    }
+  }
+
   // 3. Conditions on the newest completed bars (§6.5).
   const mode = slotModeOf(def);
   const members = ctx.members;
@@ -1169,7 +1208,8 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     c.cycle.group ? def.groups?.find((g) => g.id === c.cycle.group)?.label : undefined;
 
   // Without a mark for every holding, equity is not known: no new entries this pass.
-  const entryHalted = halted || dailyLossHit || drawdownHit || !limits.complete;
+  // While the strategy trailing stop closes everything, no new Entry either (N290).
+  const entryHalted = halted || dailyLossHit || drawdownHit || !limits.complete || trailClosing;
   const cycles: ActiveCycle[] = [...work.cycles];
   let entryTruth: { truth: Truth } | undefined;
   let entryEventId: string | undefined;
@@ -1537,6 +1577,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       exitTruth,
       exitDue,
       sessionEnd,
+      strategyStop: trailClosing,
       forceExit: rebalanceExits.has(c.id)
         ? 'rebalance'
         : atrStopFired
@@ -1571,7 +1612,9 @@ async function planPass(tx: Transaction, ctx: PassContext) {
           ? 'Leg timeout reached'
           : cancel.reason === 'session_end'
             ? 'Session end: the position was flattened'
-            : 'Another leg of the plan did not fill',
+            : cancel.reason === 'strategy_trailing_stop'
+              ? 'Trailing stop: the strategy closed its positions'
+              : 'Another leg of the plan did not fill',
       );
       if (target) {
         try {

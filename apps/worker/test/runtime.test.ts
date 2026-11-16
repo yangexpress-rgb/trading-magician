@@ -1432,6 +1432,8 @@ describe('paper runtime: kept-as-saved stops skip closes from before Entry fille
     def.entry.orders = [leg('buy', { legLabel: 'Buy A' })];
     def.exit.orders = [leg('sell', { legLabel: 'Sell A', side: 'close' })];
     def.exit.condition = never();
+    // These test the per-stock stops alone, without the strategy trailing stop (ADR 0099).
+    delete def.risk.trailingStopPct;
     return def;
   };
 
@@ -1598,6 +1600,48 @@ describe('paper runtime: intraday pack (N255, N256)', () => {
     const [c] = await cycles(runtimeId);
     expect((c!.state as { exitReason?: string }).exitReason).toBe('session_end');
     expect(c!.status).toBe('closed');
+    await stopAll();
+  });
+
+  it('strategy trailing stop: closes everything once the strategy falls past its best (N290)', async () => {
+    clock = Date.parse('2026-11-02T15:31:00Z'); // Monday 10:31 New York (EST)
+    const def = single();
+    def.entry.trigger = { mode: 'once_per_cycle', cooldownBars: 0, confirmationBars: 0 };
+    def.risk.trailingStopPct = '1';
+    const { runtimeId } = await startPaper('Strategy trailing stop', def);
+    await pass();
+    clock += 5_000;
+    await pass(); // filled
+    expect((await cycles(runtimeId))[0]!.status).toBe('open');
+    const stateOf = async () =>
+      (
+        await t.ownerSql<{ state: { strategyTrail?: Record<string, unknown> } }[]>`
+        select state from strategy_runtime where id = ${runtimeId}`
+      )[0]!.state;
+    const tracked = (await stateOf()).strategyTrail;
+    expect(tracked).toMatchObject({ bestEquity: expect.any(String), invested: expect.any(String) });
+    expect(tracked?.firedAt).toBeUndefined();
+    // As if the strategy had been $1,000 better a moment ago: far more than 1% given back.
+    const best = new Decimal(String(tracked!.bestEquity)).plus(1000).toString();
+    await t.ownerSql`
+      update strategy_runtime
+         set state = jsonb_set(state, '{strategyTrail,bestEquity}', to_jsonb(${best}::text))
+       where id = ${runtimeId}`;
+    clock += 5_000;
+    await pass();
+    const flatten = (await orders(runtimeId)).filter((x) => x.phase === 'flatten');
+    expect(flatten).toHaveLength(1);
+    expect(flatten[0]!.side).toBe('sell');
+    expect((await stateOf()).strategyTrail?.firedAt).toBeDefined();
+    const notes = (await asUser((tx) => listNotifications(tx, { limit: 200 }))).notifications;
+    expect(notes.some((n) => n.title.endsWith('Trailing stop reached'))).toBe(true);
+    clock += 5_000;
+    await pass();
+    const [c] = await cycles(runtimeId);
+    expect((c!.state as { exitReason?: string }).exitReason).toBe('strategy_trailing_stop');
+    expect(c!.status).toBe('closed');
+    // Flat again: tracking starts afresh with the next position.
+    expect((await stateOf()).strategyTrail).toBeUndefined();
     await stopAll();
   });
 

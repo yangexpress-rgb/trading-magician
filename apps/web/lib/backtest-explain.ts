@@ -41,6 +41,7 @@ export const CONDITION_OUTCOMES: Record<ConditionOutcome, string> = {
   cycle_open: 'Fired, but a cycle was already open, so no new orders',
   daily_loss: 'Fired, but new entries were stopped by the daily loss limit',
   drawdown: 'Fired, but new entries were stopped by the maximum drawdown',
+  trailing_stop: 'Fired, but the trailing stop was closing every position on this bar',
 };
 
 export const ORDER_OUTCOMES: Record<OrderOutcome, { label: string; tone: Tone }> = {

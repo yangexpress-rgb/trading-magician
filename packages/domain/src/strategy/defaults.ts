@@ -31,6 +31,8 @@ export const DEFAULT_RISK: RiskProfile = {
   maxActiveOrders: 10,
   dailyLossLimit: '1000',
   priceCollarPct: '5',
+  // Strategy trailing stop, Yong's default (N290, 2026-11-16).
+  trailingStopPct: '1',
 };
 
 export function emptyGroup(ids: IdFactory = randomId): ConditionGroup {

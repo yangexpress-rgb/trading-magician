@@ -694,6 +694,13 @@
       "when": 1794862463676,
       "tag": "0098_price_range_52w",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1794864491614,
+      "tag": "0099_strategy_trailing_stop",
+      "breakpoints": true
     }
   ]
 }

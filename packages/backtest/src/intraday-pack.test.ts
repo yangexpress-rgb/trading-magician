@@ -182,6 +182,7 @@ describe('session values (brief §§3–4, fixtures 3 and 4)', () => {
 /** Enter once on any bar; Exit when `exit` holds (none when empty); 5-minute bars. */
 function intraday(exit: Comparison[], patch: Partial<StrategyDefinition['execution']> = {}) {
   const def = createDefinition(sequentialIds('g'));
+  delete def.risk.trailingStopPct;
   def.entry.condition.children = [compare(close5m(), 'gt', constant('0'))];
   // Fire whenever true, so a cycle opens on the first bar and again after each close.
   def.entry.trigger = { mode: 'while_true', cooldownBars: 0, confirmationBars: 0 };

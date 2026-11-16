@@ -359,6 +359,7 @@ export const RISK_FIELDS: {
   { key: 'priceCollarPct', label: 'Price collar', unit: 'pct' },
   { key: 'maxInstrumentsHeld', label: 'Maximum instruments held', unit: 'count' },
   { key: 'maxDrawdownPct', label: 'Maximum drawdown', unit: 'pct' },
+  { key: 'trailingStopPct', label: 'Trailing stop', unit: 'pct' },
 ];
 
 export const MULTI_LEG_LABELS = {

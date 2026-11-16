@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N291, O177, ADR 0100 and migration 0099** (N276 to N290, ADR 0096 to 0099 and migrations 0097 to 0098 were taken on 2026-11-16); other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N292, O177, ADR 0101 and migration 0100** (N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -467,7 +467,7 @@ Each leg has one timing mode: **immediate** (when its phase qualifies), **exact 
 
 ### 8.11 Risk limits
 
-Required before Start and simulated in back tests: max order notional, max strategy exposure, max active orders, daily loss limit and price collar. Optional: maximum drawdown and **Maximum instruments held** (`maxInstrumentsHeld`, instruments with a position). Paper defaults: $10,000 per order, $25,000 strategy exposure, 10 active orders, $1,000 daily loss, 5% price collar, 60 s stale data. No leverage: exposure may not exceed strategy equity (C16, N82). The checks themselves are in §12.3.
+Required before Start and simulated in back tests: max order notional, max strategy exposure, max active orders, daily loss limit and price collar. Optional: maximum drawdown and **Maximum instruments held** (`maxInstrumentsHeld`, instruments with a position). Also optional, but 1% on new and existing strategies: the **Trailing stop** (`trailingStopPct`): once the strategy holds positions, every position closes with market orders when the strategy's equity falls more than that % of the money in its positions (the largest gross position value while holding) below its best since it went from flat to holding; no new Entry until flat again, the strategy is not paused, and it is a trigger level, not a guaranteed maximum loss (N291, ADR 0100). Paper defaults: $10,000 per order, $25,000 strategy exposure, 10 active orders, $1,000 daily loss, 5% price collar, 60 s stale data. No leverage: exposure may not exceed strategy equity (C16, N82). The checks themselves are in §12.3.
 
 ### 8.12 Validation
 

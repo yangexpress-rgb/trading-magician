@@ -416,7 +416,10 @@ export function ExecutionAndRisk({
         </h2>
         <p className="mb-3 text-sm text-ink-muted">
           Checked before every order, in back tests and on paper. Limits marked required must be set
-          before the strategy can start. Amounts are in {baseCurrency}.
+          before the strategy can start. Amounts are in {baseCurrency}. The trailing stop watches
+          the whole strategy: once it holds positions, it closes every position when the strategy
+          falls more than that % of the money in its positions below its best since entry (new
+          strategies start at 1%; leave it blank for none).
         </p>
         <fieldset disabled={!editable} className="grid-fields-wide gap-3">
           <legend className="sr-only">Risk limits</legend>

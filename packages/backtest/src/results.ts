@@ -60,7 +60,8 @@ export interface BacktestTrade {
     | 'atr_stop'
     | 'expected_move'
     | 'trailing_stop'
-    | 'session_end';
+    | 'session_end'
+    | 'strategy_trailing_stop';
   /** Two-sided strategies (v1.2 item 8): the direction and entry group of the trade. */
   direction?: 'long' | 'short';
   group?: string;
@@ -215,7 +216,7 @@ export interface ConditionCheck {
  * - already_true: true on the previous bar too, and the trigger fires on the change only;
  * - fired_before: the trigger fires once per cycle and already did;
  * - cycle_open (Entry): fired, but a cycle was already open and re-entry is off or capped;
- * - daily_loss / drawdown (Entry): fired, but new entries were halted.
+ * - daily_loss / drawdown / trailing_stop (Entry): fired, but new entries were halted.
  */
 export type ConditionOutcome =
   | 'fired'
@@ -225,7 +226,8 @@ export type ConditionOutcome =
   | 'fired_before'
   | 'cycle_open'
   | 'daily_loss'
-  | 'drawdown';
+  | 'drawdown'
+  | 'trailing_stop';
 
 export interface ConditionBar {
   /** The close of the bar the conditions were checked on. */

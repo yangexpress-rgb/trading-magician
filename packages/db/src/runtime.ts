@@ -12,6 +12,7 @@ import {
   type PhaseName,
   type RuntimeTriggerState,
   type StrategyDefinition,
+  type StrategyTrailState,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
@@ -55,6 +56,8 @@ export interface RuntimeState {
   /** New York date and equity at its first pass, for the daily loss limit. */
   day?: { date: string; startEquity: string } | undefined;
   peakEquity?: string | undefined;
+  /** The strategy trailing stop's best and invested amount while holding (N290, ADR 0099). */
+  strategyTrail?: StrategyTrailState | undefined;
   /** Since when the broker has not answered, epoch ms (§8.6 automatic pause). */
   brokerDownSince?: number | undefined;
   /** Since when a price used by the rules has been stale or missing, epoch ms. */

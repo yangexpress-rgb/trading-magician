@@ -3,7 +3,6 @@ import {
   CONTEXT_INSTRUMENT_ID,
   createDefinition,
   DEFAULT_TRIGGER,
-  parseDefinition,
   nyDate,
   sequentialIds,
   validateStrategy,
@@ -28,7 +27,7 @@ import {
   trendSma200,
 } from './fixtures/spy-strategies';
 import { behaviour } from './corpus-codec';
-import { inputs, loaded } from './test-utils';
+import { inputs, loaded, parseWithoutStrategyTrail } from './test-utils';
 import type { BacktestResult, InstrumentRef } from './index';
 
 /**
@@ -105,6 +104,7 @@ const BIG_RISK = {
 
 function baseDefinition(): StrategyDefinition {
   const def = createDefinition(sequentialIds('d'));
+  delete def.risk.trailingStopPct;
   // These strategies fire as soon as a condition becomes true (before N273).
   def.entry.trigger = { ...DEFAULT_TRIGGER };
   def.exit.trigger = { ...DEFAULT_TRIGGER };
@@ -798,7 +798,7 @@ describe('What to trade, Entry, Exit (ADR 0073)', () => {
       count: ranking.count,
       preFilter: filter,
     };
-    const migrated = parseDefinition(doc);
+    const migrated = parseWithoutStrategyTrail(doc);
     // The 90% total over 3 picks is now 30% per pick, with no split.
     expect(migrated.entry.orders[0]?.quantity.value).toBe('30');
     expect(behaviour(runSectors(migrated))).toEqual(behaviour(runSectors(v3)));
@@ -811,8 +811,8 @@ describe('a group trailing stop read as Exit when (N217, ADR 0074)', () => {
     def.exit.schedule = scheduleFrom('daily');
     def.exit.rules = [{ kind: 'trailingStop', id: 'ts', percent: '3' }];
     const doc = { ...JSON.parse(JSON.stringify(def)), schemaVersion: 3 };
-    const asRule = parseDefinition({ ...doc, schemaVersion: 4 });
-    const asCondition = parseDefinition(doc);
+    const asRule = parseWithoutStrategyTrail({ ...doc, schemaVersion: 4 });
+    const asCondition = parseWithoutStrategyTrail(doc);
     expect(asCondition.exit.rules ?? []).toEqual([]);
     const a = runSectors(asRule);
     const b = runSectors(asCondition);
