@@ -57,6 +57,8 @@ export interface RuntimeState {
   brokerDownSince?: number | undefined;
   /** Since when a price used by the rules has been stale or missing, epoch ms. */
   staleSince?: number | undefined;
+  /** Each watched instrument's own stale-or-missing start, epoch ms (N276); one quiet stock no longer adds to another's. */
+  staleSinceBy?: Record<string, number> | undefined;
   /** The calendar period last evaluated on a non-daily schedule, e.g. "2026-03" (v1.2 item 4). */
   lastSchedulePeriod?: string | undefined;
   /** The period Check Exit last evaluated (ADR 0073), as `lastSchedulePeriod` is for Entry. */
@@ -71,6 +73,8 @@ export interface WorkingOrder {
   brokerOrderId: string | null;
   cancelRequested: boolean;
   symbol: string;
+  /** Quantity filled so far. */
+  filledQuantity: string;
 }
 
 export const WORKING_STATES = ['ready', 'submitted', 'acknowledged', 'partially_filled'] as const;
@@ -459,6 +463,7 @@ export async function loadRuntimeWork(
       brokerOrderId: o.brokerOrderId,
       cancelRequested: o.cancelRequestedAt !== null,
       symbol: instrumentMap.get(o.intent.instrumentId)?.symbol ?? '?',
+      filledQuantity: o.filledQuantity,
     }));
 
   return {
@@ -810,6 +815,19 @@ export async function setReconciledAt(
 }
 
 /** States of the runtime's newest orders created after `since`, newest first. */
+/** The heartbeat ETF's instrument (N276), a liquid price that shows whether a feed is live. */
+export async function heartbeatInstrumentId(
+  tx: Transaction,
+  symbol = 'SPY',
+): Promise<string | undefined> {
+  const [row] = await tx
+    .select({ id: instruments.id })
+    .from(instruments)
+    .where(and(eq(instruments.symbol, symbol), eq(instruments.isDemo, false)))
+    .limit(1);
+  return row?.id;
+}
+
 export async function recentOrderStates(
   tx: Transaction,
   runtimeId: string,
