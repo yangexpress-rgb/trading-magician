@@ -183,7 +183,7 @@ export const NUMBER_COLUMNS: readonly NumberColumnSpec[] = [
     label: '52-week high',
     hint: 'Highest daily high of the last 252 sessions (today’s included), split-adjusted',
     format: 'price',
-    shown: false,
+    shown: true,
     range: true,
   },
   {
@@ -191,7 +191,7 @@ export const NUMBER_COLUMNS: readonly NumberColumnSpec[] = [
     label: 'From 52-week high %',
     hint: 'Last price against the 52-week high (0 means at the high)',
     format: 'pct',
-    shown: false,
+    shown: true,
     range: true,
   },
   {
@@ -199,7 +199,7 @@ export const NUMBER_COLUMNS: readonly NumberColumnSpec[] = [
     label: 'Days since 52-week high',
     hint: 'Trading days since the session that set the 52-week high (0 means today)',
     format: 'days',
-    shown: false,
+    shown: true,
     range: true,
   },
   {
