@@ -10,6 +10,7 @@ import {
   STOCK_GROUP_IDS,
   type ScreenRowTuple,
   type StockGroupId,
+  type YearRange,
 } from '@tm/domain';
 import { z } from 'zod';
 import type { InstrumentOptionDto } from './integrations';
@@ -76,7 +77,7 @@ export interface StockScreenDto {
 }
 
 export interface StockScreenDataDto extends StockScreenDto {
-  /** One tuple per symbol, columns in the order of `SCREEN_TEXT_COLUMNS`, `SCREEN_PRICE_COLUMNS`, lastAt, instrumentId, `SCREEN_FUNDAMENTAL_COLUMNS`. */
+  /** One tuple per symbol, columns in the order of `SCREEN_TEXT_COLUMNS`, `SCREEN_PRICE_COLUMNS`, lastAt, instrumentId, `SCREEN_FUNDAMENTAL_COLUMNS`, `SCREEN_OPTION_COLUMNS`, `SCREEN_RANGE_COLUMNS`. */
   rows: ScreenRowTuple[] | null;
 }
 
@@ -166,6 +167,16 @@ export interface EarningsReleaseDto {
   sue: number | null;
   sueSource: 'rebuilt' | 'recorded' | null;
   filingUrl: string;
+}
+
+/**
+ * A stock's stored 52-week low and high (N290): as of the last session the
+ * worker has worked them out for, with the latest 251 sessions' low and high
+ * so a page can roll them forward with today's prices. Null until stored.
+ */
+export interface YearRangeDto {
+  instrumentId: string;
+  range: YearRange | null;
 }
 
 /** Research › Earnings for a symbol: its latest releases and the next scheduled date. */

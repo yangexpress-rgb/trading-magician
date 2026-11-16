@@ -14,7 +14,7 @@ import {
  * sorting 12,000 rows never waits on the server.
  */
 
-export type ColumnFormat = 'price' | 'pct' | 'volume' | 'money' | 'ratio';
+export type ColumnFormat = 'price' | 'pct' | 'volume' | 'money' | 'ratio' | 'days';
 
 export interface NumberColumnSpec {
   key: ScreenNumberColumn;
@@ -27,6 +27,8 @@ export interface NumberColumnSpec {
   company?: true;
   /** From the daily options recording (ADR 0048); hidden while no row has it. */
   options?: true;
+  /** From the stored 52-week lows and highs (N290); hidden while no row has it. */
+  range?: true;
 }
 
 export const NUMBER_COLUMNS: readonly NumberColumnSpec[] = [
@@ -151,6 +153,54 @@ export const NUMBER_COLUMNS: readonly NumberColumnSpec[] = [
     hint: 'Last price against the 1-month low (0 means at the low)',
     format: 'pct',
     shown: false,
+  },
+  {
+    key: 'low52w',
+    label: '52-week low',
+    hint: 'Lowest daily low of the last 252 sessions (today’s included), split-adjusted',
+    format: 'price',
+    shown: true,
+    range: true,
+  },
+  {
+    key: 'fromLow52wPct',
+    label: 'Above 52-week low %',
+    hint: 'Last price against the 52-week low (0 means at the low)',
+    format: 'pct',
+    shown: true,
+    range: true,
+  },
+  {
+    key: 'lowAge',
+    label: 'Days since 52-week low',
+    hint: 'Trading days since the session that set the 52-week low (0 means today)',
+    format: 'days',
+    shown: true,
+    range: true,
+  },
+  {
+    key: 'high52w',
+    label: '52-week high',
+    hint: 'Highest daily high of the last 252 sessions (today’s included), split-adjusted',
+    format: 'price',
+    shown: false,
+    range: true,
+  },
+  {
+    key: 'fromHigh52wPct',
+    label: 'From 52-week high %',
+    hint: 'Last price against the 52-week high (0 means at the high)',
+    format: 'pct',
+    shown: false,
+    range: true,
+  },
+  {
+    key: 'highAge',
+    label: 'Days since 52-week high',
+    hint: 'Trading days since the session that set the 52-week high (0 means today)',
+    format: 'days',
+    shown: false,
+    range: true,
   },
   {
     key: 'marketCap',
@@ -309,6 +359,10 @@ function optionsHint(field: string): string {
 /** Whether a screen carries any options figures, so the options columns are worth showing. */
 export const hasOptionFigures = (rows: readonly ScreenRow[] | null | undefined) =>
   !!rows?.some((r) => r.iv30Pct !== null || r.expectedMove1wPct !== null);
+
+/** Whether a screen carries any 52-week figures, so the 52-week columns are worth showing. */
+export const hasRangeFigures = (rows: readonly ScreenRow[] | null | undefined) =>
+  !!rows?.some((r) => r.low52w !== null);
 
 /** Whether a screen carries any company figures, so the company columns are worth showing. */
 export const hasCompanyFigures = (rows: readonly ScreenRow[] | null | undefined) =>
@@ -507,6 +561,12 @@ export function screenPresets(iexVolumes: boolean): ScreenPreset[] {
       filters: { type: 'all', ranges: { fromHigh1mPct: { min: -1 }, avgVolume20: liquid } },
       sort: { key: 'change1mPct', dir: 'desc' },
     },
+    {
+      id: 'near-52w-low',
+      label: 'Within 5% of the 52-week low',
+      filters: { type: 'all', ranges: { fromLow52wPct: { max: 5 }, avgVolume20: liquid } },
+      sort: { key: 'lowAge', dir: 'asc' },
+    },
   ];
 }
 
@@ -530,6 +590,8 @@ export function formatCell(value: number | null, format: ColumnFormat): string {
       return value < 0 ? `−$${compact.format(-value)}` : `$${compact.format(value)}`;
     case 'ratio':
       return `${value.toFixed(2)}×`;
+    case 'days':
+      return `${Math.round(value).toLocaleString('en-US')} ${Math.round(value) === 1 ? 'day' : 'days'}`;
   }
 }
 

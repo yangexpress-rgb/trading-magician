@@ -25,6 +25,7 @@ import {
   isSigned,
   hasCompanyFigures,
   hasOptionFigures,
+  hasRangeFigures,
   NUMBER_COLUMNS,
   parseAmount,
   screenPresets,
@@ -202,9 +203,14 @@ export function StockScreener({
   const companyFigures = hasCompanyFigures(rows);
   // Options columns likewise, until the options feed and the daily recording fill them (ADR 0048).
   const optionFigures = hasOptionFigures(rows);
+  // 52-week columns likewise, until the worker has stored the figures (N290).
+  const rangeFigures = hasRangeFigures(rows);
   const shownColumns = NUMBER_COLUMNS.filter(
     (c) =>
-      columns.includes(c.key) && (!c.company || companyFigures) && (!c.options || optionFigures),
+      columns.includes(c.key) &&
+      (!c.company || companyFigures) &&
+      (!c.options || optionFigures) &&
+      (!c.range || rangeFigures),
   );
   const iex = (screen?.warnings ?? []).some((w) => /IEX/.test(w));
   const presets = useMemo(() => screenPresets(iex), [iex]);
@@ -271,7 +277,9 @@ export function StockScreener({
     },
     ...NUMBER_COLUMNS.filter(
       (c) =>
-        ((!c.company || companyFigures) && (!c.options || optionFigures)) ||
+        ((!c.company || companyFigures) &&
+          (!c.options || optionFigures) &&
+          (!c.range || rangeFigures)) ||
         filters.ranges[c.key] !== undefined,
     ).map((c): FilterDef => ({
       kind: 'range',

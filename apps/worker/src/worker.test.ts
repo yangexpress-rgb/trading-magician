@@ -46,6 +46,8 @@ describe('worker env', () => {
       PATTERN_SNAPSHOT_FROM: '2016-01-04',
       PATTERN_SNAPSHOT_GROUPS: 'sp500,ndx,dji,sp400,sp600',
       PATTERN_SNAPSHOT_POLL_MS: 300000,
+      PRICE_RANGES: 'on',
+      PRICE_RANGE_POLL_MS: 300000,
       EARNINGS_CALENDAR_PROVIDER: 'fmp',
     });
   });
