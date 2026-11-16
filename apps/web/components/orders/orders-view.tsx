@@ -397,29 +397,58 @@ function Runtimes({
   );
 }
 
-/** This run's cycles by outcome, on one compact line (N280). */
+/**
+ * This run's cycles by outcome (N280): each count is a larger figure in its own colour
+ * (completed green, active blue, rejected red, entering amber; a zero stays grey) above a
+ * small label (N281).
+ */
 function CycleCounts({ cycles }: { cycles: RuntimeSummaryDto['cycles'] }) {
-  const parts: { n: number; label: string; hint: string }[] = [
-    { n: cycles.completed, label: 'completed', hint: 'Entry filled and Exit closed the position' },
-    { n: cycles.active, label: 'active', hint: 'Entry filled; the position is open or exiting' },
+  const parts: { n: number; label: string; hint: string; tone: string }[] = [
+    {
+      n: cycles.completed,
+      label: 'completed',
+      hint: 'Entry filled and Exit closed the position',
+      tone: 'text-ok',
+    },
+    {
+      n: cycles.active,
+      label: 'active',
+      hint: 'Entry filled; the position is open or exiting',
+      tone: 'text-info',
+    },
     {
       n: cycles.rejected,
       label: 'rejected',
       hint: 'Never started: nothing filled (refused by a risk limit, rejected, canceled or expired)',
+      tone: 'text-danger',
     },
   ];
   if (cycles.entering > 0)
-    parts.push({ n: cycles.entering, label: 'entering', hint: 'Entry orders still working' });
+    parts.push({
+      n: cycles.entering,
+      label: 'entering',
+      hint: 'Entry orders still working',
+      tone: 'text-warn',
+    });
   return (
-    <p className="mt-1 text-ink-muted" aria-label="Cycles this run">
-      Cycles:{' '}
-      {parts.map((p, i) => (
-        <span key={p.label} title={p.hint}>
-          {i > 0 && ' · '}
-          <span className="font-medium text-content tabular-nums">{p.n}</span> {p.label}
-        </span>
-      ))}
-    </p>
+    <div className="mt-2">
+      <p className="text-xs font-semibold text-ink-muted">Cycles</p>
+      <dl className="mt-0.5 flex flex-wrap gap-x-5 gap-y-1" aria-label="Cycles this run">
+        {parts.map((p) => (
+          <div key={p.label} title={p.hint} className="flex flex-col">
+            <dt className="order-2 text-xs text-ink-muted">{p.label}</dt>
+            <dd
+              className={cx(
+                'order-1 text-xl font-bold leading-tight tabular-nums',
+                p.n > 0 ? p.tone : 'text-ink-muted',
+              )}
+            >
+              {p.n}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 
