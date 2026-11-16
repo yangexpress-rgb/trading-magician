@@ -56,6 +56,7 @@ import {
   sizingText,
 } from '@/lib/backtest-text';
 import { isStockGroupId, loggedScheduleText, stockGroup, type ConditionNode } from '@tm/domain';
+import { signTone } from '@/lib/sign-tone';
 
 /**
  * Back test results by cycle (N157–N165, ADR 0061): one row per cycle, and
@@ -70,8 +71,7 @@ type Result = NonNullable<BacktestRunDto['result']>;
 const PAGE = 25;
 
 const signed = (v: number | string | null) => (v === null ? '—' : formatSignedMoney(v));
-const tone = (v: number | string | null) =>
-  v === null ? undefined : Number(v) > 0 ? 'text-ok' : Number(v) < 0 ? 'text-danger' : undefined;
+const tone = (v: number | string | null) => cx('whitespace-nowrap', signTone(v));
 
 /** The cycle in the page address (`?cycle=N`), so a cycle can be bookmarked (N161). */
 function cycleFromUrl(): number | null {

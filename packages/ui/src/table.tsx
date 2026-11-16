@@ -69,7 +69,8 @@ export function Td({
     <td
       className={cx(
         'border-b border-line px-3 py-2 align-middle text-content',
-        numeric && 'text-right',
+        // A number never wraps, so a sign stays with its figure (N286).
+        numeric && 'text-right whitespace-nowrap',
         className,
       )}
     >

@@ -56,17 +56,23 @@ export function performanceTiles(s: PerformanceSummaryDto): MetricTile[] {
     {
       label: 'Net P/L',
       value: formatSignedMoney(s.pnl.net),
+      sign: s.pnl.net,
       detail: `Gross ${formatSignedMoney(s.pnl.gross)}, fees ${formatMoney(s.pnl.fees)}`,
     },
     {
       label: 'Realized / unrealized',
       value: `${formatSignedMoney(s.pnl.realized)} / ${formatSignedMoney(s.pnl.unrealized)}`,
+      parts: [
+        { text: formatSignedMoney(s.pnl.realized), sign: s.pnl.realized },
+        { text: formatSignedMoney(s.pnl.unrealized), sign: s.pnl.unrealized },
+      ],
     },
   ];
   if (s.filtered) {
     tiles.push({
       label: 'Return on peak capital',
       value: formatPct(s.returnOnPeakCapitalPct, true),
+      sign: s.returnOnPeakCapitalPct,
       detail: `Peak capital ${formatMoney(s.peakCapital)}`,
     });
   } else {
@@ -89,6 +95,7 @@ export function performanceTiles(s: PerformanceSummaryDto): MetricTile[] {
       {
         label: 'Return',
         value: formatPct(s.equity.returnPct, true),
+        sign: s.equity.returnPct,
         detail:
           s.equity.start && s.equity.end
             ? `Time-weighted; equity ${formatMoney(s.equity.start)} to ${formatMoney(s.equity.end)}`
@@ -97,6 +104,8 @@ export function performanceTiles(s: PerformanceSummaryDto): MetricTile[] {
       {
         label: 'Max drawdown',
         value: formatPct(s.equity.maxDrawdownPct),
+        // A drawdown is a loss, so it reads red once there is one.
+        sign: s.equity.maxDrawdownPct === null ? null : -Number(s.equity.maxDrawdownPct),
         ...(s.shortHistory ? { detail: 'Fewer than 20 sessions' } : {}),
       },
     );
@@ -110,6 +119,10 @@ export function performanceTiles(s: PerformanceSummaryDto): MetricTile[] {
     {
       label: 'Average gain / loss',
       value: `${t.averageWin ? formatSignedMoney(t.averageWin) : '—'} / ${t.averageLoss ? formatSignedMoney(t.averageLoss) : '—'}`,
+      parts: [
+        { text: t.averageWin ? formatSignedMoney(t.averageWin) : '—', sign: t.averageWin },
+        { text: t.averageLoss ? formatSignedMoney(t.averageLoss) : '—', sign: t.averageLoss },
+      ],
     },
     { label: 'Profit factor', value: t.profitFactor ?? '—' },
     {
