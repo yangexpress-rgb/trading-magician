@@ -51,6 +51,7 @@ import {
   thin,
 } from '@/lib/backtest-text';
 import { ADJUSTMENT_LABELS } from '@/lib/strategy-text';
+import { Signed, TileValue } from '@/components/signed';
 
 /**
  * Back Test inputs, run status, history and results (Design v1.0 §7.1, §7.3).
@@ -613,7 +614,15 @@ export function RunHistory({ state }: { state: BacktestsState }) {
               <Td>
                 <RunStatusBadge status={r.status} />
               </Td>
-              <Td numeric>{r.metrics ? formatPct(r.metrics.netReturnPct, true) : '—'}</Td>
+              <Td numeric>
+                {r.metrics ? (
+                  <Signed value={r.metrics.netReturnPct}>
+                    {formatPct(r.metrics.netReturnPct, true)}
+                  </Signed>
+                ) : (
+                  '—'
+                )}
+              </Td>
               <Td className="text-right">
                 {!isActive(r.status) && r.id !== selectedId && (
                   <Button size="sm" variant="ghost" onClick={() => state.select(r.id)}>
@@ -673,7 +682,10 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
           Run summary
           {run.metrics && (
             <span className="ml-2 font-normal text-ink-muted">
-              net return {formatPct(run.metrics.netReturnPct, true)}
+              net return{' '}
+              <Signed value={run.metrics.netReturnPct}>
+                {formatPct(run.metrics.netReturnPct, true)}
+              </Signed>
             </span>
           )}
         </summary>
@@ -698,7 +710,7 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                       key={t.label}
                       className="rounded-md border border-line p-3"
                       label={t.label}
-                      value={t.value}
+                      value={<TileValue tile={t} />}
                       comparison={t.detail}
                     />
                   ))}
@@ -790,9 +802,13 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                           <Td className="font-medium">{c.symbol}</Td>
                           <Td>{c.legs.join(', ') || '—'}</Td>
                           <Td numeric>{c.fills}</Td>
-                          <Td numeric>{formatSignedMoney(c.grossPnl)}</Td>
+                          <Td numeric>
+                            <Signed value={c.grossPnl}>{formatSignedMoney(c.grossPnl)}</Signed>
+                          </Td>
                           <Td numeric>{formatMoney(c.costs)}</Td>
-                          <Td numeric>{formatSignedMoney(c.netPnl)}</Td>
+                          <Td numeric>
+                            <Signed value={c.netPnl}>{formatSignedMoney(c.netPnl)}</Signed>
+                          </Td>
                         </tr>
                       ))}
                     </tbody>

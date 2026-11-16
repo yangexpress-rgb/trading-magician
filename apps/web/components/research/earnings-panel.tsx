@@ -5,6 +5,7 @@ import { Alert, Badge, Table, Td, Th } from '@tm/ui';
 import { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { ResearchSection } from './research-section';
+import { Signed } from '@/components/signed';
 
 const eps = (v: number | null) =>
   v === null ? '—' : `${v < 0 ? '−' : ''}$${Math.abs(v).toFixed(2)}`;
@@ -92,10 +93,12 @@ export function EarningsPanel({ instrument }: { instrument: InstrumentOptionDto 
                   <Td numeric>{eps(r.reportedEps)}</Td>
                   <Td numeric>{eps(r.epsQMinus4)}</Td>
                   <Td numeric>
-                    {signed(r.sue)}
+                    <Signed value={r.sue}>{signed(r.sue)}</Signed>
                     {r.sueSource === 'rebuilt' && <span className="sr-only"> (rebuilt)</span>}
                   </Td>
-                  <Td numeric>{pct(r.surprisePct)}</Td>
+                  <Td numeric>
+                    <Signed value={r.surprisePct}>{pct(r.surprisePct)}</Signed>
+                  </Td>
                   <Td>
                     <a href={r.filingUrl} className="underline" target="_blank" rel="noreferrer">
                       8-K

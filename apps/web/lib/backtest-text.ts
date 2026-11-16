@@ -81,6 +81,10 @@ export interface MetricTile {
   label: string;
   value: string;
   detail?: string;
+  /** The number whose sign colours the value: green above zero, red below (N289). */
+  sign?: string | number | null;
+  /** A value of several signed figures ("realized / unrealized"), each coloured. */
+  parts?: { text: string; sign: string | number | null }[];
 }
 
 /** The §7.3 headline numbers. */
@@ -90,10 +94,17 @@ export function metricTiles(m: BacktestMetrics, currency = 'USD'): MetricTile[] 
     {
       label: 'Net return',
       value: formatPct(m.netReturnPct, true),
+      sign: m.netReturnPct,
       detail: `${formatMoney(m.initialCapital, currency)} → ${formatMoney(m.finalEquity, currency)}`,
     },
-    { label: 'Gross return', value: formatPct(m.grossReturnPct, true), detail: 'Before costs' },
-    { label: 'Max drawdown', value: formatPct(m.maxDrawdownPct) },
+    {
+      label: 'Gross return',
+      value: formatPct(m.grossReturnPct, true),
+      sign: m.grossReturnPct,
+      detail: 'Before costs',
+    },
+    // A drawdown is a loss, so it reads red once there is one.
+    { label: 'Max drawdown', value: formatPct(m.maxDrawdownPct), sign: -Number(m.maxDrawdownPct) },
     {
       label: 'Win rate',
       value: formatPct(m.winRatePct),

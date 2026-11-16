@@ -172,7 +172,7 @@ Content (what the person entered and what the app produced: names, descriptions,
 
 - **Content** uses `text-content`: the content colour `--tm-content` (deep slate-blue `#1e3a5f` in light mode, `#a9c6e8` in dark; at least 9:1 contrast on every surface), medium weight, tabular figures, the system sans. The one primary figure on a card or page uses `text-content-strong`. No webfont (O101).
 - **Interface** keeps the neutral ink; field labels are muted, small and semibold; table headers muted uppercase.
-- Every table cell is content. Numeric columns and inputs are right-aligned; every dollar amount shows "$" and every percentage "%" on the value itself ("−$1,081.98", "−2.8%"), and headers name the figure without a unit ("Net P/L", "Return") (N284, ADR 0098; supersedes O102). A missing value shows `—`, never `0`. Monospace is for identifiers only (numbers, member IDs, hashes, tickers).
+- Every table cell is content. Numeric columns and inputs are right-aligned; every dollar amount shows "$" and every percentage "%" on the value itself ("−$1,081.98", "−2.8%"), and headers name the figure without a unit ("Net P/L", "Return") (N284, ADR 0098; supersedes O102). A figure that can gain or lose (P/L, returns, changes, surprises) is green above zero and red below, keeping its "+" or "−"; a drawdown reads red once there is one; a number never wraps, so its sign stays with it (N289). A missing value shows `—`, never `0`. Monospace is for identifiers only (numbers, member IDs, hashes, tickers).
 - Typed text in fields is content, so it looks like the saved text; selects keep the interface ink.
 - Detail pages use one reading scale: 30px title with the number as a small muted mono line above it, 18px card headings, 14px muted sentence-case labels, 16px values and paragraphs; long text uses `text-prose` (regular weight, proportional figures, 1.625 leading) (N134).
 - The content styles sit in the CSS components layer, so a status colour, muted tone or heavier weight on the same element still wins (O105). Components: `Td`/`Th numeric`, `TdNumeric`, `DataValue`, `Stat` in `§tm/ui`.
@@ -1122,66 +1122,66 @@ Survivorship bias in built-in groups (O6); custom feeds give daily bars only and
 
 ### A.2 v1.2 rows (N1 to N275)
 
-| Rows                                               | Topic                                                   | Section in v1.3                                |
-| -------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------------- |
-| N1, N8, N9, N33, N68                               | Metric registry, statistics, one computation per name   | §8.7, §8.7.1                                   |
-| N2 to N7, N12 to N14                               | Selection groups, per-leg conditions, rounds, S&P 500   | §8.2, §9.4, §11 (superseded parts: Appendix B) |
-| N10, N11                                           | Schedules, time stop                                    | §8.4, §8.7.2                                   |
-| N15                                                | Backward compatibility                                  | §1.1, §21.1                                    |
-| N16, N25                                           | Invite audit, Admin page                                | §15.7, §20.2                                   |
-| N17 to N24                                         | Custom REST (JSON) feeds                                | §15.2                                          |
-| N26, N27, N43                                      | No demo data in deployments, routes under feeds         | §3.3, §15.2, §21.4                             |
-| N28                                                | New legs on Alpaca paper                                | §8.8                                           |
-| N29                                                | Optional shared Entry condition                         | §8.3                                           |
-| N30 to N32, N45                                    | Indices, CBOE feed, VIX sources                         | §8.2, §15.2, §16.1                             |
-| N34 to N39, N46, N48, N49                          | Point-in-time fundamentals                              | §8.7.1, §14.2, §16.3                           |
-| N40                                                | Highest/Lowest window                                   | §8.7                                           |
-| N41, N47, N83                                      | Entry groups, long and short                            | §8.3                                           |
-| N42, N67, N73                                      | Risk sizing, risk distance                              | §8.3, §8.8                                     |
-| N44                                                | Back-test failures and rate limits                      | §11.2                                          |
-| N50 to N59, N85, N96                               | Options recording, pricing, signals, key, budget        | §8.7.1, §16.2, §16.5, §20.4                    |
-| N60 to N65                                         | Research Options, cone, screener columns, ranking       | §14.1, §14.2, §14.4                            |
-| N66, N97                                           | Expected-move exit                                      | §8.7.2                                         |
-| N69 to N82, N84                                    | Strategy Lab simplification                             | §8, §9.2, §7.4                                 |
-| N86 to N95                                         | Theory Library                                          | §6                                             |
-| N98 to N106                                        | Library numbering of Lab strategies                     | §6.4, §7.2 (superseded parts: Appendix B)      |
-| N107 to N115                                       | Convention v2, profile fields, backfill                 | §6.1, §6.2, §6.5                               |
-| N116 to N125, N155                                 | Member IDs and sharing                                  | §4.2, §10                                      |
-| N126 to N134                                       | Content and interface text, reading scale               | §5.3                                           |
-| N135 to N146, N185, N189                           | Earnings, deals, rates                                  | §8.7.1, §14.5, §14.6, §16.4                    |
-| N147 to N150                                       | Trailing stop, kept picks                               | §8.2, §8.7.2                                   |
-| N151 to N154                                       | Deal closes and merging, chart fix, fresh ids           | §8.7, §14.1, §14.6                             |
-| N156, N180, N194                                   | Trading Strategy tab, theories                          | §5.1, §6                                       |
-| N157 to N166, N169, N170, N218 to N220, N223, N224 | Back-test results by cycle                              | §11.3                                          |
-| N167, N168                                         | Sort lists by any column                                | §5.2, §6.3, §7.3                               |
-| N171 to N177                                       | Strategy page in three sections                         | §8.1                                           |
-| N178, N179, N232 to N235                           | Back-test bars, size cap, dates, members                | §11.1, §11.2                                   |
-| N181 to N183, N186 to N188                         | Theory and strategy numbers                             | §6.1, §7.1                                     |
-| N184, N208, N209, N226, N227, N257                 | Check Entry and Check Exit                              | §8.4                                           |
-| N190 to N192, N199, N205                           | Rename, theory line, strategies and theories separate   | §7.2, §7.3                                     |
-| N193                                               | Any symbol in the builder                               | §8.2                                           |
-| N195, N200                                         | Filter pills, Esc                                       | §5.2                                           |
-| N196 to N198, N201 to N204                         | Price charts                                            | §14.1                                          |
-| N206, N207, N210 to N213                           | What to trade, groups, Enter/Exit when, Left the group  | §8.2, §8.3, §8.5                               |
-| N214, N217, N221, N222                             | Schema 3 to 5, exits in Exit when                       | §7.4, §8.5, §8.7.2                             |
-| N215, N225                                         | Stops at the Check Exit bar size, no close before fill  | §8.7.2                                         |
-| N216                                               | "Not needed" for yes/no metrics                         | §8.7                                           |
-| N231                                               | Built-in stock groups                                   | §8.2, §14.2                                    |
-| N236, N238                                         | Invite codes in the admin list                          | §15.7                                          |
-| N237                                               | Shared admin feeds                                      | §15.2                                          |
-| N239 to N244                                       | ML prediction signals                                   | §8.7.1, §11.3, §16.6                           |
-| N245                                               | Paper runs keep bars                                    | §12.1, §12.2                                   |
-| N246, N247                                         | Orders show S numbers                                   | §12.7                                          |
-| N248                                               | Guide video and Help                                    | §5.1                                           |
-| N249, N251                                         | Admin plan exemptions                                   | §4.3                                           |
-| N250, N252, N253, N258, N259                       | Desktop app and tabs                                    | §5.4                                           |
-| N254 to N256, N260                                 | Intraday pack                                           | §8.6, §8.7.1, §8.7.2                           |
-| N261, N266 to N270                                 | Pattern discovery                                       | §14.7, §16.7                                   |
-| N262 to N265, N271                                 | AI agents and MCP                                       | §15.4, §19.3, §20.2                            |
-| N272, N274, N275                                   | Ask AI panel                                            | §5.5, §15.4                                    |
-| N273                                               | Builder defaults                                        | §8.13                                          |
-| N280, N281                                         | Cycle counts on Strategies on paper cards               | §12.7                                          |
-| N284, N285                                         | Units on values; S numbers wherever a strategy is named | §5.1, §12.7, §13                               |
+| Rows                                               | Topic                                                                      | Section in v1.3                                |
+| -------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------- |
+| N1, N8, N9, N33, N68                               | Metric registry, statistics, one computation per name                      | §8.7, §8.7.1                                   |
+| N2 to N7, N12 to N14                               | Selection groups, per-leg conditions, rounds, S&P 500                      | §8.2, §9.4, §11 (superseded parts: Appendix B) |
+| N10, N11                                           | Schedules, time stop                                                       | §8.4, §8.7.2                                   |
+| N15                                                | Backward compatibility                                                     | §1.1, §21.1                                    |
+| N16, N25                                           | Invite audit, Admin page                                                   | §15.7, §20.2                                   |
+| N17 to N24                                         | Custom REST (JSON) feeds                                                   | §15.2                                          |
+| N26, N27, N43                                      | No demo data in deployments, routes under feeds                            | §3.3, §15.2, §21.4                             |
+| N28                                                | New legs on Alpaca paper                                                   | §8.8                                           |
+| N29                                                | Optional shared Entry condition                                            | §8.3                                           |
+| N30 to N32, N45                                    | Indices, CBOE feed, VIX sources                                            | §8.2, §15.2, §16.1                             |
+| N34 to N39, N46, N48, N49                          | Point-in-time fundamentals                                                 | §8.7.1, §14.2, §16.3                           |
+| N40                                                | Highest/Lowest window                                                      | §8.7                                           |
+| N41, N47, N83                                      | Entry groups, long and short                                               | §8.3                                           |
+| N42, N67, N73                                      | Risk sizing, risk distance                                                 | §8.3, §8.8                                     |
+| N44                                                | Back-test failures and rate limits                                         | §11.2                                          |
+| N50 to N59, N85, N96                               | Options recording, pricing, signals, key, budget                           | §8.7.1, §16.2, §16.5, §20.4                    |
+| N60 to N65                                         | Research Options, cone, screener columns, ranking                          | §14.1, §14.2, §14.4                            |
+| N66, N97                                           | Expected-move exit                                                         | §8.7.2                                         |
+| N69 to N82, N84                                    | Strategy Lab simplification                                                | §8, §9.2, §7.4                                 |
+| N86 to N95                                         | Theory Library                                                             | §6                                             |
+| N98 to N106                                        | Library numbering of Lab strategies                                        | §6.4, §7.2 (superseded parts: Appendix B)      |
+| N107 to N115                                       | Convention v2, profile fields, backfill                                    | §6.1, §6.2, §6.5                               |
+| N116 to N125, N155                                 | Member IDs and sharing                                                     | §4.2, §10                                      |
+| N126 to N134                                       | Content and interface text, reading scale                                  | §5.3                                           |
+| N135 to N146, N185, N189                           | Earnings, deals, rates                                                     | §8.7.1, §14.5, §14.6, §16.4                    |
+| N147 to N150                                       | Trailing stop, kept picks                                                  | §8.2, §8.7.2                                   |
+| N151 to N154                                       | Deal closes and merging, chart fix, fresh ids                              | §8.7, §14.1, §14.6                             |
+| N156, N180, N194                                   | Trading Strategy tab, theories                                             | §5.1, §6                                       |
+| N157 to N166, N169, N170, N218 to N220, N223, N224 | Back-test results by cycle                                                 | §11.3                                          |
+| N167, N168                                         | Sort lists by any column                                                   | §5.2, §6.3, §7.3                               |
+| N171 to N177                                       | Strategy page in three sections                                            | §8.1                                           |
+| N178, N179, N232 to N235                           | Back-test bars, size cap, dates, members                                   | §11.1, §11.2                                   |
+| N181 to N183, N186 to N188                         | Theory and strategy numbers                                                | §6.1, §7.1                                     |
+| N184, N208, N209, N226, N227, N257                 | Check Entry and Check Exit                                                 | §8.4                                           |
+| N190 to N192, N199, N205                           | Rename, theory line, strategies and theories separate                      | §7.2, §7.3                                     |
+| N193                                               | Any symbol in the builder                                                  | §8.2                                           |
+| N195, N200                                         | Filter pills, Esc                                                          | §5.2                                           |
+| N196 to N198, N201 to N204                         | Price charts                                                               | §14.1                                          |
+| N206, N207, N210 to N213                           | What to trade, groups, Enter/Exit when, Left the group                     | §8.2, §8.3, §8.5                               |
+| N214, N217, N221, N222                             | Schema 3 to 5, exits in Exit when                                          | §7.4, §8.5, §8.7.2                             |
+| N215, N225                                         | Stops at the Check Exit bar size, no close before fill                     | §8.7.2                                         |
+| N216                                               | "Not needed" for yes/no metrics                                            | §8.7                                           |
+| N231                                               | Built-in stock groups                                                      | §8.2, §14.2                                    |
+| N236, N238                                         | Invite codes in the admin list                                             | §15.7                                          |
+| N237                                               | Shared admin feeds                                                         | §15.2                                          |
+| N239 to N244                                       | ML prediction signals                                                      | §8.7.1, §11.3, §16.6                           |
+| N245                                               | Paper runs keep bars                                                       | §12.1, §12.2                                   |
+| N246, N247                                         | Orders show S numbers                                                      | §12.7                                          |
+| N248                                               | Guide video and Help                                                       | §5.1                                           |
+| N249, N251                                         | Admin plan exemptions                                                      | §4.3                                           |
+| N250, N252, N253, N258, N259                       | Desktop app and tabs                                                       | §5.4                                           |
+| N254 to N256, N260                                 | Intraday pack                                                              | §8.6, §8.7.1, §8.7.2                           |
+| N261, N266 to N270                                 | Pattern discovery                                                          | §14.7, §16.7                                   |
+| N262 to N265, N271                                 | AI agents and MCP                                                          | §15.4, §19.3, §20.2                            |
+| N272, N274, N275                                   | Ask AI panel                                                               | §5.5, §15.4                                    |
+| N273                                               | Builder defaults                                                           | §8.13                                          |
+| N280, N281                                         | Cycle counts on Strategies on paper cards                                  | §12.7                                          |
+| N284, N285, N289                                   | Units on values, gain/loss colours; S numbers wherever a strategy is named | §5.1, §12.7, §13                               |
 
 N228 to N230 were not used (renumbered to N233 to N235).
 

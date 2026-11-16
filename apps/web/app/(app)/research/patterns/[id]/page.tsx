@@ -27,6 +27,7 @@ import { ResearchNav } from '@/components/research/research-nav';
 import { appDb } from '@/lib/server/db';
 import { requireTenant } from '@/lib/server/session';
 import { promotePatternAction, reverifyPatternAction } from '../actions';
+import { Signed } from '@/components/signed';
 
 export const metadata: Metadata = { title: 'Pattern · Quantitative Research' };
 export const dynamic = 'force-dynamic';
@@ -261,9 +262,15 @@ export default async function PatternPage({ params }: { params: Promise<{ id: st
                     <Td>{o.symbol}</Td>
                     <Td>{WINDOW_LABEL[o.window]}</Td>
                     <Td>{o.hit ? 'Yes' : 'No'}</Td>
-                    <TdNumeric>{signed(o.maxRunup)}</TdNumeric>
-                    <TdNumeric>{signed(o.maxDrawdown)}</TdNumeric>
-                    <TdNumeric>{signed(o.forwardReturn)}</TdNumeric>
+                    <TdNumeric>
+                      <Signed value={o.maxRunup}>{signed(o.maxRunup)}</Signed>
+                    </TdNumeric>
+                    <TdNumeric>
+                      <Signed value={o.maxDrawdown}>{signed(o.maxDrawdown)}</Signed>
+                    </TdNumeric>
+                    <TdNumeric>
+                      <Signed value={o.forwardReturn}>{signed(o.forwardReturn)}</Signed>
+                    </TdNumeric>
                   </tr>
                 ))}
               </tbody>

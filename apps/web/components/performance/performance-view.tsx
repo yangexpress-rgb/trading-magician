@@ -25,6 +25,7 @@ import {
 import Link from 'next/link';
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { LineChart } from '@/components/line-chart';
+import { Signed, TileValue } from '@/components/signed';
 import { apiClient } from '@/lib/api-client';
 import { formatDay, formatMoney, formatPct, formatSignedMoney } from '@/lib/backtest-text';
 import { subscribeLive } from '@/lib/live-events';
@@ -147,10 +148,8 @@ function Legs({ trade }: { trade: PerformanceTradeDto }) {
         <li key={`${l.legLabel}-${l.instrumentId}-${l.side}`} className="whitespace-nowrap">
           {l.legLabel}: {l.side === 'long' ? 'long' : 'short'} {l.opened} {l.symbol} at{' '}
           {formatMoney(l.averageOpen)}
-          {l.averageClose
-            ? `, closed ${l.closed} at ${formatMoney(l.averageClose)}`
-            : ', open'}{' '}
-          <span className="text-content">({formatSignedMoney(l.net)})</span>
+          {l.averageClose ? `, closed ${l.closed} at ${formatMoney(l.averageClose)}` : ', open'} (
+          <Signed value={l.net}>{formatSignedMoney(l.net)}</Signed>)
         </li>
       ))}
     </ul>
@@ -408,7 +407,7 @@ export function PerformanceView({
                   key={t.label}
                   className="rounded-md border border-line p-3"
                   label={t.label}
-                  value={t.value}
+                  value={<TileValue tile={t} />}
                   comparison={t.detail}
                 />
               ))}
@@ -438,9 +437,13 @@ export function PerformanceView({
                         <StrategyNumberCell number={s.strategyNumber} />
                         <Td className="font-medium">{s.strategyName}</Td>
                         <Td numeric>{s.closedTrades}</Td>
-                        <Td numeric>{formatSignedMoney(s.net)}</Td>
                         <Td numeric>
-                          {formatPct(s.returnOnPeakCapitalPct, true)}
+                          <Signed value={s.net}>{formatSignedMoney(s.net)}</Signed>
+                        </Td>
+                        <Td numeric>
+                          <Signed value={s.returnOnPeakCapitalPct}>
+                            {formatPct(s.returnOnPeakCapitalPct, true)}
+                          </Signed>
                           <div className="text-xs text-ink-muted">
                             of {formatMoney(s.peakCapital)}
                           </div>
@@ -468,7 +471,9 @@ export function PerformanceView({
                       <tr key={a.instrumentId}>
                         <Td className="font-medium">{a.symbol}</Td>
                         <Td>{ASSET_CLASS_LABELS[a.assetClass] ?? a.assetClass}</Td>
-                        <Td numeric>{formatSignedMoney(a.net)}</Td>
+                        <Td numeric>
+                          <Signed value={a.net}>{formatSignedMoney(a.net)}</Signed>
+                        </Td>
                       </tr>
                     ))}
                   </tbody>
@@ -511,14 +516,16 @@ export function PerformanceView({
                         <Legs trade={t} />
                       </Td>
                       <Td numeric>
-                        {formatSignedMoney(t.net)}
+                        <Signed value={t.net}>{formatSignedMoney(t.net)}</Signed>
                         {Number(t.fees) > 0 && (
                           <div className="text-xs text-ink-muted">
                             after {formatMoney(t.fees)} fees
                           </div>
                         )}
                       </Td>
-                      <Td numeric>{formatPct(t.returnPct, true)}</Td>
+                      <Td numeric>
+                        <Signed value={t.returnPct}>{formatPct(t.returnPct, true)}</Signed>
+                      </Td>
                     </tr>
                   ))}
                 </tbody>

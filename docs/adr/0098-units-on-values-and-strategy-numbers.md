@@ -41,6 +41,21 @@ alone, and names repeat ("NKE-buy low", "Copy of …").
   `concat_ws` of `lab_number` and `name`) or `strategyLabelOf` for rows already loaded. Theories
   keep their T numbers; Orders keeps `StrategyRef` (N246).
 
+## Amendment (2026-11-16): gain and loss colours, no split numbers
+
+- **N289.** Yong asked the same day that increases and gains read green and decreases and
+  losses red, and that a number never wrap so its "−" lands on another line than the figure
+  ("−" / "$1,032.08" in Contribution by strategy). `Signed` (`apps/web/components/signed.tsx`)
+  colours a figure by its sign with `text-ok` / `text-danger` (`signTone`,
+  `apps/web/lib/sign-tone.ts`) and keeps it on one line; numeric table cells are
+  `whitespace-nowrap` in `@tm/ui`. Headline tiles carry the sign (`MetricTile.sign`, or `parts`
+  for "realized / unrealized" and "average gain / loss"); a drawdown counts as a loss. Applied to
+  Performance (tiles, Contribution by strategy and asset, Trades and their legs), back test tiles,
+  runs, contributions and cycles, Strategy Lab's latest back test, earnings SUE and surprise,
+  pattern occurrences, signed company figures and the price chart's compare readout (the
+  Research change line and screener already did this). Zero and missing values stay in ink;
+  colour is never the only cue, since the sign stays.
+
 ## Consequences
 
 - Notifications already stored keep the text they were written with; new ones carry the number.

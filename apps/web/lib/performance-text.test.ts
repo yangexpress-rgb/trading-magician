@@ -55,6 +55,7 @@ describe('performanceTiles', () => {
     expect(tiles.find((t) => t.label === 'Max drawdown')).toEqual({
       label: 'Max drawdown',
       value: '0.15%',
+      sign: -0.15,
       detail: 'Fewer than 20 sessions',
     });
     expect(tiles.find((t) => t.label === 'Net P/L')?.value).toBe('+$150.00');
