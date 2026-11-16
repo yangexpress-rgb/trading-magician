@@ -865,6 +865,20 @@ export interface RuntimeSummary {
   startedAt: string;
   stoppedAt: string | null;
   workingOrders: number;
+  /** This run's cycles by outcome (N280). */
+  cycles: CycleCounts;
+}
+
+/**
+ * A run's cycles by outcome (N280): completed = Exit closed the position; active = Entry
+ * filled and the position is still open or exiting; rejected = ended with nothing filled
+ * (a refused, rejected, canceled or expired Entry); entering = Entry orders still working.
+ */
+export interface CycleCounts {
+  completed: number;
+  active: number;
+  rejected: number;
+  entering: number;
 }
 
 export interface ExecutionStatus {
@@ -884,6 +898,22 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
     .where(inArray(brokerOrders.state, [...WORKING_STATES]))
     .groupBy(orderIntents.runtimeId)
     .as('working');
+  const byStatus = (st: string) =>
+    sql<number>`count(*) filter (where ${strategyCycles.status} = ${st})`.mapWith(Number);
+  const cycleCounts = tx
+    .select({
+      runtimeId: strategyCycles.runtimeId,
+      completed: byStatus('closed').as('completed'),
+      active:
+        sql<number>`count(*) filter (where ${strategyCycles.status} in ('open', 'exit_working'))`
+          .mapWith(Number)
+          .as('active'),
+      rejected: byStatus('aborted').as('rejected'),
+      entering: byStatus('entry_working').as('entering'),
+    })
+    .from(strategyCycles)
+    .groupBy(strategyCycles.runtimeId)
+    .as('cycle_counts');
   const rows = await tx
     .select({
       id: strategyRuntimes.id,
@@ -895,10 +925,15 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
       startedAt: strategyRuntimes.startedAt,
       stoppedAt: strategyRuntimes.stoppedAt,
       workingOrders: working.n,
+      completed: cycleCounts.completed,
+      active: cycleCounts.active,
+      rejected: cycleCounts.rejected,
+      entering: cycleCounts.entering,
     })
     .from(strategyRuntimes)
     .leftJoin(strategies, eq(strategies.id, strategyRuntimes.strategyId))
     .leftJoin(working, eq(working.runtimeId, strategyRuntimes.id))
+    .leftJoin(cycleCounts, eq(cycleCounts.runtimeId, strategyRuntimes.id))
     .where(sql`${strategyRuntimes.status} <> 'stopped' or ${working.n} > 0`)
     .orderBy(desc(strategyRuntimes.startedAt));
   const incidents = await listOpenIncidents(tx);
@@ -917,6 +952,12 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
       startedAt: r.startedAt.toISOString(),
       stoppedAt: iso(r.stoppedAt),
       workingOrders: Number(r.workingOrders ?? 0),
+      cycles: {
+        completed: Number(r.completed ?? 0),
+        active: Number(r.active ?? 0),
+        rejected: Number(r.rejected ?? 0),
+        entering: Number(r.entering ?? 0),
+      },
     })),
   };
 }

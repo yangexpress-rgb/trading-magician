@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N280, O177, ADR 0097 and migration 0097** (N276 to N279 and ADR 0096 were taken on 2026-11-16); other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N281, O177, ADR 0097 and migration 0097** (N276 to N280 and ADR 0096 were taken on 2026-11-16); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -625,7 +625,7 @@ Every 60 seconds, and at once when the broker reports an unknown order, reconcil
 
 ### 12.7 The Orders tab
 
-- **Strategies on paper** cards: each strategy's S number and name, with the run status (Running, Paused, Stopped) and "Just started" on a line under them (N246, N247).
+- **Strategies on paper** cards: each strategy's S number and name, with the run status (Running, Paused, Stopped) and "Just started" on a line under them (N246, N247). Under "Started … · N working orders", one line counts the run's cycles: **completed** (Entry filled and Exit closed the position), **active** (Entry filled, position open or exiting) and **rejected** (ended with nothing filled: refused by a risk limit, rejected, canceled by the collar or expired), plus **entering** when Entry orders are still working (N280).
 - Views: all, working, filled, canceled or rejected, scheduled, with counts; filters by strategy, run, cycle, phase, instrument, account and dates in the viewer's time zone, kept in the address so a view can be bookmarked (saved views are bookmarks, D7).
 - A dense order table, a scheduled-legs table, a positions table with manual close (stopped strategies only), the kill switch, and a banner for paused strategies and open incidents with Resolve.
 - The order drawer shows the full event timeline, the source rule, trigger values and the broker's raw status.
@@ -1176,6 +1176,7 @@ Survivorship bias in built-in groups (O6); custom feeds give daily bars only and
 | N262 to N265, N271                                 | AI agents and MCP                                      | §15.4, §19.3, §20.2                            |
 | N272, N274, N275                                   | Ask AI panel                                           | §5.5, §15.4                                    |
 | N273                                               | Builder defaults                                       | §8.13                                          |
+| N280                                               | Cycle counts on Strategies on paper cards              | §12.7                                          |
 
 N228 to N230 were not used (renumbered to N233 to N235).
 
