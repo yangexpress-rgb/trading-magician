@@ -25,6 +25,12 @@ test('every switch shows the selected instrument’s chart', async ({ page }) =>
     await expect(chart).toHaveAttribute('aria-label', new RegExp(`^${sym},`));
     await expect(page.getByTestId('chart-summary')).toBeVisible();
   }
+  // The page reopens on the last symbol looked at (N279); an address symbol still wins.
+  await page.goto('/research');
+  await expect(chart).toHaveAttribute('aria-label', /^DEMO-B,/);
+  await page.goto('/strategy-lab');
+  await page.goto('/research');
+  await expect(chart).toHaveAttribute('aria-label', /^DEMO-B,/);
 });
 
 test('a switch whose chart is slow or fails never shows the previous instrument’s chart', async ({

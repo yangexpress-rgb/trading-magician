@@ -19,6 +19,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MAX_COMPARE } from '@/lib/chart-history';
 import { ASSET_CLASS_LABELS } from '@/lib/integration-text';
+import { lastViewCookie } from '@/lib/research-last-view';
 import {
   formatBarTime,
   formatChange,
@@ -127,6 +128,16 @@ export function ResearchWorkspace({
     if (sel.compare.length) q.set('compare', sel.compare.join(','));
     router.replace(`/research?${q.toString()}`, { scroll: false });
   }, [router, sel.instrumentId, sel.range, sel.interval, sel.style, sel.end, sel.compare]);
+
+  // Remember the symbol and compared symbols so the page reopens on them (N279).
+  useEffect(() => {
+    if (!sel.instrumentId) return;
+    try {
+      document.cookie = lastViewCookie({ instrumentId: sel.instrumentId, compare: sel.compare });
+    } catch {
+      // Cookies blocked: the page just opens on its default next time.
+    }
+  }, [sel.instrumentId, sel.compare]);
 
   // A bookmarked intraday view of an index: show its daily bars instead.
   useEffect(() => {
