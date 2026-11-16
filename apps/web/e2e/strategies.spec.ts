@@ -269,7 +269,13 @@ test.describe('strategy library', () => {
     await page.getByRole('button', { name: 'New strategy' }).click();
     const copyDialog = page.getByRole('dialog', { name: 'New strategy' });
     await copyDialog.getByLabel('A copy of an existing strategy').check();
-    await copyDialog.getByLabel('Strategy to copy').selectOption({ label: 'Momentum A' });
+    // Strategies read with their S number first (N284).
+    const copyFrom = copyDialog.getByLabel('Strategy to copy');
+    await copyFrom.selectOption({
+      label: (await copyFrom
+        .locator('option', { hasText: /^(S\S+ )?Momentum A$/ })
+        .textContent())!.trim(),
+    });
     await expect(copyDialog.getByLabel('Name', { exact: true })).toHaveValue('Copy of Momentum A');
     await copyDialog.getByLabel('Name', { exact: true }).fill('Momentum B');
     await expectAccessible(page);

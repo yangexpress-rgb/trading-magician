@@ -47,13 +47,15 @@ export default async function VersionPage({
     (h) => h.toStatus === 'actively_executing' && h.versionNo === version.versionNo,
   );
 
+  const label = strategy.labNumber ? `${strategy.labNumber} ${strategy.name}` : strategy.name;
+
   return (
     <>
       <p className="mb-2 text-sm">
-        <Link href={`/strategy-lab/${strategy.id}`}>← Back to {strategy.name}</Link>
+        <Link href={`/strategy-lab/${strategy.id}`}>← Back to {label}</Link>
       </p>
       <PageHeader
-        title={`${strategy.name} · version ${version.versionNo}`}
+        title={`${label} · version ${version.versionNo}`}
         description={`Saved ${formatDateTime(version.createdAt, {
           timeZone: profile.timezone,
           locale: profile.locale,

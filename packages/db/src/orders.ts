@@ -15,6 +15,7 @@ import { recordAudit } from './audit';
 import type { Transaction } from './client';
 import { notify } from './notifications';
 import { brokerOrders, fills, instruments, orderEvents, orderIntents, strategies } from './schema';
+import { strategyLabelSql } from './strategy-label';
 
 /**
  * Order intents and their broker-side state (Design v1.0 §8.2–8.5; ADR 0010).
@@ -347,7 +348,7 @@ async function announceOrderChange(
     .select({
       userId: orderIntents.userId,
       strategyId: orderIntents.strategyId,
-      strategyName: strategies.name,
+      strategyName: strategyLabelSql,
       legLabel: orderIntents.legLabel,
       symbol: instruments.symbol,
       quantity: orderIntents.quantity,
@@ -372,7 +373,7 @@ async function announceOrderChange(
   const kind = ANNOUNCED[to];
   if (!kind) return;
   const what = `${o.legLabel} (${o.symbol ?? 'order'}) for ${o.strategyName ?? 'a strategy'}`;
-  const price = o.averagePrice ? ` at an average of ${o.averagePrice}` : '';
+  const price = o.averagePrice ? ` at an average of $${o.averagePrice}` : '';
   const title =
     kind === 'filled'
       ? `${o.legLabel} filled`

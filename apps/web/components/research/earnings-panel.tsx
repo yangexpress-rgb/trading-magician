@@ -6,10 +6,11 @@ import { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { ResearchSection } from './research-section';
 
-const eps = (v: number | null) => (v === null ? '—' : v.toFixed(2));
+const eps = (v: number | null) =>
+  v === null ? '—' : `${v < 0 ? '−' : ''}$${Math.abs(v).toFixed(2)}`;
 const signed = (v: number | null, digits = 2) =>
   v === null ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(digits)}`;
-const pct = (v: number | null) => (v === null ? '—' : signed(v * 100, 1));
+const pct = (v: number | null) => (v === null ? '—' : `${signed(v * 100, 1)}%`);
 
 /**
  * Research › Earnings (free data feeds brief v1 §5; ADR 0058): the stock's
@@ -73,10 +74,10 @@ export function EarningsPanel({ instrument }: { instrument: InstrumentOptionDto 
               <tr>
                 <Th>Announced</Th>
                 <Th>Quarter ended</Th>
-                <Th numeric>EPS $</Th>
-                <Th numeric>Year-ago EPS $</Th>
+                <Th numeric>EPS</Th>
+                <Th numeric>Year-ago EPS</Th>
                 <Th numeric>SUE</Th>
-                <Th numeric>Surprise %</Th>
+                <Th numeric>Surprise</Th>
                 <Th>Filing</Th>
               </tr>
             </thead>

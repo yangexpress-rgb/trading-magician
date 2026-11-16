@@ -26,7 +26,6 @@ import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
 import { type CopySource, NewStrategyButton } from './new-strategy';
 import { RowActions } from './row-actions';
-import { bare } from '@/lib/units';
 import { TradingStrategyNav } from '@/components/trading/trading-strategy-nav';
 
 export const metadata: Metadata = { title: 'Strategy Lab' };
@@ -42,7 +41,7 @@ const SORTS = {
   assets: 'Assets',
   version: 'Version',
   account: 'Account',
-  backtest: 'Latest back test %',
+  backtest: 'Latest back test',
 } as const;
 type SortKey = keyof typeof SORTS;
 
@@ -104,6 +103,7 @@ export default async function StrategyLabPage({
       ).items.map((s): CopySource => ({
         id: s.id,
         name: s.name,
+        labNumber: s.labNumber,
         description: s.description,
         archived: s.archivedAt !== null,
       })),
@@ -274,7 +274,7 @@ export default async function StrategyLabPage({
                 {header('assets', 'Assets')}
                 {header('version', 'Version')}
                 {header('account', 'Account')}
-                {header('backtest', 'Latest back test %', true)}
+                {header('backtest', 'Latest back test', true)}
                 {header('updated', `Updated (${prefs.timeZone})`)}
                 <Th>
                   <span className="sr-only">Actions</span>
@@ -387,7 +387,7 @@ function LatestBacktest({
   }
   return (
     <>
-      <span className="text-content">{bare(formatPct(run.netReturnPct, true))}</span>
+      <span className="text-content">{formatPct(run.netReturnPct, true)}</span>
       {run.finishedAt && (
         <p className="mt-0.5 whitespace-nowrap text-xs text-ink-muted">
           {formatDateTime(run.finishedAt, prefs)}

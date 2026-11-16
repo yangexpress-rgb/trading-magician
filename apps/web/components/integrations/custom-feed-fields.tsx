@@ -427,9 +427,9 @@ function TestOutcome({ test }: { test: CustomFeedTestDto | null }) {
     <div role="status" className="space-y-2 text-sm">
       <p className="font-medium text-ok">
         Test passed: {r.bars.count} daily bars for {r.symbol} ({r.bars.first} to {r.bars.last}),
-        latest price {r.quote.last}
-        {r.quote.bid ? `, bid ${r.quote.bid}` : ''}
-        {r.quote.ask ? `, ask ${r.quote.ask}` : ''}
+        latest price ${r.quote.last}
+        {r.quote.bid ? `, bid $${r.quote.bid}` : ''}
+        {r.quote.ask ? `, ask $${r.quote.ask}` : ''}
         {r.quote.at
           ? ` at ${new Date(r.quote.at).toISOString().replace('T', ' ').slice(0, 19)} UTC`
           : ''}
@@ -449,10 +449,10 @@ function TestOutcome({ test }: { test: CustomFeedTestDto | null }) {
           {r.bars.sample.map((b) => (
             <tr key={b.date}>
               <Td className="text-content">{b.date}</Td>
-              <Td numeric>{b.open}</Td>
-              <Td numeric>{b.high}</Td>
-              <Td numeric>{b.low}</Td>
-              <Td numeric>{b.close}</Td>
+              <Td numeric>${b.open}</Td>
+              <Td numeric>${b.high}</Td>
+              <Td numeric>${b.low}</Td>
+              <Td numeric>${b.close}</Td>
               <Td numeric>{b.volume}</Td>
             </tr>
           ))}

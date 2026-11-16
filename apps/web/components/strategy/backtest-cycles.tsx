@@ -55,7 +55,6 @@ import {
   formatSignedMoney,
   sizingText,
 } from '@/lib/backtest-text';
-import { bare } from '@/lib/units';
 import { isStockGroupId, loggedScheduleText, stockGroup, type ConditionNode } from '@tm/domain';
 
 /**
@@ -70,7 +69,7 @@ type Interval = BacktestRunDto['inputs']['interval'];
 type Result = NonNullable<BacktestRunDto['result']>;
 const PAGE = 25;
 
-const signed = (v: number | string | null) => (v === null ? '—' : bare(formatSignedMoney(v)));
+const signed = (v: number | string | null) => (v === null ? '—' : formatSignedMoney(v));
 const tone = (v: number | string | null) =>
   v === null ? undefined : Number(v) > 0 ? 'text-ok' : Number(v) < 0 ? 'text-danger' : undefined;
 
@@ -365,7 +364,7 @@ export function BacktestCycles({
                     className={cx(CELL, 'sm:text-right', tone(c.trade?.returnPct ?? null))}
                   >
                     {c.trade?.returnPct && c.status !== 'aborted'
-                      ? `${bare(formatPct(c.trade.returnPct, true))}%`
+                      ? formatPct(c.trade.returnPct, true)
                       : '—'}
                   </div>
                 </div>
@@ -1228,11 +1227,11 @@ function Legs({ c }: { c: CycleView }) {
           <Th>Legs</Th>
           <Th>Instrument</Th>
           <Th numeric>Qty</Th>
-          <Th numeric>Entry $</Th>
-          <Th numeric>Exit $</Th>
-          <Th numeric>Gross P/L $</Th>
-          <Th numeric>Costs $</Th>
-          <Th numeric>Net P/L $</Th>
+          <Th numeric>Entry</Th>
+          <Th numeric>Exit</Th>
+          <Th numeric>Gross P/L</Th>
+          <Th numeric>Costs</Th>
+          <Th numeric>Net P/L</Th>
         </tr>
       </thead>
       <tbody>
@@ -1241,12 +1240,12 @@ function Legs({ c }: { c: CycleView }) {
             <Td className="min-w-36 text-ink">{legName(l)}</Td>
             <Td>{l.symbol}</Td>
             <Td numeric>{l.quantity ?? '—'}</Td>
-            <Td numeric>{l.entryPrice ? bare(formatMoney(l.entryPrice)) : '—'}</Td>
-            <Td numeric>{l.exitPrice ? bare(formatMoney(l.exitPrice)) : '—'}</Td>
+            <Td numeric>{l.entryPrice ? formatMoney(l.entryPrice) : '—'}</Td>
+            <Td numeric>{l.exitPrice ? formatMoney(l.exitPrice) : '—'}</Td>
             <Td numeric className={tone(l.grossPnl)}>
               {signed(l.grossPnl)}
             </Td>
-            <Td numeric>{l.costs === null ? '—' : bare(formatMoney(l.costs))}</Td>
+            <Td numeric>{l.costs === null ? '—' : formatMoney(l.costs)}</Td>
             <Td numeric className={tone(l.netPnl)}>
               {signed(l.netPnl)}
             </Td>
@@ -1262,7 +1261,7 @@ function Legs({ c }: { c: CycleView }) {
             <Td numeric className={tone(total('grossPnl'))}>
               {signed(total('grossPnl'))}
             </Td>
-            <Td numeric>{costs === null ? '—' : bare(formatMoney(costs))}</Td>
+            <Td numeric>{costs === null ? '—' : formatMoney(costs)}</Td>
             <Td numeric className={cx('font-semibold', tone(total('netPnl')))}>
               {signed(total('netPnl'))}
             </Td>

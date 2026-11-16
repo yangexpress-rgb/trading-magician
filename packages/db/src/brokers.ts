@@ -15,6 +15,7 @@ import {
   tradingAccounts,
 } from './schema';
 import { updateStrategy } from './strategies';
+import { strategyLabelSql } from './strategy-label';
 
 /**
  * Trading platforms and accounts (§9.3, §9.4, §14.4; ADR 0018). A platform is
@@ -76,7 +77,7 @@ export async function accountDependents(
     .select({
       runtimeId: strategyRuntimes.id,
       strategyId: strategies.id,
-      strategyName: strategies.name,
+      strategyName: strategyLabelSql,
       status: strategyRuntimes.status,
       definition: strategies.draftDefinition,
     })
@@ -91,7 +92,7 @@ export async function accountDependents(
       {
         runtimeId: r.runtimeId,
         strategyId: r.strategyId,
-        strategyName: r.strategyName,
+        strategyName: r.strategyName ?? '',
         status: r.status as 'running' | 'paused',
         accountIds: used,
       },

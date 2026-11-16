@@ -90,7 +90,7 @@ test('connects a second paper account, makes it the default and turns one off sa
   const platforms = page.getByRole('list', { name: 'Trading platforms' });
   const demo = platforms.getByRole('listitem', { name: 'Demo paper broker' });
   await expect(demo.getByRole('table', { name: 'Demo paper broker accounts' })).toContainText(
-    'Used by Idle watcher',
+    /Used by (S\S+ )?Idle watcher/,
   );
 
   // Adding Alpaca with a paper key connects it and finds its account.
