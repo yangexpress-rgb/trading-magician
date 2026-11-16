@@ -27,7 +27,7 @@ describe('order timeline text', () => {
           update: { kind: 'fill', fill: { quantity: '10', price: '101.5' } },
         }),
       ),
-    ).toBe('Filled 10 at 101.50');
+    ).toBe('Filled 10 at $101.50');
     expect(describeEvent(event('cancel_requested', { reason: 'Canceled by you' }))).toBe(
       'Cancel requested (Canceled by you)',
     );
@@ -38,6 +38,6 @@ describe('order timeline text', () => {
     expect(describeHolding('10')).toBe('Long 10');
     expect(describeHolding('-5')).toBe('Short 5');
     expect(formatPrice(null)).toBe('—');
-    expect(formatPrice('99.12345')).toBe('99.1235');
+    expect(formatPrice('99.12345')).toBe('$99.1235');
   });
 });

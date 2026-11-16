@@ -70,6 +70,7 @@ import {
   strategyVersions,
   tradingAccounts,
 } from './schema';
+import { strategyLabelOf } from './strategy-label';
 
 /**
  * Strategy persistence (Design v1.0 §6.1–6.3, §14.1). Every function runs
@@ -1061,7 +1062,7 @@ export async function startStrategy(
   await notify(tx, {
     userId,
     kind: 'strategy_started',
-    title: `${row.name} started on paper`,
+    title: `${strategyLabelOf(row)} started on paper`,
     body: 'New orders appear in Orders as its rules trigger.',
     link: `/orders?started=${id}`,
     resourceType: 'strategy_runtime',
@@ -1136,7 +1137,7 @@ export async function stopStrategy(
     await notify(tx, {
       userId,
       kind: 'strategy_stopped',
-      title: `${row.name} stopped`,
+      title: `${strategyLabelOf(row)} stopped`,
       body: choices.length
         ? `No new orders. ${choices.join('; ')}.`
         : 'No new orders. Working orders and positions were left as they are.',

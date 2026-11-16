@@ -133,12 +133,19 @@ export interface LibraryEntry extends LibraryEntrySummary {
   builtStrategyId: string | null;
   /** The linked strategy as the viewer sees it: theirs (with its name) or someone else's. */
   builtStrategy:
-    | { visibility: 'yours'; id: string; name: string; archived: boolean }
+    | {
+        visibility: 'yours';
+        id: string;
+        name: string;
+        /** Its own S number (ADR 0066), shown before the name (N285). */
+        labNumber: string | null;
+        archived: boolean;
+      }
     | { visibility: 'yours_deleted'; id: string }
     | { visibility: 'elsewhere' }
     | null;
   /** The viewer's own live strategies that refer to this theory, oldest first (ADR 0071). */
-  referringStrategies: { id: string; name: string; archived: boolean }[];
+  referringStrategies: { id: string; name: string; labNumber: string | null; archived: boolean }[];
   /** A shared copy (ADR 0056): the number it was copied from, shown to everyone. */
   copiedFrom: string | null;
   /** Who shared it; only the sender and the recipient see this. */
@@ -425,7 +432,12 @@ export async function getLibraryEntry(
       : Promise.resolve([]),
     // Row-level security limits this to the viewer's own workspace.
     tx
-      .select({ id: strategies.id, name: strategies.name, archivedAt: strategies.archivedAt })
+      .select({
+        id: strategies.id,
+        name: strategies.name,
+        labNumber: strategies.labNumber,
+        archivedAt: strategies.archivedAt,
+      })
       .from(strategies)
       .where(and(eq(strategies.libraryEntryId, row.id), isNull(strategies.deletedAt)))
       .orderBy(asc(strategies.createdAt), asc(strategies.id)),
@@ -436,11 +448,22 @@ export async function getLibraryEntry(
     if (row.builtStrategyOwner === viewerId) {
       // Row-level security limits this to the viewer's own workspace.
       const [s] = await tx
-        .select({ id: strategies.id, name: strategies.name, archivedAt: strategies.archivedAt })
+        .select({
+          id: strategies.id,
+          name: strategies.name,
+          labNumber: strategies.labNumber,
+          archivedAt: strategies.archivedAt,
+        })
         .from(strategies)
         .where(and(eq(strategies.id, row.builtStrategyId), isNull(strategies.deletedAt)));
       builtStrategy = s
-        ? { visibility: 'yours', id: s.id, name: s.name, archived: s.archivedAt !== null }
+        ? {
+            visibility: 'yours',
+            id: s.id,
+            name: s.name,
+            labNumber: s.labNumber,
+            archived: s.archivedAt !== null,
+          }
         : { visibility: 'yours_deleted', id: row.builtStrategyId };
     } else builtStrategy = { visibility: 'elsewhere' };
   }
@@ -479,6 +502,7 @@ export async function getLibraryEntry(
     referringStrategies: referring.map((r) => ({
       id: r.id,
       name: r.name,
+      labNumber: r.labNumber,
       archived: r.archivedAt !== null,
     })),
     copiedFrom: row.copiedFrom,
@@ -853,14 +877,24 @@ export async function retireLibraryEntry(
 /** The viewer's own strategies, for the link field. Reads names and ids only. */
 export async function listLinkableStrategies(
   tx: Transaction,
-): Promise<{ id: string; name: string; archived: boolean }[]> {
+): Promise<{ id: string; name: string; labNumber: string | null; archived: boolean }[]> {
   const rows = await tx
-    .select({ id: strategies.id, name: strategies.name, archivedAt: strategies.archivedAt })
+    .select({
+      id: strategies.id,
+      name: strategies.name,
+      labNumber: strategies.labNumber,
+      archivedAt: strategies.archivedAt,
+    })
     .from(strategies)
     .where(isNull(strategies.deletedAt))
     .orderBy(asc(sql`lower(${strategies.name})`))
     .limit(500);
-  return rows.map((r) => ({ id: r.id, name: r.name, archived: r.archivedAt !== null }));
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    labNumber: r.labNumber,
+    archived: r.archivedAt !== null,
+  }));
 }
 
 /**

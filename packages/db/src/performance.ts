@@ -135,6 +135,8 @@ export interface CycleTrade {
   seq: number;
   strategyId: string;
   strategyName: string;
+  /** The strategy's own S number (ADR 0066); null if it has none. */
+  strategyNumber: string | null;
   versionNo: number;
   runtimeId: string;
   mode: 'paper' | 'live';
@@ -181,6 +183,7 @@ export async function listCycleTrades(
       versionId: strategyRuntimes.versionId,
       mode: strategyRuntimes.mode,
       strategyName: strategies.name,
+      strategyNumber: strategies.labNumber,
       versionNo: strategyVersions.versionNo,
     })
     .from(strategyCycles)
@@ -207,6 +210,7 @@ export async function listCycleTrades(
           seq: c.seq,
           strategyId: c.strategyId,
           strategyName: c.strategyName,
+          strategyNumber: c.strategyNumber,
           versionNo: c.versionNo,
           runtimeId: r.runtimeId,
           mode: c.mode,

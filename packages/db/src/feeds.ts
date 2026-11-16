@@ -31,6 +31,7 @@ import {
   strategyInstruments,
   strategyRuntimes,
 } from './schema';
+import { strategyLabelSql } from './strategy-label';
 
 /**
  * Data feeds and routes (§9.2, §9.4, §14.4; ADR 0016). A feed is one
@@ -194,7 +195,7 @@ export async function feedDependents(tx: Transaction, feedId: string): Promise<F
       runtimeId: strategyRuntimes.id,
       strategyId: strategyRuntimes.strategyId,
       status: strategyRuntimes.status,
-      strategyName: strategies.name,
+      strategyName: strategyLabelSql,
     })
     .from(strategyRuntimes)
     .innerJoin(strategies, eq(strategies.id, strategyRuntimes.strategyId))
@@ -233,7 +234,11 @@ export async function feedDependents(tx: Transaction, feedId: string): Promise<F
       });
   return runtimes
     .filter((r) => reaches(r.strategyId))
-    .map((r) => ({ ...r, status: r.status as 'running' | 'paused' }));
+    .map((r) => ({
+      ...r,
+      strategyName: r.strategyName ?? '',
+      status: r.status as 'running' | 'paused',
+    }));
 }
 
 async function loadRoutes(tx: Transaction): Promise<RouteLike[]> {
@@ -891,7 +896,7 @@ export async function deleteRoute(
   input: { userId: string; id: string },
 ): Promise<void> {
   const users = await tx
-    .select({ name: strategies.name })
+    .select({ name: strategyLabelSql })
     .from(strategies)
     .where(and(eq(strategies.dataRouteId, input.id), isNull(strategies.deletedAt)));
   if (users.length > 0) {

@@ -530,7 +530,10 @@ describe('turning off a feed in use (§9.4)', () => {
       (e: unknown) => e as { code?: string; details?: { dependents: { strategyName: string }[] } },
     );
     expect(refused?.code).toBe('invalid_state');
-    expect(refused?.details?.dependents.map((d) => d.strategyName)).toEqual(['Depends on demo']);
+    // Named with its S number first (N285).
+    expect(refused?.details?.dependents.map((d) => d.strategyName)).toEqual([
+      expect.stringMatching(/^S\d{5}-[A-Z]{2} Depends on demo$/),
+    ]);
 
     // With a replacement, every route moves over and the strategy keeps running.
     const off = await asUser((tx) =>

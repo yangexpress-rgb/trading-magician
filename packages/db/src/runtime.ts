@@ -34,6 +34,7 @@ import {
   strategyVersions,
   triggerEvents,
 } from './schema';
+import { strategyLabelSql } from './strategy-label';
 
 /**
  * Durable state of paper runtimes (Design v1.0 §6.5–6.9, §8.1, §13.3; ADR 0012).
@@ -355,7 +356,7 @@ export async function loadRuntimeWork(
     .select({
       runtime: strategyRuntimes,
       definition: strategyVersions.definition,
-      strategyName: strategies.name,
+      strategyName: strategyLabelSql,
     })
     .from(strategyRuntimes)
     .innerJoin(strategyVersions, eq(strategyVersions.id, strategyRuntimes.versionId))

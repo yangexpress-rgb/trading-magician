@@ -518,10 +518,10 @@ export function formatCell(value: number | null, format: ColumnFormat): string {
   if (value === null) return '—';
   switch (format) {
     case 'price':
-      return value.toLocaleString('en-US', {
+      return `${value < 0 ? '−' : ''}$${Math.abs(value).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: Math.abs(value) < 1 ? 4 : 2,
-      });
+      })}`;
     case 'pct':
       return `${value > 0 ? '+' : value < 0 ? '−' : ''}${Math.abs(value).toFixed(2)}%`;
     case 'volume':
@@ -637,15 +637,4 @@ export function decodeScreenState(
     },
     columns: cols.length ? cols : null,
   };
-}
-
-/**
- * A results column header with its unit (content and interface, O102): price and
- * money columns end in "$", percentage columns in "%", and the cells below
- * show the bare number.
- */
-export function columnHeader(c: Pick<NumberColumnSpec, 'label' | 'format'>): string {
-  const unit = c.format === 'pct' ? '%' : c.format === 'price' || c.format === 'money' ? '$' : null;
-  if (!unit || c.label.includes(unit)) return c.label;
-  return `${c.label} ${unit}`;
 }

@@ -103,6 +103,8 @@ export interface PerformanceSummaryDto {
   byStrategy: {
     strategyId: string;
     strategyName: string;
+    /** The strategy's own S number (ADR 0066); null if it has none. */
+    strategyNumber: string | null;
     net: string;
     closedTrades: number;
     peakCapital: string;
@@ -158,6 +160,7 @@ export interface PerformanceTradeDto {
   seq: number;
   strategyId: string;
   strategyName: string;
+  strategyNumber: string | null;
   versionNo: number;
   runtimeId: string;
   mode: 'paper' | 'live';

@@ -58,6 +58,7 @@ import { codeOption } from '@/lib/library-text';
 export interface LinkableStrategy {
   id: string;
   name: string;
+  labNumber?: string | null;
   archived: boolean;
 }
 
@@ -848,7 +849,7 @@ export function LibraryEntryForm({
             )}
             {strategies.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.archived ? `${s.name} (archived)` : s.name}
+                {`${s.labNumber ? `${s.labNumber} ` : ''}${s.name}${s.archived ? ' (archived)' : ''}`}
               </option>
             ))}
           </SelectField>

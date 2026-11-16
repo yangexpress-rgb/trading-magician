@@ -177,7 +177,7 @@ test('define, validate, test, start on paper, stop, revise and review versions',
   // Version 1 still shows exactly what ran.
   await versions.getByRole('link', { name: 'Version 1' }).click();
   await expect(
-    page.getByRole('heading', { level: 1, name: 'Pairs lifecycle · version 1' }),
+    page.getByRole('heading', { level: 1, name: /^(S\S+ )?Pairs lifecycle · version 1$/ }),
   ).toBeVisible();
   await expect(page.getByText('Differs from the draft')).toBeVisible();
   await expect(page.getByText('Buy to cover 10 DEMO-B · Market · Day')).toBeVisible();
@@ -186,7 +186,7 @@ test('define, validate, test, start on paper, stop, revise and review versions',
   ).toHaveCount(1);
   await expectNoSeriousA11yIssues(page);
 
-  await page.getByRole('link', { name: '← Back to Pairs lifecycle' }).click();
+  await page.getByRole('link', { name: /^← Back to (S\S+ )?Pairs lifecycle$/ }).click();
   await versions.getByRole('link', { name: 'Version 2' }).click();
   await expect(page.getByText('Same as the draft')).toBeVisible();
   await expect(page.getByText('Buy to cover 5 DEMO-B · Market · Day')).toBeVisible();

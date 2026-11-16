@@ -10,6 +10,8 @@ import { apiClient } from '@/lib/api-client';
 export interface CopySource {
   id: string;
   name: string;
+  /** Its own S number (N284), shown before the name in the picker. */
+  labNumber?: string | null;
   description: string;
   archived: boolean;
 }
@@ -139,7 +141,7 @@ export function NewStrategyButton({
             >
               {sources.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.archived ? `${s.name} (archived)` : s.name}
+                  {`${s.labNumber ? `${s.labNumber} ` : ''}${s.name}${s.archived ? ' (archived)' : ''}`}
                 </option>
               ))}
             </SelectField>

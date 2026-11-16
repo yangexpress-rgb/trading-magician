@@ -118,7 +118,7 @@ test('compares other symbols on the same chart as percent changes', async ({ pag
   // Compared closes are in the table too.
   await page.getByText('Show prices as a table').click();
   const table = page.getByRole('table', { name: 'DEMO-IDX prices' });
-  await expect(table.getByRole('columnheader', { name: 'DEMO-A close $' })).toBeVisible();
+  await expect(table.getByRole('columnheader', { name: 'DEMO-A close' })).toBeVisible();
 
   // Scrolling back fetches the compared symbols too.
   await page

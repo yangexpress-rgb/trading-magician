@@ -5,6 +5,7 @@ import { notify, type NotificationKind } from './notifications';
 import { OrderError } from './orders';
 import type { INCIDENT_KINDS } from './schema';
 import { executionIncidents, strategies, strategyRuntimes } from './schema';
+import { strategyLabelSql } from './strategy-label';
 
 /**
  * Execution incidents (Design v1.0 §8.5–8.6; ADR 0014): a reconciliation
@@ -138,7 +139,7 @@ async function pauseForIncident(tx: Transaction, input: OpenIncidentInput, incid
   const names = new Map(
     (
       await tx
-        .select({ id: strategies.id, name: strategies.name })
+        .select({ id: strategies.id, name: strategyLabelSql })
         .from(strategies)
         .where(
           inArray(
@@ -146,7 +147,7 @@ async function pauseForIncident(tx: Transaction, input: OpenIncidentInput, incid
             rows.map((r) => r.strategyId),
           ),
         )
-    ).map((s) => [s.id, s.name]),
+    ).map((s) => [s.id, s.name ?? 'A strategy']),
   );
   const paused = rows.map((r) => ({ ...r, name: names.get(r.strategyId) ?? 'A strategy' }));
   for (const p of paused) {

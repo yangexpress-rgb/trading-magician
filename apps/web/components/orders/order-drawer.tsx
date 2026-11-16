@@ -12,6 +12,7 @@ import {
   formatPrice,
   ORDER_STATE,
   PHASE_LABELS,
+  riskFigure,
   riskLabel,
   SOURCE_LABELS,
 } from '@/lib/order-text';
@@ -282,7 +283,7 @@ export function OrderDrawer({
                   <span className="font-medium">{c.passed ? 'Passed' : 'Failed'}</span>{' '}
                   {riskLabel(c.code)}
                   {c.value !== undefined && c.limit !== undefined
-                    ? ` (${c.value} against a limit of ${c.limit})`
+                    ? ` (${riskFigure(c.code, c.value)} against a limit of ${riskFigure(c.code, c.limit)})`
                     : ''}
                 </li>
               ))}
