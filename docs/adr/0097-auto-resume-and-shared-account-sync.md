@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-16
-- **Design refs:** design v1.3 §12.4, §12.6; N280, N281. Amends ADR 0087 and ADR 0096.
+- **Design refs:** design v1.3 §12.4, §12.6; N282, N283. Amends ADR 0087 and ADR 0096.
   Requested by Yong on 2026-11-16 after three strategies paused at 12:13 ET with "The paper broker
   has not answered for 61–66 seconds", asking that such pauses restart on their own.
 
@@ -19,17 +19,17 @@ long cleared.
 
 ## Decision
 
-- **N280: one account sync for all its strategies.** An in-process gate (`AccountSyncGate`,
+- **N282: one account sync for all its strategies.** An in-process gate (`AccountSyncGate`,
   `apps/worker/src/account-sync.ts`) lets one pass ask the broker for an account's updates per
   `RUNTIME_PASS_EVERY_MS` (5 s); the others in that window read the applied updates from the
   database and inherit the sync's outcome. Eight strategies on one account now send the account's
   update requests once, not eight times.
-- **N280: "too many requests" is throttling, not silence.** An `AlpacaRateLimitError` marks the
+- **N282: "too many requests" is throttling, not silence.** An `AlpacaRateLimitError` marks the
   pass `throttled`, not `brokerDown`. The runtime keeps going (the request budget already backs
   off) and pauses only after 5 minutes of continuous throttling (`SAFETY.throttledPauseMs`), with
   "Alpaca has refused requests as over its limit for N minutes" under the existing
   `broker_disconnected` incident kind (no migration).
-- **N281: automatic resume after passing outages.** A pause for broker silence, throttling or lost
+- **N283: automatic resume after passing outages.** A pause for broker silence, throttling or lost
   live prices records `autoPause` in the runtime state. Paused runtimes keep their passes; once the
   cause is healthy (the broker answers; the watched prices are current) for 30 s and the backoff
   has passed (1, 3 then 10 minutes for the day's first, second and third resume), the worker

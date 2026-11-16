@@ -310,6 +310,40 @@ describe('listing orders (§8.3, §14.3)', () => {
     });
   });
 
+  it("counts the run's cycles by outcome (N280)", async () => {
+    const c = await startCycle('Counted');
+    await asA(async (tx) => {
+      const rows = (
+        [
+          ['closed', 2],
+          ['closed', 3],
+          ['open', 4],
+          ['exit_working', 5],
+          ['aborted', 6],
+          ['aborted', 7],
+          ['aborted', 8],
+        ] as const
+      ).map(([status, seq]) => ({
+        userId: userA,
+        runtimeId: c.runtimeId,
+        seq,
+        status,
+        entryTriggeredAt: new Date(),
+        closedAt: status === 'closed' || status === 'aborted' ? new Date() : null,
+        state: newCycleState(Date.now()),
+      }));
+      await tx.insert(strategyCycles).values(rows);
+    });
+    const status = await asA((tx) => getExecutionStatus(tx));
+    // Cycle 1 from startCycle is still working its Entry.
+    expect(status.runtimes.find((r) => r.id === c.runtimeId)?.cycles).toEqual({
+      completed: 2,
+      active: 2,
+      rejected: 3,
+      entering: 1,
+    });
+  });
+
   it('shows another user nothing', async () => {
     const list = await as(userB, (tx) => listOrders(tx));
     expect(list.counts.all).toBe(0);

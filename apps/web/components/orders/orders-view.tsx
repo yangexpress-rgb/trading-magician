@@ -7,6 +7,7 @@ import {
   type IncidentDto,
   type OrderRowDto,
   type PositionDto,
+  type RuntimeSummaryDto,
   type ScheduledRowDto,
 } from '@tm/contracts';
 import { formatDateTime, type DisplayPreferences } from '@tm/domain';
@@ -384,6 +385,7 @@ function Runtimes({
                 Started {when(r.startedAt)} ·{' '}
                 {r.workingOrders === 1 ? '1 working order' : `${r.workingOrders} working orders`}
               </p>
+              <CycleCounts cycles={r.cycles} />
               <Button size="sm" variant="ghost" className="mt-1 -ml-3" onClick={() => onShow(r.id)}>
                 Show its orders
               </Button>
@@ -392,6 +394,61 @@ function Runtimes({
         })}
       </ul>
     </section>
+  );
+}
+
+/**
+ * This run's cycles by outcome (N280): each count is a larger figure in its own colour
+ * (completed green, active blue, rejected red, entering amber; a zero stays grey) above a
+ * small label (N281).
+ */
+function CycleCounts({ cycles }: { cycles: RuntimeSummaryDto['cycles'] }) {
+  const parts: { n: number; label: string; hint: string; tone: string }[] = [
+    {
+      n: cycles.completed,
+      label: 'completed',
+      hint: 'Entry filled and Exit closed the position',
+      tone: 'text-ok',
+    },
+    {
+      n: cycles.active,
+      label: 'active',
+      hint: 'Entry filled; the position is open or exiting',
+      tone: 'text-info',
+    },
+    {
+      n: cycles.rejected,
+      label: 'rejected',
+      hint: 'Never started: nothing filled (refused by a risk limit, rejected, canceled or expired)',
+      tone: 'text-danger',
+    },
+  ];
+  if (cycles.entering > 0)
+    parts.push({
+      n: cycles.entering,
+      label: 'entering',
+      hint: 'Entry orders still working',
+      tone: 'text-warn',
+    });
+  return (
+    <div className="mt-2">
+      <p className="text-xs font-semibold text-ink-muted">Cycles</p>
+      <dl className="mt-0.5 flex flex-wrap gap-x-5 gap-y-1" aria-label="Cycles this run">
+        {parts.map((p) => (
+          <div key={p.label} title={p.hint} className="flex flex-col">
+            <dt className="order-2 text-xs text-ink-muted">{p.label}</dt>
+            <dd
+              className={cx(
+                'order-1 text-xl font-bold leading-tight tabular-nums',
+                p.n > 0 ? p.tone : 'text-ink-muted',
+              )}
+            >
+              {p.n}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 

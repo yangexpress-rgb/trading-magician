@@ -216,7 +216,7 @@ if (databaseUrl) {
     logger,
     pollMs: env.RUNTIME_POLL_MS,
     passEveryMs: env.RUNTIME_PASS_EVERY_MS,
-    // One broker-account sync shared by the strategies on an account (N280).
+    // One broker-account sync shared by the strategies on an account (N282).
     accountSync: new AccountSyncGate(env.RUNTIME_PASS_EVERY_MS),
   });
   logger.info({ workerId }, 'paper strategy runtimes started');

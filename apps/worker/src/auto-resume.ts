@@ -1,5 +1,5 @@
 /**
- * Automatic resume after a passing outage (N281, ADR 0097).
+ * Automatic resume after a passing outage (N283, ADR 0097).
  *
  * A strategy paused because the broker stopped answering, Alpaca throttled the
  * key, or live prices were lost resumes on its own once the cause has cleared

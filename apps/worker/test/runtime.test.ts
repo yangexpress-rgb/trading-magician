@@ -835,7 +835,7 @@ describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', (
   });
 });
 
-describe('paper runtime: automatic resume after passing outages (N280, N281)', () => {
+describe('paper runtime: automatic resume after passing outages (N282, N283)', () => {
   it('resumes on its own once the broker has answered again for a while', async () => {
     clock = T0 + 18 * 86_400_000;
     const def = pairDefinition();

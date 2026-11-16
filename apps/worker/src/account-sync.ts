@@ -1,7 +1,7 @@
 import { AlpacaRateLimitError } from '@tm/alpaca';
 
 /**
- * One broker-account sync shared by every strategy on the account (N280, ADR 0097).
+ * One broker-account sync shared by every strategy on the account (N282, ADR 0097).
  *
  * Each pass asks the broker for the account's new orders and fills. Eight
  * strategies on one Alpaca account, each passing every 5 s, asked the same

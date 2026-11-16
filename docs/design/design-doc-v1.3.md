@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N282, O177, ADR 0098 and migration 0097** (N276 to N281 and ADR 0096 to 0097 were taken on 2026-11-16); other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N284, O177, ADR 0098 and migration 0097** (N276 to N283 and ADR 0096 to 0097 were taken on 2026-11-16); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -606,7 +606,7 @@ Not yet built and required before real trading: account-level, per-symbol and pe
 
 ### 12.4 Automatic pauses
 
-A strategy pauses itself after 3 rejected or failed orders in a row since the last resume, one instrument's price stale or missing 60 s past the threshold (each instrument timed on its own; an unchanged price on a live feed is not stale, N276), the broker not answering for 60 s, a reconciliation mismatch, or a daily loss or drawdown hit. Each pause is audited and notified; resolving an incident never resumes a strategy (C17). Alpaca's "too many requests" answer is throttling, not silence: it pauses only after 5 minutes (N280). A pause for broker silence, throttling or lost live prices lifts itself once the cause has been clear for 30 s, after 1, 3 then 10 minutes, at most 3 times a New York day, audited and notified; a pause whose reason has changed, or a runtime with an open reconciliation mismatch or repeated-rejects incident, waits for a person (N281, ADR 0097).
+A strategy pauses itself after 3 rejected or failed orders in a row since the last resume, one instrument's price stale or missing 60 s past the threshold (each instrument timed on its own; an unchanged price on a live feed is not stale, N276), the broker not answering for 60 s, a reconciliation mismatch, or a daily loss or drawdown hit. Each pause is audited and notified; resolving an incident never resumes a strategy (C17). Alpaca's "too many requests" answer is throttling, not silence: it pauses only after 5 minutes (N282). A pause for broker silence, throttling or lost live prices lifts itself once the cause has been clear for 30 s, after 1, 3 then 10 minutes, at most 3 times a New York day, audited and notified; a pause whose reason has changed, or a runtime with an open reconciliation mismatch or repeated-rejects incident, waits for a person (N283, ADR 0097).
 
 ### 12.5 Order intents and states
 
@@ -621,11 +621,11 @@ Terminal alternatives: Canceled, Rejected, Expired, Failed. Broker statuses norm
 
 ### 12.6 Reconciliation
 
-Each pass reads the broker's new orders and fills; strategies on the same account share one such sync every 5 seconds (N280). Every 60 seconds, and at once when the broker reports an unknown order, reconciliation compares app orders, broker orders, fills and positions. Updates it finds are applied and audited as healed; missing orders, differing positions that working orders still to fill cannot explain (N277), and unknown orders open a mismatch incident (one per kind, runtime and account) and pause the affected strategies. Data incidents resolve themselves; mismatches and repeated rejects are resolved by a person from the Orders banner (C17, ADR 0014).
+Each pass reads the broker's new orders and fills; strategies on the same account share one such sync every 5 seconds (N282). Every 60 seconds, and at once when the broker reports an unknown order, reconciliation compares app orders, broker orders, fills and positions. Updates it finds are applied and audited as healed; missing orders, differing positions that working orders still to fill cannot explain (N277), and unknown orders open a mismatch incident (one per kind, runtime and account) and pause the affected strategies. Data incidents resolve themselves; mismatches and repeated rejects are resolved by a person from the Orders banner (C17, ADR 0014).
 
 ### 12.7 The Orders tab
 
-- **Strategies on paper** cards: each strategy's S number and name, with the run status (Running, Paused, Stopped) and "Just started" on a line under them (N246, N247).
+- **Strategies on paper** cards: each strategy's S number and name, with the run status (Running, Paused, Stopped) and "Just started" on a line under them (N246, N247). Under "Started … · N working orders", one line counts the run's cycles: **completed** (Entry filled and Exit closed the position), **active** (Entry filled, position open or exiting) and **rejected** (ended with nothing filled: refused by a risk limit, rejected, canceled by the collar or expired), plus **entering** when Entry orders are still working (N280). Each count is a larger bold figure above a small label, in its own colour: completed green, active blue, rejected red, entering amber; a zero stays grey (N281).
 - Views: all, working, filled, canceled or rejected, scheduled, with counts; filters by strategy, run, cycle, phase, instrument, account and dates in the viewer's time zone, kept in the address so a view can be bookmarked (saved views are bookmarks, D7).
 - A dense order table, a scheduled-legs table, a positions table with manual close (stopped strategies only), the kill switch, and a banner for paused strategies and open incidents with Resolve.
 - The order drawer shows the full event timeline, the source rule, trigger values and the broker's raw status.
@@ -1176,6 +1176,7 @@ Survivorship bias in built-in groups (O6); custom feeds give daily bars only and
 | N262 to N265, N271                                 | AI agents and MCP                                      | §15.4, §19.3, §20.2                            |
 | N272, N274, N275                                   | Ask AI panel                                           | §5.5, §15.4                                    |
 | N273                                               | Builder defaults                                       | §8.13                                          |
+| N280, N281                                         | Cycle counts on Strategies on paper cards              | §12.7                                          |
 
 N228 to N230 were not used (renumbered to N233 to N235).
 

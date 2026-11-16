@@ -60,9 +60,9 @@ export interface RuntimeState {
   staleSince?: number | undefined;
   /** Each watched instrument's own stale-or-missing start, epoch ms (N276); one quiet stock no longer adds to another's. */
   staleSinceBy?: Record<string, number> | undefined;
-  /** Since when the broker has kept answering "too many requests", epoch ms (N280). */
+  /** Since when the broker has kept answering "too many requests", epoch ms (N282). */
   throttledSince?: number | undefined;
-  /** A pause for a passing outage, which lifts itself once the cause clears (N281). */
+  /** A pause for a passing outage, which lifts itself once the cause clears (N283). */
   autoPause?:
     | {
         kind: 'broker_disconnected' | 'broker_throttled' | 'feed_loss';
@@ -72,7 +72,7 @@ export interface RuntimeState {
         gaveUp?: boolean | undefined;
       }
     | undefined;
-  /** Automatic resumes on one New York day (N281). */
+  /** Automatic resumes on one New York day (N283). */
   autoResumes?: { day: string; count: number } | undefined;
   /** The calendar period last evaluated on a non-daily schedule, e.g. "2026-03" (v1.2 item 4). */
   lastSchedulePeriod?: string | undefined;
@@ -226,7 +226,7 @@ export async function runtimePauseReason(
 
 /**
  * Whether an incident that needs a person is open on the runtime or its
- * accounts: a reconciliation mismatch or repeated rejects (N281).
+ * accounts: a reconciliation mismatch or repeated rejects (N283).
  */
 export async function hasBlockingIncident(
   tx: Transaction,

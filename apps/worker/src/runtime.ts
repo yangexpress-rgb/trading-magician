@@ -212,7 +212,7 @@ export interface RuntimeWorkerOptions {
    */
   passEveryMs?: number;
   /**
-   * One account sync shared by the strategies on an account (N280, ADR 0097).
+   * One account sync shared by the strategies on an account (N282, ADR 0097).
    * The worker always has it; tests leave it out and every pass syncs.
    */
   accountSync?: AccountSyncGate;
@@ -259,14 +259,14 @@ export const SAFETY = {
   brokerDownPauseMs: 60_000,
   /** How long prices may stay stale or missing, after the staleness threshold, before a pause. */
   feedLossPauseMs: 60_000,
-  /** How long Alpaca may keep answering "too many requests" before a pause (N280). */
+  /** How long Alpaca may keep answering "too many requests" before a pause (N282). */
   throttledPauseMs: 300_000,
 } as const;
 
 /** What went wrong with the broker during a pass. */
 interface PassHealth {
   brokerDown: boolean;
-  /** The broker answered "too many requests": it is there, the key is over its limit (N280). */
+  /** The broker answered "too many requests": it is there, the key is over its limit (N282). */
   throttled?: boolean;
   /** Whether the price feed gave a fresh price this pass (N276); quiet quotes then count as current. */
   feedLive?: boolean;
@@ -389,7 +389,7 @@ export async function runRuntimePass(
     work = await watchBroker(tx, work, now, health);
     if (work.status === 'running')
       work = await watchFeed(tx, work, quotes, now, new Set(members), health);
-    // A pause for a passing outage lifts itself once the cause has cleared (N281).
+    // A pause for a passing outage lifts itself once the cause has cleared (N283).
     else if (work.status === 'paused' && work.state.autoPause)
       work = await autoResume(tx, work, quotes, now, new Set(members), health);
     if (work.status === 'running' && work.state.autoPause) work.state.autoPause = undefined;
@@ -438,7 +438,7 @@ async function syncUpdates(
   for (const accountId of work.accounts) {
     const t = now.getTime();
     // Another strategy on the account synced it moments ago: its updates are
-    // already applied, so read its outcome instead of asking again (N280).
+    // already applied, so read its outcome instead of asking again (N282).
     if (gate && !gate.due(accountId, t)) {
       const last = gate.outcome(accountId);
       if (last?.brokerDown) health.brokerDown = true;
@@ -493,7 +493,7 @@ async function syncUpdates(
   }
 }
 
-/** Notes a broker request that failed: throttled is not silent (N280). */
+/** Notes a broker request that failed: throttled is not silent (N282). */
 function markUnavailable(health: PassHealth, e: unknown) {
   if (isThrottled(e)) health.throttled = true;
   else health.brokerDown = true;
@@ -532,7 +532,7 @@ async function reconcile(
 
 /**
  * Pauses the runtime once the broker has not answered for a while, or has
- * kept answering "too many requests" for longer (N280); clears when it answers.
+ * kept answering "too many requests" for longer (N282); clears when it answers.
  */
 async function watchBroker(
   tx: Transaction,
@@ -666,7 +666,7 @@ async function readFeed(
 }
 
 /**
- * Lifts a pause for a passing outage once its cause has cleared (N281, ADR
+ * Lifts a pause for a passing outage once its cause has cleared (N283, ADR
  * 0097): the broker answers again, or the prices are current. Only while the
  * runtime is still paused for that reason and nothing that needs a person is
  * open on it.

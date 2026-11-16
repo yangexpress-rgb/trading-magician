@@ -6,7 +6,7 @@ const T = 1_800_000_000_000;
 const pause: AutoPause = { kind: 'broker_disconnected', reason: 'r', at: T };
 const today = '2026-11-16';
 
-describe('autoResumeStep (N281)', () => {
+describe('autoResumeStep (N283)', () => {
   it('waits until the backoff has passed and the cause has been clear for 30 s', () => {
     let step = autoResumeStep({ pause, counts: undefined, today, healthy: true, now: T + 10_000 });
     expect(step.action).toBe('wait');
@@ -73,7 +73,7 @@ describe('autoResumeStep (N281)', () => {
   });
 });
 
-describe('AccountSyncGate (N280)', () => {
+describe('AccountSyncGate (N282)', () => {
   it('lets one pass per interval ask the broker and shares its outcome', () => {
     const gate = new AccountSyncGate(5_000);
     expect(gate.due('a', T)).toBe(true);
