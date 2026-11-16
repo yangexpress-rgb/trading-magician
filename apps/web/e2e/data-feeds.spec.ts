@@ -120,7 +120,7 @@ test('tests feeds, sets a fallback and turns a feed off safely', async ({ page, 
   await demo.getByRole('button', { name: 'Turn off' }).click();
   const turnOff = page.getByRole('dialog', { name: 'Turn off Demo feed?' });
   await expect(turnOff).toContainText('Idle watcher gets prices from it.');
-  await expect(turnOff.getByLabel('Pause Idle watcher')).toBeVisible();
+  await expect(turnOff.getByLabel(/^Pause (S\S+ )?Idle watcher$/)).toBeVisible();
   await expect(turnOff.getByLabel('Move its routes to another feed')).toBeChecked();
   await expect(turnOff.getByLabel('Replacement feed')).toHaveValue(/.+/);
 
