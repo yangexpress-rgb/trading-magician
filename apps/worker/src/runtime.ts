@@ -15,6 +15,7 @@ import {
   DbPaperBrokerStore,
   finishScheduled,
   getReconciledAt,
+  heartbeatInstrumentId,
   idempotencyKey,
   insertCycle,
   intentsByClientOrderId,
@@ -151,6 +152,7 @@ import { createRoutedHistory } from './routed-history';
 import { createRoutedQuotes } from './routed-quotes';
 import { NO_COMPANY_FEED, type FundamentalsLoader } from './fundamentals';
 import { equityLimits } from './equity-limits';
+import { effectivePriceAgeSec, feedVerdict, type WatchedPrice } from './feed-watch';
 
 /**
  * The paper runtime (Design v1.0 §6.5–6.9, §8; ADR 0012). Each pass over a
@@ -247,6 +249,8 @@ export const SAFETY = {
 /** What went wrong with the broker during a pass. */
 interface PassHealth {
   brokerDown: boolean;
+  /** Whether the price feed gave a fresh price this pass (N276); quiet quotes then count as current. */
+  feedLive?: boolean;
 }
 
 /** Latest values of the series a condition reads, for the trigger event (§8.2). */
@@ -364,7 +368,8 @@ export async function runRuntimePass(
 
     // 4. Automatic pauses (§8.6): a broker that stops answering, prices that go stale.
     work = await watchBroker(tx, work, now, health);
-    if (work.status === 'running') work = await watchFeed(tx, work, quotes, now, new Set(members));
+    if (work.status === 'running')
+      work = await watchFeed(tx, work, quotes, now, new Set(members), health);
 
     if (work.status !== 'stopped') {
       await planPass(tx, {
@@ -512,7 +517,8 @@ async function watchBroker(
 /**
  * Checks the live prices the rules depend on (§8.6): stale or missing prices
  * open an incident at once (orders are already refused by the stale-data risk
- * check) and pause the strategy if they stay that way.
+ * check) and pause the strategy if one stays that way. A quiet stock whose
+ * price has not changed is not stale while the feed is live (N276, ADR 0096).
  */
 async function watchFeed(
   tx: Transaction,
@@ -520,18 +526,34 @@ async function watchFeed(
   quotes: LiveQuoteProvider,
   now: Date,
   members: ReadonlySet<string> = new Set(),
+  health?: PassHealth,
 ): Promise<RuntimeWork> {
   const t = now.getTime();
   const limit = work.definition.execution.staleDataSec;
-  const bad: string[] = [];
+  const prices: WatchedPrice[] = [];
   for (const { instrumentId, symbol } of watchedInstruments(work, members)) {
-    const ref = { symbol };
-    const q = await quotes.latestQuote({ instrumentId, symbol: ref.symbol });
-    // Outside the session the last quote simply stands; that is not a feed problem.
-    if (!q) bad.push(`${ref.symbol} (no price)`);
-    else if (q.marketOpen && quoteAgeSec(q, now) > limit) bad.push(ref.symbol);
+    prices.push({
+      instrumentId,
+      symbol,
+      quote: await quotes.latestQuote({ instrumentId, symbol }),
+    });
   }
-  if (bad.length === 0) {
+  const anyFresh = prices.some((p) => p.quote?.marketOpen && quoteAgeSec(p.quote, now) <= limit);
+  const anyQuiet = prices.some((p) => p.quote?.marketOpen && quoteAgeSec(p.quote, now) > limit);
+  // Nothing watched moved: ask a liquid instrument whether the feed itself is live.
+  const heartbeat =
+    !anyFresh && anyQuiet ? await heartbeatQuote(tx, quotes, work.instruments) : undefined;
+  const verdict = feedVerdict({
+    prices,
+    heartbeat,
+    now,
+    staleDataSec: limit,
+    pauseAfterMs: SAFETY.feedLossPauseMs,
+    staleSince: work.state.staleSinceBy ?? {},
+  });
+  if (health) health.feedLive = verdict.feedLive;
+  work.state.staleSinceBy = verdict.staleSince;
+  if (verdict.bad.length === 0) {
     if (work.state.staleSince === undefined) return work;
     work.state.staleSince = undefined;
     await resolveIncidentsOf(tx, work.userId, 'stale_data', work.id, 'Prices are current again');
@@ -543,19 +565,35 @@ async function watchFeed(
     userId: work.userId,
     kind: 'stale_data',
     runtimeId: work.id,
-    summary: `Prices older than ${limit} seconds or missing for ${bad.join(', ')}; no new orders are sent until they are current.`,
+    summary: `Prices older than ${limit} seconds or missing for ${verdict.bad.join(', ')}; no new orders are sent until they are current.`,
     link,
   });
-  if (t - work.state.staleSince < SAFETY.feedLossPauseMs) return work;
+  if (verdict.lost.length === 0) return work;
+  const longest = Math.max(...verdict.lost.map((l) => l.seconds));
   await openIncident(tx, {
     userId: work.userId,
     kind: 'feed_loss',
     runtimeId: work.id,
-    summary: `Live prices for ${bad.join(', ')} have been unavailable for ${Math.round((t - work.state.staleSince) / 1000)} seconds.`,
+    summary: `Live prices for ${verdict.lost.map((l) => l.symbol).join(', ')} have been unavailable for ${longest} seconds.`,
     pause: [work.id],
     link,
   });
   return { ...work, status: 'paused' };
+}
+
+/** A liquid ETF the feed always prices, to tell a quiet stock from a silent feed. */
+const HEARTBEAT_SYMBOL = 'SPY';
+
+async function heartbeatQuote(
+  tx: Transaction,
+  quotes: LiveQuoteProvider,
+  known: ReadonlyMap<string, InstrumentRef>,
+): Promise<Quote | undefined> {
+  for (const [instrumentId, ref] of known)
+    if (ref.symbol === HEARTBEAT_SYMBOL)
+      return quotes.latestQuote({ instrumentId, symbol: ref.symbol });
+  const instrumentId = await heartbeatInstrumentId(tx);
+  return instrumentId ? quotes.latestQuote({ instrumentId, symbol: HEARTBEAT_SYMBOL }) : undefined;
 }
 
 /**
@@ -1158,6 +1196,11 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     }
   }
 
+  // Entry orders not yet filled hold exposure and buying power too (N278, ADR
+  // 0096): a pass that places twenty entries, or entries that wait for the
+  // open, must not each be checked against positions alone.
+  let pendingGross = pendingEntryGross(work.working);
+
   // 4. Plan and act on each active cycle.
   const working = () => work.working.length;
   let placedThisPass = 0;
@@ -1381,10 +1424,13 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         view: cycleView(c),
         definition: cycleDef,
         equity,
-        gross: leg.phase === 'entry' ? gross.minus(closingGross) : gross,
+        gross: leg.phase === 'entry' ? gross.minus(closingGross).plus(pendingGross) : gross,
         dailyLossHit,
         drawdownHit,
         activeOrders: working() + placedThisPass,
+        onOpeningRecorded: (notional) => {
+          pendingGross = pendingGross.plus(notional);
+        },
         triggerEventId:
           leg.phase === 'entry'
             ? (c.entryTriggerEventId ?? undefined)
@@ -1490,7 +1536,21 @@ interface PlaceInput {
   dailyLossHit: boolean;
   drawdownHit: boolean;
   activeOrders: number;
+  /** Called with the notional of an order that opens or adds risk once it is recorded ready. */
+  onOpeningRecorded?: ((notional: Decimal) => void) | undefined;
   triggerEventId: string | undefined;
+}
+
+/** Unfilled notional of a runtime's working Entry orders, at their reference prices. */
+export function pendingEntryGross(working: readonly WorkingOrder[]): Decimal {
+  let total = ZERO;
+  for (const o of working) {
+    if (o.intent.phase !== 'entry') continue;
+    const left = new Decimal(o.intent.quantity).minus(o.filledQuantity);
+    if (left.lte(0)) continue;
+    total = total.plus(left.times(o.intent.referencePrice));
+  }
+  return total;
 }
 
 /**
@@ -1574,7 +1634,9 @@ async function placeLeg(
     openPositions,
     instrumentHeld: !(work.book.positions.get(order.instrumentId) ?? ZERO).isZero(),
     // Outside the session the last quote is old by design; orders then wait for the open.
-    priceAgeSec: quote.marketOpen ? quoteAgeSec(quote, now) : undefined,
+    priceAgeSec: quote.marketOpen
+      ? effectivePriceAgeSec(quote, now, ctx.health.feedLive ?? false)
+      : undefined,
     staleDataSec: def.execution.staleDataSec,
   });
   if (risk.ok && marketClosedCancel) {
@@ -1620,6 +1682,7 @@ async function placeLeg(
     source: 'strategy',
   });
   if (!recorded.created || recorded.state !== 'ready') return false;
+  if (!sized.closing) input.onOpeningRecorded?.(sized.quantity.times(quote.last));
   // Decided while the market is closed: wait for the open, then check the
   // collar against the opening price, as the back test does (§7.2).
   if (

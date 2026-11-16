@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N276, O177, ADR 0096 and migration 0097**; other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N279, O177, ADR 0097 and migration 0097** (N276 to N278 and ADR 0096 were taken on 2026-11-16); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -600,13 +600,13 @@ A back test is **not required to start on paper**: a missing or out-of-date one 
 
 ### 12.3 Pre-trade risk checks
 
-Risk checks run immediately before each submission, by the same function in back tests and on paper, and every check's limit and value are stored on the order intent. Order: stale data; active orders; then for orders that open or add risk: order size, strategy exposure, buying power (no leverage), daily loss, drawdown and instruments held; then the price collar. Closing orders skip the exposure checks. The stale-price watch covers only members held or with a working order, but a stale price still refuses a new pick (C16, N245).
+Risk checks run immediately before each submission, by the same function in back tests and on paper, and every check's limit and value are stored on the order intent. Order: stale data; active orders; then for orders that open or add risk: order size, strategy exposure, buying power (no leverage), daily loss, drawdown and instruments held; then the price collar. Closing orders skip the exposure checks. Strategy exposure and buying power count the unfilled part of the strategy's working Entry orders and of opening orders placed earlier in the same pass (N278). The stale-price watch covers only members held or with a working order, but a stale price still refuses a new pick (C16, N245). While the feed is live (some price it gave this pass is fresh, or a SPY heartbeat is), a quiet instrument's unchanged price counts as current for the stale-data check (N276, ADR 0096).
 
 Not yet built and required before real trading: account-level, per-symbol and per-asset-class limits (v1.1 deviation D4).
 
 ### 12.4 Automatic pauses
 
-A strategy pauses itself after 3 rejected or failed orders in a row since the last resume, prices stale 60 s past the threshold, the broker not answering for 60 s, a reconciliation mismatch, or a daily loss or drawdown hit. Each pause is audited and notified; resolving an incident never resumes a strategy (C17).
+A strategy pauses itself after 3 rejected or failed orders in a row since the last resume, one instrument's price stale or missing 60 s past the threshold (each instrument timed on its own; an unchanged price on a live feed is not stale, N276), the broker not answering for 60 s, a reconciliation mismatch, or a daily loss or drawdown hit. Each pause is audited and notified; resolving an incident never resumes a strategy (C17).
 
 ### 12.5 Order intents and states
 
@@ -621,7 +621,7 @@ Terminal alternatives: Canceled, Rejected, Expired, Failed. Broker statuses norm
 
 ### 12.6 Reconciliation
 
-Every 60 seconds, and at once when the broker reports an unknown order, reconciliation compares app orders, broker orders, fills and positions. Updates it finds are applied and audited as healed; missing orders, differing positions and unknown orders open a mismatch incident (one per kind, runtime and account) and pause the affected strategies. Data incidents resolve themselves; mismatches and repeated rejects are resolved by a person from the Orders banner (C17, ADR 0014).
+Every 60 seconds, and at once when the broker reports an unknown order, reconciliation compares app orders, broker orders, fills and positions. Updates it finds are applied and audited as healed; missing orders, differing positions that working orders still to fill cannot explain (N277), and unknown orders open a mismatch incident (one per kind, runtime and account) and pause the affected strategies. Data incidents resolve themselves; mismatches and repeated rejects are resolved by a person from the Orders banner (C17, ADR 0014).
 
 ### 12.7 The Orders tab
 

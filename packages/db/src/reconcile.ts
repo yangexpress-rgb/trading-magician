@@ -47,6 +47,52 @@ const isAppInstrument = (id: string) => UUID.test(id);
 /** The symbol in a stand-in id (`alpaca:NKE` → `NKE`). */
 const standInSymbol = (id: string) => id.slice(id.indexOf(':') + 1) || '?';
 
+/** Unfilled quantity of an instrument's working orders, by side. */
+export interface InFlight {
+  buy: Decimal;
+  sell: Decimal;
+}
+
+/**
+ * Whether a position gap (broker − app) fits inside what working orders have
+ * still to fill: buys can only add to the broker's side, sells only take away.
+ */
+export function explainedByInFlight(gap: Decimal, inFlight: InFlight | undefined): boolean {
+  if (!inFlight) return false;
+  return gap.lte(inFlight.buy) && gap.gte(inFlight.sell.negated());
+}
+
+async function inFlightQuantities(
+  tx: Transaction,
+  accountId: string,
+): Promise<Map<string, InFlight>> {
+  const rows = await tx
+    .select({
+      instrumentId: orderIntents.instrumentId,
+      direction: orderIntents.direction,
+      quantity: orderIntents.quantity,
+      filled: brokerOrders.filledQuantity,
+    })
+    .from(orderIntents)
+    .innerJoin(brokerOrders, eq(brokerOrders.intentId, orderIntents.id))
+    .where(
+      and(
+        eq(orderIntents.accountId, accountId),
+        inArray(brokerOrders.state, [...WORKING_STATES]),
+        isNotNull(brokerOrders.brokerOrderId),
+      ),
+    );
+  const out = new Map<string, InFlight>();
+  for (const r of rows) {
+    const left = Decimal.max(0, new Decimal(r.quantity).minus(r.filled));
+    const cur = out.get(r.instrumentId) ?? { buy: new Decimal(0), sell: new Decimal(0) };
+    if (r.direction === 'buy') cur.buy = cur.buy.plus(left);
+    else cur.sell = cur.sell.plus(left);
+    out.set(r.instrumentId, cur);
+  }
+  return out;
+}
+
 export async function reconcileAccount(
   tx: Transaction,
   broker: BrokerAdapter,
@@ -94,6 +140,9 @@ export async function reconcileAccount(
   }
 
   // 2. Positions: what the app's fills add up to against what the broker holds.
+  // Orders still working can fill at the broker between the poll above and the
+  // position read below; a gap they can explain is not a mismatch (N277, ADR 0096).
+  const inFlight = await inFlightQuantities(tx, accountId);
   const app = await accountPositions(tx, accountId);
   const held = new Map(
     (await broker.positions(accountId))
@@ -117,7 +166,7 @@ export async function reconcileAccount(
   for (const id of ids) {
     const a = app.get(id) ?? new Decimal(0);
     const b = held.get(id) ?? new Decimal(0);
-    if (!a.equals(b)) {
+    if (!a.equals(b) && !explainedByInFlight(b.minus(a), inFlight.get(id))) {
       mismatches.push({
         kind: 'position',
         instrumentId: id,
