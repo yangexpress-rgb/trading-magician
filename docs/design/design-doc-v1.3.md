@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N279, O177, ADR 0097 and migration 0097** (N276 to N278 and ADR 0096 were taken on 2026-11-16); other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N280, O177, ADR 0097 and migration 0097** (N276 to N279 and ADR 0096 were taken on 2026-11-16); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -659,6 +659,7 @@ Research's tools are tabs under its title: Price charts (`/research`), Stock scr
 - **Layout.** Controls on two rows: Range, Bars, Chart and Compare; then Date and the bar readout (time, OHLC, volume). Price pane above a volume pane; hollow rising and filled falling candles; crosshair by pointer or arrow keys; the same values in a table; the answering feed named under the chart (N204).
 - **Moving through time.** ‹ and › step one range back or forward (1D by trading day), a date box goes to any day, Latest returns to today (`date=` in the address). The chart drags, swipes, scrolls with Shift and the wheel, or moves with ‹ Earlier / Later › and the arrow keys; Ctrl/⌘ with the wheel, a pinch or − / + zoom (10 to 2,000 bars). Older bars are fetched as the view nears the start (a week of 5-minute, three months of hourly or a year of daily bars at a time). The price scale fits the bars in view; Reset view returns to the range (N196, N197, ADR 0070).
 - **Compare.** Up to four other stocks, ETFs or indices; every line, the main one included, then shows percent change from its first close in view, each in its colour slot with a legend and axis label; volume stays the main symbol's; `compare=` in the address; compared symbols stay when the main symbol changes. An index has daily bars only, so it shows "no prices" beside intraday charts; there is no second price axis (N198, O139).
+- **Opens where you left off.** Without a symbol in the address, the page opens on the symbol last charted in this browser, with the symbols it was compared with; an address symbol (`instrument=`) still wins, and range and bars start at their defaults (N279).
 - The chart shows only the selected instrument: while another loads or after it failed, the previous chart is not shown under the new name (N153).
 - **Expected-move cone** on daily charts (latest view only): ± one standard deviation from the last close at each expiry's ATM IV, out to 60 days (N62, O46).
 - **Sections under the chart**: Options (§14.4), Earnings (§14.5) and Company (§14.3) start closed, open from their titles, and each browser remembers which are open; their header facts stay in sight and data still loads, so the cone shows with Options closed (N202).

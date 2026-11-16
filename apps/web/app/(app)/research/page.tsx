@@ -20,9 +20,11 @@ import {
 } from '@tm/domain';
 import { PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
+import { cookies } from 'next/headers';
 import { ResearchNav } from '@/components/research/research-nav';
 import { ResearchWorkspace } from '@/components/research/research-workspace';
 import { MAX_COMPARE } from '@/lib/chart-history';
+import { LAST_VIEW_COOKIE, parseLastView } from '@/lib/research-last-view';
 import { appDb } from '@/lib/server/db';
 import { requireTenant } from '@/lib/server/session';
 
@@ -61,7 +63,10 @@ export default async function ResearchPage({
       optionsFeed: (await activeOptionsFeed(tx))?.name ?? null,
     }),
   );
-  const wanted = one(params.instrument);
+  // Without a symbol in the address, open on the one last looked at in this browser (N279).
+  const askedFor = one(params.instrument);
+  const last = askedFor ? null : parseLastView((await cookies()).get(LAST_VIEW_COOKIE)?.value);
+  const wanted = askedFor ?? last?.instrumentId;
   const rawRange = one(params.range) as ChartRange;
   const rawInterval = one(params.interval) as ChartInterval;
   const range = CHART_RANGES.includes(rawRange) ? rawRange : '1d';
@@ -75,7 +80,9 @@ export default async function ResearchPage({
     rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) && rawDate < nyDate(new Date()) ? rawDate : null;
   const compare = [
     ...new Set(
-      (one(params.compare) ?? '').split(',').filter((id) => instruments.some((i) => i.id === id)),
+      (one(params.compare) ?? last?.compare.join(',') ?? '')
+        .split(',')
+        .filter((id) => instruments.some((i) => i.id === id)),
     ),
   ].slice(0, MAX_COMPARE);
   const instrumentId =
