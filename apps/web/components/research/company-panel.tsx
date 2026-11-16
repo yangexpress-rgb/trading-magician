@@ -16,6 +16,7 @@ import {
   STATEMENT_LINES,
 } from '@/lib/company-text';
 import { ResearchSection } from './research-section';
+import { Signed } from '@/components/signed';
 
 const POLL_MS = 800;
 const GIVE_UP_MS = 60_000;
@@ -226,7 +227,9 @@ function CompanyReportView({ report, price }: { report: CompanyReport; price: nu
                 >
                   <dt className="text-xs text-ink-muted">{f.label}</dt>
                   <dd className="text-base text-content-strong">
-                    {formatFigure(metrics[f.key], f.format)}
+                    <Signed value={f.format === 'signedPct' ? metrics[f.key] : null}>
+                      {formatFigure(metrics[f.key], f.format)}
+                    </Signed>
                   </dd>
                 </div>
               ))}

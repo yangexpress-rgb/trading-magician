@@ -48,6 +48,7 @@ describe('back-test text', () => {
     expect(tiles['Net return']).toEqual({
       label: 'Net return',
       value: '+4.25%',
+      sign: '4.25',
       detail: '$100,000.00 → $104,250.50',
     });
     expect(tiles['Sharpe ratio']?.detail).toBe('Needs 20 trading days');

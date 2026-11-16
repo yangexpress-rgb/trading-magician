@@ -28,6 +28,7 @@ import { requireTenant } from '@/lib/server/session';
 import { type CopySource, NewStrategyButton } from './new-strategy';
 import { RowActions } from './row-actions';
 import { TradingStrategyNav } from '@/components/trading/trading-strategy-nav';
+import { Signed } from '@/components/signed';
 
 export const metadata: Metadata = { title: 'Strategy Lab' };
 
@@ -393,7 +394,9 @@ function LatestBacktest({
   }
   return (
     <>
-      <span className="text-content">{formatPct(run.netReturnPct, true)}</span>
+      <Signed value={run.netReturnPct} className="text-content">
+        {formatPct(run.netReturnPct, true)}
+      </Signed>
       {run.finishedAt && (
         <p className="mt-0.5 whitespace-nowrap text-xs text-ink-muted">
           {formatDateTime(run.finishedAt, prefs)}

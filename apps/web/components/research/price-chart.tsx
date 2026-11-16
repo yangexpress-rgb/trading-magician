@@ -31,6 +31,7 @@ import {
   timeTickIndexes,
   type Bar,
 } from '@/lib/research-text';
+import { Signed } from '@/components/signed';
 
 export type ChartStyle = 'line' | 'candles';
 
@@ -484,7 +485,7 @@ export function PriceChart({
               <span aria-hidden className={`inline-block h-0.5 w-4 rounded ${SERIES_BG[s.slot]}`} />
               <span className="font-semibold">{s.symbol}</span>
               <span className="text-content">{s.b ? formatPrice(s.b.close) : '—'}</span>
-              <span className="text-ink-muted">{s.pct === null ? '' : formatPercent(s.pct)}</span>
+              {s.pct !== null && <Signed value={s.pct}>{formatPercent(s.pct)}</Signed>}
             </li>
           ))}
         </ul>
