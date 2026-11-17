@@ -44,7 +44,7 @@ export interface PerformanceFilter {
   assetClasses?: readonly string[] | undefined;
   mode?: 'paper' | 'live' | undefined;
   /**
-   * The NYSE session "today" means (N294): the session under way, or the last
+   * The NYSE session "today" means (N296): the session under way, or the last
    * one before it when the market has not opened. Tests set it; it defaults
    * to now. It ignores From and To.
    */
@@ -389,13 +389,13 @@ export interface PerformanceSummary {
     closedTrades: number;
     peakCapital: string;
     returnOnPeakCapitalPct: string | null;
-    /** P/L over today's session and its % (N294). */
+    /** P/L over today's session and its % (N296). */
     todayPnl: string;
     todayPct: string | null;
   }[];
   byAsset: { instrumentId: string; symbol: string; assetClass: string; net: string }[];
   /**
-   * Today's results (N294): P/L over the current NYSE session (or the last
+   * Today's results (N296): P/L over the current NYSE session (or the last
    * one before the open), whatever From and To say; the other filters apply.
    */
   today: TodayFigures;
@@ -476,7 +476,7 @@ export interface TodayFigures {
   pct: string | null;
 }
 
-/** P/L over one session, and the capital at work in it, for a set of books (N294). */
+/** P/L over one session, and the capital at work in it, for a set of books (N296). */
 function sessionChange(books: readonly BookRow[], trades: readonly CycleTrade[], day: string) {
   const pnl = bookSeries(books, pnlOf);
   const change = carried(pnl, day).minus(before(pnl, day));
@@ -551,7 +551,7 @@ export async function performanceSummary(
     ),
   ).size;
 
-  // Today (N294): measured on every valuation to now, whatever the range says.
+  // Today (N296): measured on every valuation to now, whatever the range says.
   const today = f.today ?? valuationSession(new Date()).date;
   const allBooks = f.to ? await loadBooks(tx, scope, undefined) : books;
   const todayTrades = scope.empty

@@ -45,7 +45,7 @@ show dollars and a return on the most capital they had at work; one trade is one
   brokers' total (`equity.brokerEnd`) and the tab shows it as the equity figure, with the app's own
   beside it when they differ by more than $1.00. Returns and drawdown stay on the app's daily series,
   which is the only one with a value for every session.
-- **Today** (N294, amended 2026-11-17). The summary carries `today` (`sessionDate`, `pnl`, `pct`)
+- **Today** (N296, amended 2026-11-17). The summary carries `today` (`sessionDate`, `pnl`, `pct`)
   and every `byStrategy` row `todayPnl` and `todayPct`. Today is the NYSE session under way, or the
   last one before the open (`valuationSession`); it ignores `from` and `to`, while the other filters
   apply. P/L is the session's value less the previous close's, each book carried forward. The % is

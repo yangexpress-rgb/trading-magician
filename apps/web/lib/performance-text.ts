@@ -69,7 +69,7 @@ export function filtersFromSearch(get: (param: string) => string | undefined): P
   return filters;
 }
 
-/** Today's P/L and its % (N294), coloured each by its own sign. */
+/** Today's P/L and its % (N296), coloured each by its own sign. */
 export function todayTile(s: PerformanceSummaryDto): MetricTile {
   const money = formatSignedMoney(s.today.pnl);
   const pct = formatPct(s.today.pct, true);

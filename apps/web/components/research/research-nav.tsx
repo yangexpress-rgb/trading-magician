@@ -3,10 +3,12 @@
 import { cx } from '@tm/ui';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect } from 'react';
+import { researchTabCookie, researchTabOf } from '@/lib/research-tab';
 
 const TOOLS = [
-  { href: '/research', label: 'Price charts' },
   { href: '/research/watch-list', label: 'Watch list' },
+  { href: '/research', label: 'Price charts' },
   { href: '/research/screener', label: 'Stock screener' },
   { href: '/research/deals', label: 'Deals' },
   { href: '/research/patterns', label: 'Patterns' },
@@ -15,6 +17,17 @@ const TOOLS = [
 /** The tools of Quantitative Research (§11), one page each. */
 export function ResearchNav() {
   const pathname = usePathname();
+  // Remember the tab being viewed, renewed each minute while it stays open (N295).
+  useEffect(() => {
+    const tab = researchTabOf(pathname);
+    if (!tab) return;
+    const remember = () => {
+      document.cookie = researchTabCookie(tab, Date.now());
+    };
+    remember();
+    const timer = setInterval(remember, 60_000);
+    return () => clearInterval(timer);
+  }, [pathname]);
   return (
     <nav aria-label="Tools" className="mb-6 overflow-x-auto border-b border-line">
       <ul className="flex gap-1">

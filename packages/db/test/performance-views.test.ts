@@ -280,7 +280,7 @@ describe('performanceSummary', () => {
     expect(elsewhere).toMatchObject({ sessions: 0, pnl: { net: '0.00' } });
   });
 
-  it("shows today's session: overall, per strategy and narrowed (N294)", async () => {
+  it("shows today's session: overall, per strategy and narrowed (N296)", async () => {
     // Day 3 (2026-10-07) as today: account P/L -50 to 150, equity 99,950 to 100,150.
     const s = await asA((tx) => performanceSummary(tx, { today: '2026-10-07' }));
     expect(s.today).toEqual({ sessionDate: '2026-10-07', pnl: '200.00', pct: '0.20' });

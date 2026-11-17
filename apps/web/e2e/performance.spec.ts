@@ -158,7 +158,7 @@ test('shows a paper strategy’s cycles, figures and data quality', async ({ pag
   await expect(
     page.getByRole('table', { name: 'Contribution by asset' }).getByRole('row', { name: /DEMO-A/ }),
   ).toBeVisible();
-  // Today's P/L leads the figures and has a column per strategy (N294).
+  // Today's P/L leads the figures and has a column per strategy (N296).
   await expect(tiles.getByText('Today', { exact: true })).toBeVisible();
   await expect(tiles.getByText(/^NYSE session of /)).toBeVisible();
   await expect(
@@ -166,7 +166,7 @@ test('shows a paper strategy’s cycles, figures and data quality', async ({ pag
       .getByRole('table', { name: 'Contribution by strategy' })
       .getByRole('columnheader', { name: 'Today' }),
   ).toBeVisible();
-  // Double-clicking a strategy opens its own view; Back returns to all (N295).
+  // Double-clicking a strategy opens its own view; Back returns to all (N297).
   await page
     .getByRole('table', { name: 'Contribution by strategy' })
     .getByRole('row', { name: /Cycler/ })

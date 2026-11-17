@@ -51,7 +51,7 @@ const summary = (over: Partial<PerformanceSummaryDto> = {}): PerformanceSummaryD
 });
 
 describe('performanceTiles', () => {
-  it("leads with today's P/L in dollars and per cent, each coloured (N294)", () => {
+  it("leads with today's P/L in dollars and per cent, each coloured (N296)", () => {
     expect(performanceTiles(summary())[0]).toEqual({
       label: 'Today',
       value: '+$200.00 / +0.2%',
@@ -154,7 +154,7 @@ describe('asset class filter choices (v1.2 item 10)', () => {
 });
 
 describe('filtersFromSearch', () => {
-  it('reads a strategy view back from its address and drops what does not parse (N295)', () => {
+  it('reads a strategy view back from its address and drops what does not parse (N297)', () => {
     const id = '0b6c5a1e-3f1d-4c1e-9b1a-2d3e4f5a6b7c';
     const params = new URLSearchParams(`strategy=${id}&account=nope&from=2026-11-01&mode=live`);
     expect(filtersFromSearch((k) => params.get(k) ?? undefined)).toEqual({

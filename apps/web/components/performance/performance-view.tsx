@@ -273,7 +273,7 @@ export function PerformanceView({
     window.history.replaceState(null, '', `${window.location.pathname}${search}`);
   }, [filters]);
 
-  // Back and Forward step between views opened from a strategy row (N295).
+  // Back and Forward step between views opened from a strategy row (N297).
   useEffect(() => {
     const onPop = () => {
       const params = new URLSearchParams(window.location.search);
@@ -283,7 +283,7 @@ export function PerformanceView({
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  /** Double-click (or Enter on) a strategy row: that strategy's own view, as a new address (N295). */
+  /** Double-click (or Enter on) a strategy row: that strategy's own view, as a new address (N297). */
   const openStrategy = (strategyId: string) => {
     if (filters.strategyId === strategyId) return;
     const next: PerformanceFilters = { ...filters, strategyId, versionId: undefined };

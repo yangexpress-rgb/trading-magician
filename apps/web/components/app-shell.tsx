@@ -31,7 +31,13 @@ interface NavItem {
 }
 
 export const PRIMARY_NAV: readonly NavItem[] = [
-  { href: '/research', label: 'Quantitative Research', icon: <ResearchIcon /> },
+  {
+    // Reopens the last Research tab, or the Watch list after a break (N295).
+    href: '/research/open',
+    label: 'Quantitative Research',
+    icon: <ResearchIcon />,
+    also: ['/research'],
+  },
   {
     href: '/strategy-lab',
     label: 'Trading Strategy',
