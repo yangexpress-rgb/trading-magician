@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const TOOLS = [
-  { href: '/research', label: 'Price charts' },
   { href: '/research/watch-list', label: 'Watch list' },
+  { href: '/research', label: 'Price charts' },
   { href: '/research/screener', label: 'Stock screener' },
   { href: '/research/deals', label: 'Deals' },
   { href: '/research/patterns', label: 'Patterns' },

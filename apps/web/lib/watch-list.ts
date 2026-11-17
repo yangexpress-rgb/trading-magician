@@ -141,3 +141,40 @@ export function symbolHue(symbol: string): number {
   for (const ch of symbol) h = (h * 31 + ch.charCodeAt(0)) % 360;
   return h;
 }
+
+export type WatchSortKey = 'symbol' | 'last' | 'change' | 'changePct';
+export interface WatchSort {
+  key: WatchSortKey;
+  dir: 'asc' | 'desc';
+}
+
+/** Ascending, then descending, then back to the saved order. */
+export function nextWatchSort(current: WatchSort | null, key: WatchSortKey): WatchSort | null {
+  if (current?.key !== key) return { key, dir: 'asc' };
+  return current.dir === 'asc' ? { key, dir: 'desc' } : null;
+}
+
+/** A section's rows in the chosen order; rows without a price always come last. */
+export function sortWatchRows(rows: readonly WatchRowDto[], sort: WatchSort | null): WatchRowDto[] {
+  if (!sort) return [...rows];
+  const sign = sort.dir === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    if (sort.key === 'symbol') return sign * a.symbol.localeCompare(b.symbol);
+    const x = a[sort.key];
+    const y = b[sort.key];
+    if (x === null && y === null) return 0;
+    if (x === null) return 1;
+    if (y === null) return -1;
+    return sign * (x - y);
+  });
+}
+
+/** Reads a remembered sort; anything else means the saved order. */
+export function parseWatchSort(raw: string | null): WatchSort | null {
+  if (!raw) return null;
+  const [key, dir] = raw.split('.');
+  return ['symbol', 'last', 'change', 'changePct'].includes(key ?? '') &&
+    (dir === 'asc' || dir === 'desc')
+    ? { key: key as WatchSortKey, dir }
+    : null;
+}

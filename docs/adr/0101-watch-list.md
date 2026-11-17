@@ -54,3 +54,12 @@ Alpaca has no index quotes, and Cboe's delayed quotes may not be shown to users 
 - Index levels (SPX 7,332) are not shown, only their ETFs' prices. Showing real index levels needs
   a licensed index feed; it can be added as another `watch` provider without changing the page.
 - A later side panel (watch list beside any page) can reuse the same endpoint and component.
+
+## Amendment (2026-11-17, N293)
+
+At Yong's request after trying it: each group is its own named **section** (a card with its name,
+fold, + and ⋯), the separate "Add a symbol" box at the top is gone (each section's **+** opens its
+own add box), and the column headers **sort**: a click sorts low to high, a second high to low, a
+third returns to the saved order. The sort applies to every section, is remembered in the browser
+(local storage, a per-viewer convenience) and keeps rows without a price last. While a sort is on,
+Move up and Move down are hidden, since they change the saved order. No schema change.

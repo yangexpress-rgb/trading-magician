@@ -3,3 +3,11 @@ packages:
   - 'packages/*'
 onlyBuiltDependencies:
   - esbuild
+# Advisories the audit skips (CI `audit` job). Each one only until a patched
+# release exists; remove it then.
+auditConfig:
+  ignoreGhsas:
+    # picomatch ReDoS (2026-11-17), no patched release yet. Reached only through
+    # better-auth > vitest (a test runner the deployed app never runs). Yong OK'd
+    # skipping it on 2026-11-17.
+    - GHSA-fc5q-39xc-vjpf

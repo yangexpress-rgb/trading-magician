@@ -5,6 +5,9 @@ import {
   formatWatchChange,
   formatWatchLast,
   formatWatchPct,
+  nextWatchSort,
+  parseWatchSort,
+  sortWatchRows,
 } from './watch-list';
 
 describe('watch list text (N292)', () => {
@@ -60,5 +63,32 @@ describe('watch list text (N292)', () => {
     expect(vix!.change).toBeCloseTo(2.35, 6);
     expect(vix!.changePct).toBeCloseTo(10.257, 2);
     expect(spy).toMatchObject({ isIndex: false, last: null, change: null });
+  });
+});
+
+describe('watch list sorting (N293)', () => {
+  const row = (symbol: string, changePct: number | null) =>
+    ({ symbol, changePct, last: changePct, change: changePct }) as never;
+  const rows = [row('B', 1), row('A', null), row('C', -2)];
+
+  it('sorts ascending, descending, then back to the saved order', () => {
+    let s = nextWatchSort(null, 'changePct');
+    expect(sortWatchRows(rows, s).map((r) => r.symbol)).toEqual(['C', 'B', 'A']);
+    s = nextWatchSort(s, 'changePct');
+    expect(sortWatchRows(rows, s).map((r) => r.symbol)).toEqual(['B', 'C', 'A']);
+    s = nextWatchSort(s, 'changePct');
+    expect(s).toBeNull();
+    expect(sortWatchRows(rows, s).map((r) => r.symbol)).toEqual(['B', 'A', 'C']);
+    expect(sortWatchRows(rows, { key: 'symbol', dir: 'desc' }).map((r) => r.symbol)).toEqual([
+      'C',
+      'B',
+      'A',
+    ]);
+  });
+
+  it('remembers only a sort it knows', () => {
+    expect(parseWatchSort('last.desc')).toEqual({ key: 'last', dir: 'desc' });
+    expect(parseWatchSort('nope.asc')).toBeNull();
+    expect(parseWatchSort(null)).toBeNull();
   });
 });

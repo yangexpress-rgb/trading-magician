@@ -24,17 +24,28 @@ import {
   formatWatchChange,
   formatWatchLast,
   formatWatchPct,
+  nextWatchSort,
+  parseWatchSort,
+  sortWatchRows,
   symbolHue,
   WATCH_POLL_MS,
   type WatchGroupDto,
   type WatchListDto,
   type WatchRowDto,
+  type WatchSort,
+  type WatchSortKey,
 } from '@/lib/watch-list';
 
+type Act = (change: Promise<WatchActionResult>) => Promise<boolean>;
+
+const SORT_STORAGE = 'tm.watchList.sort';
+
 /**
- * The watch list (N292, ADR 0101): groups of symbols, each row's last price
- * and change since the previous close, refreshed every few seconds while the
- * page is open. Gains green, losses red, signs kept with their figures (N289).
+ * The watch list (N292, ADR 0101): named sections of symbols, each row's
+ * last price and change since the previous close, refreshed every few
+ * seconds while the page is open. Each section adds symbols from its own "+"
+ * and every column header sorts (N293). Gains green, losses red, signs kept
+ * with their figures (N289).
  */
 export function WatchList({
   initial,
@@ -46,6 +57,27 @@ export function WatchList({
   const [list, setList] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
+  const [naming, setNaming] = useState(false);
+  const [sort, setSort] = useState<WatchSort | null>(null);
+
+  // The chosen sort is remembered in this browser.
+  useEffect(() => {
+    try {
+      setSort(parseWatchSort(window.localStorage.getItem(SORT_STORAGE)));
+    } catch {
+      // Storage blocked: the saved order it is.
+    }
+  }, []);
+  const sortBy = (key: WatchSortKey) => {
+    const next = nextWatchSort(sort, key);
+    setSort(next);
+    try {
+      if (next) window.localStorage.setItem(SORT_STORAGE, `${next.key}.${next.dir}`);
+      else window.localStorage.removeItem(SORT_STORAGE);
+    } catch {
+      // Not remembered; it still applies on this page.
+    }
+  };
 
   const refresh = useCallback(async () => {
     try {
@@ -78,8 +110,8 @@ export function WatchList({
   }, [refresh]);
 
   /** Runs a change, then shows the list as saved. */
-  const act = useCallback(
-    async (change: Promise<WatchActionResult>) => {
+  const act: Act = useCallback(
+    async (change) => {
       const result = await change;
       setError(result.ok ? null : (result.message ?? 'That did not save. Try again.'));
       await refresh();
@@ -99,12 +131,6 @@ export function WatchList({
 
   return (
     <div className="max-w-3xl space-y-4">
-      <AddSymbol
-        groups={list.groups}
-        canSearchMarket={canSearchMarket}
-        onAdd={(input) => act(addWatchSymbol(input))}
-        onNewGroup={(name) => act(createWatchGroup(name))}
-      />
       {!canSearchMarket && (
         <Alert>
           Prices need a US stock price feed. Add an Alpaca data feed with your paper API key in{' '}
@@ -112,45 +138,42 @@ export function WatchList({
         </Alert>
       )}
       {error && <Alert>{error}</Alert>}
-      <Card className="overflow-x-auto p-0">
-        {list.groups.length === 0 ? (
-          <p className="p-4 text-sm text-ink-muted">
-            Your watch list is empty. Add a group, then add symbols to it.
+      {list.groups.length === 0 && (
+        <Card>
+          <p className="text-sm text-ink-muted">
+            Your watch list is empty. Add a section, then add symbols to it with its +.
           </p>
+        </Card>
+      )}
+      {list.groups.map((g, gi) => (
+        <Section
+          key={g.id}
+          group={g}
+          first={gi === 0}
+          last={gi === list.groups.length - 1}
+          sort={sort}
+          onSort={sortBy}
+          onFold={() => fold(g)}
+          canSearchMarket={canSearchMarket}
+          act={act}
+        />
+      ))}
+      <div>
+        {naming ? (
+          <NameInput
+            label="New section name"
+            initial=""
+            onCancel={() => setNaming(false)}
+            onSave={async (name) => {
+              if (await act(createWatchGroup(name))) setNaming(false);
+            }}
+          />
         ) : (
-          <table aria-label="Watch list" className="w-full min-w-[30rem] text-sm">
-            <thead>
-              <tr className="border-b border-line text-ink-muted">
-                <th scope="col" className="py-2 pr-2 pl-4 text-left font-semibold">
-                  Symbol
-                </th>
-                <th scope="col" className="px-2 py-2 text-right font-semibold">
-                  Last
-                </th>
-                <th scope="col" className="px-2 py-2 text-right font-semibold">
-                  Chg
-                </th>
-                <th scope="col" className="px-2 py-2 text-right font-semibold">
-                  Chg%
-                </th>
-                <th scope="col" className="w-10 py-2 pr-2">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            {list.groups.map((g, gi) => (
-              <GroupRows
-                key={g.id}
-                group={g}
-                first={gi === 0}
-                last={gi === list.groups.length - 1}
-                onFold={() => fold(g)}
-                act={act}
-              />
-            ))}
-          </table>
+          <Button size="sm" onClick={() => setNaming(true)}>
+            + New section
+          </Button>
         )}
-      </Card>
+      </div>
       <p className="text-xs text-ink-muted" role="status" aria-live="off">
         {offline
           ? 'Prices are not updating: the app cannot be reached. Retrying…'
@@ -163,60 +186,90 @@ export function WatchList({
   );
 }
 
-function GroupRows({
+/** Fixed widths, so every section's columns line up. */
+const COLUMNS: { key: WatchSortKey; label: string; numeric: boolean; width: string }[] = [
+  { key: 'symbol', label: 'Symbol', numeric: false, width: '' },
+  { key: 'last', label: 'Last', numeric: true, width: 'w-24 sm:w-32' },
+  { key: 'change', label: 'Chg', numeric: true, width: 'w-20 sm:w-28' },
+  { key: 'changePct', label: 'Chg%', numeric: true, width: 'w-20 sm:w-28' },
+];
+
+/** One named section: its own header with fold, "+" and actions, and its own table. */
+function Section({
   group,
   first,
   last,
+  sort,
+  onSort,
   onFold,
+  canSearchMarket,
   act,
 }: {
   group: WatchGroupDto;
   first: boolean;
   last: boolean;
+  sort: WatchSort | null;
+  onSort: (key: WatchSortKey) => void;
   onFold: () => void;
-  act: (change: Promise<WatchActionResult>) => Promise<boolean>;
+  canSearchMarket: boolean;
+  act: Act;
 }) {
   const [renaming, setRenaming] = useState(false);
+  const [adding, setAdding] = useState(false);
   const bodyId = useId();
+  const rows = sortWatchRows(group.rows, sort);
   return (
-    <tbody aria-label={group.name}>
-      <tr>
-        <td colSpan={4} className="pt-4 pr-2 pb-1 pl-2">
-          {renaming ? (
-            <NameInput
-              label="Group name"
-              initial={group.name}
-              onCancel={() => setRenaming(false)}
-              onSave={async (name) => {
-                if (await act(renameWatchListGroup(group.id, name))) setRenaming(false);
-              }}
-            />
-          ) : (
+    <Card className="!p-0" aria-label={group.name}>
+      <header className="flex items-center gap-2 border-b border-line px-3 py-2">
+        {renaming ? (
+          <NameInput
+            label="Section name"
+            initial={group.name}
+            onCancel={() => setRenaming(false)}
+            onSave={async (name) => {
+              if (await act(renameWatchListGroup(group.id, name))) setRenaming(false);
+            }}
+          />
+        ) : (
+          <>
             <button
               type="button"
               aria-expanded={!group.collapsed}
               aria-controls={bodyId}
               onClick={onFold}
-              className="flex items-center gap-2 rounded px-2 py-1 text-xs font-semibold tracking-wide text-ink-muted uppercase hover:text-ink"
+              aria-label={`${group.collapsed ? 'Open' : 'Close'} ${group.name}`}
+              className="flex size-7 items-center justify-center rounded text-ink-muted hover:bg-surface-2 hover:text-ink"
             >
               <Chevron open={!group.collapsed} />
-              {group.name}
-              <span className="sr-only">, {group.rows.length} symbols</span>
             </button>
-          )}
-        </td>
-        <td className="pt-4 pr-2 pb-1 text-right">
-          <RowMenu label={`${group.name} group actions`}>
+            <h2
+              className="min-w-0 flex-1 cursor-text truncate text-base font-semibold"
+              title="Double-click to rename"
+              onDoubleClick={() => setRenaming(true)}
+            >
+              {group.name}
+              <span className="ml-2 text-sm font-normal text-ink-muted">{group.rows.length}</span>
+            </h2>
+          </>
+        )}
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            aria-label={`Add a symbol to ${group.name}`}
+            aria-expanded={adding}
+            title="Add a symbol"
+            onClick={() => setAdding((a) => !a)}
+            className={cx(
+              'flex size-7 items-center justify-center rounded text-lg leading-none hover:bg-surface-2',
+              adding ? 'bg-surface-2 text-ink' : 'text-ink-muted hover:text-ink',
+            )}
+          >
+            <span aria-hidden>+</span>
+          </button>
+          <RowMenu label={`${group.name} section actions`}>
             {(close) => (
               <>
-                <MenuItem
-                  onClick={() => {
-                    close();
-                    setRenaming(true);
-                  }}
-                >
-                  Rename
-                </MenuItem>
+                <MenuItem onClick={() => (close(), setRenaming(true))}>Rename</MenuItem>
                 {!first && (
                   <MenuItem onClick={() => (close(), void act(moveWatchListGroup(group.id, -1)))}>
                     Move up
@@ -231,53 +284,113 @@ function GroupRows({
                   danger
                   onClick={() => (close(), void act(deleteWatchListGroup(group.id)))}
                 >
-                  Delete group
+                  Delete section
                 </MenuItem>
               </>
             )}
           </RowMenu>
-        </td>
-      </tr>
-      {!group.collapsed && group.rows.length === 0 && (
-        <tr id={bodyId}>
-          <td colSpan={5} className="px-4 pb-2 text-ink-muted">
-            No symbols yet.
-          </td>
-        </tr>
+        </div>
+      </header>
+      {adding && (
+        <AddSymbol
+          groupId={group.id}
+          groupName={group.name}
+          canSearchMarket={canSearchMarket}
+          onAdd={(input) => act(addWatchSymbol(input))}
+          onDone={() => setAdding(false)}
+        />
       )}
-      {!group.collapsed &&
-        group.rows.map((r, i) => (
-          <WatchRow
-            key={r.id}
-            row={r}
-            rowId={i === 0 ? bodyId : undefined}
-            first={i === 0}
-            last={i === group.rows.length - 1}
-            act={act}
-          />
-        ))}
-    </tbody>
+      {!group.collapsed && (
+        <div id={bodyId}>
+          {group.rows.length === 0 ? (
+            <p className="px-4 py-3 text-sm text-ink-muted">No symbols yet. Use + to add one.</p>
+          ) : (
+            <table aria-label={`${group.name} symbols`} className="w-full table-fixed text-sm">
+              <thead>
+                <tr className="border-b border-line text-ink-muted">
+                  {COLUMNS.map((c) => {
+                    const on = sort?.key === c.key;
+                    return (
+                      <th
+                        key={c.key}
+                        scope="col"
+                        aria-sort={on ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                        className={cx(
+                          'py-1.5 font-semibold',
+                          c.width,
+                          c.numeric ? 'px-2 text-right' : 'pr-2 pl-4 text-left',
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => onSort(c.key)}
+                          title={
+                            !on
+                              ? `Sort by ${c.label}, low to high`
+                              : sort.dir === 'asc'
+                                ? `Sort by ${c.label}, high to low`
+                                : 'Back to your order'
+                          }
+                          className={cx(
+                            'inline-flex items-center gap-1 rounded hover:text-ink',
+                            c.numeric && 'flex-row-reverse',
+                            on && 'text-ink',
+                          )}
+                        >
+                          {c.label}
+                          <SortMark dir={on ? sort.dir : null} />
+                        </button>
+                      </th>
+                    );
+                  })}
+                  <th scope="col" className="w-10 py-1.5 pr-2">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <WatchRow
+                    key={r.id}
+                    row={r}
+                    first={sort ? true : i === 0}
+                    last={sort ? true : i === rows.length - 1}
+                    act={act}
+                  />
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function SortMark({ dir }: { dir: 'asc' | 'desc' | null }) {
+  return (
+    <span aria-hidden className={cx('w-2.5 text-[0.65rem]', !dir && 'opacity-30')}>
+      {dir === 'desc' ? '▼' : dir === 'asc' ? '▲' : '↕'}
+    </span>
   );
 }
 
 function WatchRow({
   row,
-  rowId,
   first,
   last,
   act,
 }: {
   row: WatchRowDto;
-  rowId: string | undefined;
   first: boolean;
   last: boolean;
-  act: (change: Promise<WatchActionResult>) => Promise<boolean>;
+  act: Act;
 }) {
   const priced = row.priceAt
     ? `${row.daily ? 'Daily close of' : 'Last trade'} ${new Date(row.priceAt).toLocaleString('en-US')}`
     : 'No price yet';
   return (
-    <tr id={rowId} className="border-b border-line/60 last:border-b-0 hover:bg-surface-2">
+    <tr className="border-b border-line/60 last:border-b-0 hover:bg-surface-2">
       <td className="py-2 pr-2 pl-4">
         <SymbolCell row={row} />
       </td>
@@ -509,14 +622,16 @@ function NameInput({
   );
 }
 
-/** Adds a symbol to a group, found through the person's data feed; or starts a group. */
+/** The "+" form of one section: a ticker or company name, found through the person's feed. */
 function AddSymbol({
-  groups,
+  groupId,
+  groupName,
   canSearchMarket,
   onAdd,
-  onNewGroup,
+  onDone,
 }: {
-  groups: readonly WatchGroupDto[];
+  groupId: string;
+  groupName: string;
   canSearchMarket: boolean;
   onAdd: (input: {
     groupId: string;
@@ -524,22 +639,13 @@ function AddSymbol({
     instrumentId?: string | null;
     displayName?: string | null;
   }) => Promise<boolean>;
-  onNewGroup: (name: string) => Promise<boolean>;
+  onDone: () => void;
 }) {
   const id = useId();
   const [query, setQuery] = useState('');
-  const [groupId, setGroupId] = useState(groups.at(-1)?.id ?? '');
-  const [naming, setNaming] = useState(false);
-  const target = groups.some((g) => g.id === groupId) ? groupId : (groups.at(-1)?.id ?? '');
-  // A group just started is where the next symbol goes.
-  const count = useRef(groups.length);
-  useEffect(() => {
-    if (groups.length > count.current) setGroupId(groups.at(-1)?.id ?? '');
-    count.current = groups.length;
-  }, [groups]);
   const { lookup, error, find, reset, pending } = useInstrumentLookup((found) => {
     void onAdd({
-      groupId: target,
+      groupId,
       symbol: found.symbol,
       instrumentId: found.id,
       displayName: found.displayName,
@@ -551,78 +657,47 @@ function AddSymbol({
   const searched = lookup && !pending ? lookup : null;
 
   return (
-    <Card>
-      <div className="flex flex-wrap items-end gap-3">
-        <form
-          className="flex flex-wrap items-end gap-2"
-          aria-label="Add to watch list"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!q || !target) return;
-            if (canSearchMarket) void find(q);
-            else
-              void onAdd({ groupId: target, symbol: q }).then((ok) => {
-                if (ok) setQuery('');
-              });
+    <div className="border-b border-line bg-surface-2/40 px-4 py-3">
+      <form
+        className="flex flex-wrap items-center gap-2"
+        aria-label={`Add to ${groupName}`}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!q) return;
+          if (canSearchMarket) void find(q);
+          else
+            void onAdd({ groupId, symbol: q }).then((ok) => {
+              if (ok) setQuery('');
+            });
+        }}
+      >
+        <label htmlFor={`${id}-q`} className="sr-only">
+          Symbol to add to {groupName}
+        </label>
+        <input
+          id={`${id}-q`}
+          type="search"
+          autoFocus
+          autoComplete="off"
+          maxLength={60}
+          placeholder="Ticker or company name"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            reset();
           }}
-        >
-          <div>
-            <label htmlFor={`${id}-q`} className="block text-sm font-semibold text-ink-muted">
-              Add a symbol
-            </label>
-            <input
-              id={`${id}-q`}
-              type="search"
-              autoComplete="off"
-              maxLength={60}
-              placeholder="Ticker or company name"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                reset();
-              }}
-              className="mt-1 h-9 w-56 rounded-md border border-line bg-surface px-3 text-sm"
-            />
-          </div>
-          <div>
-            <label htmlFor={`${id}-g`} className="block text-sm font-semibold text-ink-muted">
-              To group
-            </label>
-            <select
-              id={`${id}-g`}
-              value={target}
-              onChange={(e) => setGroupId(e.target.value)}
-              disabled={groups.length === 0}
-              className="mt-1 h-9 rounded-md border border-line bg-surface px-2 text-sm"
-            >
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <Button type="submit" size="sm" variant="primary" disabled={!q || !target || pending}>
-            {pending ? 'Finding…' : 'Add'}
-          </Button>
-        </form>
-        <div className="ml-auto">
-          {naming ? (
-            <NameInput
-              label="New group name"
-              initial=""
-              onCancel={() => setNaming(false)}
-              onSave={async (name) => {
-                if (await onNewGroup(name)) setNaming(false);
-              }}
-            />
-          ) : (
-            <Button size="sm" onClick={() => setNaming(true)}>
-              New group
-            </Button>
-          )}
-        </div>
-      </div>
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') onDone();
+          }}
+          className="h-8 w-60 rounded-md border border-line bg-surface px-3 text-sm"
+        />
+        <Button type="submit" size="sm" variant="primary" disabled={!q || pending}>
+          {pending ? 'Finding…' : 'Add'}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onDone}>
+          Done
+        </Button>
+      </form>
       <p role="status" aria-live="polite" className="sr-only">
         {pending ? `Searching for ${q}` : ''}
       </p>
@@ -641,6 +716,6 @@ function AddSymbol({
           <Alert>{error ?? searched?.message}</Alert>
         </div>
       )}
-    </Card>
+    </div>
   );
 }
