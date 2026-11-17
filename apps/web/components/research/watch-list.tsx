@@ -149,6 +149,20 @@ export function WatchList({
         </Card>
       )}
       <div className="flex flex-wrap items-center gap-3">
+        {naming ? (
+          <NameInput
+            label="New section name"
+            initial=""
+            onCancel={() => setNaming(false)}
+            onSave={async (name) => {
+              if (await act(createWatchGroup(name))) setNaming(false);
+            }}
+          />
+        ) : (
+          <Button size="sm" onClick={() => setNaming(true)}>
+            + New section
+          </Button>
+        )}
         <Button
           size="sm"
           variant={extended ? 'primary' : 'secondary'}
@@ -180,22 +194,6 @@ export function WatchList({
             act={act}
           />
         ))}
-      </div>
-      <div>
-        {naming ? (
-          <NameInput
-            label="New section name"
-            initial=""
-            onCancel={() => setNaming(false)}
-            onSave={async (name) => {
-              if (await act(createWatchGroup(name))) setNaming(false);
-            }}
-          />
-        ) : (
-          <Button size="sm" onClick={() => setNaming(true)}>
-            + New section
-          </Button>
-        )}
       </div>
       <p className="max-w-4xl text-xs text-ink-muted" role="status" aria-live="off">
         {offline
