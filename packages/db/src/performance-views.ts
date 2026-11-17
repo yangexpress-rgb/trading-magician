@@ -7,6 +7,7 @@ import {
   nyDate,
   sharpe,
   tradeStats,
+  valuationSession,
   MIN_SHARPE_DAYS,
   type Series,
 } from '@tm/domain';
@@ -42,6 +43,12 @@ export interface PerformanceFilter {
   instrumentIds?: readonly string[] | undefined;
   assetClasses?: readonly string[] | undefined;
   mode?: 'paper' | 'live' | undefined;
+  /**
+   * The NYSE session "today" means (N294): the session under way, or the last
+   * one before it when the market has not opened. Tests set it; it defaults
+   * to now. It ignores From and To.
+   */
+  today?: string | undefined;
 }
 
 const ZERO = new Decimal(0);
@@ -382,8 +389,16 @@ export interface PerformanceSummary {
     closedTrades: number;
     peakCapital: string;
     returnOnPeakCapitalPct: string | null;
+    /** P/L over today's session and its % (N294). */
+    todayPnl: string;
+    todayPct: string | null;
   }[];
   byAsset: { instrumentId: string; symbol: string; assetClass: string; net: string }[];
+  /**
+   * Today's results (N294): P/L over the current NYSE session (or the last
+   * one before the open), whatever From and To say; the other filters apply.
+   */
+  today: TodayFigures;
   /**
    * Asset classes of every instrument this person's books hold or held, from
    * the instrument store, whatever the filters: the Asset class filter's
@@ -448,6 +463,34 @@ async function tradedNotional(tx: Transaction, f: PerformanceFilter, scope: Scop
     .reduce((a, r) => a.plus(new Decimal(r.quantity).times(r.price).times(r.multiplier)), ZERO);
 }
 
+export interface TodayFigures {
+  /** The NYSE session date measured. */
+  sessionDate: string;
+  /** Profit or loss over that session: its close (or latest valuation) less the close before. */
+  pnl: string;
+  /**
+   * As a %: the account's time-weighted change in equity on that session, or,
+   * for a strategy or a narrowed view, the P/L over the capital at work that
+   * session. Null when there is nothing to measure it against.
+   */
+  pct: string | null;
+}
+
+/** P/L over one session, and the capital at work in it, for a set of books (N294). */
+function sessionChange(books: readonly BookRow[], trades: readonly CycleTrade[], day: string) {
+  const pnl = bookSeries(books, pnlOf);
+  const change = carried(pnl, day).minus(before(pnl, day));
+  const cost = bookSeries(books, (b) => b.costBasis);
+  // Capital at work: held at the prior close, held now, or used by a trade opened or closed today.
+  const capital = trades
+    .filter((t) => nyDate(t.openedAt) === day || (t.closedAt && nyDate(t.closedAt) === day))
+    .reduce(
+      (m, t) => Decimal.max(m, new Decimal(t.capital)),
+      Decimal.max(before(cost, day), cost.get(day) ?? ZERO),
+    );
+  return { change, pct: returnOn(change, capital) };
+}
+
 const returnOn = (net: Decimal, capital: Decimal) => (capital.gt(0) ? pct(net.div(capital)) : null);
 
 export async function performanceSummary(
@@ -508,6 +551,46 @@ export async function performanceSummary(
     ),
   ).size;
 
+  // Today (N294): measured on every valuation to now, whatever the range says.
+  const today = f.today ?? valuationSession(new Date()).date;
+  const allBooks = f.to ? await loadBooks(tx, scope, undefined) : books;
+  const todayTrades = scope.empty
+    ? []
+    : (
+        await listCycleTrades(tx, {
+          accountIds: scope.accountIds,
+          instrumentIds: scope.instrumentIds,
+          strategyIds: f.strategyIds,
+          versionIds: f.versionIds,
+          mode: f.mode,
+        })
+      ).filter(
+        (t) =>
+          nyDate(t.openedAt) === today || (t.closedAt !== null && nyDate(t.closedAt) === today),
+      );
+  const todayAll = sessionChange(allBooks, todayTrades, today);
+  let todayPct = todayAll.pct;
+  if (!scope.filtered) {
+    const all = f.to ? equitySeries(await loadAccounts(tx, scope, undefined)) : series;
+    const at = all.findIndex((p) => p.date === today);
+    const now = all[at];
+    const prior = at > 0 ? all[at - 1] : undefined;
+    todayPct =
+      now?.index && (prior?.index || at === 0)
+        ? pct(now.index.div(prior?.index ?? new Decimal(1)).minus(1))
+        : null;
+  }
+  const todayByStrategy = new Map(
+    [...groupBy(allBooks, (b) => b.strategyId).entries()].map(([id, g]) => [
+      id,
+      sessionChange(
+        g.rows,
+        todayTrades.filter((t) => t.strategyId === id),
+        today,
+      ),
+    ]),
+  );
+
   const stats = tradeStats(closed.map((t) => new Decimal(t.net)));
   const byStrategy = [...groupBy(books, (b) => b.strategyId).entries()].map(([id, g]) => {
     const t = bookTotals(g.rows, f);
@@ -521,6 +604,8 @@ export async function performanceSummary(
       closedTrades: own.filter((tr) => tr.closedAt !== null).length,
       peakCapital: money(peak),
       returnOnPeakCapitalPct: returnOn(t.net, peak),
+      todayPnl: money(todayByStrategy.get(id)?.change ?? ZERO),
+      todayPct: todayByStrategy.get(id)?.pct ?? null,
     };
   });
   const assetClasses = (
@@ -601,6 +686,7 @@ export async function performanceSummary(
     },
     byStrategy: byStrategy.sort((a, b) => new Decimal(b.net).cmp(a.net)),
     byAsset: byAsset.sort((a, b) => new Decimal(b.net).cmp(a.net)),
+    today: { sessionDate: today, pnl: money(todayAll.change), pct: todayPct },
     assetClasses,
     dataQuality: {
       lastValuedAt: lastValuedAt?.toISOString() ?? null,

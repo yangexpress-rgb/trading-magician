@@ -1,5 +1,15 @@
-import { PERFORMANCE_ASSET_CLASSES, type PerformanceSummaryDto } from '@tm/contracts';
-import { formatMoney, formatPct, formatSignedMoney, type MetricTile } from './backtest-text';
+import {
+  PERFORMANCE_ASSET_CLASSES,
+  performanceQuery,
+  type PerformanceSummaryDto,
+} from '@tm/contracts';
+import {
+  formatDay,
+  formatMoney,
+  formatPct,
+  formatSignedMoney,
+  type MetricTile,
+} from './backtest-text';
 
 /**
  * Words and figures for the Performance tab (Design v1.0 §10.2, §15.3;
@@ -40,6 +50,40 @@ export function performanceSearch(f: PerformanceFilters): string {
   return qs ? `?${qs}` : '';
 }
 
+/**
+ * Filters read back from an address (the page on load, Back and Forward):
+ * unknown or malformed values are dropped, not errors.
+ */
+export function filtersFromSearch(get: (param: string) => string | undefined): PerformanceFilters {
+  const filters: PerformanceFilters = { mode: 'paper' };
+  for (const [key, param] of Object.entries(PERFORMANCE_PARAMS) as [
+    keyof PerformanceFilters,
+    string,
+  ][]) {
+    const value = get(param);
+    if (value === undefined || value === '') continue;
+    if (performanceQuery.safeParse({ [key]: value }).success) {
+      Object.assign(filters, { [key]: value });
+    }
+  }
+  return filters;
+}
+
+/** Today's P/L and its % (N294), coloured each by its own sign. */
+export function todayTile(s: PerformanceSummaryDto): MetricTile {
+  const money = formatSignedMoney(s.today.pnl);
+  const pct = formatPct(s.today.pct, true);
+  return {
+    label: 'Today',
+    value: `${money} / ${pct}`,
+    parts: [
+      { text: money, sign: s.today.pnl },
+      { text: pct, sign: s.today.pct },
+    ],
+    detail: `NYSE session of ${formatDay(s.today.sessionDate)}`,
+  };
+}
+
 export const ASSET_CLASS_LABELS: Record<string, string> = {
   stock: 'Stocks',
   etf: 'ETFs',
@@ -53,6 +97,7 @@ export const ASSET_CLASS_LABELS: Record<string, string> = {
 export function performanceTiles(s: PerformanceSummaryDto): MetricTile[] {
   const t = s.trades;
   const tiles: MetricTile[] = [
+    todayTile(s),
     {
       label: 'Net P/L',
       value: formatSignedMoney(s.pnl.net),

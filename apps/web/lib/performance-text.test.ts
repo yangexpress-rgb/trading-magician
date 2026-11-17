@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   assetChoices,
   describePositionDifference,
+  filtersFromSearch,
   performanceSearch,
   performanceTiles,
 } from './performance-text';
@@ -43,12 +44,29 @@ const summary = (over: Partial<PerformanceSummaryDto> = {}): PerformanceSummaryD
   },
   byStrategy: [],
   byAsset: [],
+  today: { sessionDate: '2026-10-07', pnl: '200.00', pct: '0.20' },
   assetClasses: ['stock'],
   dataQuality: { lastValuedAt: null, staleMarks: 0, differences: [] },
   ...over,
 });
 
 describe('performanceTiles', () => {
+  it("leads with today's P/L in dollars and per cent, each coloured (N294)", () => {
+    expect(performanceTiles(summary())[0]).toEqual({
+      label: 'Today',
+      value: '+$200.00 / +0.2%',
+      parts: [
+        { text: '+$200.00', sign: '200.00' },
+        { text: '+0.2%', sign: '0.20' },
+      ],
+      detail: 'NYSE session of Oct 7, 2026',
+    });
+    const quiet = performanceTiles(
+      summary({ today: { sessionDate: '2026-10-08', pnl: '0.00', pct: null } }),
+    )[0];
+    expect(quiet?.value).toBe('$0.00 / —');
+  });
+
   it('shows account return and drawdown, noting a short history', () => {
     const tiles = performanceTiles(summary());
     expect(tiles.find((t) => t.label === 'Return')?.value).toBe('+0.15%');
@@ -132,5 +150,18 @@ describe('asset class filter choices (v1.2 item 10)', () => {
     expect(assetChoices(undefined, undefined)).toEqual([]);
     // Indices are watched, never traded, so they are no choice here.
     expect(assetChoices(['index', 'stock'], undefined)).toEqual(['stock']);
+  });
+});
+
+describe('filtersFromSearch', () => {
+  it('reads a strategy view back from its address and drops what does not parse (N295)', () => {
+    const id = '0b6c5a1e-3f1d-4c1e-9b1a-2d3e4f5a6b7c';
+    const params = new URLSearchParams(`strategy=${id}&account=nope&from=2026-11-01&mode=live`);
+    expect(filtersFromSearch((k) => params.get(k) ?? undefined)).toEqual({
+      mode: 'live',
+      strategyId: id,
+      from: '2026-11-01',
+    });
+    expect(filtersFromSearch(() => undefined)).toEqual({ mode: 'paper' });
   });
 });
