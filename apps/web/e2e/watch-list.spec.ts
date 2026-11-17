@@ -106,4 +106,28 @@ test('follows symbols in named sections with prices that update', async ({ page 
   await page.getByRole('region', { name: 'Later' }).getByRole('link', { name: /ZTSTB/ }).click();
   await expect(page).toHaveURL(/\/research\?instrument=[0-9a-f-]{36}/);
   await expect(page.getByRole('heading', { level: 2, name: /ZTSTB/ })).toBeVisible();
+
+  // The sidebar link reopens the last Research tab while you come back soon (N295)…
+  const primary = page.getByRole('navigation', { name: 'Primary' });
+  await page
+    .getByRole('navigation', { name: 'Tools' })
+    .getByRole('link', { name: 'Stock screener' })
+    .click();
+  await expect(page).toHaveURL(/\/research\/screener/);
+  await page.goto('/orders');
+  await primary.getByRole('link', { name: 'Quantitative Research' }).click();
+  await expect(page).toHaveURL(/\/research\/screener$/);
+  // …and the Watch list after a break.
+  const stale = encodeURIComponent(`/research/screener|${Date.now() - 31 * 60_000}`);
+  await page.context().addCookies([
+    {
+      name: 'tm_research_tab',
+      value: stale,
+      domain: new URL(page.url()).hostname,
+      path: '/research',
+    },
+  ]);
+  await page.goto('/orders');
+  await primary.getByRole('link', { name: 'Quantitative Research' }).click();
+  await expect(page).toHaveURL(/\/research\/watch-list$/);
 });

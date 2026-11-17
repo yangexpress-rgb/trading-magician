@@ -130,7 +130,7 @@ export function WatchList({
   };
 
   return (
-    <div className="max-w-3xl space-y-4">
+    <div className="space-y-4">
       {!canSearchMarket && (
         <Alert>
           Prices need a US stock price feed. Add an Alpaca data feed with your paper API key in{' '}
@@ -145,19 +145,22 @@ export function WatchList({
           </p>
         </Card>
       )}
-      {list.groups.map((g, gi) => (
-        <Section
-          key={g.id}
-          group={g}
-          first={gi === 0}
-          last={gi === list.groups.length - 1}
-          sort={sort}
-          onSort={sortBy}
-          onFold={() => fold(g)}
-          canSearchMarket={canSearchMarket}
-          act={act}
-        />
-      ))}
+      {/* Side by side as the screen allows (N294): as many ~30rem columns as fit, one on a phone. */}
+      <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(100%,30rem),1fr))]">
+        {list.groups.map((g, gi) => (
+          <Section
+            key={g.id}
+            group={g}
+            first={gi === 0}
+            last={gi === list.groups.length - 1}
+            sort={sort}
+            onSort={sortBy}
+            onFold={() => fold(g)}
+            canSearchMarket={canSearchMarket}
+            act={act}
+          />
+        ))}
+      </div>
       <div>
         {naming ? (
           <NameInput
@@ -174,7 +177,7 @@ export function WatchList({
           </Button>
         )}
       </div>
-      <p className="text-xs text-ink-muted" role="status" aria-live="off">
+      <p className="max-w-4xl text-xs text-ink-muted" role="status" aria-live="off">
         {offline
           ? 'Prices are not updating: the app cannot be reached. Retrying…'
           : `Updated ${new Date(list.asOf).toLocaleTimeString('en-US')}. Prices refresh every few seconds while US stocks trade (4 AM to 8 PM New York), once a minute otherwise.`}{' '}
@@ -189,9 +192,9 @@ export function WatchList({
 /** Fixed widths, so every section's columns line up. */
 const COLUMNS: { key: WatchSortKey; label: string; numeric: boolean; width: string }[] = [
   { key: 'symbol', label: 'Symbol', numeric: false, width: '' },
-  { key: 'last', label: 'Last', numeric: true, width: 'w-24 sm:w-32' },
-  { key: 'change', label: 'Chg', numeric: true, width: 'w-20 sm:w-28' },
-  { key: 'changePct', label: 'Chg%', numeric: true, width: 'w-20 sm:w-28' },
+  { key: 'last', label: 'Last', numeric: true, width: 'w-20 sm:w-28' },
+  { key: 'change', label: 'Chg', numeric: true, width: 'w-[4.5rem] sm:w-24' },
+  { key: 'changePct', label: 'Chg%', numeric: true, width: 'w-[4.5rem] sm:w-24' },
 ];
 
 /** One named section: its own header with fold, "+" and actions, and its own table. */
@@ -438,8 +441,8 @@ function SymbolCell({ row }: { row: WatchRowDto }) {
     <>
       <span
         aria-hidden
-        className="flex size-7 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-bold text-white"
-        style={{ backgroundColor: `hsl(${symbolHue(row.symbol)} 55% 42%)` }}
+        className="hidden size-7 shrink-0 items-center justify-center rounded-full sm:flex text-[0.65rem] font-bold text-white"
+        style={{ backgroundColor: `hsl(${symbolHue(row.symbol)} 45% 30%)` }}
       >
         {row.symbol.slice(0, 2)}
       </span>

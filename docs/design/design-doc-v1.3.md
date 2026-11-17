@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N294, O177, ADR 0102 and migration 0101** (N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292, N293, ADR 0101 and migration 0100 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N296, O177, ADR 0102 and migration 0101** (N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N295, ADR 0101 and migration 0100 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -671,6 +671,7 @@ Research's tools are tabs under its title: Price charts (`/research`), Stock scr
 
 - **Watch list (N292, ADR 0101).** The first Research tab, before Price charts (N293): the person's groups of symbols (new lists start with Indices: SPY, QQQ, DIA, IWM, VIX; and Stocks: AAPL, TSLA, NFLX, NKE), each row with Last, Chg and Chg% since the previous close, refreshed every few seconds while the page is open. Groups fold, rename, move and delete; symbols are added by ticker or company name, moved and removed; all saved per person. The large indices are followed through their ETFs (Alpaca has no index quotes); the VIX is Cboe's daily close, marked D and shown in points. The worker prices only lists open in the last 30 seconds, through each person's own or the admin's shared feed, one request per 100 symbols every 5 seconds from 4 AM to 8 PM New York (once a minute otherwise). A row opens the symbol's price chart.
 - **Sections (N293).** Each group is its own named section (a card): fold, rename (double-click the name or the ⋯ menu), move, delete, and a + at its top right that opens a ticker or company-name box for that section; + New section below the last. Every column header (Symbol, Last, Chg, Chg%) sorts low to high, then high to low, then back to the saved order, the same for every section and remembered in the browser; rows without a price stay last.
+- **Layout and entry (N294, N295).** Sections sit side by side, as many columns (at least 30rem each) as the screen fits, one on a phone. The sidebar's Quantitative Research link reopens the Research tab last viewed when that was within 30 minutes and in the same sign-in; after a longer break or a new sign-in it opens the Watch list (per-browser cookie `tm_research_tab`).
 
 ### 14.2 Stock screener
 

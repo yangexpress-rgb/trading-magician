@@ -63,3 +63,13 @@ own add box), and the column headers **sort**: a click sorts low to high, a seco
 third returns to the saved order. The sort applies to every section, is remembered in the browser
 (local storage, a per-viewer convenience) and keeps rows without a price last. While a sort is on,
 Move up and Move down are hidden, since they change the saved order. No schema change.
+
+## Amendment (2026-11-17, N294, N295)
+
+- **Side by side.** Sections fill a grid of as many columns as fit (each at least 30rem), so a wide
+  screen shows two or three sections across; a phone shows one. Column widths shrink on a phone and
+  the symbol badges hide there.
+- **Default tab.** The sidebar's Quantitative Research link goes to `/research/open`, which reopens
+  the Research tab last viewed when that was within 30 minutes and after the current sign-in began,
+  and the Watch list otherwise. The Research tabs write the tab and time to a per-browser cookie
+  (`tm_research_tab`), renewed each minute while one is open. Links straight to a tab are unchanged.
