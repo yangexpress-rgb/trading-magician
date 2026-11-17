@@ -7,6 +7,7 @@ import {
   formatWatchPct,
   nextWatchSort,
   parseWatchSort,
+  shownWatchRow,
   sortWatchRows,
 } from './watch-list';
 
@@ -90,5 +91,51 @@ describe('watch list sorting (N293)', () => {
     expect(parseWatchSort('last.desc')).toEqual({ key: 'last', dir: 'desc' });
     expect(parseWatchSort('nope.asc')).toBeNull();
     expect(parseWatchSort(null)).toBeNull();
+  });
+});
+
+describe('regular session and extended hours (N296)', () => {
+  const group = {
+    id: 'g',
+    name: 'Stocks',
+    collapsed: false,
+    items: [
+      { id: '1', symbol: 'AAPL', instrumentId: null, displayName: null },
+      { id: '2', symbol: 'TSLA', instrumentId: null, displayName: null },
+    ],
+  };
+  const quotes = [
+    // Tuesday 2026-11-17: closed at 200 (from 196), traded 202 at 5 PM New York.
+    {
+      symbol: 'AAPL',
+      last: 200,
+      prevClose: 196,
+      priceAt: '2026-11-17T21:00:00.000Z',
+      daily: false,
+      extLast: 202,
+      extAt: '2026-11-17T22:00:00.000Z',
+    },
+    // Wednesday 8 AM New York, before the open.
+    {
+      symbol: 'TSLA',
+      last: 100,
+      prevClose: 100,
+      priceAt: '2026-11-17T21:00:00.000Z',
+      daily: false,
+      extLast: 99,
+      extAt: '2026-11-18T13:00:00.000Z',
+    },
+  ];
+  const [aapl, tsla] = buildWatchList([group], quotes, new Date()).groups[0]!.rows;
+
+  it('shows the regular session by default', () => {
+    expect(shownWatchRow(aapl!, false)).toMatchObject({ last: 200, change: 4 });
+    expect(aapl!.changePct).toBeCloseTo(2.0408, 3);
+  });
+
+  it('with Ext hours on, measures pre-market and after-hours trades from the regular close', () => {
+    expect(aapl!.ext).toMatchObject({ phase: 'post', last: 202, change: 2, changePct: 1 });
+    expect(shownWatchRow(aapl!, true)).toMatchObject({ last: 202, change: 2, changePct: 1 });
+    expect(tsla!.ext).toMatchObject({ phase: 'pre', last: 99, change: -1, changePct: -1 });
   });
 });

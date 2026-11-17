@@ -3346,6 +3346,12 @@ export const watchQuotes = pgTable(
     /** A daily close rather than a live trade, such as the VIX from Cboe's history. */
     daily: boolean('daily').notNull().default(false),
     source: text('source').notNull(),
+    /**
+     * The latest pre-market or after-hours trade, when it came after the
+     * regular close in `last` (N296); null during the regular session.
+     */
+    extLast: doublePrecision('ext_last'),
+    extAt: timestamp('ext_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [check('watch_quote_last', sql`${t.last} > 0`)],

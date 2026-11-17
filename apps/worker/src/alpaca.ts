@@ -222,25 +222,61 @@ export function alpacaBrokerProvider(options: AlpacaProviderOptions = {}): Broke
 }
 
 /**
- * A snapshot as a watch list price (N292): the latest trade (else the
- * quote's midpoint), measured from the previous session's close. Once the
- * latest trading day has a daily bar, the bar before it is the previous
- * close; before then (early pre-market), the latest daily bar is.
+ * A snapshot as a watch list price (N292), split by session (N296).
+ *
+ * `last` is the regular session's price: the latest trade while the market is
+ * open, else the latest regular close (the daily bar, which Alpaca builds from
+ * regular-hours trades). It is measured from the close before it. A trade
+ * made after that close (after hours, or the next morning before the open)
+ * is kept apart as `extLast`, which the page shows only when asked.
  */
 export function watchPriceOf(
   snap: AlpacaSnapshot,
   now: Date,
-): { last: number; prevClose: number | null; priceAt: Date } | undefined {
+):
+  | {
+      last: number;
+      prevClose: number | null;
+      priceAt: Date;
+      extLast: number | null;
+      extAt: Date | null;
+    }
+  | undefined {
   const trade = snap.latestTrade;
   const quote = snap.latestQuote;
   const mid = quote && quote.bp > 0 && quote.ap > 0 ? (quote.bp + quote.ap) / 2 : undefined;
-  const last = trade && trade.p > 0 ? trade.p : (mid ?? snap.dailyBar?.c);
-  if (!last || !(last > 0)) return undefined;
-  const at = trade?.t ?? quote?.t ?? snap.dailyBar?.t;
-  let day = nyDate(now);
-  for (let i = 0; i < 10 && !regularSession(day); i++) day = addDays(day, -1);
-  const daily = snap.dailyBar;
-  const prevClose =
-    daily && nyDate(daily.t) >= day ? (snap.prevDailyBar?.c ?? null) : (daily?.c ?? null);
-  return { last, prevClose, priceAt: at ? new Date(at) : now };
+  const price = trade && trade.p > 0 ? trade.p : mid;
+  const stamp = trade && trade.p > 0 ? trade.t : quote?.t;
+  const at = price && stamp ? new Date(stamp) : undefined;
+  const daily = snap.dailyBar && snap.dailyBar.c > 0 ? snap.dailyBar : null;
+
+  const session = at ? regularSession(nyDate(at)) : undefined;
+  const inRegular =
+    !!at &&
+    !!session &&
+    at.getTime() >= Date.parse(session.open) &&
+    at.getTime() < Date.parse(session.close);
+
+  if (price && at && (inRegular || !daily)) {
+    // A regular-hours trade (or no daily bar to fall back on).
+    let day = nyDate(at);
+    if (!inRegular) {
+      day = nyDate(now);
+      for (let i = 0; i < 10 && !regularSession(day); i++) day = addDays(day, -1);
+    }
+    const prevClose =
+      daily && nyDate(daily.t) >= day ? (snap.prevDailyBar?.c ?? null) : (daily?.c ?? null);
+    return { last: price, prevClose, priceAt: at, extLast: null, extAt: null };
+  }
+  if (!daily) return undefined;
+  const closedOn = regularSession(nyDate(daily.t));
+  const closeAt = closedOn ? new Date(closedOn.close) : new Date(daily.t);
+  const ext = price && at && at.getTime() > closeAt.getTime();
+  return {
+    last: daily.c,
+    prevClose: snap.prevDailyBar?.c ?? null,
+    priceAt: closeAt,
+    extLast: ext ? price : null,
+    extAt: ext ? at : null,
+  };
 }

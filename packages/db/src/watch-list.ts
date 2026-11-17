@@ -45,6 +45,8 @@ export interface WatchQuoteRow {
   priceAt: string;
   daily: boolean;
   source: string;
+  extLast: number | null;
+  extAt: string | null;
   updatedAt: string;
 }
 
@@ -267,6 +269,8 @@ export async function loadWatchQuotes(
     priceAt: r.priceAt.toISOString(),
     daily: r.daily,
     source: r.source,
+    extLast: r.extLast,
+    extAt: r.extAt?.toISOString() ?? null,
     updatedAt: r.updatedAt.toISOString(),
   }));
 }
@@ -307,9 +311,17 @@ export async function saveWatchQuotes(
     priceAt: Date;
     daily: boolean;
     source: string;
+    extLast?: number | null;
+    extAt?: Date | null;
   }[],
 ): Promise<number> {
-  const values = rows.filter((r) => Number.isFinite(r.last) && r.last > 0);
+  const values = rows
+    .filter((r) => Number.isFinite(r.last) && r.last > 0)
+    .map((r) => {
+      const { extLast, extAt } = r;
+      const ok = extLast != null && Number.isFinite(extLast) && extLast > 0 && extAt != null;
+      return { ...r, extLast: ok ? extLast : null, extAt: ok ? extAt : null };
+    });
   if (values.length === 0) return 0;
   await db
     .insert(watchQuotes)
@@ -322,6 +334,8 @@ export async function saveWatchQuotes(
         priceAt: sql`excluded.price_at`,
         daily: sql`excluded.daily`,
         source: sql`excluded.source`,
+        extLast: sql`excluded.ext_last`,
+        extAt: sql`excluded.ext_at`,
         updatedAt: sql`now()`,
       },
     });

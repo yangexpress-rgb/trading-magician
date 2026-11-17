@@ -163,4 +163,53 @@ describe('watchPriceOf', () => {
     );
     expect(p).toMatchObject({ last: 101, prevClose: 100 });
   });
+
+  // N296: regular session apart from pre-market and after-hours trades.
+  const at = (t: string, p: number) => ({ ...trade(p), t });
+  const tuesday = bar('2026-11-17T05:00:00Z', 200);
+  const monday = bar('2026-11-16T05:00:00Z', 196);
+
+  it('during the session, the latest trade is the regular price', () => {
+    const p = watchPriceOf(
+      {
+        latestTrade: at('2026-11-17T18:00:00Z', 201),
+        latestQuote: null,
+        minuteBar: null,
+        dailyBar: tuesday,
+        prevDailyBar: monday,
+      },
+      new Date('2026-11-17T18:00:05Z'),
+    );
+    expect(p).toMatchObject({ last: 201, prevClose: 196, extLast: null });
+  });
+
+  it('after the close, keeps the close and the after-hours trade apart', () => {
+    const p = watchPriceOf(
+      {
+        latestTrade: at('2026-11-17T22:00:00Z', 202),
+        latestQuote: null,
+        minuteBar: null,
+        dailyBar: tuesday,
+        prevDailyBar: monday,
+      },
+      new Date('2026-11-17T22:00:05Z'),
+    );
+    expect(p).toMatchObject({ last: 200, prevClose: 196, extLast: 202 });
+    expect(p?.priceAt.toISOString()).toBe('2026-11-17T21:00:00.000Z');
+    expect(p?.extAt?.toISOString()).toBe('2026-11-17T22:00:00.000Z');
+  });
+
+  it('before the next open, the last session stays the regular price', () => {
+    const p = watchPriceOf(
+      {
+        latestTrade: at('2026-11-18T13:00:00Z', 199),
+        latestQuote: null,
+        minuteBar: null,
+        dailyBar: tuesday,
+        prevDailyBar: monday,
+      },
+      new Date('2026-11-18T13:00:05Z'),
+    );
+    expect(p).toMatchObject({ last: 200, prevClose: 196, extLast: 199 });
+  });
 });

@@ -58,6 +58,17 @@ test('follows symbols in named sections with prices that update', async ({ page 
   await addTo(page, 'Stocks', 'ZTSTX');
   await expect(stocks.getByRole('row', { name: /ZTSTX/ })).toBeVisible({ timeout: 20_000 });
 
+  // Regular session by default; Ext hours switches pre-market and after-hours prices on (N296).
+  const ext = page.getByRole('button', { name: 'Ext hours' });
+  await expect(ext).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByText(/Showing the regular session/)).toBeVisible();
+  await ext.click();
+  await expect(ext).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText(/Showing extended hours/)).toBeVisible();
+  await expect(row.getByRole('cell').nth(1)).toHaveText(/\$\d[\d,]*\.\d{2}$/);
+  await ext.click();
+  await expect(ext).toHaveAttribute('aria-pressed', 'false');
+
   // Headers sort: Last low to high, high to low, then back to the saved order.
   const symbols = () =>
     stocks

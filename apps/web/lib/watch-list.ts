@@ -1,4 +1,4 @@
-import { indexListingBySymbol, watchChange } from '@tm/domain';
+import { indexListingBySymbol, nyDate, regularSession, watchChange } from '@tm/domain';
 
 /**
  * The watch list (N292, ADR 0101): groups of symbols, each with its last
@@ -19,6 +19,19 @@ export interface WatchRowDto {
   priceAt: string | null;
   /** A daily close rather than a live trade. */
   daily: boolean;
+  /**
+   * The latest pre-market or after-hours trade, measured from the regular
+   * close shown in `last` (N296); null during the regular session.
+   */
+  ext: WatchExtDto | null;
+}
+
+export interface WatchExtDto {
+  phase: 'pre' | 'post';
+  last: number;
+  change: number;
+  changePct: number;
+  priceAt: string;
 }
 
 export interface WatchGroupDto {
@@ -49,6 +62,31 @@ interface QuoteIn {
   prevClose: number | null;
   priceAt: string;
   daily: boolean;
+  extLast?: number | null;
+  extAt?: string | null;
+}
+
+/** Pre-market when traded before its day's open, else after hours. */
+export function extPhase(at: string): 'pre' | 'post' {
+  const session = regularSession(nyDate(at));
+  return session && Date.parse(at) < Date.parse(session.open) ? 'pre' : 'post';
+}
+
+function extOf(q: QuoteIn): WatchExtDto | null {
+  if (!q.extLast || !q.extAt || q.daily) return null;
+  const c = watchChange({ last: q.extLast, prevClose: q.last });
+  if (!c) return null;
+  return { phase: extPhase(q.extAt), last: q.extLast, ...c, priceAt: q.extAt };
+}
+
+/**
+ * A row as shown: with extended hours on, a pre-market or after-hours trade
+ * takes the place of the regular session's price (N296).
+ */
+export function shownWatchRow(row: WatchRowDto, extended: boolean): WatchRowDto {
+  if (!extended || !row.ext) return row;
+  const { last, change, changePct, priceAt } = row.ext;
+  return { ...row, last, change, changePct, priceAt };
 }
 
 export function buildWatchList(
@@ -78,6 +116,7 @@ export function buildWatchList(
           changePct: c?.changePct ?? null,
           priceAt: q?.priceAt ?? null,
           daily: q?.daily ?? false,
+          ext: q ? extOf(q) : null,
         };
       }),
     })),
