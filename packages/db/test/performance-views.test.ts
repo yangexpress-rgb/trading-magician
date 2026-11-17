@@ -280,6 +280,32 @@ describe('performanceSummary', () => {
     expect(elsewhere).toMatchObject({ sessions: 0, pnl: { net: '0.00' } });
   });
 
+  it("shows today's session: overall, per strategy and narrowed (N296)", async () => {
+    // Day 3 (2026-10-07) as today: account P/L -50 to 150, equity 99,950 to 100,150.
+    const s = await asA((tx) => performanceSummary(tx, { today: '2026-10-07' }));
+    expect(s.today).toEqual({ sessionDate: '2026-10-07', pnl: '200.00', pct: '0.20' });
+    // S1 went from -100 (marked 90) to +200 sold at 120, on 1,000 of capital; S2 from +50 to -50.
+    expect(s.byStrategy.map((b) => [b.strategyName, b.todayPnl, b.todayPct])).toEqual([
+      ['S1', '300.00', '30.00'],
+      ['S2', '-100.00', '-10.00'],
+    ]);
+
+    // A range that ends before today still shows today.
+    const ranged = await asA((tx) =>
+      performanceSummary(tx, { to: '2026-10-05', today: '2026-10-07' }),
+    );
+    expect(ranged.today).toEqual(s.today);
+
+    const one = await asA((tx) =>
+      performanceSummary(tx, { strategyIds: [s2.strategyId], today: '2026-10-07' }),
+    );
+    expect(one.today).toEqual({ sessionDate: '2026-10-07', pnl: '-100.00', pct: '-10.00' });
+
+    // A session with no valuation yet has moved nothing.
+    const quiet = await asA((tx) => performanceSummary(tx, { today: '2026-10-08' }));
+    expect(quiet.today).toEqual({ sessionDate: '2026-10-08', pnl: '0.00', pct: null });
+  });
+
   it('is empty in live mode, which does not exist yet', async () => {
     const live = await asA((tx) => performanceSummary(tx, { mode: 'live' }));
     expect(live).toMatchObject({ sessions: 0, pnl: { net: '0.00' }, byStrategy: [] });

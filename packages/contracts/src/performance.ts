@@ -109,8 +109,18 @@ export interface PerformanceSummaryDto {
     closedTrades: number;
     peakCapital: string;
     returnOnPeakCapitalPct: string | null;
+    /** P/L over today's NYSE session, and its % of the capital at work then (N296). */
+    todayPnl: string;
+    todayPct: string | null;
   }[];
   byAsset: { instrumentId: string; symbol: string; assetClass: string; net: string }[];
+  /**
+   * Today's results (N296): the current NYSE session, or the last one before
+   * the open, whatever From and To say; the other filters apply. The % is the
+   * account's time-weighted change in equity, or, in a narrowed view, P/L over
+   * the capital at work that session.
+   */
+  today: { sessionDate: string; pnl: string; pct: string | null };
   /** Asset classes this person has traded, from the instrument store: the filter's choices (v1.2 item 10). */
   assetClasses: string[];
   dataQuality: {

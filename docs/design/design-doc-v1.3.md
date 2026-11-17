@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N296, O177, ADR 0102 and migration 0101** (N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N295, ADR 0101 and migration 0100 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N298, O177, ADR 0102 and migration 0101** (N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N295, ADR 0101 and migration 0100 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -643,6 +643,8 @@ Performance comes from reconciled fills and account data, not from app-submitted
 - **Views and filters**: dates (NYSE sessions, inclusive), account, strategy, version, asset class (only the classes the person has traded, N43), mode (Live is empty until live trading). KPI cards, equity and drawdown charts, strategy and asset contribution, the trade/cycle table, and data-quality notes. A strategy's page links here filtered to it.
 - **Matching**: fills are matched first in, first out within a book (one runtime, account and instrument). One trade is one strategy cycle, with each leg's contribution inside it.
 - **Valuation**: every account is valued every 5 minutes at the last price from the tenant's routed feed; a mark older than 60 s is stale and counted. The first valuation at or after the 4:00 pm New York close is final.
+- **Today** (N296): a Today tile leads the KPI cards and Contribution by strategy has a Today column, each P/L in $ and %, green or red by sign. Today is the current NYSE session (the last one before the 9:30 am open) whatever the date range; other filters apply. The account % is that session's time-weighted equity change; a strategy's or a narrowed view's % is P/L over the capital at work that session (ADR 0021 amended).
+- **Strategy drill-down** (N297): double-clicking a row in Contribution by strategy (or Enter on it) opens Performance filtered to that strategy, as a new address (`?strategy=<id>`), so Back returns to all strategies.
 - **Returns**: accounts show a daily time-weighted return on equity, with Sharpe annualised over 252 sessions at a zero risk-free rate (not shown under 20 sessions). Filtered views show P&L in dollars, drawdown in dollars and return on peak capital.
 - **Fees** as the broker reports them per fill (none on paper). USD only, labelled.
 - **Broker differences**: at each close both sides' positions are snapshotted; any quantity difference, or equity more than $1.00 apart, is flagged with an always-shown notice and the broker's equity is the figure that counts. Positions the app cannot explain appear under "Outside the app".
