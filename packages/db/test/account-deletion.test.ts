@@ -170,6 +170,9 @@ describe('account purge (design v1.1 D1)', () => {
       'agent_call_log',
       'screen_snapshot',
       'ai_assistant',
+      'watch_list_item',
+      'watch_list_group',
+      'watch_list_view',
       // Kept with names and settings removed.
       'profile',
       'data_feed_connection',

@@ -54,3 +54,4 @@ export {
   type OptionBar,
   type OptionContractRef,
 } from './options';
+export type { AlpacaSnapshot } from './types';

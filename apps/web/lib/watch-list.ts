@@ -1,0 +1,143 @@
+import { indexListingBySymbol, watchChange } from '@tm/domain';
+
+/**
+ * The watch list (N292, ADR 0101): groups of symbols, each with its last
+ * price and change since the previous close, refreshed while the page is open.
+ */
+
+export interface WatchRowDto {
+  id: string;
+  symbol: string;
+  displayName: string | null;
+  instrumentId: string | null;
+  /** An index, in points rather than dollars, such as the VIX. */
+  isIndex: boolean;
+  last: number | null;
+  change: number | null;
+  changePct: number | null;
+  /** When the price was traded or published (ISO). */
+  priceAt: string | null;
+  /** A daily close rather than a live trade. */
+  daily: boolean;
+}
+
+export interface WatchGroupDto {
+  id: string;
+  name: string;
+  collapsed: boolean;
+  rows: WatchRowDto[];
+}
+
+export interface WatchListDto {
+  groups: WatchGroupDto[];
+  /** When the server answered (ISO). */
+  asOf: string;
+}
+
+/** How often the open page asks for prices. */
+export const WATCH_POLL_MS = 2_000;
+
+interface GroupIn {
+  id: string;
+  name: string;
+  collapsed: boolean;
+  items: { id: string; symbol: string; instrumentId: string | null; displayName: string | null }[];
+}
+interface QuoteIn {
+  symbol: string;
+  last: number;
+  prevClose: number | null;
+  priceAt: string;
+  daily: boolean;
+}
+
+export function buildWatchList(
+  groups: readonly GroupIn[],
+  quotes: readonly QuoteIn[],
+  now: Date,
+): WatchListDto {
+  const bySymbol = new Map(quotes.map((q) => [q.symbol, q]));
+  return {
+    asOf: now.toISOString(),
+    groups: groups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      collapsed: g.collapsed,
+      rows: g.items.map((i) => {
+        const q = bySymbol.get(i.symbol);
+        const c = q ? watchChange(q) : null;
+        const index = indexListingBySymbol(i.symbol);
+        return {
+          id: i.id,
+          symbol: i.symbol,
+          displayName: i.displayName ?? index?.displayName ?? null,
+          instrumentId: i.instrumentId,
+          isIndex: !!index,
+          last: q?.last ?? null,
+          change: c?.change ?? null,
+          changePct: c?.changePct ?? null,
+          priceAt: q?.priceAt ?? null,
+          daily: q?.daily ?? false,
+        };
+      }),
+    })),
+  };
+}
+
+const MINUS = '−';
+
+function digits(value: number): number {
+  const a = Math.abs(value);
+  return a !== 0 && a < 1 ? 4 : 2;
+}
+
+function plain(value: number, places: number): string {
+  return Math.abs(value).toLocaleString('en-US', {
+    minimumFractionDigits: places,
+    maximumFractionDigits: places,
+  });
+}
+
+/** Last: "$351.95" for a stock or ETF, "25.26" for an index (points, not dollars). */
+export function formatWatchLast(value: number | null, isIndex: boolean): string {
+  if (value === null) return '—';
+  return `${isIndex ? '' : '$'}${plain(value, digits(value))}`;
+}
+
+/** Chg: "+$2.35", "−$0.83", "$0.00"; an index's in points. */
+export function formatWatchChange(
+  value: number | null,
+  isIndex: boolean,
+  last?: number | null,
+): string {
+  if (value === null) return '—';
+  const places = last !== undefined && last !== null ? digits(last) : digits(value);
+  const body = `${isIndex ? '' : '$'}${plain(value, places)}`;
+  const rounded = Number(value.toFixed(places));
+  return rounded > 0 ? `+${body}` : rounded < 0 ? `${MINUS}${body}` : body;
+}
+
+/** Chg%: "+10.26%", "−1.13%", "0.00%". */
+export function formatWatchPct(value: number | null): string {
+  if (value === null) return '—';
+  const body = `${plain(value, 2)}%`;
+  const rounded = Number(value.toFixed(2));
+  return rounded > 0 ? `+${body}` : rounded < 0 ? `${MINUS}${body}` : body;
+}
+
+/**
+ * Where a new price's text first differs from the old one, so only the
+ * digits that moved light up: "351.95" → "351.97" lights "7".
+ */
+export function changedFrom(before: string, after: string): number {
+  let i = 0;
+  while (i < before.length && i < after.length && before[i] === after[i]) i++;
+  return i;
+}
+
+/** A steady colour for a symbol's badge, from its letters. */
+export function symbolHue(symbol: string): number {
+  let h = 0;
+  for (const ch of symbol) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return h;
+}

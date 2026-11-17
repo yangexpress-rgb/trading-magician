@@ -13,18 +13,25 @@ import {
   listAlpacaAssets,
   lookupAlpacaAsset,
   searchInstruments,
+  type AlpacaSnapshot,
   type DiscoveredInstrument,
   type Fetch,
 } from '@tm/alpaca';
 import {
   addDays,
   nyDate,
+  regularSession,
   SCREEN_HISTORY_DAYS,
   type AccountCapabilities,
   type ScreenDay,
 } from '@tm/domain';
 import type { BrokerProvider } from './brokers';
-import type { MarketDataProvider, ProviderContext, ScreenResult } from './providers';
+import type {
+  MarketDataProvider,
+  ProviderContext,
+  ScreenResult,
+  WatchPriceResult,
+} from './providers';
 
 /**
  * Alpaca as a market-data provider (ADR 0017): the free IEX feed for prices
@@ -134,6 +141,16 @@ export function alpacaProvider(options: AlpacaProviderOptions = {}): MarketDataP
       const list = await assetList(clientFor(ctx), ctx.now().getTime());
       return searchInstruments(list, query).map(toListing);
     },
+    watch: async (ctx, symbols) => {
+      const snaps = await fetchSnapshots(clientFor(ctx), symbols, { sleep: options.sleep });
+      const now = ctx.now();
+      const out: WatchPriceResult[] = [];
+      for (const [symbol, snap] of snaps.found) {
+        const price = watchPriceOf(snap, now);
+        if (price) out.push({ symbol, ...price, daily: false, source: 'alpaca-iex' });
+      }
+      return out;
+    },
     screen: async (ctx, request): Promise<ScreenResult> => {
       const client = clientFor(ctx);
       const now = ctx.now();
@@ -202,4 +219,28 @@ export function alpacaBrokerProvider(options: AlpacaProviderOptions = {}): Broke
       });
     },
   };
+}
+
+/**
+ * A snapshot as a watch list price (N292): the latest trade (else the
+ * quote's midpoint), measured from the previous session's close. Once the
+ * latest trading day has a daily bar, the bar before it is the previous
+ * close; before then (early pre-market), the latest daily bar is.
+ */
+export function watchPriceOf(
+  snap: AlpacaSnapshot,
+  now: Date,
+): { last: number; prevClose: number | null; priceAt: Date } | undefined {
+  const trade = snap.latestTrade;
+  const quote = snap.latestQuote;
+  const mid = quote && quote.bp > 0 && quote.ap > 0 ? (quote.bp + quote.ap) / 2 : undefined;
+  const last = trade && trade.p > 0 ? trade.p : (mid ?? snap.dailyBar?.c);
+  if (!last || !(last > 0)) return undefined;
+  const at = trade?.t ?? quote?.t ?? snap.dailyBar?.t;
+  let day = nyDate(now);
+  for (let i = 0; i < 10 && !regularSession(day); i++) day = addDays(day, -1);
+  const daily = snap.dailyBar;
+  const prevClose =
+    daily && nyDate(daily.t) >= day ? (snap.prevDailyBar?.c ?? null) : (daily?.c ?? null);
+  return { last, prevClose, priceAt: at ? new Date(at) : now };
 }
