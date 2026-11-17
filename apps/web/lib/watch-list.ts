@@ -21,7 +21,7 @@ export interface WatchRowDto {
   daily: boolean;
   /**
    * The latest pre-market or after-hours trade, measured from the regular
-   * close shown in `last` (N296); null during the regular session.
+   * close shown in `last` (N298); null during the regular session.
    */
   ext: WatchExtDto | null;
 }
@@ -81,7 +81,7 @@ function extOf(q: QuoteIn): WatchExtDto | null {
 
 /**
  * A row as shown: with extended hours on, a pre-market or after-hours trade
- * takes the place of the regular session's price (N296).
+ * takes the place of the regular session's price (N298).
  */
 export function shownWatchRow(row: WatchRowDto, extended: boolean): WatchRowDto {
   if (!extended || !row.ext) return row;

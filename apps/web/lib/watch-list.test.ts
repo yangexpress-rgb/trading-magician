@@ -94,7 +94,7 @@ describe('watch list sorting (N293)', () => {
   });
 });
 
-describe('regular session and extended hours (N296)', () => {
+describe('regular session and extended hours (N298)', () => {
   const group = {
     id: 'g',
     name: 'Stocks',

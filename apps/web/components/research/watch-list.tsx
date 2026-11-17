@@ -60,7 +60,7 @@ export function WatchList({
   const [offline, setOffline] = useState(false);
   const [naming, setNaming] = useState(false);
   const [sort, setSort] = useState<WatchSort | null>(null);
-  // Regular session by default; the Ext hours button adds pre-market and after-hours trades (N296).
+  // Regular session by default; the Ext hours button adds pre-market and after-hours trades (N298).
   const [extended, setExtended] = useState(false);
 
   // The chosen sort is remembered in this browser.

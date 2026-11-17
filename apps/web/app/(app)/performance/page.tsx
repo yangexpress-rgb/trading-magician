@@ -1,9 +1,8 @@
-import { performanceQuery } from '@tm/contracts';
 import { asc, schema, sql, withTenant } from '@tm/db';
 import { PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
 import { PerformanceView } from '@/components/performance/performance-view';
-import { PERFORMANCE_PARAMS, type PerformanceFilters } from '@/lib/performance-text';
+import { filtersFromSearch } from '@/lib/performance-text';
 import { appDb } from '@/lib/server/db';
 import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
@@ -23,17 +22,7 @@ export default async function PerformancePage({
   const one = (k: string) => (Array.isArray(raw[k]) ? raw[k][0] : raw[k]) || undefined;
 
   // Unknown or malformed filters from the address bar are dropped, not errors.
-  const filters: PerformanceFilters = { mode: 'paper' };
-  for (const [key, param] of Object.entries(PERFORMANCE_PARAMS) as [
-    keyof PerformanceFilters,
-    string,
-  ][]) {
-    const value = one(param);
-    if (value === undefined) continue;
-    if (performanceQuery.safeParse({ [key]: value }).success) {
-      Object.assign(filters, { [key]: value });
-    }
-  }
+  const filters = filtersFromSearch(one);
 
   const { accounts, strategies, versions } = await withTenant(appDb(), tenant, async (tx) => ({
     accounts: await tx

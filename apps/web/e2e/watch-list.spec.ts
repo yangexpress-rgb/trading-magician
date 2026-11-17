@@ -58,7 +58,7 @@ test('follows symbols in named sections with prices that update', async ({ page 
   await addTo(page, 'Stocks', 'ZTSTX');
   await expect(stocks.getByRole('row', { name: /ZTSTX/ })).toBeVisible({ timeout: 20_000 });
 
-  // Regular session by default; Ext hours switches pre-market and after-hours prices on (N296).
+  // Regular session by default; Ext hours switches pre-market and after-hours prices on (N298).
   const ext = page.getByRole('button', { name: 'Ext hours' });
   await expect(ext).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByText(/Showing the regular session/)).toBeVisible();

@@ -33,6 +33,7 @@ import {
   ASSET_CLASS_LABELS,
   assetChoices,
   describePositionDifference,
+  filtersFromSearch,
   performanceSearch,
   performanceTiles,
   type PerformanceFilters,
@@ -267,12 +268,29 @@ export function PerformanceView({
   const set = (patch: Partial<PerformanceFilters>) => setFilters((f) => ({ ...f, ...patch }));
 
   useEffect(() => {
-    window.history.replaceState(
-      null,
-      '',
-      `${window.location.pathname}${performanceSearch(filters)}`,
-    );
+    const search = performanceSearch(filters);
+    if (window.location.search === search) return;
+    window.history.replaceState(null, '', `${window.location.pathname}${search}`);
   }, [filters]);
+
+  // Back and Forward step between views opened from a strategy row (N297).
+  useEffect(() => {
+    const onPop = () => {
+      const params = new URLSearchParams(window.location.search);
+      setFilters(filtersFromSearch((k) => params.get(k) ?? undefined));
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  /** Double-click (or Enter on) a strategy row: that strategy's own view, as a new address (N297). */
+  const openStrategy = (strategyId: string) => {
+    if (filters.strategyId === strategyId) return;
+    const next: PerformanceFilters = { ...filters, strategyId, versionId: undefined };
+    window.history.pushState(null, '', `${window.location.pathname}${performanceSearch(next)}`);
+    setFilters(next);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const when = (iso: string | null) =>
     iso
@@ -427,16 +445,47 @@ export function PerformanceView({
                       <Th>Number</Th>
                       <Th>Strategy</Th>
                       <Th numeric>Closed trades</Th>
+                      <Th numeric>Today</Th>
                       <Th numeric>Net P/L</Th>
                       <Th numeric>Return on peak capital</Th>
                     </tr>
                   </thead>
                   <tbody>
                     {summary.byStrategy.map((s) => (
-                      <tr key={s.strategyId}>
+                      <tr
+                        key={s.strategyId}
+                        tabIndex={filters.strategyId === s.strategyId ? undefined : 0}
+                        title={
+                          filters.strategyId === s.strategyId
+                            ? undefined
+                            : "Double-click to see this strategy's performance"
+                        }
+                        aria-label={
+                          filters.strategyId === s.strategyId
+                            ? undefined
+                            : `${s.strategyNumber ? `${s.strategyNumber} ` : ''}${s.strategyName}: double-click or press Enter to see its performance`
+                        }
+                        className={
+                          filters.strategyId === s.strategyId
+                            ? undefined
+                            : 'cursor-pointer select-none hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent'
+                        }
+                        onDoubleClick={() => openStrategy(s.strategyId)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && e.target === e.currentTarget) {
+                            openStrategy(s.strategyId);
+                          }
+                        }}
+                      >
                         <StrategyNumberCell number={s.strategyNumber} />
                         <Td className="font-medium">{s.strategyName}</Td>
                         <Td numeric>{s.closedTrades}</Td>
+                        <Td numeric>
+                          <Signed value={s.todayPnl}>{formatSignedMoney(s.todayPnl)}</Signed>
+                          <div className="text-xs">
+                            <Signed value={s.todayPct}>{formatPct(s.todayPct, true)}</Signed>
+                          </div>
+                        </Td>
                         <Td numeric>
                           <Signed value={s.net}>{formatSignedMoney(s.net)}</Signed>
                         </Td>
@@ -452,6 +501,12 @@ export function PerformanceView({
                     ))}
                   </tbody>
                 </Table>
+              )}
+              {summary.byStrategy.length > 1 && (
+                <p className="text-xs text-ink-muted">
+                  Double-click a strategy to see its own performance. Today is the NYSE session of{' '}
+                  {formatDay(summary.today.sessionDate)}.
+                </p>
               )}
             </Section>
             <Section title="Contribution by asset">

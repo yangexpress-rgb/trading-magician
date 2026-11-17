@@ -164,7 +164,7 @@ describe('watchPriceOf', () => {
     expect(p).toMatchObject({ last: 101, prevClose: 100 });
   });
 
-  // N296: regular session apart from pre-market and after-hours trades.
+  // N298: regular session apart from pre-market and after-hours trades.
   const at = (t: string, p: number) => ({ ...trade(p), t });
   const tuesday = bar('2026-11-17T05:00:00Z', 200);
   const monday = bar('2026-11-16T05:00:00Z', 196);

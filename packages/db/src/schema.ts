@@ -3348,7 +3348,7 @@ export const watchQuotes = pgTable(
     source: text('source').notNull(),
     /**
      * The latest pre-market or after-hours trade, when it came after the
-     * regular close in `last` (N296); null during the regular session.
+     * regular close in `last` (N298); null during the regular session.
      */
     extLast: doublePrecision('ext_last'),
     extAt: timestamp('ext_at', { withTimezone: true }),

@@ -222,7 +222,7 @@ export function alpacaBrokerProvider(options: AlpacaProviderOptions = {}): Broke
 }
 
 /**
- * A snapshot as a watch list price (N292), split by session (N296).
+ * A snapshot as a watch list price (N292), split by session (N298).
  *
  * `last` is the regular session's price: the latest trade while the market is
  * open, else the latest regular close (the daily bar, which Alpaca builds from

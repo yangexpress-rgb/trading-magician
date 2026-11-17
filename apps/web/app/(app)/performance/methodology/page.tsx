@@ -103,6 +103,14 @@ export default function MethodologyPage() {
             Profit or loss in dollars, and as a share of the most capital the strategy had at work
             on any day (return on peak capital).
           </Item>
+          <Item term="Today">
+            Profit or loss over the current New York trading session (before the 9:30 am open, the
+            last one), from the previous close to the latest valuation, whatever dates are chosen.
+            For the whole account the percentage is the change in equity that session, time-weighted
+            like the account return. For a strategy, or a narrowed view, it is the profit or loss
+            over the capital at work that session: the larger of what was held at the previous close
+            and what is held now, or what a trade opened or closed that session used.
+          </Item>
           <Item term="Drawdown">
             How far equity fell below its highest point so far. For a single strategy or asset, it
             is measured in dollars of profit or loss instead.
