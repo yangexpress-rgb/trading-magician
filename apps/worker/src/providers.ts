@@ -81,6 +81,9 @@ export interface WatchPriceResult {
   /** A daily close rather than a live trade. */
   daily: boolean;
   source: string;
+  /** The latest trade outside the regular session, after `last`'s close (N298). */
+  extLast?: number | null;
+  extAt?: Date | null;
 }
 
 export interface ScreenRequest {

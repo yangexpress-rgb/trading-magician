@@ -26,6 +26,7 @@ import {
   formatWatchPct,
   nextWatchSort,
   parseWatchSort,
+  shownWatchRow,
   sortWatchRows,
   symbolHue,
   WATCH_POLL_MS,
@@ -59,6 +60,8 @@ export function WatchList({
   const [offline, setOffline] = useState(false);
   const [naming, setNaming] = useState(false);
   const [sort, setSort] = useState<WatchSort | null>(null);
+  // Regular session by default; the Ext hours button adds pre-market and after-hours trades (N298).
+  const [extended, setExtended] = useState(false);
 
   // The chosen sort is remembered in this browser.
   useEffect(() => {
@@ -145,6 +148,22 @@ export function WatchList({
           </p>
         </Card>
       )}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          size="sm"
+          variant={extended ? 'primary' : 'secondary'}
+          aria-pressed={extended}
+          onClick={() => setExtended((e) => !e)}
+          title="Show pre-market and after-hours trades"
+        >
+          Ext hours
+        </Button>
+        <span className="text-xs text-ink-muted">
+          {extended
+            ? 'Showing extended hours: Pre and Post prices are measured from the regular close.'
+            : 'Showing the regular session (9:30 AM to 4 PM New York).'}
+        </span>
+      </div>
       {/* Side by side as the screen allows (N294): as many ~30rem columns as fit, one on a phone. */}
       <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(100%,30rem),1fr))]">
         {list.groups.map((g, gi) => (
@@ -154,6 +173,7 @@ export function WatchList({
             first={gi === 0}
             last={gi === list.groups.length - 1}
             sort={sort}
+            extended={extended}
             onSort={sortBy}
             onFold={() => fold(g)}
             canSearchMarket={canSearchMarket}
@@ -181,9 +201,11 @@ export function WatchList({
         {offline
           ? 'Prices are not updating: the app cannot be reached. Retrying…'
           : `Updated ${new Date(list.asOf).toLocaleTimeString('en-US')}. Prices refresh every few seconds while US stocks trade (4 AM to 8 PM New York), once a minute otherwise.`}{' '}
-        Alpaca’s free feed has IEX exchange trades only. Indices are followed through the ETFs that
-        track them (SPY, QQQ, DIA, IWM), so their Chg% moves with the index. D marks a daily close,
-        such as the VIX from Cboe’s end-of-day history.
+        Chg and Chg% compare the regular session with the close before it; with Ext hours on, Pre
+        and Post prices are compared with the latest regular close. Alpaca’s free feed has IEX
+        exchange trades only. Indices are followed through the ETFs that track them (SPY, QQQ, DIA,
+        IWM), so their Chg% moves with the index. D marks a daily close, such as the VIX from Cboe’s
+        end-of-day history.
       </p>
     </div>
   );
@@ -203,6 +225,7 @@ function Section({
   first,
   last,
   sort,
+  extended,
   onSort,
   onFold,
   canSearchMarket,
@@ -212,6 +235,7 @@ function Section({
   first: boolean;
   last: boolean;
   sort: WatchSort | null;
+  extended: boolean;
   onSort: (key: WatchSortKey) => void;
   onFold: () => void;
   canSearchMarket: boolean;
@@ -220,7 +244,10 @@ function Section({
   const [renaming, setRenaming] = useState(false);
   const [adding, setAdding] = useState(false);
   const bodyId = useId();
-  const rows = sortWatchRows(group.rows, sort);
+  const rows = sortWatchRows(
+    group.rows.map((r) => shownWatchRow(r, extended)),
+    sort,
+  );
   return (
     <Card className="!p-0" aria-label={group.name}>
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
@@ -358,6 +385,7 @@ function Section({
                     row={r}
                     first={sort ? true : i === 0}
                     last={sort ? true : i === rows.length - 1}
+                    extended={extended}
                     act={act}
                   />
                 ))}
@@ -382,15 +410,25 @@ function WatchRow({
   row,
   first,
   last,
+  extended,
   act,
 }: {
   row: WatchRowDto;
   first: boolean;
   last: boolean;
+  extended: boolean;
   act: Act;
 }) {
+  const phase = extended && row.ext ? row.ext.phase : null;
+  const kind = row.daily
+    ? 'Daily close of'
+    : phase === 'pre'
+      ? 'Pre-market trade'
+      : phase === 'post'
+        ? 'After-hours trade'
+        : 'Regular session price';
   const priced = row.priceAt
-    ? `${row.daily ? 'Daily close of' : 'Last trade'} ${new Date(row.priceAt).toLocaleString('en-US')}`
+    ? `${kind} ${new Date(row.priceAt).toLocaleString('en-US')}`
     : 'No price yet';
   return (
     <tr className="border-b border-line/60 last:border-b-0 hover:bg-surface-2">
@@ -398,6 +436,14 @@ function WatchRow({
         <SymbolCell row={row} />
       </td>
       <td className="px-2 py-2 text-right whitespace-nowrap" title={priced}>
+        {phase && (
+          <span
+            className="mr-1.5 rounded bg-surface-2 px-1 py-px align-middle text-[0.65rem] font-semibold text-ink-muted uppercase"
+            aria-label={phase === 'pre' ? 'pre-market' : 'after hours'}
+          >
+            {phase === 'pre' ? 'Pre' : 'Post'}
+          </span>
+        )}
         <LastPrice row={row} />
       </td>
       <td className="px-2 py-2 text-right text-content whitespace-nowrap">
