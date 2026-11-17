@@ -62,9 +62,25 @@ export interface MarketDataProvider {
    * the latest trade, for the stock screener (ADR 0030).
    */
   screen?(ctx: ProviderContext, request?: ScreenRequest): Promise<ScreenResult>;
+  /**
+   * The last price and previous close of many symbols at once, for the watch
+   * list (N292); symbols the provider lacks are left out.
+   */
+  watch?(ctx: ProviderContext, symbols: readonly string[]): Promise<WatchPriceResult[]>;
   /** A light call that proves the connection and the account's entitlement. */
   check(ctx: ProviderContext): Promise<FeedCheckResult>;
   needsCredential: boolean;
+}
+
+/** A watched symbol's price as a provider gives it (N292). */
+export interface WatchPriceResult {
+  symbol: string;
+  last: number;
+  prevClose: number | null;
+  priceAt: Date;
+  /** A daily close rather than a live trade. */
+  daily: boolean;
+  source: string;
 }
 
 export interface ScreenRequest {

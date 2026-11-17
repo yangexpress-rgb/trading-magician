@@ -3266,3 +3266,87 @@ export const aiAssistants = pgTable(
     ),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Watch list (N292, ADR 0101)
+// ---------------------------------------------------------------------------
+
+/**
+ * A person's watch list groups, such as "Indices" and "Stocks" (N292): named,
+ * ordered and folded open or shut. Each person's own (row-level security).
+ */
+export const watchListGroups = pgTable(
+  'watch_list_group',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    position: integer('position').notNull(),
+    collapsed: boolean('collapsed').notNull().default(false),
+    ...timestamps(),
+  },
+  (t) => [
+    index('watch_list_group_user_idx').on(t.userId, t.position),
+    check('watch_list_group_name', sql`char_length(${t.name}) between 1 and 40`),
+  ],
+);
+
+/**
+ * One symbol in a watch list group (N292). The symbol is kept as typed (upper
+ * case) so a list can hold a stock before it is registered; the instrument is
+ * filled in once the person's data feed has found it.
+ */
+export const watchListItems = pgTable(
+  'watch_list_item',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => watchListGroups.id, { onDelete: 'cascade' }),
+    symbol: text('symbol').notNull(),
+    instrumentId: uuid('instrument_id').references(() => instruments.id),
+    /** The name shown under the symbol, e.g. "Apple Inc.". */
+    displayName: text('display_name'),
+    position: integer('position').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('watch_list_item_symbol_idx').on(t.groupId, t.symbol),
+    index('watch_list_item_user_idx').on(t.userId),
+    check('watch_list_item_symbol', sql`${t.symbol} ~ '^[A-Z][A-Z0-9.]{0,9}$'`),
+  ],
+);
+
+/** When each person last had their watch list open: the worker prices only lists being watched. */
+export const watchListViews = pgTable('watch_list_view', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  viewedAt: timestamp('viewed_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * The latest price of each watched symbol (N292): public market data kept once
+ * for every tenant, like the 52-week ranges. Only the worker writes it.
+ */
+export const watchQuotes = pgTable(
+  'watch_quote',
+  {
+    symbol: text('symbol').primaryKey(),
+    last: doublePrecision('last').notNull(),
+    /** The previous session's close, which Chg and Chg% are measured from. */
+    prevClose: doublePrecision('prev_close'),
+    /** When the price was traded or published. */
+    priceAt: timestamp('price_at', { withTimezone: true }).notNull(),
+    /** A daily close rather than a live trade, such as the VIX from Cboe's history. */
+    daily: boolean('daily').notNull().default(false),
+    source: text('source').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check('watch_quote_last', sql`${t.last} > 0`)],
+);

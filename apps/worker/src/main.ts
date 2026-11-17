@@ -20,6 +20,7 @@ import { startBrokerCheckLoop, type BrokerCheckLoop } from './broker-checks';
 import { startInstrumentLookupLoop, type LookupLoop } from './instrument-lookups';
 import { startPriceChartLoop, type PriceChartLoop } from './price-charts';
 import { startStockScreenLoop, type StockScreenLoop } from './stock-screens';
+import { startWatchQuoteLoop, type WatchQuoteLoop } from './watch-quotes';
 import { startCompanyReportLoop, type CompanyReportLoop } from './company-reports';
 import { demoProvider, type FundamentalsRegistry, type ProviderRegistry } from './providers';
 import { secProvider, type SecProviderOptions } from './sec';
@@ -93,6 +94,7 @@ let feedChecks: FeedCheckLoop | undefined;
 let lookups: LookupLoop | undefined;
 let charts: PriceChartLoop | undefined;
 let screens: StockScreenLoop | undefined;
+let watchQuotes: WatchQuoteLoop | undefined;
 let companies: CompanyReportLoop | undefined;
 let brokerChecks: BrokerCheckLoop | undefined;
 let valuations: ValuationLoop | undefined;
@@ -285,6 +287,14 @@ if (databaseUrl) {
     privateKey: credentialKey,
     logger,
     pollMs: env.BACKTEST_POLL_MS,
+  });
+  // Watch list prices (N292, ADR 0101), only while someone has their list open.
+  watchQuotes = startWatchQuoteLoop({
+    db,
+    providers,
+    privateKey: credentialKey,
+    logger,
+    pollMs: 1000,
   });
   screens = startStockScreenLoop({
     db,
@@ -609,6 +619,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         lookups?.stop(),
         charts?.stop(),
         screens?.stop(),
+        watchQuotes?.stop(),
         companies?.stop(),
         brokerChecks?.stop(),
         valuations?.stop(),

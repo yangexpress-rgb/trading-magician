@@ -9,12 +9,13 @@ import {
   indexListingBySymbol,
   parseCboeHistory,
   parseFredSeries,
+  regularSession,
   UnsupportedBarRequestError,
   type BarSeries,
   type CboeDay,
   type HistoricalDataProvider,
 } from '@tm/domain';
-import type { MarketDataProvider } from './providers';
+import type { MarketDataProvider, WatchPriceResult } from './providers';
 
 /**
  * CBOE end-of-day index history as a price feed (Design v1.2 item 5, ADR 0042):
@@ -198,6 +199,26 @@ export function cboeProvider(options: CboeProviderOptions = {}): MarketDataProvi
     // No live prices: an index feed is routed for bars only (v1.2 item 5).
     quotes: () => ({ id: 'cboe-eod', latestQuote: async () => undefined }),
     history: ({ now }) => historyProvider(now),
+    /** The watch list's index rows (N292): the last daily close and the one before it. */
+    async watch({ now }, symbols) {
+      const out: WatchPriceResult[] = [];
+      for (const symbol of symbols) {
+        const listing = indexListingBySymbol(symbol);
+        if (!listing || listing.provider !== 'cboe') continue;
+        const h = await history(listing.providerId, now().getTime());
+        const [prev, last] = h.days.slice(-2);
+        if (!last) continue;
+        out.push({
+          symbol,
+          last: Number(last.close),
+          prevClose: prev ? Number(prev.close) : null,
+          priceAt: new Date(regularSession(last.date)?.close ?? `${last.date}T21:00:00Z`),
+          daily: true,
+          source: h.source === 'fred' ? 'fred-eod' : 'cboe-eod',
+        });
+      }
+      return out;
+    },
     async check({ now }) {
       try {
         await history('VIX', now().getTime());

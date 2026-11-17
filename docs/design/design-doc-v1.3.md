@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N292, O177, ADR 0101 and migration 0100** (N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16); other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N293, O177, ADR 0102 and migration 0101** (N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292, ADR 0101 and migration 0100 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -666,6 +666,10 @@ Research's tools are tabs under its title: Price charts (`/research`), Stock scr
 - **52-week low and high** under the symbol's name: each with its date, trading days since and the price's distance from it ("52-week low $48.50 on Jun 2, 2026, 117 trading days ago (+35.20% above it)"). The stored figures (§14.2), rolled forward with today's bars while the chart runs to today; a stock first looked up gets them within minutes, one with under a year of prices gets none (N290).
 - **Expected-move cone** on daily charts (latest view only): ± one standard deviation from the last close at each expiry's ATM IV, out to 60 days (N62, O46).
 - **Sections under the chart**: Options (§14.4), Earnings (§14.5) and Company (§14.3) start closed, open from their titles, and each browser remembers which are open; their header facts stay in sight and data still loads, so the cone shows with Options closed (N202).
+
+### 14.1a Watch list
+
+- **Watch list (N292, ADR 0101).** A Research tab after Price charts: the person's groups of symbols (new lists start with Indices: SPY, QQQ, DIA, IWM, VIX; and Stocks: AAPL, TSLA, NFLX, NKE), each row with Last, Chg and Chg% since the previous close, refreshed every few seconds while the page is open. Groups fold, rename, move and delete; symbols are added by ticker or company name, moved and removed; all saved per person. The large indices are followed through their ETFs (Alpaca has no index quotes); the VIX is Cboe's daily close, marked D and shown in points. The worker prices only lists open in the last 30 seconds, through each person's own or the admin's shared feed, one request per 100 symbols every 5 seconds from 4 AM to 8 PM New York (once a minute otherwise). A row opens the symbol's price chart.
 
 ### 14.2 Stock screener
 

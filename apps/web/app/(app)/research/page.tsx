@@ -1,8 +1,6 @@
 import {
   activeOptionsFeed,
   listTenantInstruments,
-  loadRouting,
-  sharedFeedsInUse,
   usableFundamentalsFeed,
   withTenant,
 } from '@tm/db';
@@ -11,10 +9,7 @@ import {
   CHART_RANGES,
   chartIntervalAllowed,
   defaultChartInterval,
-  isProviderId,
   nyDate,
-  providerCoversVenue,
-  PROVIDERS,
   type ChartInterval,
   type ChartRange,
 } from '@tm/domain';
@@ -26,6 +21,7 @@ import { ResearchWorkspace } from '@/components/research/research-workspace';
 import { MAX_COMPARE } from '@/lib/chart-history';
 import { LAST_VIEW_COOKIE, parseLastView } from '@/lib/research-last-view';
 import { appDb } from '@/lib/server/db';
+import { hasMarketSearch } from '@/lib/server/market-search';
 import { requireTenant } from '@/lib/server/session';
 
 export const metadata: Metadata = { title: 'Quantitative Research' };
@@ -47,16 +43,7 @@ export default async function ResearchPage({
       instruments: await listTenantInstruments(tx),
       // A real price feed, such as Alpaca, can search every US stock (ADR 0029).
       // Without a price feed of their own, the admin's shared ones search for them (N237).
-      canSearchMarket: [
-        ...(await loadRouting(tx)).feeds.values(),
-        ...(await sharedFeedsInUse(tx, 'prices')).map((f) => ({ ...f, isActive: true })),
-      ].some(
-        (f) =>
-          f.isActive &&
-          providerCoversVenue(f.provider, 'US') &&
-          isProviderId(f.provider) &&
-          (PROVIDERS[f.provider].assetClasses as readonly string[]).includes('stock'),
-      ),
+      canSearchMarket: await hasMarketSearch(tx),
       // Company financials come from a company data feed, such as SEC EDGAR (ADR 0031).
       companyFeed: (await usableFundamentalsFeed(tx))?.name ?? null,
       // Options data comes from the keyless CBOE options feed (ADR 0047, 0048).
