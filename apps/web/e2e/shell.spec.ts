@@ -3,7 +3,8 @@ import { expect, type Page } from '@playwright/test';
 import { signUpAndVerify, test, uniqueEmail } from './fixtures';
 
 const TABS = [
-  { name: 'Quantitative Research', path: '/research' },
+  // A new sign-in opens the Watch list (N295).
+  { name: 'Quantitative Research', path: '/research/watch-list' },
   { name: 'Trading Strategy', path: '/strategy-lab' },
   { name: 'Orders', path: '/orders' },
   { name: 'Performance', path: '/performance' },
