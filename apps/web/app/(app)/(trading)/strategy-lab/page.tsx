@@ -266,7 +266,7 @@ export default async function StrategyLabPage({
           <Table label="Strategies">
             <thead>
               <tr>
-                <Th>
+                <Th sortable={false}>
                   <ShareCheckAll items={shareable} noun="strategies" />
                 </Th>
                 {header('number', 'Number')}

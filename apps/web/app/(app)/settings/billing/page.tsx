@@ -130,7 +130,7 @@ export default async function BillingPage({
           <h2 id="plans-heading" className="text-lg font-semibold">
             Plans
           </h2>
-          <Table label="Plans compared">
+          <Table label="Plans compared" sortable={false}>
             <thead>
               <tr>
                 <Th>

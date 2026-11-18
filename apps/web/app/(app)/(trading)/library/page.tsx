@@ -334,7 +334,7 @@ export default async function LibraryPage({
           <Table label="Theory Library entries">
             <thead>
               <tr>
-                <Th>
+                <Th sortable={false}>
                   <ShareCheckAll items={shareable} noun="theories" />
                 </Th>
                 {header('number', 'Number')}

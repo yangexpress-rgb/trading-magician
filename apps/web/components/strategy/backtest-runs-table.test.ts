@@ -42,7 +42,9 @@ function render(runs: BacktestRunSummaryDto[]): string {
 describe('back test runs table (content and interface, N128)', () => {
   it('sets Net return right-aligned with tabular figures, its unit on the value (N284), green when up (N289)', () => {
     const html = render([run('r1', '24.93')]);
-    expect(html).toMatch(/<th scope="col" class="[^"]*text-right[^"]*">Net return<\/th>/);
+    expect(html).toMatch(
+      /<th scope="col" class="[^"]*text-right[^"]*"><button[^>]*>(<span[^>]*><\/span>)?Net return(<span[^>]*><\/span>)?<\/button><\/th>/,
+    );
     const cell = html.match(
       /<td class="([^"]*)"><span class="whitespace-nowrap text-ok">\+24\.93%<\/span><\/td>/,
     );
@@ -52,7 +54,9 @@ describe('back test runs table (content and interface, N128)', () => {
 
   it('keeps text columns left-aligned content and shows a missing return as a dash', () => {
     const html = render([run('r2', null)]);
-    expect(html).toMatch(/<th scope="col" class="[^"]*text-left[^"]*">Run<\/th>/);
+    expect(html).toMatch(
+      /<th scope="col" class="[^"]*text-left[^"]*"><button[^>]*>(<span[^>]*><\/span>)?Run(<span[^>]*><\/span>)?<\/button><\/th>/,
+    );
     const dash = html.match(/<td class="([^"]*)">—<\/td>/);
     expect(dash, html).not.toBeNull();
     expect(dash![1]!.split(' ')).toEqual(expect.arrayContaining(['text-right', 'text-content']));

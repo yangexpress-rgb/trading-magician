@@ -238,7 +238,7 @@ function CompanyReportView({ report, price }: { report: CompanyReport; price: nu
 
           <div className="space-y-2">
             <h3 className="text-sm font-semibold">Annual financials</h3>
-            <Table label={`${report.symbol} annual financials`}>
+            <Table label={`${report.symbol} annual financials`} sortable={false}>
               <thead>
                 <tr>
                   <Th>
