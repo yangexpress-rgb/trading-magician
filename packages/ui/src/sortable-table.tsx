@@ -231,16 +231,16 @@ export function SortButton({ children, numeric }: { children: ReactNode; numeric
   // The mark sits in the header's padding, on the side away from the figures'
   // edge, so the label wraps exactly as it did before the column sorted.
   const mark = (
+    // Drawn by CSS, so the header's text stays its label (copying, tests, readers).
     <span
       aria-hidden
+      data-mark={dir === 'desc' ? '▼' : dir === 'asc' ? '▲' : '↕'}
       className={cx(
-        'absolute top-1/2 w-2 -translate-y-1/2 text-center text-[0.65rem]',
+        'absolute top-1/2 w-2 -translate-y-1/2 text-center text-[0.65rem] before:content-[attr(data-mark)]',
         numeric ? '-left-3' : '-right-3',
         !dir && 'opacity-30',
       )}
-    >
-      {dir === 'desc' ? '▼' : dir === 'asc' ? '▲' : '↕'}
-    </span>
+    />
   );
   return (
     <button
