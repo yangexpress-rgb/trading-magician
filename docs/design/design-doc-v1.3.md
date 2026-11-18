@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N302, O177, ADR 0104 and migration 0102** (N299 to N301 and ADR 0102 to 0103 were taken on 2026-11-18; N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N298, ADR 0101 and migrations 0100 to 0101 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N303, O177, ADR 0104 and migration 0102** (N299 to N301 and ADR 0102 to 0103 were taken on 2026-11-18; N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N298, ADR 0101 and migrations 0100 to 0101 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -644,6 +644,7 @@ Performance comes from reconciled fills and account data, not from app-submitted
 - **Matching**: fills are matched first in, first out within a book (one runtime, account and instrument). One trade is one strategy cycle, with each leg's contribution inside it.
 - **Valuation**: every account is valued every 5 minutes at the last price from the tenant's routed feed; a mark older than 60 s is stale and counted. The first valuation at or after the 4:00 pm New York close is final.
 - **Today** (N296): a Today tile leads the KPI cards and Contribution by strategy has a Today column, each P/L in $ and %, green or red by sign. Today is the current NYSE session (the last one before the 9:30 am open) whatever the date range; other filters apply. The account % is that session's time-weighted equity change; a strategy's or a narrowed view's % is P/L over the capital at work that session (ADR 0021 amended).
+- **Compact headline figures** (N302): the KPI cards are one strip of the four numbers checked first (Today, Net P/L, Return or Return on peak capital, Equity) and three short label and value lists, Returns (realized / unrealized, average gain / loss, profit factor), Risk (max drawdown, Sharpe, exposure) and Trading (trades, win rate, turnover), each detail in grey beside its value. Same figures and colours as before; about 40% of the old height (Yong picked layout A, 2026-11-18).
 - **Strategy drill-down** (N297): double-clicking a row in Contribution by strategy (or Enter on it) opens Performance filtered to that strategy, as a new address (`?strategy=<id>`), so Back returns to all strategies.
 - **Returns**: accounts show a daily time-weighted return on equity, with Sharpe annualised over 252 sessions at a zero risk-free rate (not shown under 20 sessions). Filtered views show P&L in dollars, drawdown in dollars and return on peak capital.
 - **Fees** as the broker reports them per fill (none on paper). USD only, labelled.

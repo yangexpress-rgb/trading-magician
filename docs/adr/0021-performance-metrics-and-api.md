@@ -62,3 +62,12 @@ show dollars and a return on the most capital they had at work; one trade is one
   the account was last valued.
 - Deposits and withdrawals at a real broker are not tracked yet, so they show as equity differences
   with the broker rather than as flows.
+
+## Amendment (2026-11-18, N302): compact headline figures
+
+The thirteen equal tiles took about 540 px. They are now one strip of the four
+figures read first (Today leading, Net P/L, Return or Return on peak capital,
+Equity) and Returns / Risk / Trading label and value lists, with each detail in
+grey beside its value. `performanceLayout` places the existing `performanceTiles`,
+so figures, wording, colours and units are unchanged; a tile without a place
+falls under Trading rather than disappearing.
