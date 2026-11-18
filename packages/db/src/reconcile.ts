@@ -1,4 +1,9 @@
-import { BrokerUnavailableError, type BrokerAdapter, type BrokerOrderUpdate } from '@tm/domain';
+import {
+  BrokerRejectedError,
+  BrokerUnavailableError,
+  type BrokerAdapter,
+  type BrokerOrderUpdate,
+} from '@tm/domain';
 import Decimal from 'decimal.js';
 import { and, eq, inArray, isNotNull, or } from 'drizzle-orm';
 import { recordAudit } from './audit';
@@ -62,6 +67,30 @@ export function explainedByInFlight(gap: Decimal, inFlight: InFlight | undefined
   return gap.lte(inFlight.buy) && gap.gte(inFlight.sell.negated());
 }
 
+/**
+ * How long after submission an order may be unknown to the broker before
+ * reconciliation calls it missing (N299, ADR 0102). Alpaca answers 404 for an
+ * order it never took; at the open it can hold a just-sent order as
+ * `pending_new` for many seconds, which reads as no updates yet. Neither means
+ * the order is lost until it stays that way.
+ */
+export const MISSING_GRACE_MS = { notFound: 60_000, noUpdates: 10 * 60_000 } as const;
+
+/**
+ * Whether a working order the broker gave nothing back for counts as missing:
+ * `notFound` when the broker said it has no such order, otherwise it answered
+ * but had nothing to report yet.
+ */
+export function missingAtBroker(input: {
+  notFound: boolean;
+  submittedAt: Date | null;
+  now: Date;
+}): boolean {
+  if (!input.submittedAt) return true;
+  const age = input.now.getTime() - input.submittedAt.getTime();
+  return age >= (input.notFound ? MISSING_GRACE_MS.notFound : MISSING_GRACE_MS.noUpdates);
+}
+
 async function inFlightQuantities(
   tx: Transaction,
   accountId: string,
@@ -112,7 +141,11 @@ export async function reconcileAccount(
 
   // 1. Orders: poll each working order and apply anything missed.
   const working = await tx
-    .select({ intentId: orderIntents.id, brokerOrderId: brokerOrders.brokerOrderId })
+    .select({
+      intentId: orderIntents.id,
+      brokerOrderId: brokerOrders.brokerOrderId,
+      submittedAt: brokerOrders.submittedAt,
+    })
     .from(orderIntents)
     .innerJoin(brokerOrders, eq(brokerOrders.intentId, orderIntents.id))
     .where(
@@ -126,14 +159,19 @@ export async function reconcileAccount(
   for (const o of working) {
     const brokerOrderId = o.brokerOrderId as string;
     let updates: BrokerOrderUpdate[];
+    let notFound = false;
     try {
       updates = await broker.orderUpdates(accountId, brokerOrderId);
     } catch (e) {
       if (e instanceof BrokerUnavailableError) throw e;
+      notFound = e instanceof BrokerRejectedError && e.code === 'not_found';
       updates = [];
     }
     if (updates.length === 0) {
-      mismatches.push({ kind: 'missing_at_broker', intentId: o.intentId, brokerOrderId });
+      // Just sent and not yet on the broker's books (Alpaca `pending_new` at the
+      // open): look again on the next pass rather than pause (N299).
+      if (missingAtBroker({ notFound, submittedAt: o.submittedAt, now: input.now }))
+        mismatches.push({ kind: 'missing_at_broker', intentId: o.intentId, brokerOrderId });
       continue;
     }
     healed += (await applyBrokerUpdates(tx, o.intentId, updates, 'reconciliation')).applied;

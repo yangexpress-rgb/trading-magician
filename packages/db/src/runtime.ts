@@ -2,6 +2,7 @@ import { strategyInstruments, type InstrumentRef } from '@tm/backtest';
 import {
   listMembers,
   activeFromFor,
+  CAPACITY_RISK_CODES,
   newRuntimeTriggerState,
   parseDefinition,
   transitionOrder,
@@ -15,7 +16,7 @@ import {
   type StrategyTrailState,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
-import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
 import { announceOrderChange, OrderError } from './orders';
@@ -890,17 +891,29 @@ export async function heartbeatInstrumentId(
   return row?.id;
 }
 
+/**
+ * The states of a runtime's latest orders since `since`, newest first, leaving
+ * out orders refused only because the strategy was full (N300): those are not
+ * rejections the rejections-in-a-row pause is for.
+ */
 export async function recentOrderStates(
   tx: Transaction,
   runtimeId: string,
   since: Date,
   limit: number,
 ): Promise<OrderState[]> {
+  const capacity = CAPACITY_RISK_CODES.map((c) => `Risk check failed: ${c}`);
   const rows = await tx
     .select({ state: brokerOrders.state })
     .from(orderIntents)
     .innerJoin(brokerOrders, eq(brokerOrders.intentId, orderIntents.id))
-    .where(and(eq(orderIntents.runtimeId, runtimeId), gt(orderIntents.createdAt, since)))
+    .where(
+      and(
+        eq(orderIntents.runtimeId, runtimeId),
+        gt(orderIntents.createdAt, since),
+        or(isNull(brokerOrders.reason), notInArray(brokerOrders.reason, capacity)),
+      ),
+    )
     .orderBy(desc(orderIntents.createdAt), desc(orderIntents.id))
     .limit(limit);
   return rows.map((r) => r.state);
