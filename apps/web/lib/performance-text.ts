@@ -223,3 +223,40 @@ export function assetChoices(traded: readonly string[] | undefined, chosen: stri
   const all = new Set([...(traded ?? []), ...(chosen ? [chosen] : [])]);
   return [...all].filter((c) => known.has(c)).sort();
 }
+
+export interface PerformanceLayout {
+  /** The numbers checked first, in one strip: Today, Net P/L, return, equity. */
+  headline: MetricTile[];
+  /** The rest, as short label and value lists (N302). */
+  groups: { title: 'Returns' | 'Risk' | 'Trading'; tiles: MetricTile[] }[];
+}
+
+const HEADLINE = ['Today', 'Net P/L', 'Return', 'Return on peak capital', 'Equity'];
+const GROUPS: [PerformanceLayout['groups'][number]['title'], string[]][] = [
+  ['Returns', ['Realized / unrealized', 'Average gain / loss', 'Profit factor']],
+  ['Risk', ['Max drawdown', 'Sharpe ratio', 'Exposure']],
+  ['Trading', ['Trades', 'Win rate', 'Turnover']],
+];
+
+/**
+ * The headline figures laid out compactly (N302): a strip of the four checked
+ * first, Today leading, then Returns / Risk / Trading lists. Same tiles as
+ * `performanceTiles`; a tile the view lacks is simply left out.
+ */
+export function performanceLayout(s: PerformanceSummaryDto): PerformanceLayout {
+  const tiles = performanceTiles(s);
+  const byLabel = new Map(tiles.map((t) => [t.label, t]));
+  const pick = (labels: string[]) =>
+    labels.flatMap((l) => {
+      const t = byLabel.get(l);
+      return t ? [t] : [];
+    });
+  const placed = new Set([...HEADLINE, ...GROUPS.flatMap(([, ls]) => ls)]);
+  // Anything new that has no place yet still shows, under Trading.
+  const rest = tiles.filter((t) => !placed.has(t.label));
+  const groups = GROUPS.map(([title, labels]) => ({
+    title,
+    tiles: [...pick(labels), ...(title === 'Trading' ? rest : [])],
+  }));
+  return { headline: pick(HEADLINE), groups: groups.filter((g) => g.tiles.length > 0) };
+}

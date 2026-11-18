@@ -16,7 +16,6 @@ import {
   ChartIcon,
   EmptyState,
   SelectField,
-  Stat,
   Table,
   Td,
   TextField,
@@ -35,7 +34,8 @@ import {
   describePositionDifference,
   filtersFromSearch,
   performanceSearch,
-  performanceTiles,
+  performanceLayout,
+  type PerformanceLayout,
   type PerformanceFilters,
 } from '@/lib/performance-text';
 
@@ -419,17 +419,7 @@ export function PerformanceView({
       ) : (
         <>
           <Card aria-label="Headline figures">
-            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {performanceTiles(summary).map((t) => (
-                <Stat
-                  key={t.label}
-                  className="rounded-md border border-line p-3"
-                  label={t.label}
-                  value={<TileValue tile={t} />}
-                  comparison={t.detail}
-                />
-              ))}
-            </dl>
+            <HeadlineFigures layout={performanceLayout(summary)} />
           </Card>
 
           <Charts series={data.series} />
@@ -634,6 +624,54 @@ export function PerformanceView({
           <DataQuality summary={summary} when={when} />
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * The headline figures in little space (N302): a strip of the numbers checked
+ * first, then Returns / Risk / Trading as label and value lists, each value's
+ * detail in grey beside it.
+ */
+export function HeadlineFigures({ layout }: { layout: PerformanceLayout }) {
+  return (
+    <div className="space-y-3">
+      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-line bg-line sm:grid-cols-4">
+        {layout.headline.map((t) => (
+          <div key={t.label} className="bg-surface px-3 py-2">
+            <dt className="text-xs text-ink-muted">{t.label}</dt>
+            <dd className="text-lg text-content-strong">
+              <TileValue tile={t} />
+            </dd>
+            {t.detail && <dd className="text-xs text-ink-muted">{t.detail}</dd>}
+          </div>
+        ))}
+      </dl>
+      <div className="grid gap-x-6 gap-y-3 sm:grid-cols-3">
+        {layout.groups.map((g) => (
+          <section key={g.title} aria-label={g.title}>
+            <h3 className="text-xs font-semibold tracking-wide text-ink-muted uppercase">
+              {g.title}
+            </h3>
+            <dl className="text-sm">
+              {g.tiles.map((t) => (
+                <div
+                  key={t.label}
+                  className="flex items-baseline justify-between gap-3 border-b border-line py-1 last:border-b-0"
+                >
+                  <dt className="text-ink">{t.label}</dt>
+                  <dd className="flex flex-wrap items-baseline justify-end gap-x-1.5 text-right">
+                    <span className="text-content-strong">
+                      <TileValue tile={t} />
+                    </span>
+                    {t.detail && <span className="text-xs text-ink-muted">{t.detail}</span>}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ))}
+      </div>
     </div>
   );
 }

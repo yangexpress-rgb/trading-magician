@@ -5,6 +5,7 @@ import {
   describePositionDifference,
   filtersFromSearch,
   performanceSearch,
+  performanceLayout,
   performanceTiles,
 } from './performance-text';
 
@@ -163,5 +164,26 @@ describe('filtersFromSearch', () => {
       from: '2026-11-01',
     });
     expect(filtersFromSearch(() => undefined)).toEqual({ mode: 'paper' });
+  });
+});
+
+describe('performanceLayout (N302)', () => {
+  it('puts Today first in the strip and the rest in Returns / Risk / Trading', () => {
+    const { headline, groups } = performanceLayout(summary());
+    expect(headline.map((t) => t.label)).toEqual(['Today', 'Net P/L', 'Return', 'Equity']);
+    expect(groups.map((g) => [g.title, g.tiles.map((t) => t.label)])).toEqual([
+      ['Returns', ['Realized / unrealized', 'Average gain / loss', 'Profit factor']],
+      ['Risk', ['Max drawdown', 'Sharpe ratio', 'Exposure']],
+      ['Trading', ['Trades', 'Win rate', 'Turnover']],
+    ]);
+    // Nothing is lost on the way.
+    const placed = [...headline, ...groups.flatMap((g) => g.tiles)].length;
+    expect(placed).toBe(performanceTiles(summary()).length);
+  });
+
+  it('shows return on peak capital in the strip when the view is filtered', () => {
+    const { headline, groups } = performanceLayout(summary({ filtered: true }));
+    expect(headline.map((t) => t.label)).toEqual(['Today', 'Net P/L', 'Return on peak capital']);
+    expect(groups.find((g) => g.title === 'Risk')?.tiles.map((t) => t.label)).toEqual(['Exposure']);
   });
 });
