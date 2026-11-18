@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Transaction } from '../src/client';
 import { provisionWorkspace } from '../src/provision';
-import { reconcileAccount } from '../src/reconcile';
+import { MISSING_GRACE_MS, missingAtBroker, reconcileAccount } from '../src/reconcile';
 import { executionIncidents, instruments, tradingAccounts, users } from '../src/schema';
 import { withTenant } from '../src/tenant';
 import { createTestDatabase, type TestDatabase } from './harness';
@@ -74,5 +74,21 @@ describe('reconcileAccount', () => {
       }),
     );
     expect(result).toEqual({ healed: 0, mismatches: [] });
+  });
+
+  it('gives a just-sent order time to reach the broker before calling it missing (N299)', () => {
+    const now = new Date('2026-11-17T14:30:19Z');
+    const sent = (ms: number) => new Date(now.getTime() - ms);
+    // Alpaca still holding the order as pending_new 11 s after it was sent.
+    expect(missingAtBroker({ notFound: false, submittedAt: sent(11_000), now })).toBe(false);
+    expect(
+      missingAtBroker({ notFound: false, submittedAt: sent(MISSING_GRACE_MS.noUpdates), now }),
+    ).toBe(true);
+    // A 404 is believed sooner, but still not in the first minute.
+    expect(missingAtBroker({ notFound: true, submittedAt: sent(11_000), now })).toBe(false);
+    expect(
+      missingAtBroker({ notFound: true, submittedAt: sent(MISSING_GRACE_MS.notFound), now }),
+    ).toBe(true);
+    expect(missingAtBroker({ notFound: true, submittedAt: null, now })).toBe(true);
   });
 });

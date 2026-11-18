@@ -241,6 +241,7 @@ const orders = (runtimeId: string) =>
         triggerEventId: schema.orderIntents.triggerEventId,
         state: schema.brokerOrders.state,
         filled: schema.brokerOrders.filledQuantity,
+        reason: schema.brokerOrders.reason,
       })
       .from(schema.orderIntents)
       .innerJoin(schema.brokerOrders, eq(schema.brokerOrders.intentId, schema.orderIntents.id))
@@ -835,6 +836,24 @@ describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', (
     await stopAll();
     // Stopped: no run to show.
     expect((await asUser((tx) => getStrategy(tx, strategyId))).run).toBeNull();
+  });
+
+  it('does not pause on refusals that only say the strategy is full (N300)', async () => {
+    clock = T0 + 15 * 86_400_000;
+    const def = pairDefinition();
+    def.entry.orders.push(leg('long2', { legLabel: 'Long B', instrumentId: demoB }));
+    def.risk.maxStrategyExposure = '1';
+    const { runtimeId } = await startPaper('Full', def);
+    await pass();
+    const mine = await orders(runtimeId);
+    expect(mine.filter((o) => o.state === 'rejected').length).toBeGreaterThanOrEqual(
+      SAFETY.rejectsInARow,
+    );
+    expect(mine.every((o) => o.reason === 'Risk check failed: risk_exposure')).toBe(true);
+    expect((await runtimeStatus(runtimeId))?.status).toBe('running');
+    expect((await incidents()).map((i) => i.kind)).not.toContain('repeated_rejects');
+    await t.ownerSql`update execution_incident set resolved_at = now(), resolved_by = 'user' where resolved_at is null`;
+    await stopAll();
   });
 
   it('flags stale prices at once and pauses if they stay stale; clears when current', async () => {

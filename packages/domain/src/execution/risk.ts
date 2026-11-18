@@ -22,6 +22,20 @@ export const RISK_CHECK_CODES = [
 ] as const;
 export type RiskCheckCode = (typeof RISK_CHECK_CODES)[number];
 
+/**
+ * Checks that refuse an order because the strategy or account is full, not
+ * because anything is wrong with the order. They clear on their own as
+ * positions close, so they do not count toward the rejections-in-a-row pause
+ * (N300, ADR 0102): a Selection that picks more names than its exposure limit
+ * holds would otherwise pause itself every time it ranks.
+ */
+export const CAPACITY_RISK_CODES = [
+  'risk_active_orders',
+  'risk_exposure',
+  'buying_power',
+  'risk_open_positions',
+] as const satisfies readonly RiskCheckCode[];
+
 export interface RiskCheckInput {
   risk: RiskProfile;
   closing: boolean;
