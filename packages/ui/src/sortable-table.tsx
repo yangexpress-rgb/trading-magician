@@ -228,13 +228,14 @@ export function SortButton({ children, numeric }: { children: ReactNode; numeric
 
   if (!ctx) return <>{children}</>;
   const dir = col !== null && ctx.sort?.col === col ? ctx.sort.dir : null;
-  // The mark sits beside the label's last word, on the side away from the figures' edge.
+  // The mark sits in the header's padding, on the side away from the figures'
+  // edge, so the label wraps exactly as it did before the column sorted.
   const mark = (
     <span
       aria-hidden
       className={cx(
-        'inline-block w-2.5 text-center text-[0.65rem]',
-        numeric ? 'mr-1' : 'ml-1',
+        'absolute top-1/2 w-2 -translate-y-1/2 text-center text-[0.65rem]',
+        numeric ? '-left-3' : '-right-3',
         !dir && 'opacity-30',
       )}
     >
@@ -257,7 +258,7 @@ export function SortButton({ children, numeric }: { children: ReactNode; numeric
             : 'Back to the list order'
       }
       className={cx(
-        'rounded font-[inherit] tracking-[inherit] [text-transform:inherit] hover:text-ink',
+        'relative rounded font-[inherit] tracking-[inherit] [text-transform:inherit] hover:text-ink',
         numeric ? 'text-right' : 'text-left',
         dir && 'text-ink',
       )}
