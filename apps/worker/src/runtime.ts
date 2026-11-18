@@ -171,7 +171,6 @@ import {
   autoResumeStep,
   REJECT_RETRIES,
   rejectsResumeStep,
-  type AutoPause,
   type AutoPauseKind,
 } from './auto-resume';
 
