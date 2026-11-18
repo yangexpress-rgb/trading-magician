@@ -35,7 +35,7 @@ import {
   type StrategyDefinition,
 } from '@tm/domain';
 import { AlpacaRateLimitError } from '@tm/alpaca';
-import { AUTO_RESUME } from '../src/auto-resume';
+import { AUTO_RESUME, REJECT_RETRIES } from '../src/auto-resume';
 import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
 
 import Decimal from 'decimal.js';
@@ -957,6 +957,85 @@ describe('paper runtime: automatic resume after passing outages (N282, N283)', (
     clock += 60_000;
     await pass();
     expect((await runtimeStatus(runtimeId))?.status).toBe('paused');
+    await stopAll();
+  });
+
+  it('resumes after a mismatch once reconciliation comes back clean (N301)', async () => {
+    clock = T0 + 21 * 86_400_000;
+    const def = pairDefinition();
+    def.exit.condition = never();
+    const { runtimeId } = await startPaper('Mismatch clears', def);
+    await pass();
+    clock += 10_000;
+    await pass();
+    await t.ownerSql`update paper_position set quantity = quantity + 5 where instrument_id = ${demoA}`;
+    clock += SAFETY.reconcileEveryMs;
+    await pass();
+    expect((await runtimeStatus(runtimeId))?.status).toBe('paused');
+    // Still different at the next reconciliation: it waits.
+    clock += SAFETY.reconcileEveryMs + AUTO_RESUME.delaysMs[0];
+    await pass();
+    expect((await runtimeStatus(runtimeId))?.status).toBe('paused');
+    expect((await incidents()).map((i) => i.kind)).toEqual(['reconciliation_mismatch']);
+
+    // The books agree again: the next reconciliation closes the incident.
+    await t.ownerSql`update paper_position set quantity = quantity - 5 where instrument_id = ${demoA}`;
+    clock += SAFETY.reconcileEveryMs;
+    await pass();
+    expect(await incidents()).toEqual([]);
+    clock += AUTO_RESUME.healthyForMs;
+    await pass();
+    expect((await runtimeStatus(runtimeId))?.status).toBe('running');
+    const [note] = await t.ownerSql<
+      { body: string }[]
+    >`select body from notification where title like '%Mismatch clears resumed on its own'`;
+    expect(note?.body).toContain('Reconciliation has since come back clean');
+    await stopAll();
+  });
+
+  it('retries repeated rejects at the next open, and stops after the retries run out (N301)', async () => {
+    clock = T0 + 22 * 86_400_000;
+    const def = pairDefinition();
+    def.risk.maxOrderNotional = '1';
+    const { runtimeId } = await startPaper('Keeps failing', def);
+    const untilPaused = async () => {
+      for (let i = 0; i < 4 && (await runtimeStatus(runtimeId))?.status !== 'paused'; i++) {
+        await pass();
+        clock += 3_600_000;
+      }
+      expect((await runtimeStatus(runtimeId))?.status).toBe('paused');
+      // The worker takes the pause on at its next pass, moments later.
+      clock += 5_000;
+      await pass();
+    };
+    await untilPaused();
+    // Later the same day: it waits for the next open.
+    clock += 3_600_000;
+    await pass();
+    expect((await runtimeStatus(runtimeId))?.status).toBe('paused');
+
+    for (let retry = 1; retry <= REJECT_RETRIES; retry++) {
+      // Next morning, after the open (T0 is 10:31 New York).
+      clock = T0 + (22 + retry) * 86_400_000;
+      await pass();
+      const status = (await runtimeStatus(runtimeId))?.status;
+      if (status !== 'paused') expect(status).toBe('running');
+      await untilPaused();
+    }
+    // Every retry was refused again: it stays paused and says so.
+    clock = T0 + (23 + REJECT_RETRIES) * 86_400_000;
+    await pass();
+    clock += 60_000;
+    await pass();
+    expect((await runtimeStatus(runtimeId))?.status).toBe('paused');
+    const titles = (
+      await t.ownerSql<
+        { title: string }[]
+      >`select title from notification where title like '%Keeps failing%'`
+    ).map((n) => n.title);
+    expect(titles.filter((x) => x.endsWith('resumed on its own')).length).toBe(REJECT_RETRIES);
+    expect(titles.filter((x) => x.endsWith('stays paused')).length).toBe(1);
+    await t.ownerSql`update execution_incident set resolved_at = now(), resolved_by = 'user' where resolved_at is null`;
     await stopAll();
   });
 

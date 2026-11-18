@@ -276,3 +276,31 @@ export async function hasOpenIncident(
     .limit(1);
   return Boolean(row);
 }
+
+/**
+ * Resolves an account's open incidents of a kind, once the condition has
+ * passed: a reconciliation that comes back clean closes its mismatch (N301).
+ * Returns how many were resolved.
+ */
+export async function resolveAccountIncidents(
+  tx: Transaction,
+  userId: string,
+  kind: IncidentKind,
+  accountId: string,
+  note: string,
+): Promise<number> {
+  const open = await tx
+    .select({ id: executionIncidents.id })
+    .from(executionIncidents)
+    .where(
+      and(
+        eq(executionIncidents.kind, kind),
+        eq(executionIncidents.accountId, accountId),
+        isNull(executionIncidents.resolvedAt),
+      ),
+    );
+  for (const i of open) {
+    await resolveIncident(tx, { userId, incidentId: i.id, by: 'system', note });
+  }
+  return open.length;
+}
