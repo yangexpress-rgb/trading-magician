@@ -81,7 +81,7 @@ export default async function SharingPage({
               <thead>
                 <tr>
                   {box === 'received' && (
-                    <Th>
+                    <Th sortable={false}>
                       <AnswerCheckAll pending={answerable} />
                     </Th>
                   )}

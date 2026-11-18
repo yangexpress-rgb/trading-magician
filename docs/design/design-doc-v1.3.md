@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N303, O177, ADR 0104 and migration 0102** (N299 to N301 and ADR 0102 to 0103 were taken on 2026-11-18; N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N298, ADR 0101 and migrations 0100 to 0101 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N304, O177, ADR 0105 and migration 0102** (N299 to N303 and ADR 0102 to 0104 were taken on 2026-11-18; N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N298, ADR 0101 and migrations 0100 to 0101 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -163,6 +163,7 @@ The header holds Notifications with an unread count; the sidebar also has **Ask 
 - Accessible labels, keyboard navigation, sufficient contrast and visible focus. Esc closes any dropdown and puts the display back as it was (N200, ADR 0071).
 - In the strategy editor Entry is tinted green, Exit rose, condition groups blue and order legs amber, always with a matching text heading (C7).
 - **Lists sort by any column.** In the Strategy Lab and Theory Library lists, each column header sorts ascending on the first click and descending on the next, with ▲/▼ and `aria-sort`; empty values sort last either way (N167, N168).
+- **Report tables sort by any column (N303, ADR 0104).** Every other list built on the shared table (Performance, Orders, back test results, research panels, admin and settings lists) sorts by any labelled column header: low to high on the first click, high to low on the next, back to the list's own order on the third, with ▲/▼ and `aria-sort`, remembered in the browser for each list. Numbers sort by value, dates by date, text in natural order; blanks go last both ways. Tables that read top to bottom (annual financials, plan comparison) keep their order.
 - **Filters are compact pills** (TradingView style) in the Theory Library, Strategy Lab and stock screener: a pill opens a small popover and applies at once (no Apply button); a few filters are pinned, the rest wait in "+ Filter"; a set pill shows its value and ×; "Clear filters (n)" removes all; filters live in the address (N195; `components/filters/filter-bar.tsx`, `url-filter-bar.tsx`). New list filters use `FilterBar`.
 - The design system is hand-written accessible primitives on Tailwind CSS v4 tokens (light and dark), SVG charts, a nonce-based CSP and no third-party origins (C29, ADR 0005).
 
@@ -1164,6 +1165,7 @@ Survivorship bias in built-in groups (O6); custom feeds give daily bars only and
 | N156, N180, N194                                   | Trading Strategy tab, theories                                             | §5.1, §6                                       |
 | N157 to N166, N169, N170, N218 to N220, N223, N224 | Back-test results by cycle                                                 | §11.3                                          |
 | N167, N168                                         | Sort lists by any column                                                   | §5.2, §6.3, §7.3                               |
+| N303                                               | Report tables sort by any column                                           | §4                                             |
 | N171 to N177                                       | Strategy page in three sections                                            | §8.1                                           |
 | N178, N179, N232 to N235                           | Back-test bars, size cap, dates, members                                   | §11.1, §11.2                                   |
 | N181 to N183, N186 to N188                         | Theory and strategy numbers                                                | §6.1, §7.1                                     |

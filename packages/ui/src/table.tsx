@@ -1,19 +1,15 @@
-import type { ReactNode } from 'react';
+import { isValidElement, type ReactNode } from 'react';
 import { cx } from './cx';
+import { SortButton, Table } from './sortable-table';
 
-export function Table({ children, label }: { children: ReactNode; label: string }) {
+export { Table };
+
+/** A header holding only screen-reader text (an actions column) has nothing to sort. */
+function onlyHiddenText(children: ReactNode): boolean {
   return (
-    // Focusable so keyboard users can scroll a table wider than the screen (WCAG 2.1.1).
-    <div
-      tabIndex={0}
-      role="group"
-      aria-label={label}
-      className="overflow-x-auto rounded-lg border border-line bg-surface"
-    >
-      <table aria-label={label} className="w-full border-collapse text-sm">
-        {children}
-      </table>
-    </div>
+    isValidElement<{ className?: string }>(children) &&
+    typeof children.props.className === 'string' &&
+    children.props.className.split(/\s+/).includes('sr-only')
   );
 }
 
@@ -26,13 +22,26 @@ export function Th({
   className,
   numeric = false,
   sort,
+  sortable = true,
 }: {
   children?: ReactNode;
   className?: string | undefined;
   numeric?: boolean;
-  /** The column's sort state, for a sortable column. */
+  /**
+   * The column's sort state, for a list that sorts itself (by URL, on the
+   * server). Without it the header sorts the rows in the page (N303).
+   */
   sort?: 'ascending' | 'descending' | 'none' | undefined;
+  /** false: this column's header does not sort. */
+  sortable?: boolean;
 }) {
+  const sorts =
+    sort === undefined &&
+    sortable &&
+    children !== undefined &&
+    children !== null &&
+    children !== '' &&
+    !onlyHiddenText(children);
   return (
     <th
       scope="col"
@@ -43,7 +52,7 @@ export function Th({
         className,
       )}
     >
-      {children}
+      {sorts ? <SortButton numeric={numeric}>{children}</SortButton> : children}
     </th>
   );
 }
@@ -60,13 +69,17 @@ export function Td({
   children,
   className,
   numeric = false,
+  sortValue,
 }: {
   children?: ReactNode;
   className?: string | undefined;
   numeric?: boolean;
+  /** What the column sorts this cell by, when its text would sort wrongly. */
+  sortValue?: string | number | undefined;
 }) {
   return (
     <td
+      data-sort-value={sortValue}
       className={cx(
         'border-b border-line px-3 py-2 align-middle text-content',
         // A number never wraps, so a sign stays with its figure (N286).
