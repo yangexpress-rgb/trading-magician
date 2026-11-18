@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { AUTO_RESUME, autoResumeStep, type AutoPause } from './auto-resume';
+import {
+  AUTO_RESUME,
+  autoResumeStep,
+  nextOpenAfter,
+  REJECT_RETRIES,
+  rejectsResumeStep,
+  type AutoPause,
+} from './auto-resume';
 import { AccountSyncGate } from './account-sync';
 
 const T = 1_800_000_000_000;
@@ -88,5 +95,51 @@ describe('AccountSyncGate (N282)', () => {
     const gate = new AccountSyncGate(0);
     gate.record('a', T, { brokerDown: false, throttled: false });
     expect(gate.due('a', T)).toBe(true);
+  });
+});
+
+describe('repeated rejects retry at the next open (N301)', () => {
+  // Tuesday 17 November 2026, 3:00 PM New York (EST, UTC-5).
+  const at = Date.parse('2026-11-17T20:00:00Z');
+  const rejects: AutoPause = { kind: 'repeated_rejects', reason: 'r', at };
+  const open = Date.parse('2026-11-18T14:30:00Z');
+
+  it('finds the next regular open, skipping the weekend', () => {
+    expect(nextOpenAfter(at)).toBe(open);
+    expect(nextOpenAfter(Date.parse('2026-11-18T13:00:00Z'))).toBe(open);
+    expect(nextOpenAfter(Date.parse('2026-11-20T21:05:00Z'))).toBe(
+      Date.parse('2026-11-23T14:30:00Z'),
+    );
+  });
+
+  it('waits for the open, then retries', () => {
+    const step = (now: number, retries = 0, blocked = false) =>
+      rejectsResumeStep({ pause: rejects, retries, blocked, now });
+    expect(step(open - 60_000).action).toBe('wait');
+    expect(step(open + 5_000)).toEqual({
+      action: 'resume',
+      count: { day: '2026-11-18', count: 1 },
+      attempt: 1,
+    });
+    expect(step(open + 5_000, 1).action).toBe('resume');
+    // A mismatch still open on the account holds it.
+    expect(step(open + 5_000, 0, true).action).toBe('wait');
+  });
+
+  it('gives up after the retries run out, saying so once', () => {
+    const first = rejectsResumeStep({
+      pause: rejects,
+      retries: REJECT_RETRIES,
+      blocked: false,
+      now: open + 5_000,
+    });
+    expect(first).toEqual({ action: 'give_up', pause: { ...rejects, gaveUp: true } });
+    const later = rejectsResumeStep({
+      pause: { ...rejects, gaveUp: true },
+      retries: REJECT_RETRIES,
+      blocked: false,
+      now: open + 60_000,
+    });
+    expect(later.action).toBe('wait');
   });
 });

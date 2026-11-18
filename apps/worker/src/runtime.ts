@@ -17,6 +17,8 @@ import {
   getReconciledAt,
   heartbeatInstrumentId,
   hasBlockingIncident,
+  pauseIncident,
+  filledSince,
   resumeRuntime,
   runtimePauseReason,
   idempotencyKey,
@@ -164,7 +166,14 @@ import {
   type WatchedPrice,
 } from './feed-watch';
 import { isThrottled, type AccountSyncGate } from './account-sync';
-import { AUTO_RESUME, autoResumeStep, type AutoPause, type AutoPauseKind } from './auto-resume';
+import {
+  AUTO_RESUME,
+  autoResumeStep,
+  REJECT_RETRIES,
+  rejectsResumeStep,
+  type AutoPause,
+  type AutoPauseKind,
+} from './auto-resume';
 
 /**
  * The paper runtime (Design v1.0 §6.5–6.9, §8; ADR 0012). Each pass over a
@@ -391,9 +400,13 @@ export async function runRuntimePass(
     work = await watchBroker(tx, work, now, health);
     if (work.status === 'running')
       work = await watchFeed(tx, work, quotes, now, new Set(members), health);
-    // A pause for a passing outage lifts itself once the cause has cleared (N283).
-    else if (work.status === 'paused' && work.state.autoPause)
-      work = await autoResume(tx, work, quotes, now, new Set(members), health);
+    else if (work.status === 'paused') {
+      // A mismatch or repeated-rejects pause can lift itself too (N301).
+      if (!work.state.autoPause) await adoptPause(tx, work, now);
+      // A pause for a passing outage lifts itself once the cause has cleared (N283).
+      if (work.state.autoPause)
+        work = await autoResume(tx, work, quotes, now, new Set(members), health);
+    }
     if (work.status === 'running' && work.state.autoPause) work.state.autoPause = undefined;
 
     if (work.status !== 'stopped') {
@@ -684,10 +697,15 @@ async function autoResume(
   const pause = work.state.autoPause;
   if (!pause) return work;
   const t = now.getTime();
-  if (!(await stillAutoPaused(tx, work, pause))) {
+  if ((await runtimePauseReason(tx, work.id)) !== pause.reason) {
     work.state.autoPause = undefined;
     return work;
   }
+  // Anything that needs a person open on the runtime or its accounts holds it
+  // until it is resolved: by a person, or by a clean reconciliation (N301).
+  const blocked = await hasBlockingIncident(tx, work.id, work.accounts, {
+    exceptOwnRejects: pause.kind === 'repeated_rejects',
+  });
   let healthy: boolean;
   if (pause.kind === 'feed_loss') {
     const verdict = await readFeed(tx, work, quotes, now, members);
@@ -696,13 +714,16 @@ async function autoResume(
   } else {
     healthy = !health.brokerDown && !health.throttled;
   }
-  const step = autoResumeStep({
-    pause,
-    counts: work.state.autoResumes,
-    today: nyDate(now),
-    healthy,
-    now: t,
-  });
+  const rejects = pause.kind === 'repeated_rejects';
+  const step = rejects
+    ? rejectsResumeStep({ pause, retries: work.state.rejectRetries ?? 0, blocked, now: t })
+    : autoResumeStep({
+        pause,
+        counts: work.state.autoResumes,
+        today: nyDate(now),
+        healthy: healthy && !blocked,
+        now: t,
+      });
   const link = `/orders?strategy=${work.strategyId}`;
   if (step.action === 'wait') {
     work.state.autoPause = step.pause;
@@ -712,24 +733,38 @@ async function autoResume(
     work.state.autoPause = step.pause;
     await notify(tx, {
       userId: work.userId,
-      kind: 'disconnect',
+      kind: rejects ? 'risk_pause' : 'disconnect',
       title: `${work.strategyName} stays paused`,
-      body: `It already resumed on its own ${AUTO_RESUME.perDay} times today after short outages. Resume it from Orders when you are ready.`,
+      body: rejects
+        ? `Its orders were refused again after ${REJECT_RETRIES} automatic retries at the open, with nothing filled in between. ${pause.reason} Resume it from Orders once the cause is fixed.`
+        : `It already resumed on its own ${AUTO_RESUME.perDay} times today. Resume it from Orders when you are ready.`,
       link,
       resourceType: 'strategy_runtime',
       resourceId: work.id,
-      dedupeKey: `auto_resume_cap:${work.id}:${nyDate(now)}`,
+      dedupeKey: rejects
+        ? `auto_resume_cap:${work.id}:${pause.at}`
+        : `auto_resume_cap:${work.id}:${nyDate(now)}`,
     });
     return work;
   }
   if (!(await resumeRuntime(tx, work.userId, work.id))) return work;
-  await resolveIncidentsOf(
-    tx,
-    work.userId,
-    pause.kind === 'feed_loss' ? 'feed_loss' : 'broker_disconnected',
-    work.id,
-    'Resumed on its own after the outage cleared',
-  );
+  if (rejects) {
+    await resolveIncidentsOf(
+      tx,
+      work.userId,
+      'repeated_rejects',
+      work.id,
+      'Retried on its own at the market open',
+    );
+  } else if (pause.kind !== 'reconciliation_mismatch') {
+    await resolveIncidentsOf(
+      tx,
+      work.userId,
+      pause.kind === 'feed_loss' ? 'feed_loss' : 'broker_disconnected',
+      work.id,
+      'Resumed on its own after the outage cleared',
+    );
+  }
   if (pause.kind === 'feed_loss')
     await resolveIncidentsOf(tx, work.userId, 'stale_data', work.id, 'Prices are current again');
   await recordAudit(tx, {
@@ -747,16 +782,22 @@ async function autoResume(
   });
   await notify(tx, {
     userId: work.userId,
-    kind: 'disconnect',
+    kind: rejects ? 'risk_pause' : 'disconnect',
     title: `${work.strategyName} resumed on its own`,
-    body: `${pause.reason} That has cleared, so it is running again (automatic resume ${step.attempt} of ${AUTO_RESUME.perDay} today).`,
+    body: rejects
+      ? `${pause.reason} It is trying again at the market open (automatic retry ${step.attempt} of ${REJECT_RETRIES}; it stays paused if its orders are refused again before one fills).`
+      : pause.kind === 'reconciliation_mismatch'
+        ? `${pause.reason} Reconciliation has since come back clean, so it is running again (automatic resume ${step.attempt} of ${AUTO_RESUME.perDay} today).`
+        : `${pause.reason} That has cleared, so it is running again (automatic resume ${step.attempt} of ${AUTO_RESUME.perDay} today).`,
     link,
     resourceType: 'strategy_runtime',
     resourceId: work.id,
     dedupeKey: `auto_resume:${work.id}:${t}`,
   });
   work.state.autoPause = undefined;
-  work.state.autoResumes = step.count;
+  work.state.pauseChecked = undefined;
+  if (rejects) work.state.rejectRetries = step.attempt;
+  else work.state.autoResumes = step.count;
   work.state.brokerDownSince = undefined;
   work.state.throttledSince = undefined;
   work.state.staleSince = undefined;
@@ -764,14 +805,24 @@ async function autoResume(
 }
 
 /**
- * Whether the runtime is still paused for this outage alone: its pause reason
- * is the one the outage gave, and no reconciliation mismatch or repeated
- * rejects incident is open on it or its accounts.
+ * Takes on a pause a reconciliation mismatch or repeated rejects gave the
+ * runtime, so it can lift itself (N301, ADR 0103). Looked up once per pause
+ * reason; a pause no incident explains (a person's, the kill switch's) is left.
  */
-async function stillAutoPaused(tx: Transaction, work: RuntimeWork, pause: AutoPause) {
+async function adoptPause(tx: Transaction, work: RuntimeWork, now: Date): Promise<void> {
   const reason = await runtimePauseReason(tx, work.id);
-  if (reason !== pause.reason) return false;
-  return !(await hasBlockingIncident(tx, work.id, work.accounts));
+  if (!reason || work.state.pauseChecked === reason) return;
+  work.state.pauseChecked = reason;
+  const incident = await pauseIncident(tx, work.id, work.accounts, reason);
+  if (!incident) return;
+  if (incident.kind === 'repeated_rejects') {
+    // An order that filled since the last resume shows the strategy can trade:
+    // the run of retries starts again.
+    if (await filledSince(tx, work.id, work.activeSince)) work.state.rejectRetries = 0;
+  }
+  // Timed from when the worker first sees it, on the runtime's clock: moments
+  // after the pause, or at once for a pause from before this existed.
+  work.state.autoPause = { kind: incident.kind, reason, at: now.getTime() };
 }
 
 /** A liquid ETF the feed always prices, to tell a quiet stock from a silent feed. */

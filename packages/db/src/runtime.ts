@@ -70,7 +70,12 @@ export interface RuntimeState {
   /** A pause for a passing outage, which lifts itself once the cause clears (N283). */
   autoPause?:
     | {
-        kind: 'broker_disconnected' | 'broker_throttled' | 'feed_loss';
+        kind:
+          | 'broker_disconnected'
+          | 'broker_throttled'
+          | 'feed_loss'
+          | 'reconciliation_mismatch'
+          | 'repeated_rejects';
         reason: string;
         at: number;
         healthySince?: number | undefined;
@@ -79,6 +84,10 @@ export interface RuntimeState {
     | undefined;
   /** Automatic resumes on one New York day (N283). */
   autoResumes?: { day: string; count: number } | undefined;
+  /** The pause reason last looked up for an automatic resume, so it is looked up once (N301). */
+  pauseChecked?: string | undefined;
+  /** Automatic retries after repeated rejects since an order last filled (N301). */
+  rejectRetries?: number | undefined;
   /** The calendar period last evaluated on a non-daily schedule, e.g. "2026-03" (v1.2 item 4). */
   lastSchedulePeriod?: string | undefined;
   /** The period Check Exit last evaluated (ADR 0073), as `lastSchedulePeriod` is for Entry. */
@@ -237,6 +246,7 @@ export async function hasBlockingIncident(
   tx: Transaction,
   runtimeId: string,
   accountIds: readonly string[],
+  options: { exceptOwnRejects?: boolean } = {},
 ): Promise<boolean> {
   const rows = await tx
     .select({ id: executionIncidents.id })
@@ -245,6 +255,11 @@ export async function hasBlockingIncident(
       and(
         isNull(executionIncidents.resolvedAt),
         inArray(executionIncidents.kind, ['reconciliation_mismatch', 'repeated_rejects']),
+        // A runtime waiting to retry after its own repeated rejects (N301) is
+        // not blocked by that incident; it resolves it when it resumes.
+        options.exceptOwnRejects
+          ? sql`not (${executionIncidents.kind} = 'repeated_rejects' and ${executionIncidents.runtimeId} = ${runtimeId})`
+          : undefined,
         accountIds.length > 0
           ? or(
               eq(executionIncidents.runtimeId, runtimeId),
@@ -255,6 +270,59 @@ export async function hasBlockingIncident(
     )
     .limit(1);
   return rows.length > 0;
+}
+
+/**
+ * The incident that paused a runtime with this reason, when it is a kind that
+ * can resume on its own (N301): a reconciliation mismatch on the runtime or its
+ * accounts, or the runtime's repeated rejects. The latest such incident wins.
+ */
+export async function pauseIncident(
+  tx: Transaction,
+  runtimeId: string,
+  accountIds: readonly string[],
+  reason: string,
+): Promise<{ kind: 'reconciliation_mismatch' | 'repeated_rejects' } | undefined> {
+  const [row] = await tx
+    .select({ kind: executionIncidents.kind })
+    .from(executionIncidents)
+    .where(
+      and(
+        inArray(executionIncidents.kind, ['reconciliation_mismatch', 'repeated_rejects']),
+        eq(executionIncidents.summary, reason),
+        accountIds.length > 0
+          ? or(
+              eq(executionIncidents.runtimeId, runtimeId),
+              inArray(executionIncidents.accountId, [...accountIds]),
+            )
+          : eq(executionIncidents.runtimeId, runtimeId),
+      ),
+    )
+    .orderBy(desc(executionIncidents.openedAt))
+    .limit(1);
+  if (!row) return undefined;
+  return { kind: row.kind as 'reconciliation_mismatch' | 'repeated_rejects' };
+}
+
+/** Whether any order the runtime placed after `since` has filled, even in part (N301). */
+export async function filledSince(
+  tx: Transaction,
+  runtimeId: string,
+  since: Date,
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: orderIntents.id })
+    .from(orderIntents)
+    .innerJoin(brokerOrders, eq(brokerOrders.intentId, orderIntents.id))
+    .where(
+      and(
+        eq(orderIntents.runtimeId, runtimeId),
+        gt(orderIntents.createdAt, since),
+        gt(brokerOrders.filledQuantity, '0'),
+      ),
+    )
+    .limit(1);
+  return !!row;
 }
 
 /** Resumes a paused runtime, unless the kill switch is still engaged. */

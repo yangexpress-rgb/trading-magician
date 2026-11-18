@@ -8,7 +8,7 @@ import Decimal from 'decimal.js';
 import { and, eq, inArray, isNotNull, or } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Transaction } from './client';
-import { openIncident } from './incidents';
+import { openIncident, resolveAccountIncidents } from './incidents';
 import { accountPositions } from './order-views';
 import { applyBrokerUpdates } from './orders';
 import { setReconciledAt, WORKING_STATES } from './runtime';
@@ -226,7 +226,18 @@ export async function reconcileAccount(
       context: { updates: healed },
     });
   }
-  if (mismatches.length === 0) return { healed, mismatches };
+  if (mismatches.length === 0) {
+    // Everything agrees again: a mismatch found earlier has passed, and the
+    // strategies it paused may resume on their own (N301, ADR 0103).
+    await resolveAccountIncidents(
+      tx,
+      userId,
+      'reconciliation_mismatch',
+      accountId,
+      'Reconciliation came back clean',
+    );
+    return { healed, mismatches };
+  }
 
   // Pause whatever trades the instruments or orders involved (§8.5, §8.6).
   const positionIds = mismatches.flatMap((m) => (m.kind === 'position' ? [m.instrumentId] : []));
