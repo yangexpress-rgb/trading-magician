@@ -983,6 +983,118 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
   };
 }
 
+/**
+ * What a figure on Strategies on paper counts (N305): the run's working orders, or its cycles
+ * by outcome. `completed` also stands behind Realized P/L and Win rate.
+ */
+export const RUN_DETAIL_KINDS = ['working', 'completed', 'active', 'rejected', 'entering'] as const;
+export type RunDetailKind = (typeof RUN_DETAIL_KINDS)[number];
+
+const DETAIL_CYCLE_STATUSES: Record<Exclude<RunDetailKind, 'working'>, string[]> = {
+  completed: ['closed'],
+  active: ['open', 'exit_working'],
+  rejected: ['aborted'],
+  entering: ['entry_working'],
+};
+
+/** At most this many cycles, newest first, are listed in one detail view. */
+export const RUN_DETAIL_CYCLE_LIMIT = 300;
+
+export interface RunDetailCycle {
+  id: string;
+  seq: number;
+  status: string;
+  entryTriggeredAt: string;
+  positionOpenedAt: string | null;
+  closedAt: string | null;
+  realizedPnl: string | null;
+  note: string | null;
+}
+
+export interface RunDetail {
+  runtimeId: string;
+  kind: RunDetailKind;
+  /** Every cycle the figure counts, before the limit. */
+  totalCycles: number;
+  /** Newest first, at most RUN_DETAIL_CYCLE_LIMIT. */
+  cycles: RunDetailCycle[];
+  /** The orders of those cycles (for `working`, only the working ones), newest first. */
+  orders: OrderRow[];
+}
+
+/**
+ * The cycles and orders behind one figure of a run (N305): double-clicking a number on
+ * Strategies on paper lists what it counts.
+ */
+export async function getRunDetail(
+  tx: Transaction,
+  runtimeId: string,
+  kind: RunDetailKind,
+): Promise<RunDetail> {
+  const [run] = await tx
+    .select({ id: strategyRuntimes.id })
+    .from(strategyRuntimes)
+    .where(eq(strategyRuntimes.id, runtimeId));
+  if (!run) throw new OrderError('not_found', 'Strategy run not found');
+
+  const cycleWhere =
+    kind === 'working'
+      ? and(
+          eq(strategyCycles.runtimeId, runtimeId),
+          sql`exists (select 1 from ${orderIntents} join ${brokerOrders} on ${brokerOrders.intentId} = ${orderIntents.id}
+            where ${orderIntents.cycleId} = ${strategyCycles.id} and ${inArray(brokerOrders.state, [...WORKING_STATES])})`,
+        )
+      : and(
+          eq(strategyCycles.runtimeId, runtimeId),
+          inArray(strategyCycles.status, DETAIL_CYCLE_STATUSES[kind] as never[]),
+        );
+  const [{ n }] = (await tx.select({ n: count() }).from(strategyCycles).where(cycleWhere)) as [
+    { n: number },
+  ];
+  const rows = await tx
+    .select({
+      id: strategyCycles.id,
+      seq: strategyCycles.seq,
+      status: strategyCycles.status,
+      entryTriggeredAt: strategyCycles.entryTriggeredAt,
+      positionOpenedAt: strategyCycles.positionOpenedAt,
+      closedAt: strategyCycles.closedAt,
+      realizedPnl: strategyCycles.realizedPnl,
+      note: strategyCycles.note,
+    })
+    .from(strategyCycles)
+    .where(cycleWhere)
+    .orderBy(desc(strategyCycles.seq))
+    .limit(RUN_DETAIL_CYCLE_LIMIT);
+  const cycles: RunDetailCycle[] = rows.map((c) => ({
+    id: c.id,
+    seq: c.seq,
+    status: c.status,
+    entryTriggeredAt: c.entryTriggeredAt.toISOString(),
+    positionOpenedAt: iso(c.positionOpenedAt),
+    closedAt: iso(c.closedAt),
+    realizedPnl: c.realizedPnl,
+    note: c.note,
+  }));
+
+  let orders: OrderRow[] = [];
+  if (cycles.length > 0) {
+    const where = [
+      eq(orderIntents.runtimeId, runtimeId),
+      inArray(
+        orderIntents.cycleId,
+        cycles.map((c) => c.id),
+      ),
+    ];
+    if (kind === 'working') where.push(inArray(brokerOrders.state, [...WORKING_STATES]));
+    const found = await orderQuery(tx)
+      .where(and(...where))
+      .orderBy(desc(strategyCycles.seq), asc(orderIntents.createdAt), asc(orderIntents.id));
+    orders = found.map(toOrderRow);
+  }
+  return { runtimeId, kind, totalCycles: Number(n), cycles, orders };
+}
+
 /** Engages or releases the kill switch (§8.1) and returns the new status. */
 export async function setKillSwitchByUser(
   tx: Transaction,

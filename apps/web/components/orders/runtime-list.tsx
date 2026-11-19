@@ -1,8 +1,9 @@
 'use client';
 
-import type { RuntimeSummaryDto } from '@tm/contracts';
+import type { RunDetailKindDto, RuntimeSummaryDto } from '@tm/contracts';
 import { Badge, Button, cx, Table, Td, Th } from '@tm/ui';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { HeaderFilter, type HeaderFilterDef } from '@/components/filters/header-filter';
 import { formatPct, formatSignedMoney } from '@/lib/backtest-text';
 import { RUNTIME_STATUS } from '@/lib/order-text';
@@ -17,6 +18,7 @@ import {
   type RuntimeListFilters,
 } from '@/lib/runtime-list';
 import { signTone } from '@/lib/sign-tone';
+import type { RunDetailRequest } from './run-detail';
 
 const PERIOD_OPTIONS = [
   { value: '', label: 'Any time' },
@@ -34,6 +36,7 @@ export function RuntimeList({
   highlight,
   when,
   onShow,
+  onDetail,
   filters,
   onFilters,
 }: {
@@ -41,6 +44,8 @@ export function RuntimeList({
   highlight: string | undefined;
   when: (iso: string) => string;
   onShow: (runtimeId: string) => void;
+  /** A figure was double-clicked: list the orders it counts (N305). */
+  onDetail: (request: RunDetailRequest) => void;
   filters: RuntimeListFilters;
   onFilters: (f: RuntimeListFilters) => void;
 }) {
@@ -203,6 +208,8 @@ export function RuntimeList({
             const s = RUNTIME_STATUS[r.status];
             const isNew = highlight === r.strategyId && r.status !== 'stopped';
             const rate = winRate(r);
+            const detail = (kind: RunDetailKindDto, column: string) => () =>
+              onDetail({ runtime: r, kind, column });
             const href = r.strategyId ? `/strategy-lab/${r.strategyId}` : undefined;
             return (
               <tr key={r.id} className={cx(isNew && 'bg-info-soft')}>
@@ -240,23 +247,52 @@ export function RuntimeList({
                     <span className="text-ink-muted">None yet</span>
                   )}
                 </Td>
-                <Td numeric className="tabular-nums">
-                  {r.workingOrders}
+                <Td numeric sortValue={r.workingOrders} className="tabular-nums">
+                  <Figure
+                    label={`${r.workingOrders} working orders`}
+                    onOpen={() =>
+                      onDetail({ runtime: r, kind: 'working', column: 'Working orders' })
+                    }
+                  >
+                    {r.workingOrders}
+                  </Figure>
                 </Td>
-                <Count n={r.cycles.completed} tone="text-ok" />
-                <Count n={r.cycles.active} tone="text-info" />
-                <Count n={r.cycles.rejected} tone="text-danger" />
-                <Count n={r.cycles.entering} tone="text-warn" />
+                <Count
+                  n={r.cycles.completed}
+                  tone="text-ok"
+                  open={detail('completed', 'Completed')}
+                />
+                <Count n={r.cycles.active} tone="text-info" open={detail('active', 'Active')} />
+                <Count
+                  n={r.cycles.rejected}
+                  tone="text-danger"
+                  open={detail('rejected', 'Rejected')}
+                />
+                <Count
+                  n={r.cycles.entering}
+                  tone="text-warn"
+                  open={detail('entering', 'Entering')}
+                />
                 <Td numeric sortValue={Number(r.realizedPnl)} className="tabular-nums">
-                  <span className={signTone(r.realizedPnl)}>
-                    {formatSignedMoney(r.realizedPnl)}
-                  </span>
+                  <Figure
+                    label={`Realized P/L ${formatSignedMoney(r.realizedPnl)}`}
+                    onOpen={detail('completed', 'Realized P/L')}
+                  >
+                    <span className={signTone(r.realizedPnl)}>
+                      {formatSignedMoney(r.realizedPnl)}
+                    </span>
+                  </Figure>
                 </Td>
                 <Td numeric sortValue={rate ?? ''} className="tabular-nums">
                   {rate === null ? (
                     <span className="text-ink-muted">—</span>
                   ) : (
-                    formatPct(rate.toFixed(0))
+                    <Figure
+                      label={`Win rate ${rate.toFixed(0)}%`}
+                      onOpen={detail('completed', 'Win rate')}
+                    >
+                      {formatPct(rate.toFixed(0))}
+                    </Figure>
                   )}
                 </Td>
                 <Td className="whitespace-nowrap">
@@ -306,10 +342,53 @@ function When({ iso, text }: { iso: string; text: string }) {
 }
 
 /** A cycle count in its outcome's colour; a zero stays grey (N281). */
-function Count({ n, tone }: { n: number; tone: string }) {
+function Count({ n, tone, open }: { n: number; tone: string; open: () => void }) {
   return (
-    <Td numeric className={cx('font-semibold tabular-nums', n > 0 ? tone : 'text-ink-muted')}>
-      {n}
+    <Td
+      numeric
+      sortValue={n}
+      className={cx('font-semibold tabular-nums', n > 0 ? tone : 'text-ink-muted')}
+    >
+      <Figure label={String(n)} onOpen={open}>
+        {n}
+      </Figure>
     </Td>
+  );
+}
+
+/**
+ * A figure that lists what it counts when double-clicked (N305), or with Enter
+ * when it has focus.
+ */
+function Figure({
+  children,
+  label,
+  onOpen,
+}: {
+  children: ReactNode;
+  label: string;
+  onOpen: () => void;
+}) {
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-label={`${label}: list the orders`}
+      title="Double-click to list these orders"
+      onDoubleClick={(e) => {
+        e.preventDefault();
+        window.getSelection()?.removeAllRanges();
+        onOpen();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      className="cursor-pointer rounded px-0.5 select-none hover:bg-surface-2 hover:underline hover:decoration-dotted"
+    >
+      {children}
+    </span>
   );
 }

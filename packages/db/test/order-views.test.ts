@@ -19,6 +19,7 @@ import {
   closePositions,
   getExecutionStatus,
   getOrderDetail,
+  getRunDetail,
   listOrders,
   listPositions,
   resumeRuntimeByUser,
@@ -348,6 +349,59 @@ describe('listing orders (§8.3, §14.3)', () => {
     expect(Number(run?.realizedPnl)).toBeCloseTo(8.25);
     expect(run?.wins).toBe(1);
     expect(run?.lastEntryAt).not.toBeNull();
+  });
+
+  it('lists the cycles and orders behind each figure of a run (N305)', async () => {
+    const c = await startCycle('Detailed');
+    const workingId = await order(c, 'working');
+    const filledId = await order(c, 'filled');
+    await asA(async (tx) => {
+      await tx.insert(strategyCycles).values([
+        {
+          userId: userA,
+          runtimeId: c.runtimeId,
+          seq: 2,
+          status: 'closed',
+          entryTriggeredAt: new Date(),
+          closedAt: new Date(),
+          realizedPnl: '15.25',
+          state: newCycleState(Date.now()),
+        },
+        {
+          userId: userA,
+          runtimeId: c.runtimeId,
+          seq: 3,
+          status: 'aborted',
+          entryTriggeredAt: new Date(),
+          closedAt: new Date(),
+          note: 'refused by a risk limit',
+          state: newCycleState(Date.now()),
+        },
+      ]);
+    });
+    const detail = (kind: 'working' | 'completed' | 'active' | 'rejected' | 'entering') =>
+      asA((tx) => getRunDetail(tx, c.runtimeId, kind));
+
+    const working = await detail('working');
+    expect(working.totalCycles).toBe(1);
+    expect(working.orders.map((o) => o.id)).toEqual([workingId]);
+
+    const entering = await detail('entering');
+    expect(entering.cycles.map((x) => x.seq)).toEqual([1]);
+    expect(entering.orders.map((o) => o.id).sort()).toEqual([workingId, filledId].sort());
+
+    const completed = await detail('completed');
+    expect(completed.cycles).toMatchObject([{ seq: 2, status: 'closed', realizedPnl: '15.25' }]);
+    expect(completed.orders).toEqual([]);
+
+    const rejectedRun = await detail('rejected');
+    expect(rejectedRun.cycles).toMatchObject([{ seq: 3, note: 'refused by a risk limit' }]);
+    expect((await detail('active')).totalCycles).toBe(0);
+
+    await expectOrderError(
+      as(userB, (tx) => getRunDetail(tx, c.runtimeId, 'completed')),
+      'not_found',
+    );
   });
 
   it('shows another user nothing', async () => {

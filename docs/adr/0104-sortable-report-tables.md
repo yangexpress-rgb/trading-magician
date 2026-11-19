@@ -60,3 +60,17 @@ execution … the column labels can be used to sort and filter".
 - The first user is Strategies on paper (`apps/web/components/orders/runtime-list.tsx`, rules in
   `apps/web/lib/runtime-list.ts`). Filtering happens in the page; sorting still works on the rows
   that remain. Filters are not remembered; the List / Cards choice is (`tm.orders.runtimeView`).
+
+## Amendment 2026-11-19: figures list what they count (N305)
+
+Yong, 2026-11-19: "when i double click the number of completed cycles, all orders counted needs to
+be reported with detailed list. same behavior should be enabled for each number double clicked."
+
+- Each figure in the Strategies on paper list is a focusable control: a double-click (or Enter)
+  opens `RunDetailDialog` (`apps/web/components/orders/run-detail.tsx`) over the page.
+- `GET /api/v1/execution/runtimes/{runtimeId}/detail?kind=working|completed|active|rejected|entering`
+  (`getRunDetail` in `packages/db/src/order-views.ts`) returns the run's cycles of that outcome
+  (newest 300) and all their orders; `working` returns only working orders. Realized P/L and Win
+  rate open the completed cycles.
+- The dialog's table is a flat, sortable `Table`: cycle columns repeat on each order row so sorting
+  never splits a cycle's facts from its orders.

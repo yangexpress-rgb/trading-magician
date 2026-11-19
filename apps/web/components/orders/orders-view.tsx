@@ -48,6 +48,7 @@ import {
   type RuntimeView,
 } from '@/lib/runtime-list';
 import { OrderDrawer } from './order-drawer';
+import { RunDetailDialog, type RunDetailRequest } from './run-detail';
 import { RuntimeList } from './runtime-list';
 import { StrategyRef, strategyLabel } from './strategy-ref';
 import { filtersToSearch, useOrders, type LiveState, type OrderFilters } from './use-orders';
@@ -354,6 +355,7 @@ function Runtimes({
   when,
   whenShort,
   onShow,
+  onDetail,
 }: {
   status: ExecutionStatusDto;
   highlight: string | undefined;
@@ -361,6 +363,7 @@ function Runtimes({
   /** Without seconds, so the list's date columns stay narrow. */
   whenShort: (iso: string) => string;
   onShow: (runtimeId: string) => void;
+  onDetail: (request: RunDetailRequest) => void;
 }) {
   // List or cards, remembered in this browser (N304).
   const [view, setView] = useState<RuntimeView>('list');
@@ -407,6 +410,7 @@ function Runtimes({
           highlight={highlight}
           when={whenShort}
           onShow={onShow}
+          onDetail={onDetail}
           filters={filters}
           onFilters={setFilters}
         />
@@ -785,6 +789,7 @@ export function OrdersView({
 }) {
   const [filters, setFilters] = useState<OrderFilters>(initialFilters);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [runDetail, setRunDetail] = useState<RunDetailRequest | null>(null);
   const data = useOrders(filters, prefs.timeZone);
   const symbols = useMemo(() => new Map(instruments.map((i) => [i.id, i.symbol])), [instruments]);
 
@@ -846,6 +851,7 @@ export function OrdersView({
             })
           }
           onShow={(runtimeId) => set({ runtimeId, cycleId: undefined })}
+          onDetail={setRunDetail}
         />
       )}
 
@@ -977,6 +983,12 @@ export function OrdersView({
         <Positions positions={data.positions} when={when} onChanged={data.refresh} />
       )}
 
+      <RunDetailDialog
+        request={runDetail}
+        when={when}
+        onClose={() => setRunDetail(null)}
+        onOpenOrder={setOpenId}
+      />
       <OrderDrawer
         orderId={openId}
         version={data.version}

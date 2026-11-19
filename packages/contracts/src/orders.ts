@@ -190,6 +190,34 @@ export interface RuntimeSummaryDto {
   lastEntryAt: string | null;
 }
 
+/** What a figure on Strategies on paper counts, for its detail list (N305). */
+export const RUN_DETAIL_KINDS = ['working', 'completed', 'active', 'rejected', 'entering'] as const;
+export type RunDetailKindDto = (typeof RUN_DETAIL_KINDS)[number];
+
+/** Query string for GET /execution/runtimes/{runtimeId}/detail. */
+export const runDetailQuery = z.object({ kind: z.enum(RUN_DETAIL_KINDS) });
+
+export interface RunDetailCycleDto {
+  id: string;
+  seq: number;
+  status: 'entry_working' | 'open' | 'exit_working' | 'closed' | 'aborted';
+  entryTriggeredAt: string;
+  positionOpenedAt: string | null;
+  closedAt: string | null;
+  realizedPnl: string | null;
+  note: string | null;
+}
+
+/** The cycles and orders behind one figure of a run (N305), newest cycle first. */
+export interface RunDetailDto {
+  runtimeId: string;
+  kind: RunDetailKindDto;
+  /** Every cycle the figure counts; `cycles` holds at most the newest 300. */
+  totalCycles: number;
+  cycles: RunDetailCycleDto[];
+  orders: OrderRowDto[];
+}
+
 export const INCIDENT_KINDS = [
   'reconciliation_mismatch',
   'repeated_rejects',
