@@ -44,3 +44,19 @@ datetime>` inside it, else its text (`packages/ui/src/table-sort.ts`): a column 
 - New tables built from `Table` sort without extra work; a column whose text sorts wrongly gets
   `sortValue` on its cells.
 - Sorting is per browser, not saved with the account.
+
+## Amendment 2026-11-19: column filters (N304)
+
+Requested by Yong on 2026-11-19 for Orders › Strategies on paper: "a list view for strategies under
+execution … the column labels can be used to sort and filter".
+
+- `Th` takes an optional `filter` control, drawn under the label on the column's edge (headers
+  with filters align to the bottom), so a list with many columns stays as narrow as its labels.
+- `HeaderFilter` (`apps/web/components/filters/header-filter.tsx`) is a funnel button that opens
+  a small panel over the page (fixed to the window, so a table that scrolls sideways doesn't cut it
+  off): typed text, a choice list or an at least / at most pair, reusing the filter pills' choice
+  and range parts (N195). Choices apply at once; Esc or a click outside closes it; the funnel fills
+  while its filter is set.
+- The first user is Strategies on paper (`apps/web/components/orders/runtime-list.tsx`, rules in
+  `apps/web/lib/runtime-list.ts`). Filtering happens in the page; sorting still works on the rows
+  that remain. Filters are not remembered; the List / Cards choice is (`tm.orders.runtimeView`).

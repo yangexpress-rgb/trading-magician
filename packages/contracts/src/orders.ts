@@ -182,6 +182,12 @@ export interface RuntimeSummaryDto {
    * not yet exited), rejected (ended with nothing filled), entering (Entry still working).
    */
   cycles: { completed: number; active: number; rejected: number; entering: number };
+  /** Realized profit or loss of this run's completed cycles, in dollars (N304). */
+  realizedPnl: string;
+  /** Completed cycles that closed with a gain (N304). */
+  wins: number;
+  /** When this run's latest cycle's Entry fired; null before its first (N304). */
+  lastEntryAt: string | null;
 }
 
 export const INCIDENT_KINDS = [
