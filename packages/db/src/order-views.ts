@@ -867,6 +867,12 @@ export interface RuntimeSummary {
   workingOrders: number;
   /** This run's cycles by outcome (N280). */
   cycles: CycleCounts;
+  /** Realized profit or loss of this run's completed cycles, in dollars (N304). */
+  realizedPnl: string;
+  /** Completed cycles that closed with a gain (N304). */
+  wins: number;
+  /** When this run's latest cycle's Entry fired; null before its first (N304). */
+  lastEntryAt: string | null;
 }
 
 /**
@@ -910,6 +916,14 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
           .as('active'),
       rejected: byStatus('aborted').as('rejected'),
       entering: byStatus('entry_working').as('entering'),
+      realizedPnl:
+        sql<string>`coalesce(sum(${strategyCycles.realizedPnl}) filter (where ${strategyCycles.status} = 'closed'), 0)::text`.as(
+          'realized_pnl',
+        ),
+      wins: sql<number>`count(*) filter (where ${strategyCycles.status} = 'closed' and ${strategyCycles.realizedPnl} > 0)`
+        .mapWith(Number)
+        .as('wins'),
+      lastEntryAt: sql<Date | null>`max(${strategyCycles.entryTriggeredAt})`.as('last_entry_at'),
     })
     .from(strategyCycles)
     .groupBy(strategyCycles.runtimeId)
@@ -929,6 +943,9 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
       active: cycleCounts.active,
       rejected: cycleCounts.rejected,
       entering: cycleCounts.entering,
+      realizedPnl: cycleCounts.realizedPnl,
+      wins: cycleCounts.wins,
+      lastEntryAt: cycleCounts.lastEntryAt,
     })
     .from(strategyRuntimes)
     .leftJoin(strategies, eq(strategies.id, strategyRuntimes.strategyId))
@@ -958,6 +975,10 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
         rejected: Number(r.rejected ?? 0),
         entering: Number(r.entering ?? 0),
       },
+      realizedPnl: r.realizedPnl ?? '0',
+      wins: Number(r.wins ?? 0),
+      // A raw aggregate comes back as text, not a Date.
+      lastEntryAt: r.lastEntryAt ? new Date(r.lastEntryAt).toISOString() : null,
     })),
   };
 }

@@ -54,7 +54,7 @@ export const isFilterSet = (f: FilterDef) =>
     ? !f.setting && f.value !== (f.anyValue ?? '')
     : f.min.trim() !== '' || f.max.trim() !== '';
 
-const summary = (f: FilterDef): string | null => {
+export const summary = (f: FilterDef): string | null => {
   if (f.kind === 'choice') {
     if (!f.setting && f.value === (f.anyValue ?? '')) return null;
     return f.options.find((o) => o.value === f.value)?.label ?? f.value;
@@ -328,7 +328,13 @@ function FilterPill({
   );
 }
 
-function ChoiceList({ filter: f, onPick }: { filter: ChoiceFilter; onPick: (v: string) => void }) {
+export function ChoiceList({
+  filter: f,
+  onPick,
+}: {
+  filter: ChoiceFilter;
+  onPick: (v: string) => void;
+}) {
   const [find, setFind] = useState('');
   const long = f.options.length > 10;
   const shown = useMemo(() => {
@@ -385,7 +391,7 @@ function ChoiceList({ filter: f, onPick }: { filter: ChoiceFilter; onPick: (v: s
   );
 }
 
-function RangeFields({
+export function RangeFields({
   filter: f,
   onChange,
 }: {

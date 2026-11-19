@@ -40,7 +40,15 @@ import {
   VIEW_LABELS,
 } from '@/lib/order-text';
 import { ORDER_TYPE_LABELS, SIDE_LABELS } from '@/lib/strategy-text';
+import {
+  emptyRuntimeFilters,
+  parseRuntimeView,
+  RUNTIME_VIEW_KEY,
+  type RuntimeListFilters,
+  type RuntimeView,
+} from '@/lib/runtime-list';
 import { OrderDrawer } from './order-drawer';
+import { RuntimeList } from './runtime-list';
 import { StrategyRef, strategyLabel } from './strategy-ref';
 import { filtersToSearch, useOrders, type LiveState, type OrderFilters } from './use-orders';
 
@@ -344,55 +352,107 @@ function Runtimes({
   status,
   highlight,
   when,
+  whenShort,
   onShow,
 }: {
   status: ExecutionStatusDto;
   highlight: string | undefined;
   when: (iso: string) => string;
+  /** Without seconds, so the list's date columns stay narrow. */
+  whenShort: (iso: string) => string;
   onShow: (runtimeId: string) => void;
 }) {
+  // List or cards, remembered in this browser (N304).
+  const [view, setView] = useState<RuntimeView>('list');
+  const [filters, setFilters] = useState<RuntimeListFilters>(emptyRuntimeFilters);
+  useEffect(() => {
+    try {
+      setView(parseRuntimeView(window.localStorage.getItem(RUNTIME_VIEW_KEY)));
+    } catch {
+      // Storage can be blocked; the list stays.
+    }
+  }, []);
+  const choose = (v: RuntimeView) => {
+    setView(v);
+    try {
+      window.localStorage.setItem(RUNTIME_VIEW_KEY, v);
+    } catch {
+      // The choice still applies on this page.
+    }
+  };
   if (status.runtimes.length === 0) return null;
   return (
     <section aria-labelledby="runtimes-heading" className="mb-6">
-      <h2 id="runtimes-heading" className="mb-2 text-lg font-semibold">
-        Strategies on paper
-      </h2>
-      <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {status.runtimes.map((r) => {
-          const s = RUNTIME_STATUS[r.status];
-          const isNew = highlight === r.strategyId && r.status !== 'stopped';
-          return (
-            <li
-              key={r.id}
-              aria-label={`${strategyLabel(r)}${isNew ? ', just started' : ''}`}
-              className={cx(
-                'rounded-lg border bg-surface p-3 text-sm',
-                isNew ? 'border-accent ring-2 ring-accent/40' : 'border-line',
-              )}
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 id="runtimes-heading" className="text-lg font-semibold">
+          Strategies on paper
+        </h2>
+        <div role="group" aria-label="Show strategies as" className="flex gap-1">
+          {(['list', 'cards'] as const).map((v) => (
+            <Button
+              key={v}
+              size="sm"
+              variant={view === v ? 'primary' : 'secondary'}
+              aria-pressed={view === v}
+              onClick={() => choose(v)}
             >
-              {/* Name on its own line, status left-aligned on the line under it (N247). */}
-              <StrategyRef
-                strategyId={r.strategyId}
-                strategyName={r.strategyName}
-                strategyNumber={r.strategyNumber}
-                className="block font-semibold underline"
-              />
-              <div className="mt-1 flex flex-wrap items-center justify-start gap-2">
-                <Badge tone={s.tone}>{s.label}</Badge>
-                {isNew && <Badge tone="info">Just started</Badge>}
-              </div>
-              <p className="mt-1 text-ink-muted">
-                Started {when(r.startedAt)} ·{' '}
-                {r.workingOrders === 1 ? '1 working order' : `${r.workingOrders} working orders`}
-              </p>
-              <CycleCounts cycles={r.cycles} />
-              <Button size="sm" variant="ghost" className="mt-1 -ml-3" onClick={() => onShow(r.id)}>
-                Show its orders
-              </Button>
-            </li>
-          );
-        })}
-      </ul>
+              {v === 'list' ? 'List' : 'Cards'}
+            </Button>
+          ))}
+        </div>
+      </div>
+      {view === 'list' ? (
+        <RuntimeList
+          runtimes={status.runtimes}
+          highlight={highlight}
+          when={whenShort}
+          onShow={onShow}
+          filters={filters}
+          onFilters={setFilters}
+        />
+      ) : (
+        <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {status.runtimes.map((r) => {
+            const s = RUNTIME_STATUS[r.status];
+            const isNew = highlight === r.strategyId && r.status !== 'stopped';
+            return (
+              <li
+                key={r.id}
+                aria-label={`${strategyLabel(r)}${isNew ? ', just started' : ''}`}
+                className={cx(
+                  'rounded-lg border bg-surface p-3 text-sm',
+                  isNew ? 'border-accent ring-2 ring-accent/40' : 'border-line',
+                )}
+              >
+                {/* Name on its own line, status left-aligned on the line under it (N247). */}
+                <StrategyRef
+                  strategyId={r.strategyId}
+                  strategyName={r.strategyName}
+                  strategyNumber={r.strategyNumber}
+                  className="block font-semibold underline"
+                />
+                <div className="mt-1 flex flex-wrap items-center justify-start gap-2">
+                  <Badge tone={s.tone}>{s.label}</Badge>
+                  {isNew && <Badge tone="info">Just started</Badge>}
+                </div>
+                <p className="mt-1 text-ink-muted">
+                  Started {when(r.startedAt)} ·{' '}
+                  {r.workingOrders === 1 ? '1 working order' : `${r.workingOrders} working orders`}
+                </p>
+                <CycleCounts cycles={r.cycles} />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="mt-1 -ml-3"
+                  onClick={() => onShow(r.id)}
+                >
+                  Show its orders
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }
@@ -777,6 +837,14 @@ export function OrdersView({
           status={data.status}
           highlight={started}
           when={(iso) => when(iso)}
+          whenShort={(iso) =>
+            formatDateTime(iso, prefs, {
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+            })
+          }
           onShow={(runtimeId) => set({ runtimeId, cycleId: undefined })}
         />
       )}

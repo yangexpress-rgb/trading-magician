@@ -330,18 +330,24 @@ describe('listing orders (§8.3, §14.3)', () => {
         status,
         entryTriggeredAt: new Date(),
         closedAt: status === 'closed' || status === 'aborted' ? new Date() : null,
+        // Two completed cycles: one gain, one loss (N304).
+        realizedPnl: status === 'closed' ? (seq === 2 ? '12.50' : '-4.25') : null,
         state: newCycleState(Date.now()),
       }));
       await tx.insert(strategyCycles).values(rows);
     });
     const status = await asA((tx) => getExecutionStatus(tx));
+    const run = status.runtimes.find((r) => r.id === c.runtimeId);
     // Cycle 1 from startCycle is still working its Entry.
-    expect(status.runtimes.find((r) => r.id === c.runtimeId)?.cycles).toEqual({
+    expect(run?.cycles).toEqual({
       completed: 2,
       active: 2,
       rejected: 3,
       entering: 1,
     });
+    expect(Number(run?.realizedPnl)).toBeCloseTo(8.25);
+    expect(run?.wins).toBe(1);
+    expect(run?.lastEntryAt).not.toBeNull();
   });
 
   it('shows another user nothing', async () => {

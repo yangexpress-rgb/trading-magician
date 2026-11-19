@@ -23,10 +23,13 @@ export function Th({
   numeric = false,
   sort,
   sortable = true,
+  filter,
 }: {
   children?: ReactNode;
   className?: string | undefined;
   numeric?: boolean;
+  /** A control beside the label that filters the rows by this column (N304). */
+  filter?: ReactNode;
   /**
    * The column's sort state, for a list that sorts itself (by URL, on the
    * server). Without it the header sorts the rows in the page (N303).
@@ -49,10 +52,23 @@ export function Th({
       className={cx(
         'border-b border-line bg-surface-2 px-3 py-2 text-xs font-semibold tracking-wide text-ink-muted uppercase',
         numeric ? 'text-right' : 'text-left',
+        // Funnels line up along the bottom of the header row.
+        filter && 'align-bottom',
         className,
       )}
     >
-      {sorts ? <SortButton numeric={numeric}>{children}</SortButton> : children}
+      {filter ? (
+        // The filter sits under the label, on the column's edge, so a list
+        // with many columns stays as narrow as its labels.
+        <span className={cx('flex flex-col gap-0.5', numeric ? 'items-end' : 'items-start')}>
+          {sorts ? <SortButton numeric={numeric}>{children}</SortButton> : children}
+          {filter}
+        </span>
+      ) : sorts ? (
+        <SortButton numeric={numeric}>{children}</SortButton>
+      ) : (
+        children
+      )}
     </th>
   );
 }

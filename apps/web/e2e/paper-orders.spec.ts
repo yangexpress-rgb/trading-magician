@@ -96,6 +96,32 @@ test('start on paper, watch Entry fill live, read its timeline, cancel, stop and
   const execution = await startFromLab(page, buyer.id);
   await execution.getByRole('link', { name: 'Follow its orders in Orders' }).click();
   await expect(page).toHaveURL(/\/orders\?started=/);
+  // Strategies on paper open as a list (N304): one row per run, with a sortable,
+  // filterable header for each column.
+  const runs = page.getByRole('table', { name: 'Strategies on paper' });
+  const runRow = runs.getByRole('row', {
+    name: /S\d{5,}-[A-Z]{2} Paper buyer Running Just started/,
+  });
+  await expect(runRow).toBeVisible();
+  await runs.getByRole('button', { name: 'Filter by Status' }).click();
+  await page.getByRole('dialog', { name: 'Filter by Status' }).getByLabel('Paused').click();
+  await expect(runRow).toBeHidden();
+  await expect(page.getByText('No strategy on paper matches these filters.')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters (1)' }).click();
+  await expect(runRow).toBeVisible();
+  await runs.getByRole('button', { name: 'Filter by Strategy' }).click();
+  await page
+    .getByRole('dialog', { name: 'Filter by Strategy' })
+    .getByRole('searchbox')
+    .fill('buyer');
+  await page.keyboard.press('Escape');
+  await expect(runRow).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters (1)' }).click();
+
+  // The cards stay one click away, and the choice is remembered (N304).
+  await page.getByRole('button', { name: 'Cards' }).click();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Cards' })).toHaveAttribute('aria-pressed', 'true');
   // The card names the strategy with its own S number (N246); its status sits
   // left-aligned on its own line under the name (N247).
   const card = page.getByRole('listitem', {
