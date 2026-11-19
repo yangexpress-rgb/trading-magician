@@ -64,6 +64,8 @@ import type {
 import type {
   ClosePositionsRequest,
   ExecutionStatusDto,
+  RunDetailDto,
+  RunDetailKindDto,
   KillSwitchRequest,
   ListOrdersQuery,
   MarkNotificationsReadRequest,
@@ -234,6 +236,11 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
         call<ExecutionStatusDto>('POST', '/execution/kill-switch', body),
       resume: (runtimeId: string) =>
         call<ExecutionStatusDto>('POST', `/execution/runtimes/${enc(runtimeId)}/resume`),
+      runDetail: (runtimeId: string, kind: RunDetailKindDto) =>
+        call<RunDetailDto>(
+          'GET',
+          `/execution/runtimes/${enc(runtimeId)}/detail?kind=${encodeURIComponent(kind)}`,
+        ),
       resolveIncident: (incidentId: string, body: { note?: string } = {}) =>
         call<ExecutionStatusDto>('POST', `/execution/incidents/${enc(incidentId)}/resolve`, body),
     },

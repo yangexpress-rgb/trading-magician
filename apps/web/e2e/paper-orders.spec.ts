@@ -143,6 +143,19 @@ test('start on paper, watch Entry fill live, read its timeline, cancel, stop and
   const positions = page.getByRole('table', { name: 'Positions' });
   await expect(positions.getByRole('row', { name: /Paper buyer.*DEMO-A.*Long 20/ })).toBeVisible();
 
+  // Double-clicking a figure in the list lists the orders it counts (N305).
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  const active = runs.getByRole('row', { name: /Paper buyer/ }).getByRole('button', {
+    name: '1: list the orders',
+  });
+  await expect(active.first()).toBeVisible({ timeout: 30_000 });
+  await active.first().dblclick();
+  const figureDetail = page.getByRole('dialog', { name: /Paper buyer · (Active|Completed)/ });
+  await expect(figureDetail.getByRole('button', { name: 'Buy A details' })).toBeVisible();
+  await expect(figureDetail.locator('tbody').getByText('Filled', { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(figureDetail).toBeHidden();
+
   // Its detail drawer shows the source rule and the full event timeline.
   await buyRow.getByRole('button', { name: 'Buy A details' }).click();
   const drawer = page.getByRole('dialog', { name: 'Buy A · DEMO-A' });
@@ -190,7 +203,10 @@ test('start on paper, watch Entry fill live, read its timeline, cancel, stop and
 
   const bidRow = orderRow(page, 'Low bid');
   await expect(bidRow.getByText('Working', { exact: true })).toBeVisible({ timeout: 30_000 });
-  await page.getByRole('button', { name: /^Working/ }).click();
+  await page
+    .getByRole('navigation', { name: 'Order views' })
+    .getByRole('button', { name: /^Working/ })
+    .click();
   await expect(orderRow(page, 'Buy A')).toHaveCount(0);
   await bidRow.getByRole('button', { name: 'Low bid details' }).click();
   const bidDrawer = page.getByRole('dialog', { name: 'Low bid · DEMO-B' });

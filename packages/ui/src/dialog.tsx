@@ -19,8 +19,8 @@ export function Dialog({
   title: string;
   description?: ReactNode;
   children: ReactNode;
-  /** `lg` for long forms, such as a custom data feed. */
-  size?: 'md' | 'lg';
+  /** `lg` for long forms, such as a custom data feed; `xl` for a wide table. */
+  size?: 'md' | 'lg' | 'xl';
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -43,7 +43,7 @@ export function Dialog({
         e.preventDefault();
         onClose();
       }}
-      className={`m-auto max-h-[90vh] w-full overflow-y-auto rounded-lg border border-line bg-surface p-5 text-ink shadow-xl backdrop:bg-black/40 ${size === 'lg' ? 'max-w-2xl' : 'max-w-md'}`}
+      className={`m-auto max-h-[90vh] w-full overflow-y-auto rounded-lg border border-line bg-surface p-5 text-ink shadow-xl backdrop:bg-black/40 ${size === 'xl' ? 'max-w-7xl' : size === 'lg' ? 'max-w-2xl' : 'max-w-md'}`}
     >
       {open && (
         <>
