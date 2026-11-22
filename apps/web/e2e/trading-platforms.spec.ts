@@ -157,3 +157,73 @@ test('connects a second paper account, makes it the default and turns one off sa
     execution.runtimes.find((r: { strategyId: string }) => r.strategyId === watcher.id)?.status,
   ).toBe('paused');
 });
+
+test("an account's own limits, its kill switch and the halt it leaves (ADR 0107)", async ({
+  page,
+  baseURL,
+}) => {
+  await signUpAndVerify(page, uniqueEmail('account-risk'));
+  const headers = { origin: baseURL! };
+  const watcher = await createStrategyWithRules(page, baseURL!, 'Guarded watcher', idle());
+  const validation = await (
+    await page.request.post(`/api/v1/strategies/${watcher.id}/validate`, { headers })
+  ).json();
+  const started = await page.request.post(`/api/v1/strategies/${watcher.id}/start`, {
+    headers,
+    data: {
+      rowVersion: watcher.rowVersion,
+      mode: 'paper',
+      confirmed: true,
+      acknowledgedWarnings: [...new Set(validation.warnings.map((w: { code: string }) => w.code))],
+    },
+  });
+  expect(started.status()).toBe(200);
+
+  await page.goto('/settings/accounts');
+  const table = page.getByRole('table', { name: 'Demo paper broker accounts' });
+  await expect(table).toContainText('None (strategy limits only)');
+
+  await table.getByRole('button', { name: 'Set limits for Demo paper account' }).click();
+  const limits = page.getByRole('dialog', { name: 'Limits for Demo paper account' });
+  await limits.getByLabel('Maximum total exposure ($)').fill('50,000');
+  await limits.getByLabel('Daily loss limit ($)').fill('1000');
+  await limits.getByRole('button', { name: 'Save limits' }).click();
+  await expect(limits).toBeHidden();
+  await expect(table).toContainText('Exposure $50,000 · Daily loss $1,000');
+
+  // The kill switch asks first, then pauses the account's runs.
+  await table.getByRole('button', { name: 'Kill switch for Demo paper account' }).click();
+  const kill = page.getByRole('dialog', { name: 'Engage the kill switch on Demo paper account?' });
+  await expect(kill).toContainText('Other accounts keep trading.');
+  await kill.getByRole('button', { name: 'Pause runs and cancel orders' }).click();
+  await expect(
+    page.getByText(/Kill switch engaged on Demo paper account: 1 run paused/),
+  ).toBeVisible();
+  await expect(table).toContainText('HALTED: kill switch');
+
+  // Nothing resumes while the account is halted.
+  const runtimes = await (await page.request.get('/api/v1/execution')).json();
+  const run = runtimes.runtimes.find((r: { strategyId: string }) => r.strategyId === watcher.id);
+  expect(run.status).toBe('paused');
+  const resumed = await page.request.post(`/api/v1/execution/runtimes/${run.id}/resume`, {
+    headers,
+  });
+  expect(resumed.status()).toBe(409);
+  expect((await resumed.json()).error.message).toContain(
+    'kill switch is engaged on Demo paper account',
+  );
+
+  await table.getByRole('button', { name: 'Release the halt on Demo paper account' }).click();
+  await page
+    .getByRole('dialog', { name: 'Release the halt on Demo paper account?' })
+    .getByRole('button', { name: 'Release halt' })
+    .click();
+  await expect(table).not.toContainText('HALTED');
+  const again = await page.request.post(`/api/v1/execution/runtimes/${run.id}/resume`, {
+    headers,
+  });
+  expect(again.status()).toBe(200);
+
+  const scan = await new AxeBuilder({ page }).analyze();
+  expect(scan.violations).toEqual([]);
+});

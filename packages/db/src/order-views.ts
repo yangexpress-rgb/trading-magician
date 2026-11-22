@@ -7,6 +7,7 @@ import {
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { and, asc, count, desc, eq, inArray, sql, type AnyColumn, type SQL } from 'drizzle-orm';
+import { haltText, runtimeAccountHalt } from './account-risk';
 import { recordAudit } from './audit';
 import { assertCanResume } from './entitlements';
 import { listOpenIncidents, type IncidentRow } from './incidents';
@@ -1144,6 +1145,9 @@ export async function resumeRuntimeByUser(
   if (!row) throw new OrderError('not_found', 'Strategy run not found');
   if (row.status !== 'paused') throw new OrderError('invalid_state', 'This strategy is not paused');
   // A strategy paused by a plan change resumes only when the plan covers it (ADR 0024).
+  // A run on a halted account waits for the halt to end (ADR 0107).
+  const halt = await runtimeAccountHalt(tx, runtimeId);
+  if (halt) throw new OrderError('invalid_state', haltText(halt.nickname, halt));
   await assertCanResume(tx, runtimeId);
   if (!(await resumeRuntime(tx, userId, runtimeId))) {
     throw new OrderError('invalid_state', 'Release the kill switch before resuming a strategy');

@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 import {
+  CAPACITY_RISK_CODES,
   checkPreTradeRisk,
   collarBreach,
   holdsForOpenCollar,
@@ -54,6 +55,25 @@ describe('checkPreTradeRisk', () => {
     expect(code({ activeOrders: 10 })).toBe('risk_active_orders');
     expect(code({ equity: d(4_999) })).toBe('buying_power');
     expect(code({ dailyLossHit: true })).toBe('risk_daily_loss');
+  });
+
+  it("checks the account's own exposure limit after the strategy's (ADR 0107)", () => {
+    // The order is 100 × $50 = $5,000.
+    const account = (gross: number) => ({ maxExposure: '30000', grossExposure: d(gross) });
+    expect(code({ account: account(25_000) })).toBeUndefined();
+    expect(code({ account: account(25_001) })).toBe('risk_account_exposure');
+    const r = checkPreTradeRisk({ ...base, account: account(25_001) });
+    expect(r.checks.find((c) => c.code === 'risk_account_exposure')).toEqual({
+      code: 'risk_account_exposure',
+      passed: false,
+      limit: '30000',
+      value: '30001.00',
+    });
+    expect(riskRefusalText(r)).toBe('Account exposure: $30,001, limit $30,000');
+    // Closing orders lower risk and skip it, as they skip the strategy's.
+    expect(code({ closing: true, account: account(100_000) })).toBeUndefined();
+    // It is a capacity refusal: it clears as positions close (N300).
+    expect(CAPACITY_RISK_CODES).toContain('risk_account_exposure');
   });
 
   it('lets closing orders through the exposure limits but not the active-order cap', () => {

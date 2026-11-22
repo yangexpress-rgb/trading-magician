@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N311, O181, ADR 0107 and migration 0104** (N308 to N310, O177 to O180, ADR 0106 and migration 0103 were taken on 2026-11-22 for Phase 7 P0; N306, N307, ADR 0105 and migration 0102 were taken on 2026-11-22; N304 and N305 were taken on 2026-11-19; N299 to N303 and ADR 0102 to 0104 were taken on 2026-11-18; N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N298, ADR 0101 and migrations 0100 to 0101 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N314, O185, ADR 0108 and migration 0105** (N311 to N313, O181 to O184, ADR 0107 and migration 0104 were taken on 2026-11-22 for Phase 7 P1; N308 to N310, O177 to O180, ADR 0106 and migration 0103 were taken on 2026-11-22 for Phase 7 P0; N306, N307, ADR 0105 and migration 0102 were taken on 2026-11-22; N304 and N305 were taken on 2026-11-19; N299 to N303 and ADR 0102 to 0104 were taken on 2026-11-18; N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N298, ADR 0101 and migrations 0100 to 0101 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -606,7 +606,11 @@ A back test is **not required to start on paper**: a missing or out-of-date one 
 
 Risk checks run immediately before each submission, by the same function in back tests and on paper, and every check's limit and value are stored on the order intent. Order: stale data; active orders; then for orders that open or add risk: order size, strategy exposure, buying power (no leverage), daily loss, drawdown and instruments held; then the price collar. Closing orders skip the exposure checks. Strategy exposure and buying power count the unfilled part of the strategy's working Entry orders and of opening orders placed earlier in the same pass (N278). The stale-price watch covers only members held or with a working order, but a stale price still refuses a new pick (C16, N245). While the feed is live (some price it gave this pass is fresh, or a SPY heartbeat is), a quiet instrument's unchanged price counts as current for the stale-data check (N276, ADR 0096).
 
-Not yet built and required before real trading: account-level, per-symbol and per-asset-class limits (v1.1 deviation D4; the account layer is Phase 7 P1). Strategy exposure and the daily loss limit are per run, so a strategy running on two accounts is checked on each separately (N308).
+Strategy exposure and the daily loss limit are per run, so a strategy running on two accounts is checked on each separately (N308).
+
+- **Account limits (N311 to N313, ADR 0107; closes the account part of D4).** An account can carry its own **maximum total exposure** and **daily loss limit**, set in Settings › Accounts (**Set limits**), above every strategy's own. They are optional; an account without them trades as before. Account exposure (`risk_account_exposure`) is checked after strategy exposure for orders that open or add risk: the order plus everything the app holds on the account across every run, plus every run's unfilled Entry orders there. It is a capacity refusal (N300). The account's loss for the New York day is judged on each account valuation (every 5 minutes, O181): reaching the limit halts the account for the rest of the day, pausing every run on it with an **Account daily loss** incident and a notification; positions stay. The **account kill switch** pauses every run on one account and cancels its working orders until **Release halt**. A halted account starts and resumes nothing, automatic resumes included; releasing resumes nothing. Other accounts are never touched.
+
+Not yet built and required before real trading: per-symbol and per-asset-class limits (v1.1 deviation D4).
 
 ### 12.4 Automatic pauses
 
@@ -1076,10 +1080,11 @@ Until decided, the defaults stand: paper-only execution, no live-account enablem
 
 ## 25. Open points
 
-Every open point O1 to O180 is listed with its proposal and outcome in `v1.2-deviations.md`; most are accepted or confirmed. These are still open:
+Every open point O1 to O184 is listed with its proposal and outcome in `v1.2-deviations.md`; most are accepted or confirmed. These are still open:
 
 **Waiting on Yong's decision**
 
+- Phase 7 P1 review (N311 to N313): O181 (daily loss judged on the 5-minute account valuation), O182 (the account kill switch pauses runs, not stops them), O183 (account exposure counts the app's own fills only), O184 (the daily-loss halt ends with the day; runs stay paused until resumed).
 - Phase 7 P0 review (N308 to N310): O177 (moving a run to a newer version needs editing while running, not built), O178 (the plan counts strategies, not runs), O179 (legs on several accounts trade on the run's one account), O180 (live stays impossible until P3).
 
 - O17: removing the S&P 500 back-test-only cap on paper. The capability is built (N245, ADR 0087), but Yong has not confirmed it.
@@ -1209,6 +1214,7 @@ Survivorship bias in built-in groups (O6); custom feeds give daily bars only and
 | N306                                               | Safety closes state their reason; trailing stop on the strategy's bars     | §8.11, §12.7                                   |
 | N307                                               | Orders that cross zero on a shared Alpaca account go in two parts          | §9.3                                           |
 | N308 to N310                                       | Runs on accounts, account switcher and labels, cross-account safety        | §12.1, §12.5, §12.7, §13                       |
+| N311 to N313                                       | Account exposure limit, account daily-loss halt, account kill switch       | §12.3                                          |
 | N284, N285, N289                                   | Units on values, gain/loss colours; S numbers wherever a strategy is named | §5.1, §12.7, §13                               |
 
 N228 to N230 were not used (renumbered to N233 to N235).

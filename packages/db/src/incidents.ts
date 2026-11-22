@@ -25,6 +25,7 @@ const NOTIFICATION_FOR: Record<IncidentKind, NotificationKind> = {
   feed_loss: 'disconnect',
   broker_disconnected: 'disconnect',
   safety_close: 'triggered',
+  account_daily_loss: 'risk_pause',
 };
 
 const TITLES: Record<IncidentKind, string> = {
@@ -34,6 +35,7 @@ const TITLES: Record<IncidentKind, string> = {
   feed_loss: 'Live prices are missing',
   broker_disconnected: 'The paper broker is not responding',
   safety_close: 'Safety close: positions were sold',
+  account_daily_loss: 'Account daily loss limit reached',
 };
 
 export interface OpenIncidentInput {

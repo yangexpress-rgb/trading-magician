@@ -66,6 +66,7 @@ export const RISK_CHECK_LABELS: Record<RiskCheckCode, string> = {
   risk_active_orders: 'Active orders',
   risk_order_size: 'Order size',
   risk_exposure: 'Strategy exposure',
+  risk_account_exposure: 'Account exposure',
   buying_power: 'Buying power',
   risk_daily_loss: 'Daily loss',
   risk_drawdown: 'Drawdown',
@@ -126,7 +127,12 @@ function riskLabel(code: string): string {
   return RISK_CHECK_LABELS[code as RiskCheckCode] ?? code;
 }
 
-const MONEY_CHECKS = new Set<string>(['risk_order_size', 'risk_exposure', 'buying_power']);
+const MONEY_CHECKS = new Set<string>([
+  'risk_order_size',
+  'risk_exposure',
+  'risk_account_exposure',
+  'buying_power',
+]);
 
 /** A risk check's figure with its unit (N284): dollars, percent or seconds. */
 export function riskFigure(code: string, value: string): string {
@@ -162,6 +168,7 @@ export const INCIDENT_LABELS: Record<IncidentKindDto, string> = {
   feed_loss: 'Live prices lost',
   broker_disconnected: 'Broker not responding',
   safety_close: 'Safety close',
+  account_daily_loss: 'Account daily loss',
 };
 
 export const NOTIFICATION_LABELS: Record<NotificationKindDto, { label: string; tone: Tone }> = {

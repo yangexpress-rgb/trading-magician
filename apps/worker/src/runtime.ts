@@ -62,6 +62,7 @@ import {
   loadRouting,
   type CredentialKey,
   recordSafetyClose,
+  accountExposureBook,
 } from '@tm/db';
 import { RuntimeBarCache, RuntimeSideData, RuntimeUniverses } from './runtime-cache';
 import {
@@ -1497,6 +1498,22 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   // open, must not each be checked against positions alone.
   let pendingGross = pendingEntryGross(work.working);
 
+  // The account's own exposure limit (ADR 0107): what every run on the account
+  // holds and has working, read once when an Entry is about to be checked.
+  let accountGross: Decimal | undefined;
+  const accountExposure = async () => {
+    if (!work.accountMaxExposure) return undefined;
+    if (accountGross === undefined) {
+      const book = await accountExposureBook(tx, work.accountId);
+      accountGross = book.pendingEntry;
+      for (const [id, p] of book.positions) {
+        const px = (await markOf(id)) ?? p.lastPrice;
+        accountGross = accountGross.plus(p.quantity.abs().times(px));
+      }
+    }
+    return { maxExposure: work.accountMaxExposure, grossExposure: accountGross };
+  };
+
   // 4. Plan and act on each active cycle.
   const working = () => work.working.length;
   let placedThisPass = 0;
@@ -1729,8 +1746,10 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         dailyLossHit,
         drawdownHit,
         activeOrders: working() + placedThisPass,
+        account: leg.phase === 'entry' ? accountExposure : undefined,
         onOpeningRecorded: (notional) => {
           pendingGross = pendingGross.plus(notional);
+          if (accountGross !== undefined) accountGross = accountGross.plus(notional);
         },
         triggerEventId:
           leg.phase === 'entry'
@@ -1857,6 +1876,9 @@ interface PlaceInput {
   dailyLossHit: boolean;
   drawdownHit: boolean;
   activeOrders: number;
+  /** The account's exposure limit and what the account holds, when it has one (ADR 0107). */
+  account?:
+    (() => Promise<{ maxExposure: string; grossExposure: Decimal } | undefined>) | undefined;
   /** Called with the notional of an order that opens or adds risk once it is recorded ready. */
   onOpeningRecorded?: ((notional: Decimal) => void) | undefined;
   triggerEventId: string | undefined;
@@ -1954,6 +1976,7 @@ async function placeLeg(
     drawdownHit: input.drawdownHit,
     openPositions,
     instrumentHeld: !(work.book.positions.get(order.instrumentId) ?? ZERO).isZero(),
+    account: sized.closing ? undefined : await input.account?.(),
     // Outside the session the last quote is old by design; orders then wait for the open.
     priceAgeSec: quote.marketOpen
       ? effectivePriceAgeSec(quote, now, ctx.health.feedLive ?? false)

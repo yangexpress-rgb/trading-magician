@@ -1,5 +1,6 @@
 import { isProviderId, PROVIDERS, type AccountCapabilities } from '@tm/domain';
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { activeHalt, setAccountLimits } from './account-risk';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
 import { assertFeature, assertWithinLimit, hasRoomFor } from './entitlements';
@@ -47,6 +48,11 @@ export interface AccountSummary {
   isActive: boolean;
   lastSyncedAt: string | null;
   usedBy: { strategyId: string; strategyName: string; status: 'running' | 'paused' }[];
+  /** Account limits (ADR 0107); null when the account has none. */
+  maxExposure: string | null;
+  dailyLossLimit: string | null;
+  /** The halt in force, if any: its kill switch, or its daily loss limit for today. */
+  halt: { kind: 'kill_switch' | 'daily_loss'; at: string; reason: string | null } | null;
   rowVersion: number;
 }
 
@@ -66,6 +72,11 @@ export interface PlatformSummary {
 }
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
+
+function haltSummary(a: Parameters<typeof activeHalt>[0]): AccountSummary['halt'] {
+  const halt = activeHalt(a);
+  return halt ? { kind: halt.kind, at: halt.at.toISOString(), reason: halt.reason } : null;
+}
 
 /** Running or paused runs whose orders go to any of `accountIds`. */
 export async function accountDependents(
@@ -147,6 +158,9 @@ export async function listPlatforms(tx: Transaction): Promise<PlatformSummary[]>
             strategyName: d.strategyName,
             status: d.status,
           })),
+        maxExposure: a.maxExposure,
+        dailyLossLimit: a.dailyLossLimit,
+        halt: haltSummary(a),
         rowVersion: a.rowVersion,
       })),
   }));
@@ -426,6 +440,9 @@ export interface AccountUpdate {
   active?: boolean | undefined;
   /** With active false: pause the strategies that trade through it. */
   pauseStrategies?: boolean | undefined;
+  /** Account limits (ADR 0107); null clears one. */
+  maxExposure?: string | null | undefined;
+  dailyLossLimit?: string | null | undefined;
 }
 
 export interface AccountUpdateResult {
@@ -513,6 +530,12 @@ export async function updateAccount(
       action: input.active ? 'trading_account.activated' : 'trading_account.deactivated',
       resourceType: 'trading_account',
       resourceId: account.id,
+    });
+  }
+  if (input.maxExposure !== undefined || input.dailyLossLimit !== undefined) {
+    await setAccountLimits(tx, input.userId, account.id, {
+      maxExposure: input.maxExposure,
+      dailyLossLimit: input.dailyLossLimit,
     });
   }
   return { account: await getAccount(tx, account.id), migrated, skipped };

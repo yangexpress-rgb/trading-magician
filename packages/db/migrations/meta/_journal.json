@@ -729,6 +729,13 @@
       "when": 1795383946246,
       "tag": "0103_strategy_runs_on_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1795389566929,
+      "tag": "0104_account_risk_limits",
+      "breakpoints": true
     }
   ]
 }

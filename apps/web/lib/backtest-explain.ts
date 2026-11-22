@@ -345,6 +345,8 @@ export function explainOrder(o: BacktestOrder): string {
         return `The order was worth ${money(d.value)}, above the maximum order size of ${money(d.limit)}.`;
       case 'risk_exposure':
         return `Exposure would have reached ${money(d.value)}, above the maximum strategy exposure of ${money(d.limit)}.`;
+      case 'risk_account_exposure':
+        return `The account's exposure would have reached ${money(d.value)}, above its maximum of ${money(d.limit)}.`;
       case 'buying_power':
         return `Exposure would have reached ${money(d.value)}, more than the ${money(d.limit)} of equity (no leverage).`;
       case 'risk_active_orders':

@@ -259,6 +259,12 @@ export const setPlatformActiveRequest = z.object({
 });
 export type SetPlatformActiveRequest = z.infer<typeof setPlatformActiveRequest>;
 
+const accountLimit = z
+  .string()
+  .trim()
+  .regex(/^\d+(\.\d{1,2})?$/, 'Enter an amount in dollars, such as 25000')
+  .refine((v) => Number(v) > 0, 'Enter an amount above zero');
+
 export const updateAccountRequest = z.object({
   rowVersion: z.number().int().positive(),
   nickname: z.string().trim().min(1).max(100).optional(),
@@ -267,6 +273,9 @@ export const updateAccountRequest = z.object({
   migrateStrategies: z.boolean().optional(),
   active: z.boolean().optional(),
   pauseStrategies: z.boolean().optional(),
+  /** Account limits in dollars (ADR 0107); null clears one. */
+  maxExposure: accountLimit.nullable().optional(),
+  dailyLossLimit: accountLimit.nullable().optional(),
 });
 export type UpdateAccountRequest = z.infer<typeof updateAccountRequest>;
 
@@ -294,7 +303,24 @@ export interface AccountDto {
   isActive: boolean;
   lastSyncedAt: string | null;
   usedBy: { strategyId: string; strategyName: string; status: 'running' | 'paused' }[];
+  /** Account limits in dollars (ADR 0107); null when the account has none. */
+  maxExposure: string | null;
+  dailyLossLimit: string | null;
+  /** The halt in force: the account's kill switch, or its daily loss limit for today. */
+  halt: { kind: 'kill_switch' | 'daily_loss'; at: string; reason: string | null } | null;
   rowVersion: number;
+}
+
+/** The account kill switch (ADR 0107): engage it, or release the account's halt. */
+export const accountKillSwitchRequest = z.object({
+  engaged: z.boolean(),
+  reason: z.string().trim().max(500).optional(),
+});
+export type AccountKillSwitchRequest = z.infer<typeof accountKillSwitchRequest>;
+
+export interface AccountKillSwitchDto {
+  paused: number;
+  canceled: number;
 }
 
 export interface PlatformDto {

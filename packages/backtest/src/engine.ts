@@ -147,6 +147,8 @@ const RISK_MESSAGES: Record<RiskCheckCode, string> = {
   risk_active_orders: 'Orders were rejected by the maximum active orders limit',
   risk_order_size: 'Orders were rejected by the maximum order size',
   risk_exposure: 'Orders were rejected by the maximum strategy exposure',
+  // Back tests have no account (ADR 0107); kept for completeness.
+  risk_account_exposure: "Orders were rejected by the account's maximum exposure",
   buying_power: 'Orders were rejected for lack of buying power (no leverage)',
   risk_daily_loss: 'New entries stopped for the day after the daily loss limit was hit',
   risk_drawdown: 'New entries stopped after the maximum drawdown was hit',

@@ -1,5 +1,6 @@
 import { PaperBroker } from '@tm/broker';
 import {
+  checkAccountDailyLoss,
   claimValuations,
   DbPaperBrokerStore,
   instrumentsToMark,
@@ -15,7 +16,13 @@ import {
   type ValuationInput,
   type CredentialKey,
 } from '@tm/db';
-import { markFromQuote, valuationSession, type BrokerAdapter, type Mark } from '@tm/domain';
+import {
+  markFromQuote,
+  totalBooks,
+  valuationSession,
+  type BrokerAdapter,
+  type Mark,
+} from '@tm/domain';
 import Decimal from 'decimal.js';
 import type { Logger } from 'pino';
 import { accountResolver } from './account-router';
@@ -142,7 +149,7 @@ export async function valueAccount(
       );
     }
 
-    await recordValuation(tx, {
+    const valued = await recordValuation(tx, {
       userId,
       account,
       session: { date: session.date, final },
@@ -151,6 +158,20 @@ export async function valueAccount(
       marks,
       broker,
     });
+    // The account's daily loss limit (ADR 0107): judged on each valuation.
+    if (valued.recorded) {
+      const totals = totalBooks(valued.books);
+      const loss = await checkAccountDailyLoss(tx, {
+        userId,
+        accountId,
+        sessionDate: session.date,
+        pnl: totals.pnl,
+        staleMarks: totals.staleMarks,
+        now,
+      });
+      if (loss)
+        options.logger.info({ accountId, loss: loss.toFixed(2) }, 'account halted: daily loss');
+    }
   });
 }
 

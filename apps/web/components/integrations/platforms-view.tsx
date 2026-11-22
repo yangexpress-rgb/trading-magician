@@ -74,6 +74,9 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
   const [removing, setRemoving] = useState<PlatformDto | null>(null);
   const [makingDefault, setMakingDefault] = useState<AccountDto | null>(null);
   const [renaming, setRenaming] = useState<AccountDto | null>(null);
+  const [limiting, setLimiting] = useState<AccountDto | null>(null);
+  const [killing, setKilling] = useState<AccountDto | null>(null);
+  const [releasing, setReleasing] = useState<AccountDto | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -273,6 +276,7 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
                           <Th>Number</Th>
                           <Th>Trades</Th>
                           <Th>Routing</Th>
+                          <Th>Account limits</Th>
                           <Th>Last sync</Th>
                           <Th>
                             <span className="sr-only">Actions</span>
@@ -302,6 +306,9 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
                                 {a.isActive ? 'On' : 'Off'}
                               </Badge>
                             </Td>
+                            <Td className="text-sm">
+                              <AccountLimitsText account={a} />
+                            </Td>
                             <Td className="text-content">
                               {p.provider === 'demo' ? 'Built in' : when(a.lastSyncedAt)}
                             </Td>
@@ -323,6 +330,31 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
                                 >
                                   Rename
                                 </Button>
+                                <Button
+                                  size="sm"
+                                  aria-label={`Set limits for ${a.nickname}`}
+                                  onClick={() => setLimiting(a)}
+                                >
+                                  Set limits
+                                </Button>
+                                {a.halt ? (
+                                  <Button
+                                    size="sm"
+                                    aria-label={`Release the halt on ${a.nickname}`}
+                                    onClick={() => setReleasing(a)}
+                                  >
+                                    Release halt
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="danger"
+                                    aria-label={`Kill switch for ${a.nickname}`}
+                                    onClick={() => setKilling(a)}
+                                  >
+                                    Kill switch
+                                  </Button>
+                                )}
                                 {a.isActive ? (
                                   <Button
                                     size="sm"
@@ -416,6 +448,67 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
           void load();
         }}
       />
+      <LimitsDialog
+        account={limiting}
+        onClose={() => setLimiting(null)}
+        onDone={() => {
+          setLimiting(null);
+          void load();
+        }}
+      />
+      <Dialog
+        open={killing !== null}
+        onClose={() => setKilling(null)}
+        title={`Engage the kill switch on ${killing?.nickname ?? 'this account'}?`}
+        description="Every strategy run on this account pauses and its working orders are canceled. Positions stay open. Other accounts keep trading. Nothing resumes until you release the halt and resume each run."
+      >
+        <div className="flex gap-2">
+          <Button
+            variant="danger"
+            onClick={() =>
+              killing &&
+              void (async () => {
+                try {
+                  const r = await apiClient.accounts.killSwitch(killing.id, { engaged: true });
+                  setKilling(null);
+                  setNotice(
+                    `Kill switch engaged on ${killing.nickname}: ${r.paused} ${r.paused === 1 ? 'run' : 'runs'} paused, ${r.canceled} ${r.canceled === 1 ? 'order' : 'orders'} canceled.`,
+                  );
+                  setError(null);
+                  await load();
+                } catch (e) {
+                  setError(message(e, 'Could not engage the kill switch.'));
+                }
+              })()
+            }
+          >
+            Pause runs and cancel orders
+          </Button>
+          <Button onClick={() => setKilling(null)}>Keep trading</Button>
+        </div>
+      </Dialog>
+      <Dialog
+        open={releasing !== null}
+        onClose={() => setReleasing(null)}
+        title={`Release the halt on ${releasing?.nickname ?? 'this account'}?`}
+        description="Runs on this account can then be started and resumed again. Paused runs stay paused until you resume each one."
+      >
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            onClick={() =>
+              releasing &&
+              void act(
+                () => apiClient.accounts.killSwitch(releasing.id, { engaged: false }),
+                'Could not release the halt.',
+              ).then((ok) => ok && setReleasing(null))
+            }
+          >
+            Release halt
+          </Button>
+          <Button onClick={() => setReleasing(null)}>Keep it halted</Button>
+        </div>
+      </Dialog>
       <RenameDialog
         account={renaming}
         onClose={() => setRenaming(null)}
@@ -678,6 +771,108 @@ function RenameDialog({
         <div className="flex gap-2">
           <Button type="submit" variant="primary">
             Save
+          </Button>
+          <Button type="button" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+const dollars = (v: string) =>
+  `$${Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+
+/** Typed dollars without "$" or thousands commas; blank means no limit. */
+const amount = (v: string) => {
+  const t = v.trim().replaceAll('$', '').replaceAll(',', '');
+  return t === '' ? null : t;
+};
+
+/** The account's own limits and any halt in force, in words (ADR 0107). */
+function AccountLimitsText({ account: a }: { account: AccountDto }) {
+  const limits = [
+    a.maxExposure ? `Exposure ${dollars(a.maxExposure)}` : null,
+    a.dailyLossLimit ? `Daily loss ${dollars(a.dailyLossLimit)}` : null,
+  ].filter(Boolean);
+  return (
+    <>
+      <span className="text-content">
+        {limits.length > 0 ? limits.join(' · ') : 'None (strategy limits only)'}
+      </span>
+      {a.halt && (
+        <span className="mt-1 block">
+          <Badge tone="danger">
+            {a.halt.kind === 'kill_switch' ? 'HALTED: kill switch' : 'HALTED today: daily loss'}
+          </Badge>
+        </span>
+      )}
+    </>
+  );
+}
+
+function LimitsDialog({
+  account,
+  onClose,
+  onDone,
+}: {
+  account: AccountDto | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [exposure, setExposure] = useState('');
+  const [loss, setLoss] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setExposure(account?.maxExposure ?? '');
+    setLoss(account?.dailyLossLimit ?? '');
+    setError(null);
+  }, [account?.id, account?.maxExposure, account?.dailyLossLimit]);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!account) return;
+    try {
+      await apiClient.accounts.update(account.id, {
+        rowVersion: account.rowVersion,
+        maxExposure: amount(exposure),
+        dailyLossLimit: amount(loss),
+      });
+      onDone();
+    } catch (err) {
+      setError(message(err, 'Could not save the limits.'));
+    }
+  }
+
+  return (
+    <Dialog
+      open={account !== null}
+      onClose={onClose}
+      title={`Limits for ${account?.nickname ?? 'account'}`}
+      description="These apply to every strategy run on this account together, on top of each strategy's own limits. Leave a box empty for no account limit."
+    >
+      <form onSubmit={(e) => void save(e)} className="space-y-3">
+        {error && <Alert>{error}</Alert>}
+        <TextField
+          name="account-max-exposure"
+          label="Maximum total exposure ($)"
+          hint="Orders that would take the account's open positions and working entries past this are refused."
+          inputMode="decimal"
+          value={exposure}
+          onChange={(e) => setExposure(e.target.value)}
+        />
+        <TextField
+          name="account-daily-loss"
+          label="Daily loss limit ($)"
+          hint="When the account loses this much in one trading day, every run on it pauses for the rest of the day. Positions stay open."
+          inputMode="decimal"
+          value={loss}
+          onChange={(e) => setLoss(e.target.value)}
+        />
+        <div className="flex gap-2">
+          <Button type="submit" variant="primary">
+            Save limits
           </Button>
           <Button type="button" onClick={onClose}>
             Cancel
