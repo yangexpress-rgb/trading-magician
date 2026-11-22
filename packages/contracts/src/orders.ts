@@ -49,6 +49,11 @@ export interface OrderRowDto {
   mode: 'paper' | 'live';
   /** Who created it: the strategy, a person, or the system (flattening). */
   source: 'strategy' | 'user' | 'system';
+  /**
+   * Why a safety close was placed, in words (N306). Every safety close placed
+   * from N306 on has one; earlier ones show null.
+   */
+  closeReason: string | null;
   strategyId: string;
   strategyName: string;
   /** The strategy's own S number (ADR 0066), shown with its name; null if none. */
@@ -224,6 +229,7 @@ export const INCIDENT_KINDS = [
   'stale_data',
   'feed_loss',
   'broker_disconnected',
+  'safety_close',
 ] as const;
 export type IncidentKindDto = (typeof INCIDENT_KINDS)[number];
 

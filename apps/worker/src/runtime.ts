@@ -61,6 +61,7 @@ import {
   instrumentRefs,
   loadRouting,
   type CredentialKey,
+  recordSafetyClose,
 } from '@tm/db';
 import { RuntimeBarCache, RuntimeSideData, RuntimeUniverses } from './runtime-cache';
 import {
@@ -77,7 +78,9 @@ import {
   BrokerRejectedError,
   BrokerUnavailableError,
   checkPreTradeRisk,
+  safetyCloseReason,
   stepStrategyTrail,
+  strategyTrailDue,
   strategyTrailText,
   evaluateCondition,
   evaluateExpr,
@@ -1088,43 +1091,6 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     });
   }
 
-  // Strategy trailing stop (N290, ADR 0099): measured on the whole strategy,
-  // only when every holding has a mark; once fired, every cycle closes.
-  let trailClosing = state.strategyTrail?.firedAt !== undefined;
-  if (limits.complete) {
-    const holding = [...work.book.positions.values()].some((q) => !q.isZero());
-    const trail = stepStrategyTrail({
-      limitPct: def.risk.trailingStopPct,
-      state: state.strategyTrail,
-      equity,
-      gross,
-      holding,
-      now: t,
-    });
-    state.strategyTrail = trail.state;
-    trailClosing = trail.closing;
-    if (trail.fired && trail.state && def.risk.trailingStopPct) {
-      await notify(tx, {
-        userId: work.userId,
-        kind: 'triggered',
-        title: `${work.strategyName}: Trailing stop reached`,
-        body: strategyTrailText(def.risk.trailingStopPct, trail.state),
-        link: `/orders?strategy=${work.strategyId}`,
-        resourceType: 'strategy_runtime',
-        resourceId: work.id,
-        dedupeKey: `strategy_trail:${work.id}:${t}`,
-      });
-      await recordAudit(tx, {
-        userId: work.userId,
-        actorType: 'system',
-        action: 'runtime.strategy_trailing_stop',
-        resourceType: 'strategy_runtime',
-        resourceId: work.id,
-        context: { ...trail.state, limitPct: def.risk.trailingStopPct },
-      });
-    }
-  }
-
   // 3. Conditions on the newest completed bars (§6.5).
   const mode = slotModeOf(def);
   const members = ctx.members;
@@ -1179,6 +1145,55 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   const intraday = seriesExprs(def, members).some(
     (e) => e.interval !== '1d' && e.interval !== '1w',
   );
+  // Strategy trailing stop (N291, ADR 0100): measured on the whole strategy,
+  // only when every holding has a mark; once fired, every cycle closes.
+  // It is judged on the strategy's own bars, as the back test does (N306,
+  // ADR 0105): a daily strategy once its daily bar closes, an intraday one on
+  // every pass. Going flat resets it at once.
+  let trailClosing = state.strategyTrail?.firedAt !== undefined;
+  let trailFiredText: string | undefined;
+  if (limits.complete) {
+    const holding = [...work.book.positions.values()].some((q) => !q.isZero());
+    if (strategyTrailDue({ intraday, newBar: newData, holding })) {
+      const trail = stepStrategyTrail({
+        limitPct: def.risk.trailingStopPct,
+        state: state.strategyTrail,
+        equity,
+        gross,
+        holding,
+        now: t,
+      });
+      state.strategyTrail = trail.state;
+      trailClosing = trail.closing;
+      if (trail.fired && trail.state && def.risk.trailingStopPct) {
+        trailFiredText = strategyTrailText(def.risk.trailingStopPct, trail.state);
+        await recordAudit(tx, {
+          userId: work.userId,
+          actorType: 'system',
+          action: 'runtime.strategy_trailing_stop',
+          resourceType: 'strategy_runtime',
+          resourceId: work.id,
+          context: { ...trail.state, limitPct: def.risk.trailingStopPct },
+        });
+      }
+    }
+  }
+  /** Why this runtime's closing orders go, in words (N306); stored on each one. */
+  const closeReasonFor = (notes: readonly string[]): string =>
+    safetyCloseReason(
+      notes.includes('session_end')
+        ? { kind: 'session_end' }
+        : notes.includes('strategy_trailing_stop')
+          ? {
+              kind: 'strategy_trailing_stop',
+              detail:
+                trailFiredText ??
+                (state.strategyTrail && def.risk.trailingStopPct
+                  ? strategyTrailText(def.risk.trailingStopPct, state.strategyTrail)
+                  : undefined),
+            }
+          : { kind: 'leg_failed' },
+    );
   const due = (schedule: Schedule, last: string | undefined): string | undefined => {
     const s = normalSchedule(schedule);
     if (s.which === 'beforeOpen') return dataTime > 0 ? scheduledPeriod(s, t, last, t) : undefined;
@@ -1487,6 +1502,8 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   let placedThisPass = 0;
   // Exit when may read values kept for each holding (N217, N221).
   const holding = holdingReads(def);
+  /** Safety closes placed this pass, by their reason, with the symbols closed (N306). */
+  const safetyCloses = new Map<string, string[]>();
   for (const c of cycles) {
     const cycleDef = cycleDefinition(c);
     // Kept before Exit when is checked, with the trailing stop's arithmetic (ADR 0074).
@@ -1730,9 +1747,16 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     }
 
     if (plan.flatten) {
+      const reason = closeReasonFor(plan.notes);
+      const symbols: string[] = [];
       for (const [instrumentId, q] of c.positions) {
         if (q.isZero()) continue;
-        await placeFlatten(tx, ctx, c, instrumentId, q, quoteFor);
+        const symbol = await placeFlatten(tx, ctx, c, instrumentId, q, quoteFor, reason);
+        if (symbol) symbols.push(symbol);
+      }
+      if (symbols.length > 0) {
+        const prior = safetyCloses.get(reason) ?? [];
+        safetyCloses.set(reason, [...prior, ...symbols]);
       }
     }
 
@@ -1784,6 +1808,19 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         }
       }
     }
+  }
+
+  // Every safety close says why, in the incident log and a notification (N306).
+  for (const [reason, symbols] of safetyCloses) {
+    await recordSafetyClose(tx, {
+      userId: work.userId,
+      runtimeId: work.id,
+      strategyId: work.strategyId,
+      strategyName: work.strategyName,
+      reason,
+      symbols,
+      at: now,
+    });
   }
 
   await saveRuntimeState(tx, work.id, state, now);
@@ -2029,7 +2066,11 @@ async function submit(
   }
 }
 
-/** Closing orders for what a cycle still holds, after a failed multi-leg plan (§6.7). */
+/**
+ * A safety close (N306): a closing order for what a cycle still holds, after a
+ * failed multi-leg plan (§6.7), at session end (N256) or when the strategy
+ * trailing stop fires (N291). Each carries its reason in words.
+ */
 async function placeFlatten(
   tx: Transaction,
   ctx: PassContext,
@@ -2037,15 +2078,16 @@ async function placeFlatten(
   instrumentId: string,
   quantity: Decimal,
   quoteFor: (id: string) => Promise<Quote | undefined>,
-) {
+  closeReason: string,
+): Promise<string | undefined> {
   const { work, now } = ctx;
   const quote = await quoteFor(instrumentId);
-  if (!quote) return;
+  if (!quote) return undefined;
   const accountId = c.legs.find((l) => l.instrumentId === instrumentId)
     ? (work.definition.entry.orders.find((o) => o.instrumentId === instrumentId)?.accountId ??
       work.accounts[0])
     : work.accounts[0];
-  if (!accountId) return;
+  if (!accountId) return undefined;
   const legId = `flatten-${instrumentId}`;
   const key = idempotencyKey({
     runtimeId: work.id,
@@ -2095,8 +2137,9 @@ async function placeFlatten(
     risk,
     idempotencyKey: key,
     source: 'system',
+    closeReason,
   });
-  if (!recorded.created || recorded.state !== 'ready') return;
+  if (!recorded.created || recorded.state !== 'ready') return undefined;
   await submit(tx, ctx, recorded.intentId, {
     clientOrderId: key,
     accountId,
@@ -2109,6 +2152,7 @@ async function placeFlatten(
     timeInForce: 'day',
     extendedHours: false,
   });
+  return quote.symbol;
 }
 
 // ---------------------------------------------------------------------------

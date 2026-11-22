@@ -37,6 +37,11 @@ export interface OrderIntent {
   idempotencyKey: string;
   /** Whether a person or the strategy created the order (§14.3). */
   source: 'strategy' | 'user' | 'system';
+  /**
+   * Why the app closed on its own, in words (N306). Required for a safety
+   * close (`source: 'system'`); recording one without it is refused.
+   */
+  closeReason?: string | undefined;
 }
 
 /**

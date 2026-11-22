@@ -63,6 +63,8 @@ export interface OrderRow {
   id: string;
   mode: 'paper' | 'live';
   source: 'strategy' | 'user' | 'system';
+  /** Why a safety close was placed (N306); null for other orders and earlier safety closes. */
+  closeReason: string | null;
   strategyId: string;
   strategyName: string;
   /** The strategy's own S number (ADR 0066); null if it has none or was deleted. */
@@ -147,6 +149,7 @@ const orderColumns = {
   id: orderIntents.id,
   mode: orderIntents.mode,
   source: orderIntents.source,
+  closeReason: orderIntents.closeReason,
   strategyId: orderIntents.strategyId,
   strategyName: strategies.name,
   strategyNumber: strategies.labNumber,
@@ -185,6 +188,7 @@ function toOrderRow(r: RawOrder): OrderRow {
     id: r.id as string,
     mode: r.mode as OrderRow['mode'],
     source: r.source as OrderRow['source'],
+    closeReason: r.closeReason ?? null,
     strategyId: r.strategyId as string,
     strategyName: r.strategyName ?? 'Deleted strategy',
     strategyNumber: r.strategyNumber ?? null,
