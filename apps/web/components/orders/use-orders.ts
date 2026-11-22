@@ -20,6 +20,8 @@ export interface OrderFilters {
   cycleId?: string | undefined;
   phase?: 'entry' | 'exit' | 'flatten' | undefined;
   instrumentId?: string | undefined;
+  /** One account's orders, runs and positions (N309). */
+  accountId?: string | undefined;
   from?: string | undefined;
   to?: string | undefined;
 }
@@ -32,6 +34,7 @@ export const FILTER_PARAMS = {
   cycleId: 'cycle',
   phase: 'phase',
   instrumentId: 'asset',
+  accountId: 'account',
   from: 'from',
   to: 'to',
 } as const satisfies Record<keyof OrderFilters, string>;

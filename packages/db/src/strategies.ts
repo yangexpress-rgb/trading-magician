@@ -51,6 +51,7 @@ import { activeOptionsFeed, addOptionUnderlyings, listOptionUniverse } from './o
 import { demoDataEnabled } from './demo';
 import { recordAudit } from './audit';
 import { preferredLegAccountId } from './leg-accounts';
+import { bindDefinitionToAccount, legsAccount } from './strategy-accounts';
 import { sharedProvenance, type SharedProvenance } from './share-provenance';
 import { assertWithinLimit } from './entitlements';
 import { notify } from './notifications';
@@ -179,6 +180,8 @@ export interface StrategySummary {
   shared: boolean;
   /** Its paper run while it has one: running, or paused with the reason (N286). */
   run: StrategyRunState | null;
+  /** Every run that is not stopped, one per account (N308). */
+  runs: StrategyRunState[];
   archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -203,13 +206,23 @@ export interface StrategyRunState {
   status: 'running' | 'paused';
   /** Why it is paused, as the Orders banner and the notification say it. */
   pauseReason: string | null;
+  /** The account the run trades on (N308), with its label and PAPER or LIVE. */
+  accountId: string | null;
+  accountName: string;
+  accountMode: 'paper' | 'live';
+  startedAt: Date;
+  /** The version the run is pinned to (§3.3 of the Phase 7 brief). */
+  versionNo: number | null;
 }
 
-/** The run of each strategy that has one that is not stopped (at most one, by index). */
-export async function activeRunStates(
+/**
+ * Every run of each strategy that is not stopped (N308): one per account at most, by index.
+ * Paused runs first, so a strategy's `run` shows a pause wherever it is listed (N286).
+ */
+export async function activeRuns(
   tx: Transaction,
   strategyIds: readonly string[],
-): Promise<Map<string, StrategyRunState>> {
+): Promise<Map<string, StrategyRunState[]>> {
   if (strategyIds.length === 0) return new Map();
   const rows = await tx
     .select({
@@ -217,24 +230,51 @@ export async function activeRunStates(
       runtimeId: strategyRuntimes.id,
       status: strategyRuntimes.status,
       pauseReason: strategyRuntimes.pauseReason,
+      accountId: strategyRuntimes.accountId,
+      accountName: tradingAccounts.nickname,
+      accountMode: tradingAccounts.mode,
+      startedAt: strategyRuntimes.startedAt,
+      versionNo: strategyVersions.versionNo,
     })
     .from(strategyRuntimes)
+    .leftJoin(tradingAccounts, eq(tradingAccounts.id, strategyRuntimes.accountId))
+    .leftJoin(strategyVersions, eq(strategyVersions.id, strategyRuntimes.versionId))
     .where(
       and(
         inArray(strategyRuntimes.strategyId, [...strategyIds]),
         ne(strategyRuntimes.status, 'stopped'),
       ),
-    );
-  const out = new Map<string, StrategyRunState>();
+    )
+    .orderBy(asc(strategyRuntimes.startedAt));
+  const out = new Map<string, StrategyRunState[]>();
   for (const r of rows) {
     if (r.status === 'stopped') continue;
-    out.set(r.strategyId, {
+    const list = out.get(r.strategyId) ?? [];
+    list.push({
       runtimeId: r.runtimeId,
       status: r.status,
       pauseReason: r.status === 'paused' ? r.pauseReason : null,
+      accountId: r.accountId,
+      accountName: r.accountName ?? 'Unknown account',
+      accountMode: r.accountMode ?? 'paper',
+      startedAt: r.startedAt,
+      versionNo: r.versionNo ?? null,
     });
+    out.set(r.strategyId, list);
+  }
+  for (const list of out.values()) {
+    list.sort((a, b) => Number(b.status === 'paused') - Number(a.status === 'paused'));
   }
   return out;
+}
+
+/** The run each strategy shows where only one fits: a paused one first (N286, N308). */
+export async function activeRunStates(
+  tx: Transaction,
+  strategyIds: readonly string[],
+): Promise<Map<string, StrategyRunState>> {
+  const runs = await activeRuns(tx, strategyIds);
+  return new Map([...runs].flatMap(([id, list]) => (list[0] ? [[id, list[0]]] : [])));
 }
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
@@ -342,7 +382,7 @@ export async function listStrategies(
         .orderBy(backtestRuns.strategyId, desc(backtestRuns.createdAt))
     : [];
   const latestByStrategy = new Map(latestRuns.map(({ strategyId, ...run }) => [strategyId, run]));
-  const runs = await activeRunStates(tx, ids);
+  const runs = await activeRuns(tx, ids);
   const numbers = await libraryNumbers(
     tx,
     rows.flatMap((r) => (r.s.libraryEntryId ? [r.s.libraryEntryId] : [])),
@@ -366,7 +406,8 @@ export async function listStrategies(
         .map((u) => ({ id: u.id, symbol: u.symbol })),
       latestBacktest: latestByStrategy.get(s.id) ?? null,
       shared: s.receivedShareId !== null,
-      run: runs.get(s.id) ?? null,
+      run: runs.get(s.id)?.[0] ?? null,
+      runs: runs.get(s.id) ?? [],
       archivedAt: s.archivedAt,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
@@ -396,6 +437,8 @@ export interface StrategyDetail {
   status: StrategyStatus;
   /** Its paper run while it has one: running, or paused with the reason (N286). */
   run: StrategyRunState | null;
+  /** Every run that is not stopped, one per account (N308). */
+  runs: StrategyRunState[];
   hasBeenActive: boolean;
   definition: StrategyDefinition;
   definitionHash: string;
@@ -466,7 +509,10 @@ export async function getStrategy(tx: Transaction, id: string): Promise<Strategy
     description: row.description,
     tags: row.tags,
     status: row.status,
-    run: (await activeRunStates(tx, [row.id])).get(row.id) ?? null,
+    ...(await (async () => {
+      const runs = (await activeRuns(tx, [row.id])).get(row.id) ?? [];
+      return { run: runs[0] ?? null, runs };
+    })()),
     hasBeenActive: row.hasBeenActive,
     definition: parseOrThrow(row.draftDefinition),
     definitionHash: row.draftHash,
@@ -603,16 +649,22 @@ async function latestBacktestFor(
   return run?.finishedAt ? { ...run, finishedAt: run.finishedAt } : null;
 }
 
+/**
+ * Validates the saved draft. With `accountId`, the rules are checked as a run on that
+ * account trades them (N308): every leg on that account, against its capabilities.
+ */
 export async function validateStoredStrategy(
   tx: Transaction,
   id: string,
+  accountId?: string,
 ): Promise<{
   validation: ValidationResult;
   definitionHash: string;
   backtest: LatestBacktest | null;
 }> {
   const row = await loadStrategyRow(tx, id);
-  const definition = parseOrThrow(row.draftDefinition);
+  const draft = parseOrThrow(row.draftDefinition);
+  const definition = accountId ? bindDefinitionToAccount(draft, accountId) : draft;
   const ctx = await loadValidationContext(tx);
   const backtest = await latestBacktestFor(tx, id);
   return {
@@ -1016,12 +1068,66 @@ export interface StartStrategyInput {
   rowVersion: number;
   acknowledgedWarnings?: readonly string[] | undefined;
   confirmed?: boolean | undefined;
+  /**
+   * The account the run trades on (N308). Defaults to the account the strategy's legs
+   * name. A strategy already running on other accounts gets one more run.
+   */
+  accountId?: string | undefined;
+}
+
+/** The account a run starts on: the one asked for, else the legs', checked (N308). */
+async function runAccountFor(
+  tx: Transaction,
+  draft: unknown,
+  requested: string | undefined,
+): Promise<{ id: string; nickname: string; mode: 'paper' | 'live' }> {
+  const wanted = requested ?? legsAccount(draft) ?? (await preferredLegAccountId(tx));
+  if (!wanted) {
+    throw new StrategyError('transition_blocked', 'Add a trading account before starting', {
+      reason: 'no_account',
+      details: [],
+    });
+  }
+  const [account] = await tx
+    .select({
+      id: tradingAccounts.id,
+      nickname: tradingAccounts.nickname,
+      mode: tradingAccounts.mode,
+      isActive: tradingAccounts.isActive,
+      platformActive: brokerConnections.isActive,
+    })
+    .from(tradingAccounts)
+    .innerJoin(brokerConnections, eq(brokerConnections.id, tradingAccounts.brokerConnectionId))
+    .where(eq(tradingAccounts.id, wanted));
+  if (!account) {
+    throw new StrategyError('transition_blocked', 'Choose one of your trading accounts', {
+      reason: 'unknown_account',
+      details: [],
+    });
+  }
+  if (!account.isActive || !account.platformActive) {
+    throw new StrategyError(
+      'transition_blocked',
+      `${account.nickname} is turned off. Turn it on in Settings › Accounts, or choose another account`,
+      { reason: 'account_off', details: [] },
+    );
+  }
+  // The live gate (Phase 7 §6) is not built: only paper accounts can run.
+  if (account.mode !== 'paper') {
+    throw new StrategyError('transition_blocked', 'Live trading is not available', {
+      reason: 'live_disabled',
+      details: [],
+    });
+  }
+  return { id: account.id, nickname: account.nickname, mode: account.mode };
 }
 
 /**
- * Moves a strategy to Actively executing on paper. Requires a clean
- * validation, every warning acknowledged and explicit confirmation, and pins
- * an immutable version (§6.3, §6.10). Order generation arrives in Phase 3.
+ * Starts a strategy on paper, as a run on one account (N308). Requires a clean
+ * validation for that account, every warning acknowledged and explicit confirmation,
+ * and pins an immutable version (§6.3, §6.10). A strategy already actively executing
+ * gets one more run, on another account, pinned to the same version; its other runs
+ * are not touched.
  */
 export async function startStrategy(
   tx: Transaction,
@@ -1032,9 +1138,37 @@ export async function startStrategy(
   const row = await loadStrategyRow(tx, id);
   if (row.archivedAt)
     throw new StrategyError('invalid_state', 'Restore this strategy before starting it');
-  const { validation, backtest } = await validateStoredStrategy(tx, id);
+  const account = await runAccountFor(tx, row.draftDefinition, input.accountId);
+  const adding = row.status === 'actively_executing';
+  if (adding) {
+    const [existing] = await tx
+      .select({ id: strategyRuntimes.id })
+      .from(strategyRuntimes)
+      .where(
+        and(
+          eq(strategyRuntimes.strategyId, id),
+          eq(strategyRuntimes.accountId, account.id),
+          ne(strategyRuntimes.status, 'stopped'),
+        ),
+      );
+    if (existing) {
+      throw new StrategyError(
+        'transition_blocked',
+        `This strategy already runs on ${account.nickname}`,
+        { reason: 'already_running', details: [] },
+      );
+    }
+    if (row.rowVersion !== input.rowVersion) {
+      throw new StrategyError(
+        'conflict',
+        'This strategy was changed somewhere else. Reload to see the latest version.',
+      );
+    }
+  }
+  const { validation, backtest } = await validateStoredStrategy(tx, id, account.id);
   const plan = planTransition({
-    from: row.status,
+    // Another run starts from the same checks as a first start (N308).
+    from: adding ? 'off' : row.status,
     to: 'actively_executing',
     validation,
     acknowledgedWarnings: input.acknowledgedWarnings ?? [],
@@ -1057,7 +1191,8 @@ export async function startStrategy(
       validation,
     });
   }
-  await assertWithinLimit(tx, userId, 'activeStrategies');
+  // The plan counts strategies; another run of a running one adds none (N308).
+  if (!adding) await assertWithinLimit(tx, userId, 'activeStrategies');
 
   let versionId = row.currentVersionId;
   const current = versionId
@@ -1069,6 +1204,10 @@ export async function startStrategy(
       )[0]
     : undefined;
   if (current?.hash !== row.draftHash) {
+    if (adding) {
+      // Rules can't change while it runs, so this only happens with a stale draft.
+      throw new StrategyError('invalid_state', 'Stop this strategy before changing its rules');
+    }
     const version = await insertVersion(
       tx,
       userId,
@@ -1080,26 +1219,30 @@ export async function startStrategy(
   }
   const acknowledged = [...new Set(validation.warnings.map((w) => w.code))];
 
-  await updateRow(tx, id, input.rowVersion, {
-    status: 'actively_executing',
-    hasBeenActive: true,
-    currentVersionId: versionId,
-  });
+  if (!adding) {
+    await updateRow(tx, id, input.rowVersion, {
+      status: 'actively_executing',
+      hasBeenActive: true,
+      currentVersionId: versionId,
+    });
+  }
   if (!versionId) throw new StrategyError('invalid_state', 'The strategy has no version to run');
   // The worker picks the runtime up on its next poll (§8.1).
-  const runtimeId = await createRuntime(tx, userId, id, versionId);
-  await tx.insert(strategyStatusChanges).values({
-    userId,
-    strategyId: id,
-    fromStatus: row.status,
-    toStatus: 'actively_executing',
-    versionId,
-    acknowledgedWarnings: acknowledged,
-  });
+  const runtimeId = await createRuntime(tx, userId, id, versionId, account.id);
+  if (!adding) {
+    await tx.insert(strategyStatusChanges).values({
+      userId,
+      strategyId: id,
+      fromStatus: row.status,
+      toStatus: 'actively_executing',
+      versionId,
+      acknowledgedWarnings: acknowledged,
+    });
+  }
   await recordAudit(tx, {
     userId,
     actorType: 'user',
-    action: 'strategy.started',
+    action: adding ? 'strategy.run_started' : 'strategy.started',
     resourceType: 'strategy',
     resourceId: id,
     afterRef: row.draftHash,
@@ -1110,12 +1253,15 @@ export async function startStrategy(
       acknowledgedWarnings: acknowledged,
       latestBacktestId: backtest?.runId ?? null,
       runtimeId,
+      accountId: account.id,
     },
   });
   await notify(tx, {
     userId,
     kind: 'strategy_started',
-    title: `${strategyLabelOf(row)} started on paper`,
+    title: adding
+      ? `${strategyLabelOf(row)} started on ${account.nickname} (paper)`
+      : `${strategyLabelOf(row)} started on paper`,
     body: 'New orders appear in Orders as its rules trigger.',
     link: `/orders?started=${id}`,
     resourceType: 'strategy_runtime',
@@ -1135,6 +1281,11 @@ export async function stopStrategy(
     /** Separate, explicit choices (§8.1); neither happens by default. */
     cancelOpenOrders?: boolean | undefined;
     closePositions?: boolean | undefined;
+    /**
+     * Stops only this run (N308); the strategy's runs on other accounts carry on. Without
+     * it every run stops.
+     */
+    runtimeId?: string | undefined;
   },
 ): Promise<StrategyDetail> {
   const row = await loadStrategyRow(tx, id);
@@ -1145,44 +1296,63 @@ export async function stopStrategy(
       `Only an actively executing strategy can be stopped; this one is ${STATUS_LABELS[row.status]}`,
     );
   }
-  await updateRow(tx, id, input.rowVersion, { status: 'off' });
+  const runs = (await activeRuns(tx, [id])).get(id) ?? [];
+  if (input.runtimeId && !runs.some((r) => r.runtimeId === input.runtimeId)) {
+    throw new StrategyError('not_found', 'That run of this strategy is not running');
+  }
+  const remaining = input.runtimeId ? runs.filter((r) => r.runtimeId !== input.runtimeId) : [];
+  if (remaining.length === 0) {
+    await updateRow(tx, id, input.rowVersion, { status: 'off' });
+  } else if (row.rowVersion !== input.rowVersion) {
+    throw new StrategyError(
+      'conflict',
+      'This strategy was changed somewhere else. Reload to see the latest version.',
+    );
+  }
   // No new orders from here on. Working orders and positions are left alone
   // unless the person chose otherwise (§8.1).
-  const runtimeId = await stopRuntime(tx, userId, id);
+  const runtimeIds = await stopRuntime(tx, userId, id, input.runtimeId);
   let canceledOrders = 0;
   let closeOrders = 0;
-  if (runtimeId && input.cancelOpenOrders) {
-    canceledOrders = await cancelWorkingOrders(tx, userId, {
-      runtimeId,
-      reason: 'Canceled when the strategy was stopped',
+  for (const runtimeId of runtimeIds) {
+    if (input.cancelOpenOrders) {
+      canceledOrders += await cancelWorkingOrders(tx, userId, {
+        runtimeId,
+        reason: 'Canceled when the strategy was stopped',
+      });
+    }
+    if (input.closePositions && (await listPositions(tx, { runtimeId })).length > 0) {
+      closeOrders += (await closePositions(tx, userId, { runtimeId })).orders;
+    }
+  }
+  if (remaining.length === 0) {
+    await tx.insert(strategyStatusChanges).values({
+      userId,
+      strategyId: id,
+      fromStatus: row.status,
+      toStatus: 'off',
+      versionId: row.currentVersionId,
+      reason: input.reason ?? null,
     });
   }
-  if (runtimeId && input.closePositions && (await listPositions(tx, { runtimeId })).length > 0) {
-    closeOrders = (await closePositions(tx, userId, { runtimeId })).orders;
-  }
-  await tx.insert(strategyStatusChanges).values({
-    userId,
-    strategyId: id,
-    fromStatus: row.status,
-    toStatus: 'off',
-    versionId: row.currentVersionId,
-    reason: input.reason ?? null,
-  });
+  const stopped = runs.filter((r) => runtimeIds.includes(r.runtimeId));
   await recordAudit(tx, {
     userId,
     actorType: 'user',
-    action: 'strategy.stopped',
+    action: remaining.length === 0 ? 'strategy.stopped' : 'strategy.run_stopped',
     resourceType: 'strategy',
     resourceId: id,
     context: {
       versionId: row.currentVersionId,
-      runtimeId: runtimeId ?? null,
+      runtimeId: runtimeIds[0] ?? null,
+      runtimeIds,
       canceledOrders,
       closeOrders,
       ...(input.reason ? { reason: input.reason } : {}),
     },
   });
-  if (runtimeId) {
+  for (const runtimeId of runtimeIds) {
+    const run = stopped.find((r) => r.runtimeId === runtimeId);
     const choices = [
       ...(canceledOrders > 0 ? [`${canceledOrders} working orders canceled`] : []),
       ...(closeOrders > 0 ? [`${closeOrders} close orders sent`] : []),
@@ -1190,7 +1360,8 @@ export async function stopStrategy(
     await notify(tx, {
       userId,
       kind: 'strategy_stopped',
-      title: `${strategyLabelOf(row)} stopped`,
+      // The account is named when other runs carry on (N308).
+      title: `${strategyLabelOf(row)} stopped${run && remaining.length > 0 ? ` on ${run.accountName}` : ''}`,
       body: choices.length
         ? `No new orders. ${choices.join('; ')}.`
         : 'No new orders. Working orders and positions were left as they are.',

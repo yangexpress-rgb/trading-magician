@@ -30,7 +30,7 @@ export default async function OrdersPage({
     if (parsed.success) Object.assign(filters, { [key]: value });
   }
 
-  const { strategies, instruments } = await withTenant(appDb(), tenant, async (tx) => ({
+  const { strategies, instruments, accounts } = await withTenant(appDb(), tenant, async (tx) => ({
     strategies: await tx
       .select({
         id: schema.strategies.id,
@@ -44,6 +44,14 @@ export default async function OrdersPage({
       .select({ id: schema.instruments.id, symbol: schema.instruments.symbol })
       .from(schema.instruments)
       .orderBy(asc(schema.instruments.symbol)),
+    accounts: await tx
+      .select({
+        id: schema.tradingAccounts.id,
+        nickname: schema.tradingAccounts.nickname,
+        mode: schema.tradingAccounts.mode,
+      })
+      .from(schema.tradingAccounts)
+      .orderBy(asc(schema.tradingAccounts.nickname)),
   }));
 
   return (
@@ -53,6 +61,7 @@ export default async function OrdersPage({
       started={one('started')}
       strategies={strategies}
       instruments={instruments}
+      accounts={accounts}
     />
   );
 }

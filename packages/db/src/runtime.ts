@@ -20,6 +20,7 @@ import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or, sql } from 'dr
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
 import { announceOrderChange, OrderError } from './orders';
+import { bindDefinitionToAccount } from './strategy-accounts';
 import {
   brokerOrders,
   brokerSyncs,
@@ -112,31 +113,39 @@ export const WORKING_STATES = ['ready', 'submitted', 'acknowledged', 'partially_
 // Start, stop, kill switch
 // ---------------------------------------------------------------------------
 
+/**
+ * A new run: one strategy, pinned to one version, trading on one account (N308). Every
+ * order of the run goes to `accountId`, whatever account the strategy's legs name.
+ */
 export async function createRuntime(
   tx: Transaction,
   userId: string,
   strategyId: string,
   versionId: string,
+  accountId: string,
 ): Promise<string> {
   const state: RuntimeState = { trigger: newRuntimeTriggerState() };
   const [row] = await tx
     .insert(strategyRuntimes)
-    .values({ userId, strategyId, versionId, startedBy: userId, state })
+    .values({ userId, strategyId, versionId, accountId, startedBy: userId, state })
     .returning({ id: strategyRuntimes.id });
   if (!row) throw new Error('Failed to create the runtime');
   return row.id;
 }
 
 /**
- * Stops a strategy's runtime: no new orders. Working orders and positions stay
+ * Stops a strategy's runs: no new orders. Working orders and positions stay
  * as they are (§8.1); scheduled legs that were not yet placed are dropped.
+ * With `runtimeId`, only that run stops; the strategy's runs on other accounts
+ * carry on (N308). Returns the runs it stopped.
  */
 export async function stopRuntime(
   tx: Transaction,
   userId: string,
   strategyId: string,
-): Promise<string | undefined> {
-  const [row] = await tx
+  runtimeId?: string,
+): Promise<string[]> {
+  const rows = await tx
     .update(strategyRuntimes)
     .set({
       status: 'stopped',
@@ -147,16 +156,18 @@ export async function stopRuntime(
     .where(
       and(
         eq(strategyRuntimes.strategyId, strategyId),
+        ...(runtimeId ? [eq(strategyRuntimes.id, runtimeId)] : []),
         sql`${strategyRuntimes.status} <> 'stopped'`,
       ),
     )
     .returning({ id: strategyRuntimes.id });
-  if (!row) return undefined;
+  const ids = rows.map((r) => r.id);
+  if (ids.length === 0) return [];
   await tx
     .update(scheduledActions)
     .set({ status: 'canceled', doneAt: new Date() })
-    .where(and(eq(scheduledActions.runtimeId, row.id), eq(scheduledActions.status, 'pending')));
-  return row.id;
+    .where(and(inArray(scheduledActions.runtimeId, ids), eq(scheduledActions.status, 'pending')));
+  return ids;
 }
 
 export async function isHalted(tx: Transaction, userId: string): Promise<boolean> {
@@ -405,7 +416,9 @@ export interface RuntimeWork {
   state: RuntimeState;
   definition: StrategyDefinition;
   instruments: Map<string, InstrumentRef>;
-  /** Accounts the strategy trades in. */
+  /** The run's own account (N308): every new order goes here, and only here. */
+  accountId: string;
+  /** Accounts to read broker updates from: the run's account, and any older order's. */
   accounts: string[];
   halted: boolean;
   cycles: ActiveCycle[];
@@ -436,16 +449,17 @@ export async function loadRuntimeWork(
     .where(eq(strategyRuntimes.id, runtimeId))
     .for('update', { of: strategyRuntimes });
   if (!rt || rt.runtime.leaseOwner !== workerId) return undefined;
-  const definition = parseDefinition(rt.definition);
+  const runAccount = rt.runtime.accountId;
+  // A run with no account is a stopped one from before runs had accounts; nothing to do.
+  if (!runAccount) return undefined;
+  // Every leg trades on the run's account (N308); the stored rules are not changed.
+  const definition = bindDefinitionToAccount(parseDefinition(rt.definition), runAccount);
   const raw = rt.runtime.state as Partial<RuntimeState>;
   const state: RuntimeState = { ...raw, trigger: raw.trigger ?? newRuntimeTriggerState() };
 
   // Legs, condition instruments, list-universe members and benchmarks (v1.2).
   const ids = new Set<string>(strategyInstruments(definition, listMembers(definition)));
-  const accounts = new Set<string>();
-  for (const phase of [definition.entry, definition.exit]) {
-    for (const o of phase.orders) accounts.add(o.accountId);
-  }
+  const accounts = new Set<string>([runAccount]);
 
   // Every order of the runtime, with fills.
   const orders = await tx
@@ -605,6 +619,7 @@ export async function loadRuntimeWork(
     state,
     definition,
     instruments: instrumentMap,
+    accountId: runAccount,
     accounts: [...accounts],
     halted: await isHalted(tx, rt.runtime.userId),
     cycles,

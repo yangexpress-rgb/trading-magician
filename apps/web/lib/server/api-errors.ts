@@ -64,7 +64,12 @@ export function knownError(error: unknown): KnownError | null {
   if (error instanceof PlanLimitError) {
     return { code: 'plan_limit', message: error.message, details: error.details };
   }
-  if (error instanceof OrderError) return { code: error.code, message: error.message };
+  if (error instanceof OrderError) {
+    return {
+      code: error.code === 'account_mismatch' ? 'invalid_state' : error.code,
+      message: error.message,
+    };
+  }
   if (error instanceof CredentialError) return { code: error.code, message: error.message };
   if (error instanceof AgentConnectionError) return { code: error.code, message: error.message };
   if (error instanceof IntegrationError) {

@@ -338,6 +338,11 @@ export default async function StrategyLabPage({
                         <RunStateBadge run={s.run} />
                       </span>
                       <PausedNote strategyId={s.id} run={s.run} />
+                      {s.runs.length > 1 && (
+                        <p className="mt-1 text-xs text-ink-muted">
+                          Runs on {s.runs.length} accounts
+                        </p>
+                      )}
                     </Td>
                     <Td className="text-xs">
                       {s.instruments.length ? s.instruments.map((i) => i.symbol).join(', ') : '—'}

@@ -1,9 +1,17 @@
+import { readFileSync } from 'node:fs';
 import { createDefinition, STRATEGY_SCHEMA_VERSION, type StrategyDefinition } from '@tm/domain';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Transaction } from '../src/client';
 import { provisionWorkspace } from '../src/provision';
-import { instruments, strategies, strategyVersions, tradingAccounts, users } from '../src/schema';
+import {
+  instruments,
+  strategies,
+  strategyRuntimes,
+  strategyVersions,
+  tradingAccounts,
+  users,
+} from '../src/schema';
 import {
   createStrategy,
   deleteStrategy,
@@ -403,6 +411,109 @@ describe('lifecycle', () => {
       }),
     );
     expect(s.statusHistory[0]?.acknowledgedWarnings).toEqual(['no_backtest']);
+  });
+
+  it('runs one strategy on two accounts at once, each run on its own account (N308, A1)', async () => {
+    const [first] = await asA((tx) => tx.select().from(tradingAccounts));
+    const [second] = await t.owner.db
+      .insert(tradingAccounts)
+      .values({
+        userId: userA,
+        brokerConnectionId: first!.brokerConnectionId,
+        nickname: 'Second paper',
+        externalId: 'second-paper',
+        maskedExternalId: '••••0002',
+        currency: 'USD',
+        capabilities: first!.capabilities,
+      })
+      .returning();
+    let s = await asA((tx) =>
+      createStrategy(tx, userA, { name: 'Two accounts', definition: readyDefinition() }),
+    );
+    s = await asA((tx) =>
+      updateStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, status: 'under_testing' }),
+    );
+    const start = (accountId?: string) =>
+      asA((tx) =>
+        startStrategy(tx, userA, s.id, {
+          rowVersion: s.rowVersion,
+          confirmed: true,
+          acknowledgedWarnings: ['no_backtest'],
+          ...(accountId ? { accountId } : {}),
+        }),
+      );
+    // Without a choice it starts on the account its legs name.
+    s = await start();
+    expect(s.runs.map((r) => r.accountId)).toEqual([accountA]);
+    // The same strategy, unchanged, starts again on the second account.
+    s = await start(second!.id);
+    expect(s.status).toBe('actively_executing');
+    expect(s.runs.map((r) => r.accountId).sort()).toEqual([accountA, second!.id].sort());
+    expect(new Set(s.runs.map((r) => r.versionNo))).toEqual(new Set([1]));
+    expect(s.versions).toHaveLength(1);
+    // Once per account.
+    const twice = await expectStrategyError(start(second!.id), 'transition_blocked');
+    expect(twice.details).toMatchObject({ reason: 'already_running' });
+    // Stopping one run leaves the other running, and the strategy actively executing.
+    const onSecond = s.runs.find((r) => r.accountId === second!.id)!;
+    s = await asA((tx) =>
+      stopStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, runtimeId: onSecond.runtimeId }),
+    );
+    expect(s.status).toBe('actively_executing');
+    expect(s.runs.map((r) => r.accountId)).toEqual([accountA]);
+    // Stopping the last run turns the strategy off.
+    s = await asA((tx) => stopStrategy(tx, userA, s.id, { rowVersion: s.rowVersion }));
+    expect(s.status).toBe('off');
+    expect(s.runs).toEqual([]);
+    // A turned-off account can't take a run.
+    await t.owner.db
+      .update(tradingAccounts)
+      .set({ isActive: false })
+      .where(eq(tradingAccounts.id, second!.id));
+    const off = await expectStrategyError(start(second!.id), 'transition_blocked');
+    expect(off.details).toMatchObject({ reason: 'account_off' });
+  });
+
+  it('migration 0103 binds an earlier run to the account its legs named (A2)', async () => {
+    let s = await asA((tx) =>
+      createStrategy(tx, userA, { name: 'Before runs', definition: readyDefinition() }),
+    );
+    s = await asA((tx) =>
+      updateStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, status: 'under_testing' }),
+    );
+    s = await asA((tx) =>
+      startStrategy(tx, userA, s.id, {
+        rowVersion: s.rowVersion,
+        confirmed: true,
+        acknowledgedWarnings: ['no_backtest'],
+      }),
+    );
+    const runtimeId = s.runs[0]!.runtimeId;
+    // As it was before migration 0103: no account on the run.
+    await t.ownerSql.unsafe(
+      `alter table strategy_runtime drop constraint strategy_runtime_account;
+       alter table strategy_runtime disable trigger strategy_runtime_account_fixed;
+       update strategy_runtime set account_id = null where id = '${runtimeId}';`,
+    );
+    const migration = readFileSync(
+      new URL('../migrations/0103_strategy_runs_on_accounts.sql', import.meta.url),
+      'utf8',
+    );
+    const backfill = migration
+      .split('--> statement-breakpoint')
+      .map((part) => part.trim())
+      .find((part) => part.includes('UPDATE "strategy_runtime" r SET'))!;
+    await t.ownerSql.unsafe(backfill.replace(/^(--.*\n)+/, ''));
+    await t.ownerSql.unsafe(
+      `alter table strategy_runtime enable trigger strategy_runtime_account_fixed;
+       alter table strategy_runtime add constraint strategy_runtime_account
+         check (account_id is not null or status = 'stopped');`,
+    );
+    const [run] = await asA((tx) =>
+      tx.select().from(strategyRuntimes).where(eq(strategyRuntimes.id, runtimeId)),
+    );
+    expect(run!.accountId).toBe(accountA);
+    await asA((tx) => stopStrategy(tx, userA, s.id, { rowVersion: s.rowVersion }));
   });
 
   it('validates with the tenant’s own accounts and feeds', async () => {

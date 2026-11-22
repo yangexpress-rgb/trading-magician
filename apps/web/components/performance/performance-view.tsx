@@ -38,6 +38,7 @@ import {
   type PerformanceLayout,
   type PerformanceFilters,
 } from '@/lib/performance-text';
+import { AccountLabel, accountText } from '@/components/accounts/account-label';
 
 /**
  * The Performance tab (Design v1.0 §10, §15.3; ADR 0021): filters, headline
@@ -255,7 +256,7 @@ export function PerformanceView({
 }: {
   prefs: DisplayPreferences;
   initialFilters: PerformanceFilters;
-  accounts: { id: string; name: string }[];
+  accounts: { id: string; name: string; mode: 'paper' | 'live' }[];
   strategies: {
     id: string;
     name: string;
@@ -347,11 +348,18 @@ export function PerformanceView({
           onChange={(e) => set({ accountId: e.target.value || undefined })}
         >
           <option value="">All accounts</option>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
+          {(['paper', 'live'] as const).map((mode) => {
+            const group = accounts.filter((a) => a.mode === mode);
+            return group.length === 0 ? null : (
+              <optgroup key={mode} label={mode === 'paper' ? 'Paper' : 'Live'}>
+                {group.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {accountText(a.name, a.mode)}
+                  </option>
+                ))}
+              </optgroup>
+            );
+          })}
         </SelectField>
         <SelectField
           label="Strategy"
@@ -434,6 +442,7 @@ export function PerformanceView({
                     <tr>
                       <Th>Number</Th>
                       <Th>Strategy</Th>
+                      <Th>Account</Th>
                       <Th numeric>Closed trades</Th>
                       <Th numeric>Today</Th>
                       <Th numeric>Net P/L</Th>
@@ -443,7 +452,7 @@ export function PerformanceView({
                   <tbody>
                     {summary.byStrategy.map((s) => (
                       <tr
-                        key={s.strategyId}
+                        key={`${s.strategyId}-${s.accountId}`}
                         tabIndex={filters.strategyId === s.strategyId ? undefined : 0}
                         title={
                           filters.strategyId === s.strategyId
@@ -469,6 +478,9 @@ export function PerformanceView({
                       >
                         <StrategyNumberCell number={s.strategyNumber} />
                         <Td className="font-medium">{s.strategyName}</Td>
+                        <Td sortValue={s.accountName} className="text-xs">
+                          <AccountLabel name={s.accountName} mode={s.accountMode} />
+                        </Td>
                         <Td numeric>{s.closedTrades}</Td>
                         <Td numeric>
                           <Signed value={s.todayPnl}>{formatSignedMoney(s.todayPnl)}</Signed>
@@ -604,7 +616,9 @@ export function PerformanceView({
                       <StrategyNumberCell number={p.strategyNumber} />
                       <Td className="font-medium">{p.strategyName}</Td>
                       <Td>{p.symbol}</Td>
-                      <Td>{p.accountName}</Td>
+                      <Td sortValue={p.accountName}>
+                        <AccountLabel name={p.accountName} mode={p.accountMode} />
+                      </Td>
                       <Td numeric>{p.quantity}</Td>
                       <Td numeric>{p.averageCost ? formatMoney(p.averageCost) : '—'}</Td>
                       <Td>

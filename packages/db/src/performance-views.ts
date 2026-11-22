@@ -381,10 +381,14 @@ export interface PerformanceSummary {
     best: string | null;
     worst: string | null;
   };
+  /** One row per strategy and account it ran on (N309): "this strategy, on this account". */
   byStrategy: {
     strategyId: string;
     strategyName: string;
     strategyNumber: string | null;
+    accountId: string;
+    accountName: string;
+    accountMode: 'paper' | 'live';
     net: string;
     closedTrades: number;
     peakCapital: string;
@@ -580,32 +584,51 @@ export async function performanceSummary(
         ? pct(now.index.div(prior?.index ?? new Decimal(1)).minus(1))
         : null;
   }
+  // A strategy on two accounts is two rows: one per account, never a blend (N309).
+  const runAccount = new Map(allBooks.map((b) => [b.runtimeId, b.accountId]));
+  const tradeAccount = (tr: CycleTrade) =>
+    runAccount.get(tr.runtimeId) ?? tr.legs[0]?.accountId ?? '';
+  const strategyKey = (strategyId: string, accountId: string) => `${strategyId}|${accountId}`;
   const todayByStrategy = new Map(
-    [...groupBy(allBooks, (b) => b.strategyId).entries()].map(([id, g]) => [
-      id,
-      sessionChange(
-        g.rows,
-        todayTrades.filter((t) => t.strategyId === id),
-        today,
-      ),
-    ]),
+    [...groupBy(allBooks, (b) => strategyKey(b.strategyId, b.accountId)).entries()].map(
+      ([key, g]) => [
+        key,
+        sessionChange(
+          g.rows,
+          todayTrades.filter((t) => strategyKey(t.strategyId, tradeAccount(t)) === key),
+          today,
+        ),
+      ],
+    ),
   );
+  const accountRows = await tx
+    .select({ id: tradingAccounts.id, name: tradingAccounts.nickname, mode: tradingAccounts.mode })
+    .from(tradingAccounts);
+  const accountInfo = new Map(accountRows.map((a) => [a.id, a]));
 
   const stats = tradeStats(closed.map((t) => new Decimal(t.net)));
-  const byStrategy = [...groupBy(books, (b) => b.strategyId).entries()].map(([id, g]) => {
+  const byStrategy = [
+    ...groupBy(books, (b) => strategyKey(b.strategyId, b.accountId)).entries(),
+  ].map(([key, g]) => {
     const t = bookTotals(g.rows, f);
-    const own = trades.filter((tr) => tr.strategyId === id);
+    const first = g.rows[0];
+    const id = first?.strategyId ?? '';
+    const accountId = first?.accountId ?? '';
+    const own = trades.filter((tr) => strategyKey(tr.strategyId, tradeAccount(tr)) === key);
     const peak = Decimal.max(t.peak, capitalOf(own));
     return {
       strategyId: id,
-      strategyName: g.rows[0]?.strategyName ?? '',
-      strategyNumber: g.rows[0]?.strategyNumber ?? null,
+      strategyName: first?.strategyName ?? '',
+      strategyNumber: first?.strategyNumber ?? null,
+      accountId,
+      accountName: accountInfo.get(accountId)?.name ?? 'Removed account',
+      accountMode: accountInfo.get(accountId)?.mode ?? 'paper',
       net: money(t.net),
       closedTrades: own.filter((tr) => tr.closedAt !== null).length,
       peakCapital: money(peak),
       returnOnPeakCapitalPct: returnOn(t.net, peak),
-      todayPnl: money(todayByStrategy.get(id)?.change ?? ZERO),
-      todayPct: todayByStrategy.get(id)?.pct ?? null,
+      todayPnl: money(todayByStrategy.get(key)?.change ?? ZERO),
+      todayPct: todayByStrategy.get(key)?.pct ?? null,
     };
   });
   const assetClasses = (

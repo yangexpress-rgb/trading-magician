@@ -26,7 +26,8 @@ import {
   RunHistory,
   type BacktestsState,
 } from './backtest';
-import { useEditor } from './editor-context';
+import { accountText, AccountLabel, groupAccounts } from '@/components/accounts/account-label';
+import { useEditor, type AccountOption } from './editor-context';
 
 export type ValidationState =
   | { kind: 'loading' }
@@ -183,11 +184,16 @@ function StartDialog({
   busy,
   error,
   onConfirm,
+  choices,
+  initialAccountId,
 }: {
   open: boolean;
   onClose: () => void;
   strategyName: string;
   definition: StrategyDefinition;
+  /** Accounts it can start on: those without a run of this strategy (N308). */
+  choices: readonly AccountOption[];
+  initialAccountId: string | undefined;
   warnings: readonly ValidationIssue[];
   /** The activation gate (§7.4): when the strategy was last tested, and whether it changed since. */
   backtest: [string, string][];
@@ -195,17 +201,18 @@ function StartDialog({
   positions: string;
   busy: boolean;
   error: string | null;
-  onConfirm: (acknowledged: string[]) => void;
+  onConfirm: (acknowledged: string[], accountId: string) => void;
 }) {
-  const { instruments, accounts, baseCurrency } = useEditor();
+  const { instruments, baseCurrency } = useEditor();
   const [acknowledged, setAcknowledged] = useState<ReadonlySet<string>>(new Set());
+  const [accountId, setAccountId] = useState(initialAccountId ?? choices[0]?.id ?? '');
+  const accountFieldId = useId();
   const unique = uniqueWarnings(warnings);
   const allAcknowledged = unique.every((w) => acknowledged.has(w.code));
+  const chosen = choices.find((a) => a.id === accountId);
+  const grouped = groupAccounts(choices);
 
   const legs = [...definition.entry.orders, ...definition.exit.orders];
-  const accountNames = [...new Set(legs.map((l) => l.accountId))].map(
-    (id) => accounts.find((a) => a.id === id)?.nickname ?? 'Unknown account',
-  );
   const symbols = [...new Set(legs.map((l) => l.instrumentId))].map(
     (id) => instruments.find((i) => i.id === id)?.symbol ?? '?',
   );
@@ -214,7 +221,6 @@ function StartDialog({
   const rows: [string, string][] = [
     ['Strategy', strategyName],
     ['Mode', 'Paper (simulated orders, no real money)'],
-    ['Accounts', accountNames.join(', ') || 'None'],
     ['Instruments', symbols.join(', ') || 'None'],
     [
       'Order legs',
@@ -230,14 +236,52 @@ function StartDialog({
       open={open}
       onClose={onClose}
       title="Start on paper?"
-      description="Starting pins these exact rules as a version and marks the strategy as actively executing."
+      description="Starting pins these exact rules as a version and runs them on the account you choose."
     >
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (allAcknowledged) onConfirm(unique.map((w) => w.code));
+          if (allAcknowledged && chosen)
+            onConfirm(
+              unique.map((w) => w.code),
+              chosen.id,
+            );
         }}
       >
+        <div className="mb-3">
+          <label htmlFor={accountFieldId} className="text-sm font-semibold">
+            Which account?
+          </label>
+          <select
+            id={accountFieldId}
+            value={accountId}
+            onChange={(e) => setAccountId(e.target.value)}
+            className="mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm"
+          >
+            {grouped.paper.length > 0 && (
+              <optgroup label="Paper accounts">
+                {grouped.paper.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {accountText(a.nickname, a.mode)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {grouped.live.length > 0 && (
+              <optgroup label="Live accounts">
+                {grouped.live.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {accountText(a.nickname, a.mode)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          <p className="mt-1 text-xs text-ink-muted">
+            Every order of this run goes to this account. Its orders, positions and results are kept
+            apart from the strategy&rsquo;s runs on other accounts.
+          </p>
+        </div>
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           {rows.map(([term, value]) => (
             <div key={term} className="contents">
@@ -275,8 +319,8 @@ function StartDialog({
           </fieldset>
         )}
         <p className="mt-3 text-sm text-ink-muted">
-          Orders go to the simulated paper broker as the rules trigger. You can follow them in
-          Orders.
+          Orders go to {chosen ? chosen.nickname : 'the account'} as the rules trigger. You can
+          follow them in Orders.
         </p>
         {error && (
           <div className="mt-3">
@@ -285,7 +329,7 @@ function StartDialog({
         )}
         <div className="mt-4 flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="primary" disabled={!allAcknowledged || busy}>
+          <Button type="submit" variant="primary" disabled={!allAcknowledged || !chosen || busy}>
             {busy ? 'Starting…' : 'Start on paper'}
           </Button>
         </div>
@@ -300,9 +344,12 @@ function StopDialog({
   busy,
   error,
   onConfirm,
+  accountName,
 }: {
   open: boolean;
   onClose: () => void;
+  /** The one run's account, when only that run stops (N308); otherwise every run stops. */
+  accountName?: string | undefined;
   busy: boolean;
   error: string | null;
   onConfirm: (choice: {
@@ -319,8 +366,12 @@ function StopDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Stop execution?"
-      description="The strategy stops generating new orders. Working orders and positions are left as they are. You can choose to cancel or close them below."
+      title={accountName ? `Stop the run on ${accountName}?` : 'Stop execution?'}
+      description={
+        accountName
+          ? `This run stops generating new orders. Runs on other accounts carry on. Working orders and positions on ${accountName} are left as they are. You can choose to cancel or close them below.`
+          : 'The strategy stops generating new orders. Working orders and positions are left as they are. You can choose to cancel or close them below.'
+      }
     >
       <form
         onSubmit={(e) => {
@@ -337,7 +388,7 @@ function StopDialog({
               checked={cancelOpenOrders}
               onChange={(e) => setCancelOpenOrders(e.target.checked)}
             />
-            <span>Cancel this strategy&apos;s working orders</span>
+            <span>Cancel {accountName ? 'this run' : 'this strategy'}&apos;s working orders</span>
           </label>
           <label className="flex items-start gap-2 text-sm">
             <input
@@ -346,7 +397,9 @@ function StopDialog({
               checked={closePositions}
               onChange={(e) => setClosePositions(e.target.checked)}
             />
-            <span>Close this strategy&apos;s positions with market orders</span>
+            <span>
+              Close {accountName ? 'this run' : 'this strategy'}&apos;s positions with market orders
+            </span>
           </label>
         </fieldset>
         <label htmlFor={reasonId} className="text-sm font-semibold text-ink-muted">
@@ -368,7 +421,7 @@ function StopDialog({
         <div className="mt-4 flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="danger" disabled={busy}>
-            {busy ? 'Stopping…' : 'Stop execution'}
+            {busy ? 'Stopping…' : accountName ? 'Stop this run' : 'Stop execution'}
           </Button>
         </div>
       </form>
@@ -514,7 +567,7 @@ function PausedPanel({ strategyId, run }: { strategyId: string; run: StrategyRun
   return (
     <div className="mt-2">
       <Alert tone="warn">
-        <span className="font-semibold">Paused.</span>{' '}
+        <span className="font-semibold">Paused on {run.accountName}.</span>{' '}
         {run.pauseReason ?? 'No reason was recorded.'} It sends no new orders until it is resumed.
         <span className="mt-2 flex flex-wrap items-center gap-3">
           <Button
@@ -548,6 +601,49 @@ function PausedPanel({ strategyId, run }: { strategyId: string; run: StrategyRun
   );
 }
 
+/** The strategy's runs, one per account (N308): where, how, since when, and Stop for each. */
+function RunList({
+  runs,
+  busy,
+  onStop,
+}: {
+  runs: readonly StrategyRunStateDto[];
+  busy: boolean;
+  onStop: (run: StrategyRunStateDto) => void;
+}) {
+  return (
+    <ul
+      className="mt-2 divide-y divide-line rounded-md border border-line text-sm"
+      aria-label="Runs"
+    >
+      {runs.map((r) => (
+        <li key={r.runtimeId} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+          <AccountLabel name={r.accountName} mode={r.accountMode} className="font-medium" />
+          <span className={r.status === 'paused' ? 'font-medium text-warn' : 'text-ok'}>
+            {r.status === 'paused' ? 'Paused' : 'Running'}
+          </span>
+          <span className="text-ink-muted">
+            since{' '}
+            {new Date(r.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            {r.versionNo !== null && ` · version ${r.versionNo}`}
+          </span>
+          {runs.length > 1 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto"
+              disabled={busy}
+              onClick={() => onStop(r)}
+            >
+              Stop this run
+            </Button>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /**
  * Section 3 (N176): readiness, status, Start and Stop (§5.2, §7.4), where it
  * runs on paper, and the versions and status history passed in by the page.
@@ -557,6 +653,7 @@ export function ExecutionSection({
   strategyName,
   status,
   run = null,
+  runs: runsProp,
   rowVersion,
   dirty,
   definition,
@@ -571,6 +668,8 @@ export function ExecutionSection({
   status: StrategyStatus;
   /** Its paper run; a pause shows here with its reason and a Resume button (N286). */
   run?: StrategyRunStateDto | null;
+  /** Every run that is not stopped, one per account (N308). */
+  runs?: readonly StrategyRunStateDto[] | undefined;
   rowVersion: number;
   dirty: boolean;
   definition: StrategyDefinition;
@@ -584,6 +683,8 @@ export function ExecutionSection({
   const { accounts } = useEditor();
   const [busy, setBusy] = useState<Busy>(null);
   const [dialog, setDialog] = useState<null | 'start' | 'stop'>(null);
+  /** The one run Stop applies to (N308); undefined stops every run. */
+  const [stopRun, setStopRun] = useState<StrategyRunStateDto | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [panelError, setPanelError] = useState<{ message: string; conflict: boolean } | null>(null);
   const [justStarted, setJustStarted] = useState(false);
@@ -630,7 +731,15 @@ export function ExecutionSection({
     act('status', () => apiClient.strategies.update(strategyId, { rowVersion, status: to }));
 
   const running = status === 'actively_executing';
-  const paused = running && run?.status === 'paused';
+  const runs = runsProp ?? (run ? [run] : []);
+  const paused = running && runs.length > 0 && runs.every((r) => r.status === 'paused');
+  // Accounts with no run of this strategy yet: a strategy runs once per account (N308).
+  const choices = accounts.filter((a) => !runs.some((r) => r.accountId === a.id));
+  const legsAccount = [...definition.entry.orders, ...definition.exit.orders][0]?.accountId;
+  const initialAccountId = choices.some((a) => a.id === legsAccount)
+    ? legsAccount
+    : (choices.find((a) => a.isDefault && a.mode === 'paper') ?? groupAccounts(choices).paper[0])
+        ?.id;
   const canStart = status === 'under_testing' || status === 'off';
   const startBlocked =
     status === 'created'
@@ -652,7 +761,22 @@ export function ExecutionSection({
           <h2 id="lifecycle-heading" className="text-lg font-semibold">
             {paused ? 'Paused on paper' : running ? 'Running on paper' : 'Ready to start'}
           </h2>
-          {paused && run && <PausedPanel strategyId={strategyId} run={run} />}
+          {running && runs.length > 0 && (
+            <RunList
+              runs={runs}
+              busy={busy !== null}
+              onStop={(r) => {
+                setError(null);
+                setStopRun(r);
+                setDialog('stop');
+              }}
+            />
+          )}
+          {runs
+            .filter((r) => r.status === 'paused')
+            .map((r) => (
+              <PausedPanel key={r.runtimeId} strategyId={strategyId} run={r} />
+            ))}
           {!running && (
             <ul className="mt-2 space-y-1 text-sm" aria-label="Before starting">
               <Check ok={canStart}>
@@ -714,9 +838,30 @@ export function ExecutionSection({
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {running ? (
-              <Button variant="danger" onClick={() => setDialog('stop')} disabled={busy !== null}>
-                Stop execution
-              </Button>
+              <>
+                {choices.length > 0 && (
+                  <Button
+                    disabled={startBlocked !== null || busy !== null}
+                    aria-describedby={startBlocked ? hintId : undefined}
+                    onClick={() => {
+                      setError(null);
+                      setDialog('start');
+                    }}
+                  >
+                    Start on another account
+                  </Button>
+                )}
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    setStopRun(undefined);
+                    setDialog('stop');
+                  }}
+                  disabled={busy !== null}
+                >
+                  {runs.length > 1 ? 'Stop every run' : 'Stop execution'}
+                </Button>
+              </>
             ) : (
               <Button
                 variant="primary"
@@ -751,7 +896,7 @@ export function ExecutionSection({
               </Alert>
             </div>
           )}
-          {!running && startBlocked && (
+          {startBlocked && (!running || choices.length > 0) && (
             <p id={hintId} className="mt-2 text-sm text-ink-muted">
               {startBlocked}
             </p>
@@ -782,9 +927,13 @@ export function ExecutionSection({
             <dd className="text-content">{MULTI_LEG_LABELS[ex.multiLegPolicy]}</dd>
             <dt className="text-ink-muted">If a leg fails</dt>
             <dd className="text-content">{LEG_FAILURE_LABELS[ex.onLegFailure]}</dd>
-            <dt className="text-ink-muted">{accountNames.length === 1 ? 'Account' : 'Accounts'}</dt>
+            <dt className="text-ink-muted">{running ? 'Runs on' : 'Starts on'}</dt>
             <dd className="text-content">
-              {accountNames.length > 0 ? accountNames.join(', ') : '—'}
+              {running && runs.length > 0
+                ? runs.map((r) => accountText(r.accountName, r.accountMode)).join(', ')
+                : accountNames.length > 0
+                  ? accountNames.join(', ')
+                  : '—'}
             </dd>
             <dt className="text-ink-muted">Latest back test</dt>
             <dd className="text-content">{latestText}</dd>
@@ -812,15 +961,18 @@ export function ExecutionSection({
             ['Rules since then', DRAFT_TESTED_TEXT[draftTested]],
           ]}
           positions={positions}
+          choices={choices}
+          initialAccountId={initialAccountId}
           busy={busy === 'start'}
           error={error}
-          onConfirm={(acknowledgedWarnings) =>
+          onConfirm={(acknowledgedWarnings, accountId) =>
             act('start', () =>
               apiClient.strategies.start(strategyId, {
                 rowVersion,
                 mode: 'paper',
                 confirmed: true,
                 acknowledgedWarnings,
+                accountId,
               }),
             )
           }
@@ -832,12 +984,14 @@ export function ExecutionSection({
           onClose={() => setDialog(null)}
           busy={busy === 'stop'}
           error={error}
-          onConfirm={({ reason, ...choices }) =>
+          accountName={runs.length > 1 ? stopRun?.accountName : undefined}
+          onConfirm={({ reason, ...stopChoices }) =>
             act('stop', () =>
               apiClient.strategies.stop(strategyId, {
                 rowVersion,
-                ...choices,
+                ...stopChoices,
                 ...(reason ? { reason } : {}),
+                ...(runs.length > 1 && stopRun ? { runtimeId: stopRun.runtimeId } : {}),
               }),
             )
           }

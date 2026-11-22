@@ -100,11 +100,15 @@ export interface PerformanceSummaryDto {
     best: string | null;
     worst: string | null;
   };
+  /** One row per strategy and account it ran on (N309): "this strategy, on this account". */
   byStrategy: {
     strategyId: string;
     strategyName: string;
     /** The strategy's own S number (ADR 0066); null if it has none. */
     strategyNumber: string | null;
+    accountId: string;
+    accountName: string;
+    accountMode: 'paper' | 'live';
     net: string;
     closedTrades: number;
     peakCapital: string;

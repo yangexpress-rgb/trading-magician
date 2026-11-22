@@ -404,6 +404,87 @@ describe('paper runtime: Entry first, Exit second (§6.9)', () => {
   });
 });
 
+describe('paper runtime: one strategy on two accounts (N308, A1)', () => {
+  it('keeps each run on its own account, and pausing one leaves the other trading', async () => {
+    clock = T0 + 2 * 86_400_000;
+    const [first] = await asUser((tx) => tx.select().from(schema.tradingAccounts));
+    const [second] = await t.owner.db
+      .insert(schema.tradingAccounts)
+      .values({
+        userId,
+        brokerConnectionId: first!.brokerConnectionId,
+        nickname: 'Second paper',
+        externalId: 'second-paper',
+        maskedExternalId: '••••0002',
+        currency: 'USD',
+        capabilities: first!.capabilities,
+      })
+      .returning();
+    const { strategy, runtimeId: runA } = await startPaper('Twice', pairDefinition());
+    const again = await asUser(async (tx) => {
+      const s = await getStrategy(tx, strategy.id);
+      const { validation } = await validateStoredStrategy(tx, s.id, second!.id);
+      return startStrategy(tx, userId, s.id, {
+        rowVersion: s.rowVersion,
+        confirmed: true,
+        acknowledgedWarnings: validation.warnings.map((w) => w.code),
+        accountId: second!.id,
+      });
+    });
+    const runB = again.runs.find((r) => r.accountId === second!.id)!.runtimeId;
+    expect(again.runs).toHaveLength(2);
+
+    // Both runs trade, each only on its own account; the legs still name the first.
+    await pass();
+    clock += 5_000;
+    await pass();
+    const accountOf = async (runtimeId: string) =>
+      (
+        await t.ownerSql<{ account_id: string }[]>`
+          select distinct account_id from order_intent where runtime_id = ${runtimeId}`
+      ).map((r) => r.account_id);
+    expect(await accountOf(runA)).toEqual([account]);
+    expect(await accountOf(runB)).toEqual([second!.id]);
+    expect((await orders(runB)).map((o) => o.state)).toEqual(['filled', 'filled']);
+    const positions = await t.ownerSql<{ account_id: string; quantity: string }[]>`
+      select account_id, quantity from paper_position where account_id = ${second!.id}
+        and quantity <> 0`;
+    expect(positions).toHaveLength(2);
+
+    // Positions read per run, each with its own account: never one blend of the two.
+    const held = await asUser((tx) => listPositions(tx));
+    expect(held.filter((p) => p.runtimeId === runA).every((p) => p.accountId === account)).toBe(
+      true,
+    );
+    expect(held.filter((p) => p.runtimeId === runB).every((p) => p.accountId === second!.id)).toBe(
+      true,
+    );
+
+    // Pause A: B carries on to its Exit; A sends nothing more.
+    await t.ownerSql`update strategy_runtime set status = 'paused', pause_reason = 'test'
+      where id = ${runA}`;
+    const beforeA = (await orders(runA)).length;
+    clock += 3_600_000;
+    await pass();
+    clock += 5_000;
+    await pass();
+    expect(await orders(runA)).toHaveLength(beforeA);
+    expect((await orders(runB)).filter((o) => o.phase === 'exit')).toHaveLength(2);
+    const status = await asUser((tx) => getExecutionStatus(tx));
+    expect(status.runtimes.find((r) => r.id === runA)).toMatchObject({
+      status: 'paused',
+      accountId: account,
+    });
+    expect(status.runtimes.find((r) => r.id === runB)).toMatchObject({
+      status: 'running',
+      accountId: second!.id,
+      accountName: 'Second paper',
+      accountMode: 'paper',
+    });
+    await stopAll();
+  });
+});
+
 describe('paper runtime: position values in Exit rules', () => {
   it('measures the gain from the Entry fill and exits on it', async () => {
     clock = T0 + 2 * 86_400_000; // Thursday
@@ -814,7 +895,7 @@ describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', (
       detail: await getStrategy(tx, strategyId),
     }));
     for (const run of [listed!.run, detail.run]) {
-      expect(run).toEqual({
+      expect(run).toMatchObject({
         runtimeId,
         status: 'paused',
         pauseReason: ordersRun.pauseReason,
@@ -830,7 +911,7 @@ describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', (
     await pass();
     expect((await runtimeStatus(runtimeId))?.status).toBe('running');
     // Resumed: the Lab shows it running again, with no reason (N286).
-    expect((await asUser((tx) => getStrategy(tx, strategyId))).run).toEqual({
+    expect((await asUser((tx) => getStrategy(tx, strategyId))).run).toMatchObject({
       runtimeId,
       status: 'running',
       pauseReason: null,

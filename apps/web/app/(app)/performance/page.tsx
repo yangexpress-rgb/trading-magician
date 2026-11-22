@@ -26,7 +26,11 @@ export default async function PerformancePage({
 
   const { accounts, strategies, versions } = await withTenant(appDb(), tenant, async (tx) => ({
     accounts: await tx
-      .select({ id: schema.tradingAccounts.id, name: schema.tradingAccounts.nickname })
+      .select({
+        id: schema.tradingAccounts.id,
+        name: schema.tradingAccounts.nickname,
+        mode: schema.tradingAccounts.mode,
+      })
       .from(schema.tradingAccounts)
       .orderBy(asc(schema.tradingAccounts.nickname)),
     strategies: await tx

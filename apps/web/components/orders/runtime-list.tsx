@@ -3,6 +3,7 @@
 import type { RunDetailKindDto, RuntimeSummaryDto } from '@tm/contracts';
 import { Badge, Button, cx, Table, Td, Th } from '@tm/ui';
 import Link from 'next/link';
+import { AccountLabel } from '@/components/accounts/account-label';
 import type { ReactNode } from 'react';
 import { HeaderFilter, type HeaderFilterDef } from '@/components/filters/header-filter';
 import { formatPct, formatSignedMoney } from '@/lib/backtest-text';
@@ -121,6 +122,7 @@ export function RuntimeList({
             >
               Strategy
             </Th>
+            <Th>Account</Th>
             <Th
               filter={
                 <HeaderFilter
@@ -223,6 +225,9 @@ export function RuntimeList({
                     <span className="font-semibold">{r.strategyName}</span>
                   )}
                 </Td>
+                <Td sortValue={r.accountName} className="text-xs">
+                  <AccountLabel name={r.accountName} mode={r.accountMode} />
+                </Td>
                 <Td sortValue={s.label}>
                   <span className="flex flex-wrap items-center gap-1">
                     <Badge tone={s.tone}>{s.label}</Badge>
@@ -310,7 +315,7 @@ export function RuntimeList({
           })}
           {shown.length === 0 && (
             <tr>
-              <td colSpan={13} className="px-3 py-4 text-sm text-ink-muted">
+              <td colSpan={14} className="px-3 py-4 text-sm text-ink-muted">
                 No strategy on paper matches these filters.
               </td>
             </tr>

@@ -100,7 +100,8 @@ test('start on paper, watch Entry fill live, read its timeline, cancel, stop and
   // filterable header for each column.
   const runs = page.getByRole('table', { name: 'Strategies on paper' });
   const runRow = runs.getByRole('row', {
-    name: /S\d{5,}-[A-Z]{2} Paper buyer Running Just started/,
+    // Each run names its account, PAPER or LIVE in words (N309).
+    name: /S\d{5,}-[A-Z]{2} Paper buyer .+ PAPER Running Just started/,
   });
   await expect(runRow).toBeVisible();
   await runs.getByRole('button', { name: 'Filter by Status' }).click();

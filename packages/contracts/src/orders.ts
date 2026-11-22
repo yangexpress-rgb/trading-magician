@@ -76,6 +76,8 @@ export interface OrderRowDto {
   averagePrice: string | null;
   accountId: string;
   accountName: string;
+  /** PAPER or LIVE, shown in words beside the account (N309). */
+  accountMode: 'paper' | 'live';
   reason: string | null;
   cancelRequested: boolean;
   createdAt: string;
@@ -160,6 +162,7 @@ export interface PositionDto {
   symbol: string;
   accountId: string;
   accountName: string;
+  accountMode: 'paper' | 'live';
   quantity: string;
   averageCost: string | null;
   lastFillPrice: string;
@@ -179,6 +182,10 @@ export interface RuntimeSummaryDto {
   strategyNumber: string | null;
   status: 'running' | 'paused' | 'stopped';
   pauseReason: string | null;
+  /** The account the run trades on (N308), with its label and PAPER or LIVE. */
+  accountId: string | null;
+  accountName: string;
+  accountMode: 'paper' | 'live';
   startedAt: string;
   stoppedAt: string | null;
   workingOrders: number;
