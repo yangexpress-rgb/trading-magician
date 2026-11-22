@@ -615,6 +615,10 @@ export class FakeAlpaca {
     // Alpaca's end defaults to now.
     const end = (q.get('end') ?? this.now().toISOString()).slice(0, 10);
     const adjustment = q.get('adjustment') ?? 'raw';
+    // A range that starts after the fake's clock has no bars yet, as with
+    // Alpaca. Callers on the real clock (the screener) can ask for one when
+    // the fake runs on a shifted paper clock (E2E's PAPER_CLOCK_START).
+    if (start > end) return json(200, { bars: {}, next_page_token: null });
     // Pages run through the symbols in order, each symbol's bars oldest first.
     const all: [string, AlpacaBar][] = [];
     for (const symbol of (q.get('symbols') ?? '').split(',').filter(Boolean).sort()) {
