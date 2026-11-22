@@ -63,6 +63,7 @@ export { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 export * from './order-views';
 export { EXECUTION_CHANNEL, listenForExecutionChanges, type ExecutionListener } from './notify';
 export * from './incidents';
+export * from './account-risk';
 export * from './notifications';
 export { reconcileAccount, type Mismatch, type ReconcileResult } from './reconcile';
 export * from './credentials';

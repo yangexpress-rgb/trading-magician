@@ -21,8 +21,11 @@ import {
 } from '../src/orders';
 import { provisionWorkspace } from '../src/provision';
 import {
+  accountValuations,
   brokerOrders,
+  executionIncidents,
   fills,
+  notifications,
   instruments,
   orderEvents,
   orderIntents,
@@ -35,6 +38,15 @@ import {
   users,
 } from '../src/schema';
 import { createStrategy, pinDraftVersion } from '../src/strategies';
+import {
+  accountExposureBook,
+  activeHalt,
+  checkAccountDailyLoss,
+  setAccountKillSwitch,
+  setAccountLimits,
+} from '../src/account-risk';
+import { resumeRuntimeByUser } from '../src/order-views';
+import { nyDate } from '@tm/domain';
 import { withTenant } from '../src/tenant';
 import { createTestDatabase, type TestDatabase } from './harness';
 
@@ -605,5 +617,157 @@ describe('runtime constraints', () => {
         tx.select().from(orderIntents).where(eq(orderIntents.accountId, accountA2)),
       ),
     ).toEqual([]);
+  });
+});
+
+describe('the account risk layer (Phase 7 P1, ADR 0107)', () => {
+  /** One running run on each of two accounts, each with a working Entry order. */
+  async function twoAccounts() {
+    const accountB = await secondAccount(userA);
+    const onA = await startCycle(userA, accountA);
+    const onB = await startCycle(userA, accountB);
+    const order = (c: Cycle, name: string) =>
+      asA(async (tx) => {
+        const key = idempotencyKey({
+          runtimeId: c.runtimeId,
+          cycleId: c.cycleId,
+          phase: 'entry',
+          legId: 'buy',
+          attempt: 1,
+        });
+        const { intentId } = await recordOrderIntent(
+          tx,
+          userA,
+          intentFor(c, { idempotencyKey: key }),
+        );
+        await markOrderSubmitted(tx, intentId, `paper-${name}`);
+        return intentId;
+      });
+    return {
+      accountB,
+      onA,
+      onB,
+      orderA: await order(onA, `a-${onA.runtimeId}`),
+      orderB: await order(onB, `b-${onB.runtimeId}`),
+    };
+  }
+  const runStatus = async (runtimeId: string) =>
+    (
+      await asA((tx) =>
+        tx
+          .select({ status: strategyRuntimes.status, reason: strategyRuntimes.pauseReason })
+          .from(strategyRuntimes)
+          .where(eq(strategyRuntimes.id, runtimeId)),
+      )
+    )[0];
+  const cancelAsked = async (intentId: string) =>
+    (
+      await asA((tx) =>
+        tx
+          .select({ at: brokerOrders.cancelRequestedAt })
+          .from(brokerOrders)
+          .where(eq(brokerOrders.intentId, intentId)),
+      )
+    )[0]?.at ?? null;
+
+  it("counts every run's working entries toward the account's exposure", async () => {
+    const { accountB } = await twoAccounts();
+    const book = await asA((tx) => accountExposureBook(tx, accountB));
+    // One working Entry of 10 at $100 on B; A's order is not B's.
+    expect(book.pendingEntry.toString()).toBe('1000');
+    expect(book.positions.size).toBe(0);
+  });
+
+  it('the kill switch on one account pauses its runs and cancels its orders only (A4)', async () => {
+    const { accountB, onA, onB, orderA, orderB } = await twoAccounts();
+    const result = await asA((tx) => setAccountKillSwitch(tx, userA, accountB, true, 'test'));
+    expect(result).toEqual({ paused: 1, canceled: 1 });
+    expect(await runStatus(onB.runtimeId)).toMatchObject({
+      status: 'paused',
+      reason: expect.stringContaining('Kill switch engaged'),
+    });
+    expect(await cancelAsked(orderB)).not.toBeNull();
+    // Account A is untouched.
+    expect(await runStatus(onA.runtimeId)).toMatchObject({ status: 'running' });
+    expect(await cancelAsked(orderA)).toBeNull();
+    // Nothing on B resumes while it is halted.
+    await expect(asA((tx) => resumeRuntimeByUser(tx, userA, onB.runtimeId))).rejects.toMatchObject({
+      code: 'invalid_state',
+      message: expect.stringContaining('kill switch'),
+    });
+    // Releasing it resumes nothing by itself; each run is resumed on purpose.
+    await asA((tx) => setAccountKillSwitch(tx, userA, accountB, false));
+    expect(await runStatus(onB.runtimeId)).toMatchObject({ status: 'paused' });
+    await asA((tx) => resumeRuntimeByUser(tx, userA, onB.runtimeId));
+    expect(await runStatus(onB.runtimeId)).toMatchObject({ status: 'running' });
+  });
+
+  it("the daily loss limit halts that account's runs for the day, and no other (A3)", async () => {
+    const { accountB, onA, onB } = await twoAccounts();
+    await asA((tx) => setAccountLimits(tx, userA, accountB, { dailyLossLimit: '1000' }));
+    const now = new Date();
+    const today = nyDate(now);
+    // Yesterday's close left the account $500 up; today it stands $600 down overall.
+    await t.owner.db.insert(accountValuations).values({
+      userId: userA,
+      accountId: accountB,
+      sessionDate: '2000-01-03',
+      asOf: new Date('2000-01-03T21:00:00Z'),
+      final: true,
+      startingEquity: '100000',
+      appEquity: '100500',
+      realized: '500',
+      unrealized: '0',
+      fees: '0',
+      marketValue: '0',
+    });
+    const check = (pnl: number, staleMarks = 0) =>
+      asA((tx) =>
+        checkAccountDailyLoss(tx, {
+          userId: userA,
+          accountId: accountB,
+          sessionDate: today,
+          pnl: new Decimal(pnl),
+          staleMarks,
+          now,
+        }),
+      );
+    // Down $900 on the day: within the limit.
+    expect(await check(-400)).toBeUndefined();
+    // A holding without a price: not judged.
+    expect(await check(-600, 1)).toBeUndefined();
+    expect((await check(-600))?.toString()).toBe('1100');
+    expect(await runStatus(onB.runtimeId)).toMatchObject({
+      status: 'paused',
+      reason: expect.stringContaining('daily loss limit'),
+    });
+    expect(await runStatus(onA.runtimeId)).toMatchObject({ status: 'running' });
+    // The halt and its reason are in B's incidents and notifications.
+    const [incident] = await asA((tx) =>
+      tx.select().from(executionIncidents).where(eq(executionIncidents.accountId, accountB)),
+    );
+    expect(incident).toMatchObject({ kind: 'account_daily_loss', pausedRuntimes: 1 });
+    expect(incident!.summary).toContain('$1,100.00');
+    const notes = await asA((tx) =>
+      tx.select().from(notifications).where(eq(notifications.resourceId, incident!.id)),
+    );
+    expect(notes.map((n) => n.title)).toEqual(['Account daily loss limit reached']);
+    // Once halted it is not halted again, and nothing resumes today.
+    expect(await check(-2000)).toBeUndefined();
+    await expect(asA((tx) => resumeRuntimeByUser(tx, userA, onB.runtimeId))).rejects.toMatchObject({
+      code: 'invalid_state',
+      message: expect.stringContaining('daily loss'),
+    });
+    // The halt ends with the day.
+    const [row] = await asA((tx) =>
+      tx.select().from(tradingAccounts).where(eq(tradingAccounts.id, accountB)),
+    );
+    expect(activeHalt(row!, now)).toMatchObject({ kind: 'daily_loss', date: today });
+    expect(activeHalt(row!, new Date(now.getTime() + 36 * 3600_000))).toBeNull();
+    // The account's limits are checked by the database too.
+    await expectPgError(
+      t.ownerSql`update trading_account set daily_loss_limit = 0 where id = ${accountB}`,
+      '23514',
+    );
   });
 });

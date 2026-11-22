@@ -38,6 +38,8 @@ import type {
   CreateInstrumentLookupRequest,
   InstrumentLookupDto,
   AccountUpdateDto,
+  AccountKillSwitchDto,
+  AccountKillSwitchRequest,
   CreatePlatformRequest,
   PlatformDto,
   PlatformListDto,
@@ -316,6 +318,9 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
     accounts: {
       update: (id: string, body: UpdateAccountRequest) =>
         call<AccountUpdateDto>('PATCH', `/trading-accounts/${enc(id)}`, body),
+      /** The account kill switch (ADR 0107): engage, or release the account's halt. */
+      killSwitch: (id: string, body: AccountKillSwitchRequest) =>
+        call<AccountKillSwitchDto>('POST', `/trading-accounts/${enc(id)}/kill-switch`, body),
     },
     instruments: {
       /** Asks the worker to find a US stock or ETF; poll `getLookup` until it settles. */

@@ -237,6 +237,7 @@ export const INCIDENT_KINDS = [
   'feed_loss',
   'broker_disconnected',
   'safety_close',
+  'account_daily_loss',
 ] as const;
 export type IncidentKindDto = (typeof INCIDENT_KINDS)[number];
 

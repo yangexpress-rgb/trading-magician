@@ -485,6 +485,48 @@ describe('paper runtime: one strategy on two accounts (N308, A1)', () => {
   });
 });
 
+describe("paper runtime: the account's own exposure limit (ADR 0107)", () => {
+  it('refuses Entry orders that would take the account past its limit, before the broker', async () => {
+    clock = T0 + 2 * 86_400_000;
+    const [first] = await asUser((tx) => tx.select().from(schema.tradingAccounts));
+    const [capped] = await t.owner.db
+      .insert(schema.tradingAccounts)
+      .values({
+        userId,
+        brokerConnectionId: first!.brokerConnectionId,
+        nickname: 'Capped paper',
+        externalId: 'capped-paper',
+        maskedExternalId: '••••0003',
+        currency: 'USD',
+        capabilities: first!.capabilities,
+        maxExposure: '1',
+      })
+      .returning();
+    const { strategy } = await startPaper('Capped', pairDefinition());
+    // Only the run on the capped account; the first one stops.
+    await stopAll();
+    const s = await asUser(async (tx) => {
+      const current = await getStrategy(tx, strategy.id);
+      const { validation } = await validateStoredStrategy(tx, current.id, capped!.id);
+      return startStrategy(tx, userId, current.id, {
+        rowVersion: current.rowVersion,
+        confirmed: true,
+        acknowledgedWarnings: validation.warnings.map((w) => w.code),
+        accountId: capped!.id,
+      });
+    });
+    const run = s.runs.find((r) => r.accountId === capped!.id)!.runtimeId;
+    await pass();
+    const placed = await orders(run);
+    expect(placed.length).toBeGreaterThan(0);
+    expect(placed.every((o) => o.reason === 'Risk check failed: risk_account_exposure')).toBe(true);
+    const atBroker = await t.ownerSql`
+      select 1 from paper_order where account_id = ${capped!.id}`;
+    expect(atBroker).toHaveLength(0);
+    await stopAll();
+  });
+});
+
 describe('paper runtime: position values in Exit rules', () => {
   it('measures the gain from the Entry fill and exits on it', async () => {
     clock = T0 + 2 * 86_400_000; // Thursday

@@ -12,6 +12,7 @@ export const RISK_CHECK_CODES = [
   'risk_active_orders',
   'risk_order_size',
   'risk_exposure',
+  'risk_account_exposure',
   'buying_power',
   'risk_daily_loss',
   'risk_drawdown',
@@ -32,6 +33,7 @@ export type RiskCheckCode = (typeof RISK_CHECK_CODES)[number];
 export const CAPACITY_RISK_CODES = [
   'risk_active_orders',
   'risk_exposure',
+  'risk_account_exposure',
   'buying_power',
   'risk_open_positions',
 ] as const satisfies readonly RiskCheckCode[];
@@ -54,6 +56,11 @@ export interface RiskCheckInput {
   openPositions: number;
   /** Whether the order's instrument is already one of those positions. */
   instrumentHeld: boolean;
+  /**
+   * The account's own exposure limit (Phase 7 P1, ADR 0107): the gross value
+   * every run on the account holds and has working, before this order.
+   */
+  account?: { maxExposure: string; grossExposure: Decimal } | undefined;
   /** Seconds since the reference price was observed; checked when given. */
   priceAgeSec?: number | undefined;
   staleDataSec?: number | undefined;
@@ -129,6 +136,18 @@ export function checkPreTradeRisk(input: RiskCheckInput): RiskCheckResult {
       )
     )
       return done();
+    if (input.account) {
+      const accountAfter = input.account.grossExposure.plus(notional);
+      if (
+        !check(
+          'risk_account_exposure',
+          accountAfter.lte(input.account.maxExposure),
+          input.account.maxExposure,
+          accountAfter.toFixed(2),
+        )
+      )
+        return done();
+    }
     if (!check('buying_power', after.lte(input.equity), input.equity.toFixed(2), after.toFixed(2)))
       return done();
     if (risk.dailyLossLimit && !check('risk_daily_loss', !input.dailyLossHit)) return done();
@@ -195,6 +214,7 @@ export const RISK_CHECK_TEXT: Record<RiskCheckCode, string> = {
   risk_active_orders: 'Active orders',
   risk_order_size: 'Order size',
   risk_exposure: 'Strategy exposure',
+  risk_account_exposure: 'Account exposure',
   buying_power: 'Buying power',
   risk_daily_loss: 'Daily loss',
   risk_drawdown: 'Drawdown',
@@ -207,6 +227,7 @@ export const RISK_CHECK_TEXT: Record<RiskCheckCode, string> = {
 const DOLLAR_CHECKS: readonly RiskCheckCode[] = [
   'risk_order_size',
   'risk_exposure',
+  'risk_account_exposure',
   'buying_power',
 ];
 

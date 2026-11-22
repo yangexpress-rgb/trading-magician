@@ -49,6 +49,7 @@ import {
 } from './library-lab';
 import { activeOptionsFeed, addOptionUnderlyings, listOptionUniverse } from './options';
 import { demoDataEnabled } from './demo';
+import { accountHalt, haltText } from './account-risk';
 import { recordAudit } from './audit';
 import { preferredLegAccountId } from './leg-accounts';
 import { bindDefinitionToAccount, legsAccount } from './strategy-accounts';
@@ -1116,6 +1117,14 @@ async function runAccountFor(
   if (account.mode !== 'paper') {
     throw new StrategyError('transition_blocked', 'Live trading is not available', {
       reason: 'live_disabled',
+      details: [],
+    });
+  }
+  // A halted account starts nothing until the halt ends (ADR 0107).
+  const halt = await accountHalt(tx, account.id);
+  if (halt) {
+    throw new StrategyError('transition_blocked', haltText(account.nickname, halt), {
+      reason: 'account_halted',
       details: [],
     });
   }

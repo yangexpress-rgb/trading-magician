@@ -17,6 +17,7 @@ import {
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
+import { runtimeAccountHalt } from './account-risk';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
 import { announceOrderChange, OrderError } from './orders';
@@ -35,6 +36,7 @@ import {
   strategyCycles,
   strategyRuntimes,
   strategyVersions,
+  tradingAccounts,
   triggerEvents,
 } from './schema';
 import { strategyLabelSql } from './strategy-label';
@@ -343,6 +345,8 @@ export async function resumeRuntime(
   runtimeId: string,
 ): Promise<boolean> {
   if (await isHalted(tx, userId)) return false;
+  // A run on a halted account stays paused until the halt ends (ADR 0107).
+  if (await runtimeAccountHalt(tx, runtimeId)) return false;
   const rows = await tx
     .update(strategyRuntimes)
     .set({ status: 'running', pauseReason: null, resumedAt: new Date() })
@@ -420,6 +424,8 @@ export interface RuntimeWork {
   accountId: string;
   /** Accounts to read broker updates from: the run's account, and any older order's. */
   accounts: string[];
+  /** The run's account's maximum total exposure, if it has one (ADR 0107). */
+  accountMaxExposure: string | null;
   halted: boolean;
   cycles: ActiveCycle[];
   nextSeq: number;
@@ -460,6 +466,10 @@ export async function loadRuntimeWork(
   // Legs, condition instruments, list-universe members and benchmarks (v1.2).
   const ids = new Set<string>(strategyInstruments(definition, listMembers(definition)));
   const accounts = new Set<string>([runAccount]);
+  const [accountLimits] = await tx
+    .select({ maxExposure: tradingAccounts.maxExposure })
+    .from(tradingAccounts)
+    .where(eq(tradingAccounts.id, runAccount));
 
   // Every order of the runtime, with fills.
   const orders = await tx
@@ -621,6 +631,7 @@ export async function loadRuntimeWork(
     instruments: instrumentMap,
     accountId: runAccount,
     accounts: [...accounts],
+    accountMaxExposure: accountLimits?.maxExposure ?? null,
     halted: await isHalted(tx, rt.runtime.userId),
     cycles,
     nextSeq: (cycleRows.at(-1)?.seq ?? 0) + 1,

@@ -917,10 +917,34 @@ export const tradingAccounts = pgTable(
     startingEquity: numeric('starting_equity'),
     valuedAt: timestamp('valued_at', { withTimezone: true }),
     valuationLeaseExpiresAt: timestamp('valuation_lease_expires_at', { withTimezone: true }),
+    /**
+     * Account limits (Phase 7 P1, D4; ADR 0107), above each strategy's own:
+     * gross exposure of every run on the account, and the loss in one New
+     * York trading day that halts them all. Null means no account limit.
+     */
+    maxExposure: numeric('max_exposure'),
+    dailyLossLimit: numeric('daily_loss_limit'),
+    /**
+     * A halt stops every run on the account: the account kill switch until it
+     * is released, or the daily loss limit for the rest of `haltDate`.
+     */
+    haltKind: text('halt_kind').$type<'kill_switch' | 'daily_loss'>(),
+    haltedAt: timestamp('halted_at', { withTimezone: true }),
+    haltReason: text('halt_reason'),
+    /** New York date of a daily-loss halt; it ends with that day. */
+    haltDate: date('halt_date'),
     ...timestamps(),
     rowVersion: rowVersion(),
   },
   (t) => [
+    check(
+      'trading_account_limits_positive',
+      sql`(${t.maxExposure} is null or ${t.maxExposure} > 0) and (${t.dailyLossLimit} is null or ${t.dailyLossLimit} > 0)`,
+    ),
+    check(
+      'trading_account_halt',
+      sql`(${t.haltKind} is null) = (${t.haltedAt} is null) and (${t.haltKind} is null or ${t.haltKind} in ('kill_switch', 'daily_loss')) and ((coalesce(${t.haltKind}, '') = 'daily_loss') = (${t.haltDate} is not null))`,
+    ),
     foreignKey({
       columns: [t.brokerConnectionId, t.userId],
       foreignColumns: [brokerConnections.id, brokerConnections.userId],
@@ -1833,6 +1857,7 @@ export const INCIDENT_KINDS = [
   'feed_loss',
   'broker_disconnected',
   'safety_close',
+  'account_daily_loss',
 ] as const;
 
 /** Something that made execution unsafe or uncertain; open until resolved. */
@@ -1871,7 +1896,7 @@ export const executionIncidents = pgTable(
     index('execution_incident_user_idx').on(t.userId, t.openedAt),
     check(
       'execution_incident_kind',
-      sql`${t.kind} in ('reconciliation_mismatch', 'repeated_rejects', 'stale_data', 'feed_loss', 'broker_disconnected', 'safety_close')`,
+      sql`${t.kind} in ('reconciliation_mismatch', 'repeated_rejects', 'stale_data', 'feed_loss', 'broker_disconnected', 'safety_close', 'account_daily_loss')`,
     ),
     check('execution_incident_summary_length', sql`char_length(${t.summary}) <= 500`),
     check('execution_incident_resolution_length', sql`char_length(${t.resolution}) <= 500`),
