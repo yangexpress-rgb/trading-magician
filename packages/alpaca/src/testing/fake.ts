@@ -293,7 +293,27 @@ export class FakeAlpaca {
       });
     }
     const held = (await this.broker.positions(ACCOUNT)).find((p) => p.instrumentId === symbol);
-    const short = side === 'sell' && new Decimal(held?.quantity ?? 0).lt(qty);
+    // Alpaca keeps one net position per symbol and refuses an order that would
+    // take it through zero, counting what open orders already hold (N307).
+    const position = new Decimal(held?.quantity ?? 0);
+    const closing = side === 'sell' ? position.gt(0) : position.lt(0);
+    if (closing) {
+      let available = position.abs();
+      for (const o of this.orders.values()) {
+        if (o.symbol !== symbol || o.side !== side) continue;
+        const v = await this.view(o);
+        if (['submitted', 'acknowledged', 'partially_filled'].includes(v.state))
+          available = available.minus(new Decimal(o.qty).minus(v.filledQuantity));
+      }
+      available = Decimal.max(available, 0);
+      if (new Decimal(qty).gt(available)) {
+        return json(403, {
+          code: 40310000,
+          message: `insufficient qty available for order (requested: ${qty}, available: ${available.toString()})`,
+        });
+      }
+    }
+    const short = side === 'sell' && position.lt(qty);
     if (short && !this.shortingEnabled) {
       return json(403, { code: 40310000, message: 'account is not allowed to short' });
     }

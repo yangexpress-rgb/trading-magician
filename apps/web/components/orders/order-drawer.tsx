@@ -186,6 +186,13 @@ export function OrderDrawer({
             </div>
           )}
 
+          {d.source === 'system' && (
+            <Alert tone="info">
+              <span className="font-medium">Why the app closed this position: </span>
+              {d.closeReason ??
+                'Not recorded. Safety closes placed before reasons were kept (Nov 22, 2026) have none.'}
+            </Alert>
+          )}
           <Section title="Order">
             <Pairs
               rows={[

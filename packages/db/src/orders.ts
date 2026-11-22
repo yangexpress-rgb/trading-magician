@@ -63,6 +63,10 @@ export async function recordOrderIntent(
   userId: string,
   intent: OrderIntent,
 ): Promise<RecordedIntent> {
+  // A safety close always says why (N306); the database refuses one without.
+  if (intent.source === 'system' && !intent.closeReason?.trim()) {
+    throw new OrderError('invalid_state', 'A safety close needs its reason');
+  }
   const [row] = await tx
     .insert(orderIntents)
     .values({
@@ -92,6 +96,7 @@ export async function recordOrderIntent(
       risk: intent.risk,
       idempotencyKey: intent.idempotencyKey,
       source: intent.source,
+      closeReason: intent.closeReason?.trim().slice(0, 1000) ?? null,
     })
     .onConflictDoNothing({ target: [orderIntents.userId, orderIntents.idempotencyKey] })
     .returning({ id: orderIntents.id });

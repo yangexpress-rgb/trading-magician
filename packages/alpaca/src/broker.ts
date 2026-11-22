@@ -27,6 +27,8 @@ export interface AlpacaBrokerOptions {
   capabilities: BrokerCapabilities;
   /** The app's instrument for an Alpaca symbol, for positions. */
   instrumentIdFor?: ((symbol: string) => Promise<string | undefined>) | undefined;
+  /** The clock, for how long part two of a split order is retried (tests set it). */
+  now?: (() => Date) | undefined;
 }
 
 const ORDERS_PAGE = 500;
@@ -67,7 +69,7 @@ function decodeCursor(cursor: string | undefined): Cursor {
 
 /** The normalized events an order's current state implies; fills come separately. */
 export function orderEvents(o: AlpacaOrder): BrokerOrderUpdate[] {
-  const base = { brokerOrderId: o.id, clientOrderId: o.client_order_id };
+  const base = { brokerOrderId: o.id, clientOrderId: appClientOrderId(o.client_order_id) };
   if (o.status === 'pending_new') return [];
   if (o.status === 'rejected') {
     return [
@@ -115,7 +117,7 @@ export function orderEvents(o: AlpacaOrder): BrokerOrderUpdate[] {
 function fillEvent(a: AlpacaFillActivity, clientOrderId: string): BrokerOrderUpdate {
   return {
     brokerOrderId: a.order_id,
-    clientOrderId,
+    clientOrderId: appClientOrderId(clientOrderId),
     eventId: a.id,
     kind: 'fill',
     rawStatus: a.type,
@@ -154,28 +156,107 @@ function validate(r: BrokerOrderRequest, caps: BrokerCapabilities) {
 const isDuplicate = (e: AlpacaRequestError) =>
   e.status === 422 && /client_order_id must be unique/i.test(e.message);
 
+/**
+ * Orders that would take the account through zero (N307, ADR 0105).
+ *
+ * Alpaca keeps one net position per symbol per account, while the app keeps
+ * one book per strategy. When strategies on one account hold the same symbol
+ * in opposite directions, a strategy's own close can be larger than what the
+ * account holds: S00033 long 68 SPY while S00027 is short 34 leaves the
+ * account long 34, and Alpaca refuses any single order that would cross zero
+ * ("insufficient qty available for order (requested: 68, available: 34)").
+ *
+ * Such an order goes in two parts under the same intent: part one, for what
+ * the account can trade now, carries the rest in its client order id
+ * (`<id>_1_<rest>`); once it has filled, part two (`<id>_2`) sends the rest,
+ * which Alpaca then takes from a flat position. Both parts report under the
+ * app's own client order id, so the intent sees one order filling in two fills.
+ */
+const PART_ONE = /^(.+)_1_(\d+(?:\.\d+)?)$/;
+const PART_TWO = /^(.+)_2$/;
+const INSUFFICIENT =
+  /insufficient qty available for order \(requested: (\d+(?:\.\d+)?), available: (\d+(?:\.\d+)?)\)/i;
+/** How long part two is retried after part one filled, before the rest is given up. */
+export const SPLIT_REST_RETRY_MS = 120_000;
+
+export const partOneId = (clientOrderId: string, rest: Decimal) =>
+  `${clientOrderId}_1_${rest.toString()}`;
+export const partTwoId = (clientOrderId: string) => `${clientOrderId}_2`;
+
+/** Part one of a split order: the app's client order id and the rest still to send. */
+function partOne(alpacaClientOrderId: string): { base: string; rest: string } | undefined {
+  const m = PART_ONE.exec(alpacaClientOrderId);
+  return m?.[1] && m[2] ? { base: m[1], rest: m[2] } : undefined;
+}
+
+/** The app's client order id behind an Alpaca one, split or not. */
+export function appClientOrderId(alpacaClientOrderId: string): string {
+  return (
+    partOne(alpacaClientOrderId)?.base ??
+    PART_TWO.exec(alpacaClientOrderId)?.[1] ??
+    alpacaClientOrderId
+  );
+}
+
+/** Requested and available from Alpaca's refusal of an order that would cross zero. */
+export function insufficientQty(
+  message: string,
+): { requested: Decimal; available: Decimal } | undefined {
+  const m = INSUFFICIENT.exec(message);
+  if (!m?.[1] || !m[2]) return undefined;
+  return { requested: new Decimal(m[1]), available: new Decimal(m[2]) };
+}
+
 export class AlpacaBroker implements BrokerAdapter {
   readonly id = ALPACA_BROKER_ID;
   readonly capabilities: BrokerCapabilities;
   private readonly client: AlpacaClient;
+  private readonly now: () => Date;
 
   constructor(private readonly options: AlpacaBrokerOptions) {
     this.client = options.client;
     this.capabilities = options.capabilities;
+    this.now = options.now ?? (() => new Date());
   }
 
   async submitOrder(request: BrokerOrderRequest): Promise<{ brokerOrderId: string }> {
     validate(request, this.capabilities);
+    try {
+      return await this.place(request, request.clientOrderId, request.quantity);
+    } catch (e) {
+      if (!(e instanceof BrokerRejectedError)) throw e;
+      // Another strategy holds the opposite side on this account: send what the
+      // account can trade now, and the rest once that has filled (N307).
+      const short = insufficientQty(e.message);
+      const quantity = new Decimal(request.quantity);
+      if (!short || !short.available.gt(0) || !short.requested.eq(quantity)) throw e;
+      if (!short.available.lt(quantity)) throw e;
+      if (!this.capabilities.fractionalQuantities && !short.available.isInteger()) throw e;
+      const rest = quantity.minus(short.available);
+      return this.place(
+        request,
+        partOneId(request.clientOrderId, rest),
+        short.available.toString(),
+      );
+    }
+  }
+
+  /** Places one Alpaca order; a repeated client order id returns the original. */
+  private async place(
+    request: BrokerOrderRequest,
+    clientOrderId: string,
+    quantity: string,
+  ): Promise<{ brokerOrderId: string }> {
     const body = {
       symbol: request.symbol,
-      qty: request.quantity,
+      qty: quantity,
       side: request.direction,
       type: request.orderType,
       time_in_force: request.timeInForce,
       ...(request.limitPrice === undefined ? {} : { limit_price: request.limitPrice }),
       ...(request.stopPrice === undefined ? {} : { stop_price: request.stopPrice }),
       extended_hours: request.extendedHours,
-      client_order_id: request.clientOrderId,
+      client_order_id: clientOrderId,
     };
     try {
       const order = await this.client.trading<AlpacaOrder>('POST', '/v2/orders', { body });
@@ -183,10 +264,61 @@ export class AlpacaBroker implements BrokerAdapter {
     } catch (e) {
       if (!(e instanceof AlpacaRequestError)) throw e;
       if (isDuplicate(e)) {
-        const existing = await this.byClientOrderId(request.clientOrderId);
+        const existing = await this.byClientOrderId(clientOrderId);
         if (existing) return { brokerOrderId: existing.id };
       }
       throw new BrokerRejectedError(e.status === 403 ? 'refused' : 'invalid', e.message);
+    }
+  }
+
+  /**
+   * Sends part two of a split order whose part one has filled (N307). Returns
+   * an update that ends the intent when the rest cannot be sent in time.
+   */
+  private async sendRest(
+    first: AlpacaOrder,
+    known: ReadonlySet<string>,
+  ): Promise<BrokerOrderUpdate | undefined> {
+    const split = partOne(first.client_order_id);
+    if (!split || first.status !== 'filled') return undefined;
+    const { base, rest } = split;
+    if (known.has(partTwoId(base))) return undefined;
+    try {
+      await this.place(
+        {
+          clientOrderId: base,
+          accountId: '',
+          instrumentId: '',
+          symbol: first.symbol,
+          direction: first.side,
+          short: false,
+          quantity: rest,
+          orderType: first.type as BrokerOrderRequest['orderType'],
+          ...(first.limit_price ? { limitPrice: first.limit_price } : {}),
+          ...(first.stop_price ? { stopPrice: first.stop_price } : {}),
+          timeInForce: first.time_in_force as BrokerOrderRequest['timeInForce'],
+          extendedHours: first.extended_hours,
+        },
+        partTwoId(base),
+        rest,
+      );
+      return undefined;
+    } catch (e) {
+      if (!(e instanceof BrokerRejectedError)) throw e;
+      const filledAt = Date.parse(first.filled_at ?? first.updated_at);
+      if (this.now().getTime() - filledAt < SPLIT_REST_RETRY_MS) return undefined;
+      return {
+        brokerOrderId: first.id,
+        clientOrderId: base,
+        eventId: `${first.id}:rest_refused`,
+        kind: 'canceled',
+        rawStatus: 'rest_refused',
+        at: this.now().toISOString(),
+        reason: `Alpaca took ${first.filled_qty} and refused the other ${rest}: ${e.message}`.slice(
+          0,
+          500,
+        ),
+      };
     }
   }
 
@@ -195,10 +327,27 @@ export class AlpacaBroker implements BrokerAdapter {
       await this.client.trading('DELETE', `/v2/orders/${encodeURIComponent(brokerOrderId)}`);
     } catch (e) {
       if (!(e instanceof AlpacaRequestError)) throw e;
-      // Already filled, canceled or expired: nothing left to cancel.
-      if (e.status === 422) return;
+      // Already filled, canceled or expired: nothing left to cancel, unless it
+      // is part one of a split order whose part two is still working (N307).
+      if (e.status === 422) {
+        await this.cancelRest(brokerOrderId);
+        return;
+      }
       if (e.status === 404) throw new BrokerRejectedError('not_found', 'Alpaca has no such order');
       throw new BrokerRejectedError('invalid', e.message);
+    }
+  }
+
+  private async cancelRest(partOneOrderId: string) {
+    const first = await this.order(partOneOrderId);
+    const split = partOne(first.client_order_id);
+    if (!split) return;
+    const rest = await this.byClientOrderId(partTwoId(split.base));
+    if (!rest) return;
+    try {
+      await this.client.trading('DELETE', `/v2/orders/${encodeURIComponent(rest.id)}`);
+    } catch (e) {
+      if (!(e instanceof AlpacaRequestError) || e.status !== 422) throw e;
     }
   }
 
@@ -215,6 +364,12 @@ export class AlpacaBroker implements BrokerAdapter {
       if (c.s !== undefined && key <= c.s) continue;
       updates.push(...orderEvents(o));
       if (s === undefined || key > s) s = key;
+    }
+    // Part two of a split order goes once part one has filled (N307).
+    const known = new Set(orders.map((o) => o.client_order_id));
+    for (const o of orders) {
+      const ended = await this.sendRest(o, known);
+      if (ended) updates.push(ended);
     }
 
     const fills = await this.client.trading<AlpacaFillActivity[]>(
@@ -243,7 +398,18 @@ export class AlpacaBroker implements BrokerAdapter {
       }
       throw e;
     }
-    const updates = orderEvents(o);
+    const updates = [...orderEvents(o), ...(await this.fillsOf(o))];
+    // A split order's part two belongs to the same intent (N307).
+    const split = partOne(o.client_order_id);
+    if (split) {
+      const rest = await this.byClientOrderId(partTwoId(split.base));
+      if (rest) updates.push(...orderEvents(rest), ...(await this.fillsOf(rest)));
+    }
+    return updates;
+  }
+
+  private async fillsOf(o: AlpacaOrder): Promise<BrokerOrderUpdate[]> {
+    const updates: BrokerOrderUpdate[] = [];
     const filled = new Decimal(o.filled_qty || 0);
     if (filled.gt(0)) {
       let seen = new Decimal(0);

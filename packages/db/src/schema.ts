@@ -1461,6 +1461,8 @@ export const orderIntents = pgTable(
     risk: jsonb('risk').notNull(),
     idempotencyKey: text('idempotency_key').notNull(),
     source: text('source').notNull().default('strategy'),
+    /** Why a safety close was placed, in words (N306); required when `source` is 'system'. */
+    closeReason: text('close_reason'),
     mode: tradingMode('mode').notNull().default('paper'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1503,6 +1505,11 @@ export const orderIntents = pgTable(
     ),
     check('order_intent_tif', sql`${t.timeInForce} in ('day', 'gtc', 'ioc', 'fok')`),
     check('order_intent_source', sql`${t.source} in ('strategy', 'user', 'system')`),
+    check(
+      'order_intent_close_reason',
+      sql`${t.source} <> 'system' or coalesce(char_length(btrim(${t.closeReason})), 0) > 0`,
+    ),
+    check('order_intent_close_reason_length', sql`char_length(${t.closeReason}) <= 1000`),
   ],
 );
 
@@ -1811,6 +1818,7 @@ export const INCIDENT_KINDS = [
   'stale_data',
   'feed_loss',
   'broker_disconnected',
+  'safety_close',
 ] as const;
 
 /** Something that made execution unsafe or uncertain; open until resolved. */
@@ -1849,7 +1857,7 @@ export const executionIncidents = pgTable(
     index('execution_incident_user_idx').on(t.userId, t.openedAt),
     check(
       'execution_incident_kind',
-      sql`${t.kind} in ('reconciliation_mismatch', 'repeated_rejects', 'stale_data', 'feed_loss', 'broker_disconnected')`,
+      sql`${t.kind} in ('reconciliation_mismatch', 'repeated_rejects', 'stale_data', 'feed_loss', 'broker_disconnected', 'safety_close')`,
     ),
     check('execution_incident_summary_length', sql`char_length(${t.summary}) <= 500`),
     check('execution_incident_resolution_length', sql`char_length(${t.resolution}) <= 500`),

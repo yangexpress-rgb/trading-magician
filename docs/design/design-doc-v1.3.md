@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N306, O177, ADR 0105 and migration 0102** (N304 and N305 were taken on 2026-11-19; N299 to N303 and ADR 0102 to 0104 were taken on 2026-11-18; N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N298, ADR 0101 and migrations 0100 to 0101 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N308, O177, ADR 0106 and migration 0103** (N306, N307, ADR 0105 and migration 0102 were taken on 2026-11-22; N304 and N305 were taken on 2026-11-19; N299 to N303 and ADR 0102 to 0104 were taken on 2026-11-18; N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N298, ADR 0101 and migrations 0100 to 0101 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -468,7 +468,7 @@ Each leg has one timing mode: **immediate** (when its phase qualifies), **exact 
 
 ### 8.11 Risk limits
 
-Required before Start and simulated in back tests: max order notional, max strategy exposure, max active orders, daily loss limit and price collar. Optional: maximum drawdown and **Maximum instruments held** (`maxInstrumentsHeld`, instruments with a position). Also optional, but 1% on new and existing strategies: the **Trailing stop** (`trailingStopPct`): once the strategy holds positions, every position closes with market orders when the strategy's equity falls more than that % of the money in its positions (the largest gross position value while holding) below its best since it went from flat to holding; no new Entry until flat again, the strategy is not paused, and it is a trigger level, not a guaranteed maximum loss (N291, ADR 0100). Paper defaults: $10,000 per order, $25,000 strategy exposure, 10 active orders, $1,000 daily loss, 5% price collar, 60 s stale data. No leverage: exposure may not exceed strategy equity (C16, N82). The checks themselves are in §12.3.
+Required before Start and simulated in back tests: max order notional, max strategy exposure, max active orders, daily loss limit and price collar. Optional: maximum drawdown and **Maximum instruments held** (`maxInstrumentsHeld`, instruments with a position). Also optional, but 1% on new and existing strategies: the **Trailing stop** (`trailingStopPct`): once the strategy holds positions, every position closes with market orders when the strategy's equity falls more than that % of the money in its positions (the largest gross position value while holding) below its best since it went from flat to holding; no new Entry until flat again, the strategy is not paused, and it is a trigger level, not a guaranteed maximum loss (N291, ADR 0100). On paper it is judged on the strategy's own bars: every pass for a strategy with an intraday rule, otherwise when a new daily bar has closed, as in back tests (N306, ADR 0105). Paper defaults: $10,000 per order, $25,000 strategy exposure, 10 active orders, $1,000 daily loss, 5% price collar, 60 s stale data. No leverage: exposure may not exceed strategy equity (C16, N82). The checks themselves are in §12.3.
 
 ### 8.12 Validation
 
@@ -614,6 +614,9 @@ A strategy pauses itself after 3 rejected or failed orders in a row since the la
 ### 12.5 Order intents and states
 
 When a trigger and timing qualify, each leg becomes an immutable **order intent** recording user, strategy, version, cycle, phase, leg, trigger event and values, timing event, account, instrument, requested fields, risk-check result and an idempotency key (`tm1-` plus 32 hex characters from runtime, cycle, phase, leg and attempt, sent as the broker's client order id). Broker ids, acknowledgements, updates, fills, fees and rejection reasons are appended, never overwritten (C27, ADR 0010).
+
+- **Safety closes say why (N306, ADR 0105).** A closing order the app places on its own ("Safety close": the strategy trailing stop, Flatten at session end, or a failed multi-leg plan that closes filled legs) records its reason in words; one without a reason is refused. The reason shows on the order details and under the order in the list, and each pass that places safety closes logs a **Safety close** incident naming the strategy, the symbols and the reason, with a notification. It pauses nothing; a newer one for the same strategy resolves the older one.
+- **Strategies sharing an Alpaca account (N307, ADR 0105).** Alpaca keeps one net position per symbol per account and refuses an order that would take it through zero, while the app keeps one book per strategy. Such an order goes in two parts under one intent: what the account holds now, then the rest once that has filled, so each strategy can always close its own full position even while another holds the opposite side.
 
 ```text
 Planned --> Scheduled --> Pending risk check --> Ready
@@ -1197,6 +1200,8 @@ Survivorship bias in built-in groups (O6); custom feeds give daily bars only and
 | N280, N281                                         | Cycle counts on Strategies on paper cards                                  | §12.7                                          |
 | N304                                               | Strategies on paper list with column filters                               | §12.7                                          |
 | N305                                               | Strategies on paper figures list what they count                           | §12.7                                          |
+| N306                                               | Safety closes state their reason; trailing stop on the strategy's bars     | §8.11, §12.7                                   |
+| N307                                               | Orders that cross zero on a shared Alpaca account go in two parts          | §9.3                                           |
 | N284, N285, N289                                   | Units on values, gain/loss colours; S numbers wherever a strategy is named | §5.1, §12.7, §13                               |
 
 N228 to N230 were not used (renumbered to N233 to N235).

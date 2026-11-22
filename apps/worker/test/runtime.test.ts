@@ -242,6 +242,8 @@ const orders = (runtimeId: string) =>
         state: schema.brokerOrders.state,
         filled: schema.brokerOrders.filledQuantity,
         reason: schema.brokerOrders.reason,
+        source: schema.orderIntents.source,
+        closeReason: schema.orderIntents.closeReason,
       })
       .from(schema.orderIntents)
       .innerJoin(schema.brokerOrders, eq(schema.brokerOrders.intentId, schema.orderIntents.id))
@@ -1691,6 +1693,12 @@ describe('paper runtime: intraday pack (N255, N256)', () => {
     const flatten = (await orders(runtimeId)).filter((x) => x.phase === 'flatten');
     expect(flatten).toHaveLength(1);
     expect(flatten[0]!.side).toBe('sell');
+    // A safety close states why (N306).
+    expect(flatten[0]!.source).toBe('system');
+    expect(flatten[0]!.closeReason).toMatch(/^Flatten at session end: /);
+    expect((await incidents()).map((i) => [i.kind, i.runtimeId])).toEqual([
+      ['safety_close', runtimeId],
+    ]);
     // Exit when never fired: no Exit leg was placed.
     expect((await orders(runtimeId)).filter((x) => x.phase === 'exit')).toHaveLength(0);
     clock += 5_000;
@@ -1731,8 +1739,23 @@ describe('paper runtime: intraday pack (N255, N256)', () => {
     expect(flatten).toHaveLength(1);
     expect(flatten[0]!.side).toBe('sell');
     expect((await stateOf()).strategyTrail?.firedAt).toBeDefined();
+    // The reason is on the order, in the incident log and in the notification (N306).
+    expect(flatten[0]!.source).toBe('system');
+    expect(flatten[0]!.closeReason).toMatch(
+      /^Trailing stop \(whole strategy\), a Risk limit: The strategy fell \$[\d,.]+ below its best since entry, more than 1% of the \$[\d,.]+ in its positions/,
+    );
+    const [incident] = await incidents();
+    expect(incident).toMatchObject({ kind: 'safety_close', runtimeId, pausedRuntimes: 0 });
+    expect(incident!.summary).toContain(flatten[0]!.closeReason!);
+    expect((await runtimeStatus(runtimeId))?.status).toBe('running');
     const notes = (await asUser((tx) => listNotifications(tx, { limit: 200 }))).notifications;
-    expect(notes.some((n) => n.title.endsWith('Trailing stop reached'))).toBe(true);
+    expect(
+      notes.some(
+        (n) =>
+          n.title === 'Safety close: positions were sold' &&
+          n.body.includes('Trailing stop (whole strategy)'),
+      ),
+    ).toBe(true);
     clock += 5_000;
     await pass();
     const [c] = await cycles(runtimeId);
@@ -1740,6 +1763,83 @@ describe('paper runtime: intraday pack (N255, N256)', () => {
     expect(c!.status).toBe('closed');
     // Flat again: tracking starts afresh with the next position.
     expect((await stateOf()).strategyTrail).toBeUndefined();
+    await stopAll();
+  });
+
+  it('daily strategy: a morning dip after yesterday’s buys does not sell; the trailing stop is judged at the daily close (N306, Nov 17–20)', async () => {
+    // The pattern seen on staging Nov 17–20: daily-bar strategies bought one
+    // day, then every position was sold at 9:37–10:16 the next morning by the
+    // 1% strategy trailing stop, checked every few seconds on live prices.
+    // The back test judges it once per daily bar; paper now does the same.
+    const dailyA = (id: string) => ({ ...hourly(demoA, id), interval: '1d' as const });
+    const def = single();
+    def.entry.condition = {
+      kind: 'group',
+      id: 'd-in-g',
+      op: 'and',
+      negate: false,
+      children: [
+        {
+          kind: 'comparison',
+          id: 'd-in',
+          operator: 'gt',
+          left: dailyA('d-in-px'),
+          right: { kind: 'constant', id: 'd-in-k', value: '1' },
+        },
+      ],
+    };
+    def.entry.trigger = { mode: 'once_per_cycle', cooldownBars: 0, confirmationBars: 0 };
+    def.exit.condition = {
+      kind: 'group',
+      id: 'd-out-g',
+      op: 'and',
+      negate: false,
+      children: [
+        {
+          kind: 'comparison',
+          id: 'd-out',
+          operator: 'lt',
+          left: dailyA('d-out-px'),
+          right: { kind: 'constant', id: 'd-out-k', value: '1' },
+        },
+      ],
+    };
+    def.risk.trailingStopPct = '1';
+    // Monday afternoon: the Entry fills.
+    clock = Date.parse('2026-11-02T20:00:00Z'); // Monday 15:00 New York (EST)
+    const { runtimeId } = await startPaper('Daily trailing stop', def);
+    await pass();
+    clock += 5_000;
+    await pass();
+    expect((await cycles(runtimeId))[0]!.status).toBe('open');
+    const stateOf = async () =>
+      (
+        await t.ownerSql<{ state: { strategyTrail?: Record<string, unknown> } }[]>`
+        select state from strategy_runtime where id = ${runtimeId}`
+      )[0]!.state;
+    // Monday's daily bar closes: tracking starts from that close.
+    clock = Date.parse('2026-11-03T01:00:00Z'); // Monday 20:00 New York
+    await pass();
+    const tracked = (await stateOf()).strategyTrail;
+    expect(tracked).toMatchObject({ bestEquity: expect.any(String) });
+    // Tuesday morning, 9:37: the strategy is now far more than 1% below its best.
+    const best = new Decimal(String(tracked!.bestEquity)).plus(1000).toString();
+    await t.ownerSql`
+      update strategy_runtime
+         set state = jsonb_set(state, '{strategyTrail,bestEquity}', to_jsonb(${best}::text))
+       where id = ${runtimeId}`;
+    for (const at of ['2026-11-03T14:37:00Z', '2026-11-03T14:50:00Z', '2026-11-03T15:10:00Z']) {
+      clock = Date.parse(at);
+      await pass();
+    }
+    expect((await orders(runtimeId)).filter((x) => x.phase === 'flatten')).toHaveLength(0);
+    expect((await stateOf()).strategyTrail?.firedAt).toBeUndefined();
+    // Tuesday's daily bar closes: still below the limit, so it fires, and says why.
+    clock = Date.parse('2026-11-04T01:00:00Z'); // Tuesday 20:00 New York
+    await pass();
+    const flatten = (await orders(runtimeId)).filter((x) => x.phase === 'flatten');
+    expect(flatten).toHaveLength(1);
+    expect(flatten[0]!.closeReason).toMatch(/^Trailing stop \(whole strategy\)/);
     await stopAll();
   });
 

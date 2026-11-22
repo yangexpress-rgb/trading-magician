@@ -318,6 +318,44 @@ describe('recording intents', () => {
     );
     expect(order).toMatchObject({ state: 'failed', reason: 'Broker unreachable' });
   });
+
+  it('refuses a safety close that does not say why (N306)', async () => {
+    const flatten = (key: string, closeReason?: string): OrderIntent => ({
+      ...intentFor(cycleA, { idempotencyKey: key }),
+      phase: 'flatten' as OrderIntent['phase'],
+      plannedOrderId: undefined,
+      legLabel: 'Close A',
+      source: 'system',
+      ...(closeReason === undefined ? {} : { closeReason }),
+    });
+    for (const reason of [undefined, '', '   ']) {
+      const error = await asA((tx) =>
+        recordOrderIntent(tx, userA, flatten('tm1-safety-no-reason-0000000000000', reason)),
+      ).catch((e) => e);
+      expect(error).toBeInstanceOf(OrderError);
+    }
+    // The database refuses it too, whatever code writes the row.
+    const raw = await t.ownerSql`
+      insert into order_intent (user_id, runtime_id, strategy_id, version_id, cycle_id, phase,
+        attempt, leg_label, eligible_at, account_id, instrument_id, side, direction, quantity,
+        order_type, time_in_force, reference_price, risk, idempotency_key, source)
+      select user_id, runtime_id, strategy_id, version_id, cycle_id, 'flatten', 1, 'Close A',
+        now(), account_id, instrument_id, 'sell', 'sell', 10, 'market', 'day', 100, '{}'::jsonb,
+        'tm1-safety-raw-no-reason-00000000000', 'system'
+        from order_intent limit 1`.catch((e: unknown) => e);
+    expect(String(raw)).toMatch(/order_intent_close_reason/);
+    const ok = await asA((tx) =>
+      recordOrderIntent(
+        tx,
+        userA,
+        flatten('tm1-safety-with-reason-000000000000', 'Flatten at session end: test'),
+      ),
+    );
+    const [row] = await asA((tx) =>
+      tx.select().from(orderIntents).where(eq(orderIntents.id, ok.intentId)),
+    );
+    expect(row!.closeReason).toBe('Flatten at session end: test');
+  });
 });
 
 describe('broker updates', () => {

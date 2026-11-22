@@ -715,6 +715,13 @@
       "when": 1794952217530,
       "tag": "0101_watch_quote_extended_hours",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1795323041497,
+      "tag": "0102_safety_close_reasons",
+      "breakpoints": true
     }
   ]
 }

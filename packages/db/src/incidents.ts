@@ -24,6 +24,7 @@ const NOTIFICATION_FOR: Record<IncidentKind, NotificationKind> = {
   stale_data: 'stale_data',
   feed_loss: 'disconnect',
   broker_disconnected: 'disconnect',
+  safety_close: 'triggered',
 };
 
 const TITLES: Record<IncidentKind, string> = {
@@ -32,6 +33,7 @@ const TITLES: Record<IncidentKind, string> = {
   stale_data: 'Prices are stale',
   feed_loss: 'Live prices are missing',
   broker_disconnected: 'The paper broker is not responding',
+  safety_close: 'Safety close: positions were sold',
 };
 
 export interface OpenIncidentInput {
@@ -303,4 +305,45 @@ export async function resolveAccountIncidents(
     await resolveIncident(tx, { userId, incidentId: i.id, by: 'system', note });
   }
   return open.length;
+}
+
+export interface SafetyCloseInput {
+  userId: string;
+  runtimeId: string;
+  strategyId: string;
+  /** The strategy as people see it, number first. */
+  strategyName: string;
+  /** Why, in words; the same text each closing order records. */
+  reason: string;
+  /** What was closed. */
+  symbols: readonly string[];
+  at: Date;
+}
+
+/**
+ * Logs a safety close in the incident log, with its reason, and notifies
+ * (N306, ADR 0105). It pauses nothing. A newer safety close for the same
+ * strategy replaces one still open, so each stays listed with its own reason.
+ */
+export async function recordSafetyClose(tx: Transaction, input: SafetyCloseInput): Promise<string> {
+  await resolveIncidentsOf(
+    tx,
+    input.userId,
+    'safety_close',
+    input.runtimeId,
+    'A newer safety close replaced this one',
+  );
+  const list =
+    input.symbols.length <= 8
+      ? input.symbols.join(', ')
+      : `${input.symbols.slice(0, 8).join(', ')} and ${input.symbols.length - 8} more`;
+  const { incidentId } = await openIncident(tx, {
+    userId: input.userId,
+    kind: 'safety_close',
+    runtimeId: input.runtimeId,
+    summary: `${input.strategyName} sold ${list}. ${input.reason}`,
+    details: { reason: input.reason, symbols: [...input.symbols], at: input.at.toISOString() },
+    link: `/orders?strategy=${input.strategyId}`,
+  });
+  return incidentId;
 }

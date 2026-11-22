@@ -161,6 +161,7 @@ export const INCIDENT_LABELS: Record<IncidentKindDto, string> = {
   stale_data: 'Stale prices',
   feed_loss: 'Live prices lost',
   broker_disconnected: 'Broker not responding',
+  safety_close: 'Safety close',
 };
 
 export const NOTIFICATION_LABELS: Record<NotificationKindDto, { label: string; tone: Tone }> = {

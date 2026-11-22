@@ -565,9 +565,12 @@ function OrdersTable({
                   <span className="sr-only"> details</span>
                 </button>
                 {o.source !== 'strategy' && (
-                  <span className="ml-1 text-xs text-ink-muted">
+                  <span className="ml-1 text-xs text-ink-muted" title={o.closeReason ?? undefined}>
                     ({SOURCE_LABELS[o.source].toLowerCase()})
                   </span>
+                )}
+                {o.source === 'system' && o.closeReason && (
+                  <span className="block max-w-md text-xs text-ink-muted">{o.closeReason}</span>
                 )}
               </Td>
               <Td>
