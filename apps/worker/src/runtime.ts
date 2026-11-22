@@ -1878,8 +1878,7 @@ interface PlaceInput {
   activeOrders: number;
   /** The account's exposure limit and what the account holds, when it has one (ADR 0107). */
   account?:
-    | (() => Promise<{ maxExposure: string; grossExposure: Decimal } | undefined>)
-    | undefined;
+    (() => Promise<{ maxExposure: string; grossExposure: Decimal } | undefined>) | undefined;
   /** Called with the notional of an order that opens or adds risk once it is recorded ready. */
   onOpeningRecorded?: ((notional: Decimal) => void) | undefined;
   triggerEventId: string | undefined;
