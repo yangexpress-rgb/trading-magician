@@ -15,7 +15,15 @@ import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Transaction } from './client';
 import { notify } from './notifications';
-import { brokerOrders, fills, instruments, orderEvents, orderIntents, strategies } from './schema';
+import {
+  brokerOrders,
+  fills,
+  instruments,
+  orderEvents,
+  orderIntents,
+  strategies,
+  strategyRuntimes,
+} from './schema';
 import { strategyLabelSql } from './strategy-label';
 
 /**
@@ -30,7 +38,7 @@ import { strategyLabelSql } from './strategy-label';
 
 export class OrderError extends Error {
   constructor(
-    public readonly code: 'not_found' | 'invalid_state',
+    public readonly code: 'not_found' | 'invalid_state' | 'account_mismatch',
     message: string,
   ) {
     super(message);
@@ -66,6 +74,19 @@ export async function recordOrderIntent(
   // A safety close always says why (N306); the database refuses one without.
   if (intent.source === 'system' && !intent.closeReason?.trim()) {
     throw new OrderError('invalid_state', 'A safety close needs its reason');
+  }
+  // A6 (N310): an order only ever goes to its own run's account. The database refuses
+  // one that doesn't too (migration 0103); this says so in words first.
+  const [run] = await tx
+    .select({ accountId: strategyRuntimes.accountId })
+    .from(strategyRuntimes)
+    .where(eq(strategyRuntimes.id, intent.runtimeId));
+  // A run this tenant can't see is left to the foreign key, which refuses it.
+  if (run && run.accountId !== intent.accountId) {
+    throw new OrderError(
+      'account_mismatch',
+      "This order names an account other than its run's account, so it was refused",
+    );
   }
   const [row] = await tx
     .insert(orderIntents)

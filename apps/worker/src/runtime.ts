@@ -2033,12 +2033,38 @@ function skip(plan: CyclePlan, leg: PlannedLeg): undefined {
   return undefined;
 }
 
+/**
+ * Why an order may not go to the broker because its account is not its run's (A6, N310),
+ * or null when it may. The run's account decides; nothing else does.
+ */
+export function crossAccountRefusal(runAccountId: string, orderAccountId: string): string | null {
+  return runAccountId === orderAccountId
+    ? null
+    : "Refused before sending: this order names an account other than its run's account.";
+}
+
 async function submit(
   tx: Transaction,
   ctx: Pick<PassContext, 'broker' | 'work' | 'logger' | 'health'>,
   intentId: string,
   request: Parameters<BrokerAdapter['submitOrder']>[0],
 ): Promise<boolean> {
+  // A6 (N310): an order only ever goes to its own run's account, checked here, before
+  // the broker adapter, as well as by the database when the order was recorded.
+  const crossAccount = crossAccountRefusal(ctx.work.accountId, request.accountId);
+  if (crossAccount) {
+    await markOrderFailed(tx, intentId, crossAccount);
+    await recordAudit(tx, {
+      userId: ctx.work.userId,
+      actorType: 'system',
+      action: 'order.account_refused',
+      resourceType: 'order_intent',
+      resourceId: intentId,
+      context: { runtimeId: ctx.work.id, runAccountId: ctx.work.accountId },
+    });
+    ctx.logger.error({ intentId, runtimeId: ctx.work.id }, 'order for another account refused');
+    return false;
+  }
   try {
     const { brokerOrderId } = await ctx.broker.submitOrder(request);
     await markOrderSubmitted(tx, intentId, brokerOrderId);

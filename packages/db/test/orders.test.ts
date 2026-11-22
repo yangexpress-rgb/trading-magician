@@ -119,7 +119,7 @@ async function startCycle(userId: string, accountId: string): Promise<Cycle> {
     const { versionId } = await pinDraftVersion(tx, userId, s.id);
     const [runtime] = await tx
       .insert(strategyRuntimes)
-      .values({ userId, strategyId: s.id, versionId, startedBy: userId })
+      .values({ userId, strategyId: s.id, versionId, accountId, startedBy: userId })
       .returning();
     const [cycle] = await tx
       .insert(strategyCycles)
@@ -223,6 +223,26 @@ async function submittedOrder(): Promise<string> {
     await markOrderSubmitted(tx, intentId, `paper-${attempt}`);
     return intentId;
   });
+}
+
+let extraAccounts = 0;
+/** One more paper account on the person's demo platform (N308). */
+async function secondAccount(userId: string): Promise<string> {
+  const [first] = await as(userId, (tx) => tx.select().from(tradingAccounts));
+  extraAccounts += 1;
+  const [row] = await t.owner.db
+    .insert(tradingAccounts)
+    .values({
+      userId,
+      brokerConnectionId: first!.brokerConnectionId,
+      nickname: `Second paper ${extraAccounts}`,
+      externalId: `second-${extraAccounts}`,
+      maskedExternalId: `••••000${extraAccounts}`,
+      currency: 'USD',
+      capabilities: first!.capabilities,
+    })
+    .returning({ id: tradingAccounts.id });
+  return row!.id;
 }
 
 beforeAll(async () => {
@@ -508,7 +528,40 @@ describe('runtime constraints', () => {
     );
   });
 
-  it('allows one active runtime per strategy', async () => {
+  it('allows one active run per strategy and account, and runs on other accounts (N308)', async () => {
+    await expectPgError(
+      asA((tx) =>
+        tx.insert(strategyRuntimes).values({
+          userId: userA,
+          strategyId: cycleA.strategyId,
+          versionId: cycleA.versionId,
+          accountId: accountA,
+          startedBy: userA,
+        }),
+      ),
+      '23505',
+    );
+    // Another account of the same person: a second, independent run.
+    const accountA2 = await secondAccount(userA);
+    const [other] = await asA((tx) =>
+      tx
+        .insert(strategyRuntimes)
+        .values({
+          userId: userA,
+          strategyId: cycleA.strategyId,
+          versionId: cycleA.versionId,
+          accountId: accountA2,
+          startedBy: userA,
+        })
+        .returning(),
+    );
+    expect(other!.accountId).toBe(accountA2);
+    // A run's account never changes.
+    await expectPgError(
+      t.ownerSql`update strategy_runtime set account_id = ${accountA} where id = ${other!.id}`,
+      '23514',
+    );
+    // An active run needs an account.
     await expectPgError(
       asA((tx) =>
         tx.insert(strategyRuntimes).values({
@@ -518,19 +571,39 @@ describe('runtime constraints', () => {
           startedBy: userA,
         }),
       ),
-      '23505',
+      '23514',
     );
     await asA(async (tx) => {
       await tx
         .update(strategyRuntimes)
         .set({ status: 'stopped', stoppedAt: new Date(), stoppedBy: userA })
-        .where(eq(strategyRuntimes.id, cycleA.runtimeId));
-      await tx.insert(strategyRuntimes).values({
-        userId: userA,
-        strategyId: cycleA.strategyId,
-        versionId: cycleA.versionId,
-        startedBy: userA,
-      });
+        .where(eq(strategyRuntimes.id, other!.id));
     });
+  });
+
+  it("refuses an order for another account than its run's (A6, N310)", async () => {
+    const accountA2 = await secondAccount(userA);
+    const intent = intentFor(
+      { ...cycleA, accountId: accountA2 },
+      { idempotencyKey: 'tm1-cross-account-test-00000000000' },
+    );
+    await expect(asA((tx) => recordOrderIntent(tx, userA, intent))).rejects.toMatchObject({
+      code: 'account_mismatch',
+    });
+    // The database refuses it too, whatever the code above does.
+    await expectPgError(
+      t.ownerSql`insert into order_intent (user_id, runtime_id, strategy_id, version_id, cycle_id,
+        phase, leg_label, eligible_at, account_id, instrument_id, side, direction, quantity,
+        order_type, time_in_force, reference_price, risk, idempotency_key)
+        values (${userA}, ${cycleA.runtimeId}, ${cycleA.strategyId}, ${cycleA.versionId},
+        ${cycleA.cycleId}, 'entry', 'x', now(), ${accountA2}, ${demoA}, 'buy', 'buy', 1,
+        'market', 'day', 1, '{}', 'tm1-cross-account-owner-0000000000')`,
+      '23514',
+    );
+    expect(
+      await asA((tx) =>
+        tx.select().from(orderIntents).where(eq(orderIntents.accountId, accountA2)),
+      ),
+    ).toEqual([]);
   });
 });

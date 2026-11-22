@@ -4,7 +4,10 @@ import { api, readJson } from '@/lib/server/api';
 
 export const dynamic = 'force-dynamic';
 
-/** Starts the strategy on paper. Live trading does not exist in this build (ADR 0002). */
+/**
+ * Starts the strategy on paper, as a run on one account (N308). Live trading does not
+ * exist in this build (ADR 0002).
+ */
 export const POST = api<{ id: string }>(async (request, { tx, userId }, { id }) => {
   const body = await readJson(request, startStrategyRequest);
   return Response.json(
@@ -13,6 +16,7 @@ export const POST = api<{ id: string }>(async (request, { tx, userId }, { id }) 
         rowVersion: body.rowVersion,
         confirmed: body.confirmed,
         acknowledgedWarnings: body.acknowledgedWarnings,
+        accountId: body.accountId,
       }),
     ),
   );

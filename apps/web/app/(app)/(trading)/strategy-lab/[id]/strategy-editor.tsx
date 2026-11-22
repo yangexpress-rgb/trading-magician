@@ -66,6 +66,8 @@ interface Props {
   status: StrategyStatus;
   /** Its paper run while it has one; paused shows in the Execution section (N286). */
   run?: StrategyRunStateDto | null;
+  /** Every run that is not stopped, one per account (N308). */
+  runs?: StrategyRunStateDto[];
   initialDefinition: StrategyDefinition;
   initialRowVersion: number;
   instruments: InstrumentOption[];
@@ -107,6 +109,7 @@ export function StrategyEditor({
   strategyName,
   status,
   run = null,
+  runs,
   initialDefinition,
   initialRowVersion,
   instruments: initialInstruments,
@@ -406,6 +409,7 @@ export function StrategyEditor({
             strategyName={strategyName}
             status={status}
             run={run}
+            runs={runs}
             rowVersion={rowVersion}
             dirty={rulesDirty}
             definition={definition}

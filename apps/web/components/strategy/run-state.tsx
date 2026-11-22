@@ -18,7 +18,7 @@ export function PausedNote({
   run,
 }: {
   strategyId: string;
-  run: StrategyRunStateDto | null;
+  run: Pick<StrategyRunStateDto, 'status' | 'pauseReason'> | null;
 }) {
   if (run?.status !== 'paused') return null;
   return (

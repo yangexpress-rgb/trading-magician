@@ -12,7 +12,6 @@ import {
   strategyRuntimes,
   tradingAccounts,
 } from './schema';
-import { definitionAccounts } from './strategy-accounts';
 import { strategyLabelSql } from './strategy-label';
 
 /**
@@ -227,7 +226,9 @@ export async function startingPlanCode(
 
 interface RunningStrategy {
   runtimeId: string;
+  strategyId: string;
   strategyName: string;
+  /** The run's own account (N308): the one account its orders go to. */
   accounts: string[];
 }
 
@@ -238,8 +239,9 @@ async function runningStrategies(
   const rows = await tx
     .select({
       runtimeId: strategyRuntimes.id,
+      strategyId: strategyRuntimes.strategyId,
       strategyName: strategyLabelSql,
-      definition: strategies.draftDefinition,
+      accountId: strategyRuntimes.accountId,
     })
     .from(strategyRuntimes)
     .innerJoin(strategies, eq(strategies.id, strategyRuntimes.strategyId))
@@ -251,8 +253,9 @@ async function runningStrategies(
     .orderBy(asc(strategyRuntimes.startedAt), asc(strategyRuntimes.id));
   return rows.map((r) => ({
     runtimeId: r.runtimeId,
+    strategyId: r.strategyId,
     strategyName: r.strategyName ?? '',
-    accounts: definitionAccounts(r.definition),
+    accounts: r.accountId ? [r.accountId] : [],
   }));
 }
 
@@ -294,8 +297,10 @@ export async function pauseStrategiesOverPlan(
       });
     } else keep.push(r);
   }
-  const over = keep.length - limits.activeStrategies;
-  for (const r of over > 0 ? keep.slice(-over) : []) {
+  // The plan counts strategies: one strategy running on several accounts is one (N308).
+  const order = [...new Set(keep.map((r) => r.strategyId))];
+  const beyond = new Set(order.slice(Math.max(limits.activeStrategies, 0)));
+  for (const r of keep.filter((k) => beyond.has(k.strategyId))) {
     pause.push({
       ...r,
       reason: `The ${planName} plan runs ${limits.activeStrategies} ${limits.activeStrategies === 1 ? 'strategy' : 'strategies'} at a time.`,
@@ -335,7 +340,10 @@ export async function assertCanResume(tx: Transaction, runtimeId: string): Promi
     }
   }
   if (ADMIN_EXEMPT.has('activeStrategies') && (await isPlatformAdmin(tx))) return;
-  const used = (await runningStrategies(tx, 'running')).length;
+  const running = await runningStrategies(tx, 'running');
+  // Another run of a strategy that already runs adds no strategy to the count (N308).
+  if (running.some((r) => r.strategyId === target.strategyId)) return;
+  const used = new Set(running.map((r) => r.strategyId)).size;
   if (used >= limits.activeStrategies) {
     throw new PlanLimitError(COUNT_MESSAGES.activeStrategies(planName, limits.activeStrategies), {
       limit: 'activeStrategies',

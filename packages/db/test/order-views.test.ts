@@ -98,7 +98,13 @@ async function startCycle(name: string): Promise<Cycle> {
     const { versionId } = await pinDraftVersion(tx, userA, s.id);
     const [runtime] = await tx
       .insert(strategyRuntimes)
-      .values({ userId: userA, strategyId: s.id, versionId, startedBy: userA })
+      .values({
+        userId: userA,
+        strategyId: s.id,
+        versionId,
+        accountId: (await tx.select({ id: tradingAccounts.id }).from(tradingAccounts))[0]!.id,
+        startedBy: userA,
+      })
       .returning();
     const [cycle] = await tx
       .insert(strategyCycles)

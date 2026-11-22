@@ -1273,6 +1273,12 @@ export const strategyRuntimes = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     strategyId: uuid('strategy_id').notNull(),
     versionId: uuid('version_id').notNull(),
+    /**
+     * The account this run trades on (Phase 7 P0, N308): every order of the run goes
+     * here, whatever account the strategy's legs name. Null only on stopped runs that
+     * never had one (migration 0103).
+     */
+    accountId: uuid('account_id'),
     mode: tradingMode('mode').notNull().default('paper'),
     status: runtimeStatus('status').notNull().default('running'),
     pauseReason: text('pause_reason'),
@@ -1300,9 +1306,17 @@ export const strategyRuntimes = pgTable(
       columns: [t.versionId, t.userId],
       foreignColumns: [strategyVersions.id, strategyVersions.userId],
     }),
+    foreignKey({
+      name: 'strategy_runtime_account_fk',
+      columns: [t.accountId, t.userId],
+      foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
+    }).onDelete('cascade'),
+    // One active run per strategy and account; a strategy may run on several accounts (N308).
     uniqueIndex('strategy_runtime_one_active_idx')
-      .on(t.strategyId)
+      .on(t.strategyId, t.accountId)
       .where(sql`${t.status} <> 'stopped'`),
+    index('strategy_runtime_account_idx').on(t.accountId),
+    check('strategy_runtime_account', sql`${t.accountId} is not null or ${t.status} = 'stopped'`),
     index('strategy_runtime_lease_idx')
       .on(t.leaseExpiresAt)
       .where(sql`${t.status} = 'running'`),

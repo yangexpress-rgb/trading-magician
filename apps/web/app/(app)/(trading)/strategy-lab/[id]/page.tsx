@@ -9,7 +9,9 @@ import {
   StrategyError,
   strategyIdByLabNumber,
   withTenant,
+  type StrategyRunState,
 } from '@tm/db';
+import type { StrategyRunStateDto } from '@tm/contracts';
 import { formatDateTime, isLabNumber, STATUS_LABELS } from '@tm/domain';
 import { Badge, buttonClasses, Card, ModeBadge, PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
@@ -183,7 +185,8 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
         strategyId={strategy.id}
         strategyName={strategy.labNumber ? `${strategy.labNumber} ${strategy.name}` : strategy.name}
         status={strategy.status}
-        run={strategy.run}
+        run={strategy.run && runDto(strategy.run)}
+        runs={strategy.runs.map(runDto)}
         initialDefinition={strategy.definition}
         initialRowVersion={strategy.rowVersion}
         instruments={instruments}
@@ -200,4 +203,9 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
       />
     </RowVersionProvider>
   );
+}
+
+/** A run as the client gets it: dates as ISO text (N308). */
+function runDto(r: StrategyRunState): StrategyRunStateDto {
+  return { ...r, startedAt: r.startedAt.toISOString() };
 }

@@ -87,6 +87,7 @@ export interface OrderRow {
   averagePrice: string | null;
   accountId: string;
   accountName: string;
+  accountMode: 'paper' | 'live';
   reason: string | null;
   cancelRequested: boolean;
   createdAt: string;
@@ -171,6 +172,7 @@ const orderColumns = {
   averagePrice: brokerOrders.averagePrice,
   accountId: orderIntents.accountId,
   accountName: tradingAccounts.nickname,
+  accountMode: tradingAccounts.mode,
   reason: brokerOrders.reason,
   cancelRequestedAt: brokerOrders.cancelRequestedAt,
   createdAt: orderIntents.createdAt,
@@ -210,6 +212,7 @@ function toOrderRow(r: RawOrder): OrderRow {
     averagePrice: r.averagePrice,
     accountId: r.accountId as string,
     accountName: r.accountName ?? 'Unknown account',
+    accountMode: r.accountMode ?? 'paper',
     reason: r.reason,
     cancelRequested: r.cancelRequestedAt !== null,
     createdAt: (r.createdAt as Date).toISOString(),
@@ -245,7 +248,9 @@ async function listScheduled(tx: Transaction, f: OrderFilters): Promise<Schedule
   if (f.runtimeId) where.push(eq(scheduledActions.runtimeId, f.runtimeId));
   if (f.cycleId) where.push(eq(scheduledActions.cycleId, f.cycleId));
   if (f.phase) where.push(eq(scheduledActions.phase, f.phase));
-  // Instrument and account are filtered below, once the leg is known.
+  // Every leg of a run goes to the run's account (N308).
+  if (f.accountId) where.push(eq(strategyRuntimes.accountId, f.accountId));
+  // The instrument is filtered below, once the leg is known.
   where.push(...rangeConditions(f, scheduledActions.createdAt));
   const rows = await tx
     .select({
@@ -285,7 +290,6 @@ async function listScheduled(tx: Transaction, f: OrderFilters): Promise<Schedule
   return rows.flatMap((r, i) => {
     const leg = legs[i];
     if (f.instrumentId && leg?.instrumentId !== f.instrumentId) return [];
-    if (f.accountId && leg?.accountId !== f.accountId) return [];
     return [
       {
         id: r.id,
@@ -546,6 +550,7 @@ export interface PositionRow {
   symbol: string;
   accountId: string;
   accountName: string;
+  accountMode: 'paper' | 'live';
   /** Positive long, negative short. */
   quantity: string;
   averageCost: string | null;
@@ -703,10 +708,14 @@ export async function listPositions(
   const accounts = new Map(
     (
       await tx
-        .select({ id: tradingAccounts.id, name: tradingAccounts.nickname })
+        .select({
+          id: tradingAccounts.id,
+          name: tradingAccounts.nickname,
+          mode: tradingAccounts.mode,
+        })
         .from(tradingAccounts)
         .where(inArray(tradingAccounts.id, accountIds))
-    ).map((a) => [a.id, a.name]),
+    ).map((a) => [a.id, a]),
   );
   const closing = await workingCloses(tx, runtimeIds);
   return positions
@@ -721,7 +730,8 @@ export async function listPositions(
         instrumentId: p.instrumentId,
         symbol: symbols.get(p.instrumentId) ?? '?',
         accountId: p.accountId,
-        accountName: accounts.get(p.accountId) ?? 'Unknown account',
+        accountName: accounts.get(p.accountId)?.name ?? 'Unknown account',
+        accountMode: accounts.get(p.accountId)?.mode ?? 'paper',
         quantity: p.qty.toString(),
         averageCost: p.cost.dividedBy(p.qty.abs()).toDecimalPlaces(4).toString(),
         lastFillPrice: p.lastPrice.toString(),
@@ -866,6 +876,10 @@ export interface RuntimeSummary {
   strategyNumber: string | null;
   status: 'running' | 'paused' | 'stopped';
   pauseReason: string | null;
+  /** The account the run trades on (N308), with its label and PAPER or LIVE. */
+  accountId: string | null;
+  accountName: string;
+  accountMode: 'paper' | 'live';
   startedAt: string;
   stoppedAt: string | null;
   workingOrders: number;
@@ -940,6 +954,9 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
       strategyNumber: strategies.labNumber,
       status: strategyRuntimes.status,
       pauseReason: strategyRuntimes.pauseReason,
+      accountId: strategyRuntimes.accountId,
+      accountName: tradingAccounts.nickname,
+      accountMode: tradingAccounts.mode,
       startedAt: strategyRuntimes.startedAt,
       stoppedAt: strategyRuntimes.stoppedAt,
       workingOrders: working.n,
@@ -953,6 +970,7 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
     })
     .from(strategyRuntimes)
     .leftJoin(strategies, eq(strategies.id, strategyRuntimes.strategyId))
+    .leftJoin(tradingAccounts, eq(tradingAccounts.id, strategyRuntimes.accountId))
     .leftJoin(working, eq(working.runtimeId, strategyRuntimes.id))
     .leftJoin(cycleCounts, eq(cycleCounts.runtimeId, strategyRuntimes.id))
     .where(sql`${strategyRuntimes.status} <> 'stopped' or ${working.n} > 0`)
@@ -970,6 +988,9 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
       strategyNumber: r.strategyNumber ?? null,
       status: r.status,
       pauseReason: r.pauseReason,
+      accountId: r.accountId,
+      accountName: r.accountName ?? 'Unknown account',
+      accountMode: r.accountMode ?? 'paper',
       startedAt: r.startedAt.toISOString(),
       stoppedAt: iso(r.stoppedAt),
       workingOrders: Number(r.workingOrders ?? 0),

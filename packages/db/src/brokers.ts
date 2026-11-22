@@ -67,7 +67,7 @@ export interface PlatformSummary {
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
-/** Running or paused strategies whose orders go to any of `accountIds`. */
+/** Running or paused runs whose orders go to any of `accountIds`. */
 export async function accountDependents(
   tx: Transaction,
   accountIds: readonly string[],
@@ -79,14 +79,15 @@ export async function accountDependents(
       strategyId: strategies.id,
       strategyName: strategyLabelSql,
       status: strategyRuntimes.status,
-      definition: strategies.draftDefinition,
+      accountId: strategyRuntimes.accountId,
     })
     .from(strategyRuntimes)
     .innerJoin(strategies, eq(strategies.id, strategyRuntimes.strategyId))
     .where(inArray(strategyRuntimes.status, ['running', 'paused']));
   const wanted = new Set(accountIds);
   return rows.flatMap((r) => {
-    const used = definitionAccounts(r.definition).filter((a) => wanted.has(a));
+    // A run's orders go to its own account only (N308).
+    const used = r.accountId && wanted.has(r.accountId) ? [r.accountId] : [];
     if (used.length === 0) return [];
     return [
       {

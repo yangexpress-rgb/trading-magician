@@ -121,6 +121,8 @@ export const startStrategyRequest = z
     mode: z.literal('paper'),
     confirmed: z.literal(true, { error: 'Confirm to start this strategy' }),
     acknowledgedWarnings: z.array(z.string().max(64)).max(50).default([]),
+    /** The account the run trades on (N308); the legs' account when absent. */
+    accountId: z.uuid().optional(),
   })
   .strict();
 export type StartStrategyRequest = z.input<typeof startStrategyRequest>;
@@ -132,6 +134,8 @@ export const stopStrategyRequest = z
     reason: z.string().trim().max(500).optional(),
     cancelOpenOrders: z.boolean().default(false),
     closePositions: z.boolean().default(false),
+    /** Stops only this run (N308); the strategy's runs on other accounts carry on. */
+    runtimeId: z.uuid().optional(),
   })
   .strict();
 export type StopStrategyRequest = z.input<typeof stopStrategyRequest>;
@@ -144,6 +148,13 @@ export interface StrategyRunStateDto {
   runtimeId: string;
   status: 'running' | 'paused';
   pauseReason: string | null;
+  /** The account the run trades on (N308), with its label and PAPER or LIVE. */
+  accountId: string | null;
+  accountName: string;
+  accountMode: 'paper' | 'live';
+  startedAt: string;
+  /** The strategy version the run is pinned to. */
+  versionNo: number | null;
 }
 
 export interface StrategySummaryDto {
@@ -170,6 +181,8 @@ export interface StrategySummaryDto {
   shared: boolean;
   /** Its paper run while it has one (N286). */
   run: StrategyRunStateDto | null;
+  /** Every run that is not stopped, one per account (N308). */
+  runs: StrategyRunStateDto[];
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -210,6 +223,8 @@ export interface StrategyDetailDto {
   status: StrategyStatus;
   /** Its paper run while it has one (N286). */
   run: StrategyRunStateDto | null;
+  /** Every run that is not stopped, one per account (N308). */
+  runs: StrategyRunStateDto[];
   hasBeenActive: boolean;
   definition: StrategyDefinition;
   definitionHash: string;
