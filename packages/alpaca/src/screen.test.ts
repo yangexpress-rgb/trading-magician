@@ -52,6 +52,17 @@ describe('screening with Alpaca', () => {
     expect(fake.requests.filter((r) => r.url.includes('/v2/stocks/'))).toHaveLength(2);
   });
 
+  it('answers a range that starts after its clock with no bars', async () => {
+    // E2E's worker screens on the real date while the fake runs on the shifted
+    // paper clock; from 2026-11-21 the 45-day window started after it.
+    const { client } = setup();
+    const history = await fetchDailyHistory(client, ['ZTSTA', 'ZTSTB'], '2026-10-08', {
+      sleep: async () => {},
+    });
+    expect(history.missed).toBe(0);
+    expect(history.found.size).toBe(0);
+  });
+
   it('puts history and the snapshot together, today last', async () => {
     const { client } = setup();
     const snaps = await fetchSnapshots(client, ['ZTSTA']);
