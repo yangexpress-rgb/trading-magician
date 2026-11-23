@@ -295,7 +295,7 @@ export interface BacktestOrder {
   quantity: string | null;
   limitPrice: string | null;
   stopPrice: string | null;
-  /** The last close when it was sent: the collar reference. */
+  /** The last close when it was decided (the collar anchor is in `detail` when it canceled, N325). */
   referencePrice: string | null;
   filledQuantity: string;
   averagePrice: string | null;

@@ -32,6 +32,7 @@ import {
   OPTION_SIGNAL_FIELDS,
   type OptionSignalValues,
   type PlannedOrder,
+  type Quote,
   type SeriesResolver,
   type StrategyDefinition,
 } from '@tm/domain';
@@ -70,6 +71,13 @@ let brokerThrottled = false;
 const dailyCloses = new Map<string, string>();
 /** Bars kept between passes, as the worker keeps them (ADR 0087); fresh for each test. */
 let caches: RuntimeCaches = createRuntimeCaches();
+/**
+ * Test hook: replaces every quote the feed answers (N325). `n` counts the feed's
+ * answers for that instrument in the current pass, from 1; while it is set, the
+ * feed answers one instrument per request so every answer passes through it.
+ */
+let quoteHook: ((q: Quote, n: number) => Quote) | undefined;
+let quoteCalls = new Map<string, number>();
 /** Test hook: the members a built-in group resolves to. */
 const groupMembers: string[] = [];
 beforeEach(() => {
@@ -98,11 +106,17 @@ const options = (workerId: string): RuntimeWorkerOptions => ({
     };
   },
   quotes: (now) => {
-    const feed = createDemoLiveFeed({ now });
+    const { latestQuotes, ...feed } = createDemoLiveFeed({ now });
     return {
       ...feed,
+      ...(quoteHook || !latestQuotes ? {} : { latestQuotes }),
       latestQuote: async (ref) => {
-        const q = await feed.latestQuote(ref);
+        let q = await feed.latestQuote(ref);
+        if (q && quoteHook) {
+          const n = (quoteCalls.get(ref.instrumentId) ?? 0) + 1;
+          quoteCalls.set(ref.instrumentId, n);
+          q = quoteHook(q, n);
+        }
         return q && quoteDelayMs > 0
           ? { ...q, at: new Date(Date.parse(q.at) - quoteDelayMs).toISOString() }
           : q;
@@ -129,6 +143,7 @@ const options = (workerId: string): RuntimeWorkerOptions => ({
 
 /** Claims and runs one pass over every runtime that needs one, at the current clock. */
 async function pass(workerId = 'worker-1') {
+  quoteCalls = new Map();
   const claimed = await claimRuntimes(t.app.db, workerId, { leaseSeconds: 30, limit: 10 });
   for (const c of claimed) await runRuntimePass(options(workerId), c.runtimeId, c.userId);
   return claimed.length;
@@ -739,57 +754,172 @@ describe('paper runtime: timing (§6.8)', () => {
   });
 });
 
-describe('paper runtime: price collar on orders decided while closed (§7.2, §8.6)', () => {
-  it('holds an opening market order for the open and sends it only within the collar', async () => {
+describe('paper runtime: price collar on orders decided while closed (§7.2, §8.6, N325)', () => {
+  const sent = async (runtimeId: string) =>
+    (
+      await t.ownerSql`select count(*)::int as n from paper_order where request->>'clientOrderId' in (select idempotency_key from order_intent where runtime_id = ${runtimeId})`
+    )[0]!.n;
+  const oneLeg = (pct: string) => {
+    const def = pairDefinition();
+    def.entry.orders = [def.entry.orders[0]!];
+    def.exit.condition = never();
+    def.exit.orders = [def.exit.orders[0]!];
+    def.risk.priceCollarPct = pct;
+    return def;
+  };
+  const priced = (q: Quote, last: string, at: number): Quote => ({
+    ...q,
+    last: new Decimal(last),
+    bid: new Decimal(last),
+    ask: new Decimal(last),
+    at: new Date(at).toISOString(),
+  });
+  const reasonOf = async (intentId: string) =>
+    (
+      await asUser((tx) =>
+        tx
+          .select({ reason: schema.brokerOrders.reason })
+          .from(schema.brokerOrders)
+          .where(eq(schema.brokerOrders.intentId, intentId)),
+      )
+    )[0]?.reason;
+
+  it('holds an opening market order decided before the open and sends it at the open', async () => {
     // Tuesday 2026-10-20, 8:00 New York: decided before the open.
     clock = Date.parse('2026-10-20T12:00:00Z');
-    const withCollar = (pct: string) => {
-      const def = pairDefinition();
-      def.entry.orders = [def.entry.orders[0]!];
-      def.exit.condition = never();
-      def.exit.orders = [def.exit.orders[0]!];
-      def.risk.priceCollarPct = pct;
-      return def;
-    };
-    const wide = await startPaper('Wide collar', withCollar('50'));
-    const tight = await startPaper('Tight collar', withCollar('0.0001'));
+    const { runtimeId } = await startPaper('Held for open', oneLeg('5'));
     await pass();
-
     // Recorded, risk-checked and held: nothing has reached the broker yet.
-    for (const { runtimeId } of [wide, tight]) {
-      const held = await orders(runtimeId);
-      expect(held.map((o) => o.state)).toEqual(['ready']);
-    }
-    const sent = async (runtimeId: string) =>
-      (
-        await t.ownerSql`select count(*)::int as n from paper_order where request->>'clientOrderId' in (select idempotency_key from order_intent where runtime_id = ${runtimeId})`
-      )[0]!.n;
-    expect(await sent(wide.runtimeId)).toBe(0);
-
-    // At the open: within 50% it goes out; past 0.0001% it is canceled with the reason.
+    expect((await orders(runtimeId)).map((o) => o.state)).toEqual(['ready']);
+    expect(await sent(runtimeId)).toBe(0);
+    // At the open it goes out.
     clock = Date.parse('2026-10-20T13:31:00Z');
     await pass();
-    expect(await sent(wide.runtimeId)).toBe(1);
-    expect(await sent(tight.runtimeId)).toBe(0);
-    const [canceled] = await orders(tight.runtimeId);
-    expect(canceled!.state).toBe('canceled');
-    const [order] = await asUser((tx) =>
-      tx
-        .select({ reason: schema.brokerOrders.reason })
-        .from(schema.brokerOrders)
-        .where(eq(schema.brokerOrders.intentId, canceled!.id)),
-    );
-    expect(order!.reason).toMatch(
-      /The price opened at \$[\d.]+, [\d.]+% from \$[\d.]+ when the order was decided\. The price collar allows 0\.0001%\./,
-    );
-    // The notification names the actual outcome, the collar cancel, not a rejection (N287).
-    const notes = (await asUser((tx) => listNotifications(tx, { limit: 200 }))).notifications;
-    const mine = notes.filter((n) => n.body.includes('Tight collar '));
-    const collar = mine.filter((n) => n.kind === 'order_canceled');
-    expect(collar).toHaveLength(1);
-    expect(collar[0]!.title).toMatch(/\(DEMO-[A-Z]\) canceled by the app$/);
-    expect(collar[0]!.body).toMatch(/The price collar allows 0\.0001%\./);
-    expect(mine.some((n) => n.kind === 'order_rejected')).toBe(false);
+    expect(await sent(runtimeId)).toBe(1);
+    await stopAll();
+  });
+
+  it('A1: sends an order decided Friday 16:05 at $48.19 when Monday opens at $51.15 (+6.1%)', async () => {
+    // The S00046 incident's shape (it was Fri 2026-11-20 → Mon 2026-11-23): Friday
+    // 2026-10-16 16:05 New York, after the close; Monday 9:30:01.
+    const friday = Date.parse('2026-10-16T20:05:00Z');
+    const monday = Date.parse('2026-10-19T13:30:01Z');
+    quoteHook = (q) =>
+      q.instrumentId === demoA
+        ? priced(q, clock < monday ? '48.19' : '51.15', Math.min(clock, friday))
+        : q;
+    try {
+      clock = friday;
+      const { runtimeId } = await startPaper('Weekend gap', oneLeg('5'));
+      await pass();
+      const [held] = await asUser((tx) =>
+        tx
+          .select({ referencePrice: schema.orderIntents.referencePrice })
+          .from(schema.orderIntents)
+          .where(eq(schema.orderIntents.runtimeId, runtimeId)),
+      );
+      expect(Number(held!.referencePrice)).toBe(48.19);
+      expect((await orders(runtimeId)).map((o) => o.state)).toEqual(['ready']);
+
+      // Monday 9:30:01: the first price of the session is the anchor, not Friday's.
+      quoteHook = (q) => (q.instrumentId === demoA ? priced(q, '51.15', clock) : q);
+      clock = monday;
+      await pass();
+      expect(await sent(runtimeId)).toBe(1);
+      const [order] = await orders(runtimeId);
+      expect(order!.state).not.toBe('canceled');
+      expect((await reasonOf(order!.id)) ?? '').not.toMatch(/collar/);
+    } finally {
+      quoteHook = undefined;
+      await stopAll();
+    }
+  });
+
+  it('A4: waits while the only price is from an earlier session, then anchors on the session', async () => {
+    const friday = Date.parse('2026-10-16T20:05:00Z');
+    const monday = Date.parse('2026-10-19T13:30:05Z');
+    // Every price, even on Monday, still carries Friday's time (no trade yet today).
+    quoteHook = (q) => (q.instrumentId === demoA ? priced(q, '48.19', friday) : q);
+    try {
+      clock = friday;
+      const { runtimeId } = await startPaper('No price yet', oneLeg('5'));
+      await pass();
+      clock = monday;
+      await pass();
+      expect(await sent(runtimeId)).toBe(0);
+      expect((await orders(runtimeId)).map((o) => o.state)).toEqual(['ready']);
+      // A current price arrives: released against it.
+      quoteHook = (q) => (q.instrumentId === demoA ? priced(q, '51.15', clock) : q);
+      clock += 5_000;
+      await pass();
+      expect(await sent(runtimeId)).toBe(1);
+    } finally {
+      quoteHook = undefined;
+      await stopAll();
+    }
+  });
+
+  it('A2: blocks the send when the price moves past the collar after the release snapshot', async () => {
+    const friday = Date.parse('2026-10-16T20:05:00Z');
+    const open = Date.parse('2026-10-19T13:30:00Z');
+    quoteHook = (q) => (q.instrumentId === demoA ? priced(q, '48.19', friday) : q);
+    try {
+      clock = friday;
+      const { runtimeId } = await startPaper('Spike at send', oneLeg('5'));
+      await pass();
+      // Release snapshot $50.00 at 9:30:01; read again at the send attempt: $53.00 at 9:30:03.
+      quoteHook = (q, n) =>
+        q.instrumentId !== demoA
+          ? q
+          : n === 1
+            ? priced(q, '50.00', open + 1000)
+            : priced(q, '53.00', open + 3000);
+      clock = open + 3000;
+      await pass();
+      expect(await sent(runtimeId)).toBe(0);
+      const [canceled] = await orders(runtimeId);
+      expect(canceled!.state).toBe('canceled');
+      expect(await reasonOf(canceled!.id)).toBe(
+        'Not sent: the price moved 6.0% while the order was being sent, from $50.00 at 9:30:01 AM ET ' +
+          '(release snapshot) to $53.00 at 9:30:03 AM ET (at the send attempt). The price collar allows 5%.',
+      );
+      // Recorded with both prices, both times and the anchor's source.
+      const [audit] = await t.ownerSql`
+        select context from audit_event where action = 'order.collar_blocked' and resource_id = ${canceled!.id}`;
+      expect(audit!.context).toMatchObject({
+        anchorSource: 'release_snapshot',
+        anchorPrice: '50',
+        anchorAt: new Date(open + 1000).toISOString(),
+        priceSource: 'send_attempt',
+        price: '53',
+        priceAt: new Date(open + 3000).toISOString(),
+        collarPct: '5',
+      });
+      // The notification names the actual outcome, the collar cancel, not a rejection (N287).
+      const notes = (await asUser((tx) => listNotifications(tx, { limit: 200 }))).notifications;
+      const mine = notes.filter((n) => n.body.includes('Spike at send '));
+      const collar = mine.filter((n) => n.kind === 'order_canceled');
+      expect(collar).toHaveLength(1);
+      expect(collar[0]!.title).toMatch(/\(DEMO-A\) canceled by the app$/);
+      expect(collar[0]!.body).toMatch(/release snapshot/);
+      expect(collar[0]!.body).not.toMatch(/48\.19|decided/);
+      expect(mine.some((n) => n.kind === 'order_rejected')).toBe(false);
+    } finally {
+      quoteHook = undefined;
+      await stopAll();
+    }
+  });
+
+  it('A3: an order decided and sent in the session goes out at once, as before', async () => {
+    // Tuesday 2026-10-20, 10:31 New York: in the session.
+    clock = Date.parse('2026-10-20T14:31:00Z');
+    const { runtimeId } = await startPaper('In session', oneLeg('0.0001'));
+    await pass();
+    // Sent in the same pass, with no hold and no collar step, even with a tiny collar.
+    expect(await sent(runtimeId)).toBe(1);
+    const [order] = await orders(runtimeId);
+    expect(order!.state).not.toBe('canceled');
+    expect(order!.state).not.toBe('ready');
     await stopAll();
   });
 });

@@ -232,15 +232,16 @@ describe('simulate: worked examples', () => {
     expect(r.metrics.cycles).toBe(0);
   });
 
-  it('cancels a market order whose open gaps beyond the price collar', () => {
+  it('fills a market order decided at the close even when the next open gaps past the collar (N325)', () => {
     const r = simulate({
       definition: crossover(),
       instruments: INSTRUMENTS,
-      inputs: inputs('2024-03-04', '2024-03-08'),
+      inputs: inputs('2024-03-04', '2024-03-08', { slippageBps: '0' }),
       data: loaded({ [A]: closes(FROM, [99, 101, 110, 110, 110]) }),
     });
-    expect(r.fills).toEqual([]);
-    expect(r.warnings.map((w) => w.code)).toContain('collar_cancel');
+    // Decided at 101 on one day's close, filled at the next day's 110 open (+8.9%).
+    expect(r.fills.map((f) => [f.side, f.price])).toEqual([['buy', '110']]);
+    expect(r.warnings.map((w) => w.code)).not.toContain('collar_cancel');
   });
 
   it('flattens the filled leg of a pair when the other leg times out', () => {

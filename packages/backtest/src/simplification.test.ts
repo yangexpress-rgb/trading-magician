@@ -102,10 +102,12 @@ describe('Strategy Lab simplification (ADR 0049)', () => {
     const days = closes(FROM, [0, 0, 0, 0, 0]).map((b) => b.start);
     const r = run(def, [100, 106, 106, 106, 106]);
     // Bought at the open after the slot is chosen, sold at the next open, chosen again.
+    // (The 100 → 106 gap into the first fill is across sessions: no collar, N325.)
     expect(r.fills.map((f) => [f.time, f.side])).toEqual([
-      [days[2], 'buy'],
-      [days[3], 'sell'],
-      [days[4], 'buy'],
+      [days[1], 'buy'],
+      [days[2], 'sell'],
+      [days[3], 'buy'],
+      [days[4], 'sell'],
     ]);
   });
 

@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   CAPACITY_RISK_CODES,
   checkPreTradeRisk,
+  collarAtRelease,
   collarBreach,
   holdsForOpenCollar,
+  sampledInSessionAt,
   riskRefusalText,
   type RiskCheckInput,
 } from './risk';
@@ -148,6 +150,72 @@ describe('price collar on orders that fill at the open (§7.2)', () => {
     expect(r.breached).toBe(true);
     expect(collarBreach(new Decimal('70'), new Decimal('66.6'), '5').breached).toBe(false);
     expect(collarBreach(new Decimal('0'), new Decimal('10'), '5').breached).toBe(false);
+  });
+});
+
+describe('collar anchored at release, never on a prior session (N325)', () => {
+  // The incident: decided Friday 2026-11-20 16:05 ET at $48.19; Monday 2026-11-23 opens at $51.15.
+  const FRIDAY_DECISION = { last: d('48.19'), at: '2026-11-20T21:05:00Z' };
+  const OPEN = Date.parse('2026-11-23T14:30:00Z');
+  const sec = (n: number) => new Date(OPEN + n * 1000).toISOString();
+
+  it('A1: sends the gapped open; the Friday decision price is not an input at all', () => {
+    const r = collarAtRelease({
+      snapshot: { last: d('51.15'), at: sec(1) },
+      sendQuote: { last: d('51.16'), at: sec(1.4) },
+      now: OPEN + 1500,
+      collarPct: '5',
+    });
+    expect(r.kind).toBe('send');
+    if (r.kind !== 'send') return;
+    expect(r.anchor).toMatchObject({ source: 'release_snapshot', at: sec(1) });
+    expect(r.anchor.price.toString()).toBe('51.15');
+  });
+
+  it('A2: blocks a move past the collar between release and send, naming both prices and times', () => {
+    const r = collarAtRelease({
+      snapshot: { last: d('50.00'), at: sec(1) },
+      sendQuote: { last: d('53.00'), at: sec(3) },
+      now: OPEN + 3000,
+      collarPct: '5',
+    });
+    expect(r.kind).toBe('block');
+    if (r.kind !== 'block') return;
+    expect(r.anchor).toMatchObject({ source: 'release_snapshot', at: sec(1) });
+    expect(r.price).toMatchObject({ source: 'send_attempt', at: sec(3) });
+    expect(r.movePct.toFixed(1)).toBe('6.0');
+    expect(r.reason).toBe(
+      'Not sent: the price moved 6.0% while the order was being sent, from $50.00 at 9:30:01 AM ET ' +
+        '(release snapshot) to $53.00 at 9:30:03 AM ET (at the send attempt). The price collar allows 5%.',
+    );
+    expect(r.reason).not.toMatch(/decided/);
+  });
+
+  it('A4: never anchors on a price from an earlier session; it waits for a current one', () => {
+    // Friday's price offered as the snapshot (e.g. no trade yet today): wait, never compare.
+    expect(
+      collarAtRelease({
+        snapshot: FRIDAY_DECISION,
+        sendQuote: { last: d('51.15'), at: sec(1) },
+        now: OPEN + 1000,
+        collarPct: '5',
+      }).kind,
+    ).toBe('wait');
+    // A pre-market quote the same morning is not from the session either.
+    expect(sampledInSessionAt('2026-11-23T14:29:59Z', OPEN + 1000)).toBe(false);
+    expect(sampledInSessionAt(sec(0), OPEN + 1000)).toBe(true);
+    expect(sampledInSessionAt(FRIDAY_DECISION.at, OPEN + 1000)).toBe(false);
+    // Nor a stale price at the send attempt.
+    expect(
+      collarAtRelease({
+        snapshot: { last: d('51.15'), at: sec(1) },
+        sendQuote: FRIDAY_DECISION,
+        now: OPEN + 2000,
+        collarPct: '5',
+      }).kind,
+    ).toBe('wait');
+    // Nor while the market is closed.
+    expect(sampledInSessionAt(FRIDAY_DECISION.at, Date.parse('2026-11-21T15:00:00Z'))).toBe(false);
   });
 });
 

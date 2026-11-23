@@ -38,6 +38,12 @@ export interface LiveQuoteProvider {
    * a quote are left out. Feeds without it are asked one at a time.
    */
   latestQuotes?(refs: readonly QuoteRequest[]): Promise<Map<string, Quote>>;
+  /**
+   * The instrument's quote asked of its feed again now, past any per-pass
+   * cache: the price at a send attempt, for the price collar (N325). Providers
+   * without a cache need not have it; `latestQuote` is then asked instead.
+   */
+  freshQuote?(ref: QuoteRequest): Promise<Quote | undefined>;
 }
 
 /** Seconds between a quote's provider time and `now`. */

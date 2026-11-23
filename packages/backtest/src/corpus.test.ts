@@ -48,6 +48,8 @@ function rebuild(run: Run): SimulationInput {
 /** Runs whose result changes on purpose, with the reason (see docs/adr). */
 const EXPECTED_CHANGES: Record<number, string> = {
   21: 'ADR 0067: daily-bar rules on an hourly run now check Entry once a day after the close, not every hourly bar',
+  45: "ADR 0113: an order decided at the close is no longer collar-canceled for the next open gapping; the anchor is that session's own first price",
+  55: 'ADR 0113: as #45 (the decided-at-close order now fills at the gapped open)',
 };
 
 describe('every recorded fixture strategy back tests as before (corpus)', () => {

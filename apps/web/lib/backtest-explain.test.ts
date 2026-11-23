@@ -59,6 +59,42 @@ describe('explainOrder', () => {
     );
   });
 
+  it('names both prices, when each was taken and the anchor (N325)', () => {
+    const base = { reference: '70', price: '74.2', movePct: '6', limitPct: '5' };
+    expect(
+      explainOrder(
+        order({
+          outcome: 'canceled',
+          reason: 'collar_cancel',
+          detail: {
+            ...base,
+            referenceSource: 'decision',
+            referenceAt: '2025-03-03T14:40:00.000Z',
+            priceAt: '2025-03-03T14:40:00.000Z',
+          },
+        }),
+      ),
+    ).toBe(
+      'The price was $74.20 at Mar 3, 2025, 9:40 AM ET, 6% from $70.00 at Mar 3, 2025, 9:40 AM ET (the last close when it was decided, the same session). The price collar allows 5%.',
+    );
+    expect(
+      explainOrder(
+        order({
+          outcome: 'canceled',
+          reason: 'collar_cancel',
+          detail: {
+            ...base,
+            referenceSource: 'release_snapshot',
+            referenceAt: '2025-03-03T14:30:00.000Z',
+            priceAt: '2025-03-03T14:35:00.000Z',
+          },
+        }),
+      ),
+    ).toBe(
+      "The price was $74.20 at Mar 3, 2025, 9:35 AM ET, 6% from $70.00 at Mar 3, 2025, 9:30 AM ET (release snapshot: the session's first price). The price collar allows 5%.",
+    );
+  });
+
   it('explains an order placed at the last close of the test', () => {
     expect(
       explainOrder(order({ phase: 'exit', outcome: 'working_at_end', reason: 'no_bar_after' })),
