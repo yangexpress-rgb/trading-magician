@@ -108,7 +108,7 @@ export function drainQuoteTrail(): QuoteTrailEntry[] {
 export interface RoutedQuotes extends LiveQuoteProvider {
   /** Fetches these instruments' quotes for the pass in as few requests as the feeds allow. */
   prefetch(refs: readonly QuoteRequest[]): Promise<void>;
-  /** Why the instrument's quote this pass came back empty, if it did (N326). */
+  /** Why the instrument's quote this pass came back empty, if it did (N328). */
   missReason(instrumentId: string): MissReason | undefined;
 }
 
@@ -122,7 +122,7 @@ export interface FeedAsker {
   has(feedId: string, instrumentId: string): boolean;
   /** One feed's quote asked again now, past this pass's cache (N325). */
   askFresh(feedId: string | null, ref: QuoteRequest): Promise<Quote | undefined>;
-  /** Why an ask this pass came back without a price (N326). */
+  /** Why an ask this pass came back without a price (N328). */
   missReason(instrumentId: string): MissReason | undefined;
 }
 
@@ -140,7 +140,7 @@ export function createFeedAsker(options: {
   privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'warn'>;
   scope?: FeedScope | undefined;
-  /** The process's shared prices (N326); without it each ask goes to the feed. */
+  /** The process's shared prices (N328); without it each ask goes to the feed. */
   hub?: QuoteHub | undefined;
 }): FeedAsker {
   const { tx, now } = options;

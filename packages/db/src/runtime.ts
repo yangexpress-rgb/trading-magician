@@ -70,9 +70,9 @@ export interface RuntimeState {
   staleSince?: number | undefined;
   /** Each watched instrument's own stale-or-missing start, epoch ms (N276); one quiet stock no longer adds to another's. */
   staleSinceBy?: Record<string, number> | undefined;
-  /** When this runtime's open price incident began, on its own clock, epoch ms (N326). */
+  /** When this runtime's open price incident began, on its own clock, epoch ms (N328). */
   feedIncidentAt?: number | undefined;
-  /** Since when every watched price has been current again, epoch ms; the incident closes after 30 s (N326). */
+  /** Since when every watched price has been current again, epoch ms; the incident closes after 30 s (N328). */
   feedClearSince?: number | undefined;
   /** Since when the broker has kept answering "too many requests", epoch ms (N282). */
   throttledSince?: number | undefined;

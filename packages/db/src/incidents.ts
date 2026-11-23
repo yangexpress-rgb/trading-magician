@@ -53,7 +53,7 @@ export interface OpenIncidentInput {
   link?: string | undefined;
   /**
    * Feed incidents come from every runtime at once, so one outage is told once
-   * (N326): `first_of_kind` notifies only when no other incident of the kind is
+   * (N328): `first_of_kind` notifies only when no other incident of the kind is
    * open for the person, and leaves the per-strategy pause notice to the
    * Orders page. Default `always`.
    */
@@ -178,7 +178,7 @@ async function pauseForIncident(tx: Transaction, input: OpenIncidentInput, incid
       resourceId: p.id,
       context: { incidentId, kind: input.kind, reason: input.summary.slice(0, 500) },
     });
-    // A feed outage's one notice already names what it paused (N326).
+    // A feed outage's one notice already names what it paused (N328).
     if (NOTIFICATION_FOR[input.kind] !== 'risk_pause' && (input.notify ?? 'always') === 'always') {
       await notify(tx, {
         userId: input.userId,
@@ -195,7 +195,7 @@ async function pauseForIncident(tx: Transaction, input: OpenIncidentInput, incid
   return paused;
 }
 
-/** Whether the person has another open incident of this kind (N326). */
+/** Whether the person has another open incident of this kind (N328). */
 async function otherOpenOfKind(
   tx: Transaction,
   userId: string,
@@ -219,7 +219,7 @@ async function otherOpenOfKind(
   return Boolean(row);
 }
 
-/** Whether the person has an open incident of this kind (N326). */
+/** Whether the person has an open incident of this kind (N328). */
 export async function hasOpenIncidentOfKind(
   tx: Transaction,
   userId: string,
@@ -229,7 +229,7 @@ export async function hasOpenIncidentOfKind(
 }
 
 /**
- * Opens or updates a runtime's price incident (N326). Its wording follows the
+ * Opens or updates a runtime's price incident (N328). Its wording follows the
  * prices as they are now, and it notifies once per outage: when the first
  * runtime's prices go bad while no other runtime's are, not on every pass and
  * not for each runtime. A symbol that is only subscribed but silent (N276
@@ -325,7 +325,7 @@ export function durationText(seconds: number): string {
 
 /**
  * Closes a runtime's price incident once its prices have been current again
- * (N326), recording how long it lasted. When it was the last runtime with bad
+ * (N328), recording how long it lasted. When it was the last runtime with bad
  * prices, one notification says the outage is over and how long it took.
  */
 export async function closePriceIncident(
@@ -447,12 +447,12 @@ export interface IncidentRow {
 export interface ClosedIncidentRow extends IncidentRow {
   resolvedAt: string;
   resolution: string | null;
-  /** How long it lasted, when the system closed it (N326). */
+  /** How long it lasted, when the system closed it (N328). */
   durationSec: number | null;
 }
 
 /**
- * Price incidents that closed themselves in the last few hours (N326), so the
+ * Price incidents that closed themselves in the last few hours (N328), so the
  * Orders page can show that an outage happened and how long it lasted.
  */
 export async function listRecentlyClosedFeedIncidents(

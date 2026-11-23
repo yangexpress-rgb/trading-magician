@@ -134,7 +134,7 @@ export async function quotesForAccount(options: {
   logger: Pick<Logger, 'warn'>;
   feeds: FeedScope;
   decide: boolean;
-  /** The worker's shared prices (N326). */
+  /** The worker's shared prices (N328). */
   hub?: QuoteHub | undefined;
 }): Promise<RoutedQuotes & { step?: ChainStep | undefined }> {
   const { tx, feeds } = options;

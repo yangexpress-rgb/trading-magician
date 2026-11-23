@@ -196,6 +196,13 @@ export interface RuntimeSummaryDto {
    * not yet exited), rejected (ended with nothing filled), entering (Entry still working).
    */
   cycles: { completed: number; active: number; rejected: number; entering: number };
+  /** Cycles that completed in today's session (N326). */
+  completedToday: number;
+  /**
+   * Today's return (N327): realized plus unrealized P/L over today's session in dollars,
+   * its parts, and as a % of the capital at work that session (null with none).
+   */
+  today: { pnl: string; realized: string; unrealized: string; pct: string | null };
   /** Realized profit or loss of this run's completed cycles, in dollars (N304). */
   realizedPnl: string;
   /** Completed cycles that closed with a gain (N304). */
@@ -205,7 +212,17 @@ export interface RuntimeSummaryDto {
 }
 
 /** What a figure on Strategies on paper counts, for its detail list (N305). */
-export const RUN_DETAIL_KINDS = ['working', 'completed', 'active', 'rejected', 'entering'] as const;
+export const RUN_DETAIL_KINDS = [
+  'working',
+  'completed',
+  'active',
+  'rejected',
+  'entering',
+  /** Cycles completed in today's session (N326). */
+  'completed_today',
+  /** Cycles behind Today's return: completed today, or still holding a position (N327). */
+  'today',
+] as const;
 export type RunDetailKindDto = (typeof RUN_DETAIL_KINDS)[number];
 
 /** Query string for GET /execution/runtimes/{runtimeId}/detail. */
@@ -255,7 +272,7 @@ export interface IncidentDto {
   openedAt: string;
 }
 
-/** A price incident that closed itself, with how long it lasted (N326). */
+/** A price incident that closed itself, with how long it lasted (N328). */
 export interface ClosedIncidentDto extends IncidentDto {
   resolvedAt: string;
   resolution: string | null;
@@ -268,11 +285,13 @@ export const resolveIncidentRequest = z
 export type ResolveIncidentRequest = z.input<typeof resolveIncidentRequest>;
 
 export interface ExecutionStatusDto {
+  /** The NYSE session "today" means on Strategies on paper (N326), as a New York date. */
+  todaySession: string;
   halted: { at: string; reason: string | null } | null;
   runtimes: RuntimeSummaryDto[];
   /** Open incidents: reconciliation mismatches, repeated rejects, data and broker problems. */
   incidents: IncidentDto[];
-  /** Price incidents that closed themselves in the last few hours (N326). */
+  /** Price incidents that closed themselves in the last few hours (N328). */
   recentlyClosed: ClosedIncidentDto[];
 }
 

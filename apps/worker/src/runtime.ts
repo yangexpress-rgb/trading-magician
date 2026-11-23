@@ -253,7 +253,7 @@ export interface RuntimeCaches {
   bars: RuntimeBarCache;
   universes: RuntimeUniverses;
   side: RuntimeSideData<SideData>;
-  /** Live prices shared by every runtime, one feed request at a time (N326). */
+  /** Live prices shared by every runtime, one feed request at a time (N328). */
   quotes: QuoteHub;
 }
 
@@ -290,7 +290,7 @@ export const SAFETY = {
   throttledPauseMs: 300_000,
 } as const;
 
-/** How long prices must stay current before a price incident closes itself (N326). */
+/** How long prices must stay current before a price incident closes itself (N328). */
 export const FEED_CLEAR_MS = 30_000;
 
 /** What went wrong with the broker during a pass. */
@@ -643,14 +643,14 @@ async function watchFeed(
   if (health) health.feedLive = verdict.feedLive;
   work.state.staleSinceBy = verdict.staleSince;
   const link = `/orders?strategy=${work.strategyId}`;
-  // An incident opened before N326 has no start of its own: it began when prices went stale.
+  // An incident opened before N328 has no start of its own: it began when prices went stale.
   if (work.state.feedIncidentAt === undefined && work.state.staleSince !== undefined)
     work.state.feedIncidentAt = work.state.staleSince;
   if (verdict.bad.length === 0 && verdict.silent.length === 0) {
     work.state.staleSince = undefined;
     if (work.state.feedIncidentAt === undefined) return work;
     // Prices must stay current for a while before the incident closes, so a
-    // feed that flickers is one incident, not one per pass (N326).
+    // feed that flickers is one incident, not one per pass (N328).
     work.state.feedClearSince ??= t;
     if (t - work.state.feedClearSince < FEED_CLEAR_MS) return work;
     await closePriceIncident(tx, {
@@ -687,7 +687,7 @@ async function watchFeed(
     summary: lostSummary,
     pause: [work.id],
     link,
-    // One notice per outage, naming what it paused (N326).
+    // One notice per outage, naming what it paused (N328).
     notify: 'first_of_kind',
   });
   work.state.autoPause = { kind: 'feed_loss', reason: lostSummary.slice(0, 500), at: t };
@@ -820,7 +820,7 @@ async function autoResume(
       link,
     });
   }
-  // A feed outage pauses every strategy on the feed: one notice when the last resumes (N326).
+  // A feed outage pauses every strategy on the feed: one notice when the last resumes (N328).
   const quietResume =
     pause.kind === 'feed_loss' && (await hasOpenIncidentOfKind(tx, work.userId, 'feed_loss'));
   await recordAudit(tx, {

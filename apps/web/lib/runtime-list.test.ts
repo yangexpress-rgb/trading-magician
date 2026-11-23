@@ -29,6 +29,8 @@ function run(over: Partial<RuntimeSummaryDto> = {}): RuntimeSummaryDto {
     stoppedAt: null,
     workingOrders: 0,
     cycles: { completed: 4, active: 1, rejected: 2, entering: 0 },
+    completedToday: 2,
+    today: { pnl: '-40.00', realized: '10.00', unrealized: '-50.00', pct: '-0.80' },
     realizedPnl: '125.50',
     wins: 3,
     lastEntryAt: new Date(NOW - DAY / 2).toISOString(),
@@ -100,6 +102,17 @@ describe('Strategies on paper list (N304)', () => {
       false,
     );
     expect(countRuntimeFilters(filters({ ranges: ranges('pnl', '1', '') }))).toBe(1);
+    // Today's columns (N326, N327).
+    expect(matchesRuntime(run(), filters({ ranges: ranges('completedToday', '1', '') }), NOW)).toBe(
+      true,
+    );
+    expect(matchesRuntime(run(), filters({ ranges: ranges('completedToday', '3', '') }), NOW)).toBe(
+      false,
+    );
+    expect(matchesRuntime(run(), filters({ ranges: ranges('todayPnl', '', '0') }), NOW)).toBe(true);
+    expect(matchesRuntime(run(), filters({ ranges: ranges('todayPnl', '$0', '') }), NOW)).toBe(
+      false,
+    );
   });
 
   it('leaves out runs with no win rate when the win rate is filtered', () => {

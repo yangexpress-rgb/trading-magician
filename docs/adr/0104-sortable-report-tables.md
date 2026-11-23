@@ -74,3 +74,7 @@ be reported with detailed list. same behavior should be enabled for each number 
   rate open the completed cycles.
 - The dialog's table is a flat, sortable `Table`: cycle columns repeat on each order row so sorting
   never splits a cycle's facts from its orders.
+
+## Amendment (2026-11-23, N326, N327)
+
+On Yong's request the Strategies on paper list drops the Working orders column and gains **Completed today** (cycles Exit closed in today's NYSE session, by New York close date; a click lists them with their orders) and **Today's return** (realized plus unrealized over that session, $ with % beneath, parts on hover). Today's return reuses the Performance Today measure (N296, `sessionChange` over stored book valuations) per run, so the Orders and Performance figures agree; it is as fresh as the latest valuation (every 5 minutes). The detail endpoint gains kinds `completed_today` and `today`.

@@ -20,11 +20,11 @@ export interface WatchedPrice {
   instrumentId: string;
   symbol: string;
   quote: Quote | undefined;
-  /** Why the quote is missing, when the feed said (N326). */
+  /** Why the quote is missing, when the feed said (N328). */
   miss?: MissReason | undefined;
 }
 
-/** Why a watched price is not current (N326). */
+/** Why a watched price is not current (N328). */
 export type PriceProblem = MissReason | 'no_price' | 'stale';
 
 export interface FeedVerdict {
@@ -36,10 +36,10 @@ export interface FeedVerdict {
   lost: { symbol: string; seconds: number }[];
   /** Whether the feed gave a fresh price this pass. */
   feedLive: boolean;
-  /** Each symbol in `bad` with why (N326). */
+  /** Each symbol in `bad` with why (N328). */
   problems: { symbol: string; reason: PriceProblem }[];
   /**
-   * Subscribed but silent (N326): the feed is answering and other prices move,
+   * Subscribed but silent (N328): the feed is answering and other prices move,
    * but this symbol has had no new trade or quote for longer than the
    * threshold. Not stale under N276, so orders still go; reported on its own.
    */
@@ -96,7 +96,7 @@ export function feedVerdict(input: {
 const list = (symbols: string[]) => symbols.join(', ');
 
 /**
- * The price incident's wording (N326): each cause in its own words, so the
+ * The price incident's wording (N328): each cause in its own words, so the
  * Orders page says whether Alpaca refused the requests, timed out, answered
  * without the symbol, or the prices are simply old.
  */

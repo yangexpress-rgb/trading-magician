@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { feedIncidentSummary, feedVerdict } from './feed-watch';
 import { missReasonOf, QuoteHub } from './quote-hub';
 
-/** The worker's shared live prices and their incident wording (N326). */
+/** The worker's shared live prices and their incident wording (N328). */
 
 const quote = (ref: QuoteRequest, at: string): Quote =>
   ({ instrumentId: ref.instrumentId, symbol: ref.symbol, at, marketOpen: true }) as Quote;

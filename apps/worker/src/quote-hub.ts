@@ -3,7 +3,7 @@ import type { Logger } from 'pino';
 import { withTimeout } from './providers';
 
 /**
- * Why a quote ask came back without a price (N326):
+ * Why a quote ask came back without a price (N328):
  * - `throttled`: the feed refused the request as over its limit (Alpaca 429);
  * - `timeout`: the feed did not answer in time;
  * - `error`: the feed failed some other way;
@@ -35,7 +35,7 @@ export function missReasonOf(error: unknown): MissReason {
 }
 
 /**
- * One process-wide place the runtimes get live prices from (N326). Every
+ * One process-wide place the runtimes get live prices from (N328). Every
  * running strategy used to ask its feed for its own prices on each of its
  * passes, so 18 strategies passing every 5 seconds sent about 216 requests a
  * minute through one Alpaca key whose limit is 200; Alpaca refused the excess

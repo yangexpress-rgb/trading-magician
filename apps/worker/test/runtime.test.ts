@@ -67,10 +67,10 @@ const T0 = Date.parse('2026-10-06T14:31:00Z');
 let clock = T0;
 /** Test hooks: stale prices and a broker that stops answering. */
 let quoteDelayMs = 0;
-/** Test hooks (N326): only this instrument's prices are delayed; every quote ask fails with this. */
+/** Test hooks (N328): only this instrument's prices are delayed; every quote ask fails with this. */
 let delayOnly: string | undefined;
 let quoteError: Error | undefined;
-/** Test hook (N326): how many quote asks reached the feed. */
+/** Test hook (N328): how many quote asks reached the feed. */
 let feedAsks = 0;
 let brokerDown = false;
 let brokerThrottled = false;
@@ -1236,7 +1236,7 @@ describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', (
     await asUser((tx) => resumeRuntime(tx, userId, runtimeId));
     clock += 10_000;
     await pass();
-    // Prices are current, but the incident waits for 30 s of current prices (N326).
+    // Prices are current, but the incident waits for 30 s of current prices (N328).
     expect((await incidents()).map((i) => i.kind).sort()).toEqual(['feed_loss', 'stale_data']);
     clock += FEED_CLEAR_MS;
     await pass();
@@ -2256,7 +2256,7 @@ describe('paper runtime: intraday pack (N255, N256)', () => {
   });
 });
 
-describe('live prices shared, named and closed on their own (N326)', () => {
+describe('live prices shared, named and closed on their own (N328)', () => {
   // Earlier tests leave their strategies behind; make room under the plan's cap.
   beforeAll(async () => {
     await t.ownerSql`update strategy set deleted_at = now() where deleted_at is null`;

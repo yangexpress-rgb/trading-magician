@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-23
-- **Design refs:** design v1.3 §12.4, §15.2; N326; O210, O211. Yong's brief "Live price feed drops
+- **Design refs:** design v1.3 §12.4, §15.2; N328; O210, O211. Yong's brief "Live price feed drops
   symbols after the open; incidents never close themselves" (2026-11-23). Builds on ADR 0087
   (batched quotes), ADR 0096 (N276 quiet quotes) and ADR 0097 (automatic resume).
 

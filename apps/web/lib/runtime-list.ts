@@ -15,7 +15,8 @@ export function parseRuntimeView(saved: string | null | undefined): RuntimeView 
 }
 
 export const RANGE_KEYS = [
-  'working',
+  'completedToday',
+  'todayPnl',
   'completed',
   'active',
   'rejected',
@@ -78,8 +79,10 @@ export function winRate(r: RuntimeSummaryDto): number | null {
 /** A column's number for a run, for the range filters. */
 export function rangeValue(r: RuntimeSummaryDto, key: RangeKey): number | null {
   switch (key) {
-    case 'working':
-      return r.workingOrders;
+    case 'completedToday':
+      return r.completedToday;
+    case 'todayPnl':
+      return Number(r.today.pnl);
     case 'completed':
     case 'active':
     case 'rejected':

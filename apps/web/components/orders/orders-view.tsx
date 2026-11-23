@@ -61,10 +61,10 @@ const LIVE_TEXT: Record<LiveState, string> = {
   reconnecting: 'Reconnecting live updates…',
 };
 
-/** Price incidents close themselves once prices are current again (N326). */
+/** Price incidents close themselves once prices are current again (N328). */
 const selfClosing = (i: IncidentDto) => i.kind === 'stale_data';
 
-/** A subscribed-but-silent price incident has its own label (N326). */
+/** A subscribed-but-silent price incident has its own label (N328). */
 function incidentLabel(i: IncidentDto) {
   const state = (i.details as { state?: unknown } | null)?.state;
   return i.kind === 'stale_data' && state === 'silent' ? 'Silent prices' : INCIDENT_LABELS[i.kind];
@@ -475,6 +475,7 @@ function Runtimes({
           onDetail={onDetail}
           filters={filters}
           onFilters={setFilters}
+          todaySession={status.todaySession}
         />
       ) : (
         <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
