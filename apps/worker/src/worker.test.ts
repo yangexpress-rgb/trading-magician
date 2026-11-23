@@ -49,6 +49,8 @@ describe('worker env', () => {
       PRICE_RANGES: 'on',
       PRICE_RANGE_POLL_MS: 300000,
       EARNINGS_CALENDAR_PROVIDER: 'fmp',
+      SHORT_INTEREST_ENABLED: 'on',
+      SHORT_INTEREST_FAKE: false,
     });
   });
 

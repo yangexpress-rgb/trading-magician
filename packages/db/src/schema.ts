@@ -2790,6 +2790,57 @@ export const ratesDaily = pgTable(
   (t) => [check('rates_daily_source', sql`${t.source} = 'fred'`)],
 );
 
+/**
+ * FINRA consolidated short interest per instrument and settlement date (data
+ * inputs part 2, item B, N323, ADR 0111), the published fields only. A row is
+ * readable from `available_date` (FINRA's publication date); a later
+ * retrieval of a revised row replaces the figures but keeps that date.
+ */
+export const shortInterest = pgTable(
+  'short_interest',
+  {
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => instruments.id),
+    settlementDate: date('settlement_date', { mode: 'string' }).notNull(),
+    availableDate: date('available_date', { mode: 'string' }).notNull(),
+    /** The symbol as FINRA printed it. */
+    symbol: text('symbol').notNull(),
+    shortShares: numeric('short_shares', { mode: 'string' }).notNull(),
+    previousShortShares: numeric('previous_short_shares', { mode: 'string' }),
+    changeShares: numeric('change_shares', { mode: 'string' }),
+    avgDailyVolume: numeric('avg_daily_volume', { mode: 'string' }),
+    daysToCover: numeric('days_to_cover', { mode: 'string' }),
+    /** FINRA's 'R' when the prior cycle's position was revised. */
+    revisionFlag: text('revision_flag'),
+    source: text('source').notNull().default('finra'),
+    recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: 'short_interest_pk', columns: [t.instrumentId, t.settlementDate] }),
+    index('short_interest_settlement_idx').on(t.settlementDate),
+    check('short_interest_source', sql`${t.source} = 'finra'`),
+    check('short_interest_available', sql`${t.availableDate} > ${t.settlementDate}`),
+  ],
+);
+
+/**
+ * One FINRA settlement date as the short interest job read it (N323): when
+ * it became public, how many rows FINRA published, how many were stored, and
+ * the symbols that matched no instrument (counted and listed, never dropped
+ * silently). The job resumes from here.
+ */
+export const shortInterestSettlement = pgTable('short_interest_settlement', {
+  settlementDate: date('settlement_date', { mode: 'string' }).primaryKey(),
+  availableDate: date('available_date', { mode: 'string' }).notNull(),
+  published: integer('published').notNull(),
+  stored: integer('stored').notNull(),
+  unresolved: integer('unresolved').notNull(),
+  /** Every unmatched symbol of that settlement. */
+  unresolvedSymbols: text('unresolved_symbols').array().notNull(),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 /** Where each event job has got to: covered dates, last run and last error. */
 export const eventScanState = pgTable(
   'event_scan_state',

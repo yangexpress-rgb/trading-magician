@@ -73,7 +73,7 @@ const KIND_LABELS: Record<UiKind, string> = {
   metric: 'Metric (price-based, shared registry)',
   fundamental: 'Fundamental metric (company filings)',
   options: 'Options metric (end-of-day)',
-  events: 'Earnings, deals and rates (EDGAR, FRED)',
+  events: 'Earnings, deals, rates and short interest (EDGAR, FRED, FINRA)',
   ml: 'Machine learning (model scores)',
   session: 'Session (intraday): VWAP, high/low, opening range',
   stat: 'Statistic (std. dev., z-score, Bollinger, BandWidth)',

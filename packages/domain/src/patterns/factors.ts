@@ -40,6 +40,7 @@ export const FACTOR_CATEGORIES = [
   'earnings',
   'options',
   'session',
+  'short',
 ] as const;
 export type FactorCategory = (typeof FACTOR_CATEGORIES)[number];
 
@@ -49,6 +50,7 @@ export const FACTOR_CATEGORY_LABELS: Record<FactorCategory, string> = {
   earnings: 'Earnings and events',
   options: 'Options signals',
   session: 'Session (intraday)',
+  short: 'Short interest (FINRA)',
 };
 
 /** Cross-sectional quintiles across the universe that day, or the instrument's own trailing percentiles. */
@@ -291,6 +293,28 @@ export const FACTOR_CATALOGUE_V1: readonly FactorSpec[] = [
     scope: 'all',
     marketLevel: true,
   })),
+  // FINRA short interest (data inputs part 2, item B, N323): the latest row FINRA had
+  // published by that day, carried forward until the next publication.
+  {
+    id: 'short.days_to_cover',
+    category: 'short',
+    label: 'Days to cover',
+    definition:
+      'Registry short.days_to_cover: the latest FINRA settlement published by that day, carried forward until the next publication (twice a month)',
+    modes: BOTH,
+    metric: plainMetric('short.days_to_cover'),
+    scope: 'all',
+  },
+  {
+    id: 'short.change_pct',
+    category: 'short',
+    label: 'Short interest change %',
+    definition:
+      'Registry short.change_pct (change in short shares since the prior settlement ÷ prior): the latest FINRA settlement published by that day, carried forward until the next publication',
+    modes: BOTH,
+    metric: plainMetric('short.change_pct'),
+    scope: 'all',
+  },
   // Options signals as recorded (or rebuilt), any instrument with signals.
   ...(
     [
