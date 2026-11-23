@@ -68,7 +68,7 @@ export async function syncSp500Membership(options: {
     periods: rows,
   });
   const unresolved = [
-    ...new Set(rows.filter((r, i) => !r.instrumentId && inBars(periods[i]!)).map((r) => r.symbol)),
+    ...new Set(periods.filter((p, i) => inBars(p) && !rows[i]?.instrumentId).map((p) => p.symbol)),
   ].sort();
   const year = Number(options.barsFrom.slice(0, 4));
   const report: MembershipReport = {
