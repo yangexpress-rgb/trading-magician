@@ -23,6 +23,7 @@ from psycopg import sql
 from .atoms import Atom
 from .decay import decay_state, reverify_checks, score_after
 from .labels import excursions
+from .membership import member_mask, only_members
 from .scan import DISCOVERY_SHARE, mine, split
 
 MIN_CROSS_SECTION = 50
@@ -50,6 +51,7 @@ class ScanConfig:
     range_to: str | None
     discovery_share: float
     factors: list[FactorDef]
+    member_periods: dict[str, list[list[str | None]]] | None = None
 
     @staticmethod
     def parse(raw: dict[str, Any]) -> "ScanConfig":
@@ -67,6 +69,7 @@ class ScanConfig:
             range_to=rng.get("to"),
             discovery_share=float((raw.get("split") or {}).get("discovery", DISCOVERY_SHARE)),
             factors=[FactorDef(f["id"], f["category"], list(f["modes"])) for f in raw["factors"]],
+            member_periods=raw.get("memberPeriods"),
         )
 
 
@@ -193,7 +196,8 @@ def run_scan(conn: psycopg.Connection, scan_id: str, user_id: str, raw: dict[str
         raise ValueError("Too few days of data in the scan range")
     end_ix = len(grid.days) - 1
     windows = split(first, end_ix, cfg.horizon, cfg.discovery_share)
-    outcomes = excursions(grid.close_ret, grid.high_rel, grid.low_rel, cfg.horizon)
+    member = member_mask(grid.days, grid.inst, cfg.member_periods)
+    outcomes = only_members(excursions(grid.close_ret, grid.high_rel, grid.low_rel, cfg.horizon), member)
     modes = {f.id: f.modes for f in included if f.id in grid.factors}
     out = mine(
         grid.factors,
@@ -204,6 +208,7 @@ def run_scan(conn: psycopg.Connection, scan_id: str, user_id: str, raw: dict[str
         windows=windows,
         max_depth=cfg.max_depth,
         min_support=cfg.min_support,
+        member=member,
     )
     res = out.result
     seconds = round(time.time() - started, 1)
@@ -335,20 +340,21 @@ def run_decay(conn: psycopg.Connection, code_version: str, *, today: str | None 
         grid = load_grid(conn, cfg.member_ids, factor_ids, _iso(first_needed, -OWN_LOOKBACK_DAYS), last)
         if not grid.days:
             continue
-        outcomes = excursions(grid.close_ret, grid.high_rel, grid.low_rel, cfg.horizon)
+        member = member_mask(grid.days, grid.inst, cfg.member_periods)
+        outcomes = only_members(excursions(grid.close_ret, grid.high_rel, grid.low_rel, cfg.horizon), member)
         fresh_after = _last_index_on_or_before(grid.days, holdout_end)
         disc_after = _last_index_on_or_before(grid.days, disc_end)
         for pid, user_id, _scan, _rule, stats_in, _cfg, _eff in rows:
             rule = rules[pid]
             kw = dict(direction=cfg.direction, threshold=cfg.threshold, horizon=cfg.horizon)
-            fresh = score_after(grid.factors, rule, outcomes, after=fresh_after, **kw)  # type: ignore[arg-type]
+            fresh = score_after(grid.factors, rule, outcomes, after=fresh_after, member=member, **kw)  # type: ignore[arg-type]
             state = decay_state(fresh.stats)
             stats = {k: v for k, v in dict(stats_in).items() if k != "reverifyRequestedAt"}
             stats["fresh"] = fresh.stats.as_json()
             stats["freshFrom"] = grid.days[min(fresh_after + 1, len(grid.days) - 1)]
             stats["codeVersion"] = code_version
             if "reverifyRequestedAt" in stats_in:
-                rv = score_after(grid.factors, rule, outcomes, after=disc_after, window="holdout", **kw)  # type: ignore[arg-type]
+                rv = score_after(grid.factors, rule, outcomes, after=disc_after, window="holdout", member=member, **kw)  # type: ignore[arg-type]
                 failed = reverify_checks(rv.stats)
                 stats["reverify"] = {
                     "stats": rv.stats.as_json(),

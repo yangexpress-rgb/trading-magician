@@ -3,6 +3,7 @@
 import {
   AVAILABLE_STOCK_GROUPS,
   type BuiltinUniverse,
+  SP500_PERIODS_THROUGH,
   stockGroup,
   EXCLUSION_LABELS,
   getMetric,
@@ -322,7 +323,16 @@ function GroupEditor({
             <option value="list">My list of instruments</option>
           </MiniSelect>
         </fieldset>
-        {u.type === 'builtin' && (
+        {u.type === 'builtin' && u.id === 'sp500' && (
+          <p className="mt-1 text-xs text-ink-muted" role="note">
+            Back tests use the S&amp;P 500&rsquo;s members on each day (point in time, from an
+            imported history through {SP500_PERIODS_THROUGH}): a company counts only while it was in
+            the index. Former members that no data feed lists any more (most were delisted) are left
+            out, so some survivorship bias remains. Paper and live runs, the stock screener and ML
+            models use today&rsquo;s members.
+          </p>
+        )}
+        {u.type === 'builtin' && u.id !== 'sp500' && (
           <p className="mt-1 text-xs text-ink-muted" role="note">
             Back tests use today&rsquo;s {stockGroup(u.id).label} members for the whole period, so
             companies that left the group are missing (survivorship bias): results look better than

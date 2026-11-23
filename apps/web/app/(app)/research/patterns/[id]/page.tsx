@@ -276,8 +276,9 @@ export default async function PatternPage({ params }: { params: Promise<{ id: st
               </tbody>
             </Table>
             <p className="text-sm text-ink-muted">
-              Measured from each day&rsquo;s close with daily highs and lows. Universes are
-              today&rsquo;s members (survivorship bias).
+              Measured from each day&rsquo;s close with daily highs and lows. The S&amp;P 500
+              follows its members on each day; other universes are today&rsquo;s members
+              (survivorship bias).
             </p>
           </section>
         </Card>

@@ -6,14 +6,17 @@ import {
   instrumentsBySymbol,
   LibraryError,
   listOptionUniverse,
+  membershipPeriodsBetween,
   promotePattern,
   queuePatternScan,
   requestReverify,
+  spansByInstrument,
   withTenant,
 } from '@tm/db';
 import {
   FACTOR_CATALOGUE_VERSION,
   FACTOR_CATEGORIES,
+  isPointInTimeGroup,
   patternScanInputSchema,
   scanFactors,
   scanSummary,
@@ -71,15 +74,33 @@ export async function startPatternScan(
   let id: string;
   try {
     id = await withTenant(appDb(), tenant, async (tx) => {
+      // The S&P 500 is read point in time (N324): everyone who was a member, each on its own days.
+      const history =
+        input.universe.kind === 'group' && isPointInTimeGroup(input.universe.id)
+          ? await membershipPeriodsBetween(tx, input.universe.id, '1900-01-01', '9999-12-31')
+          : [];
+      const spans = spansByInstrument(history);
       const memberIds =
         input.universe.kind === 'options'
           ? (await listOptionUniverse(tx)).map((u) => u.underlyingId)
-          : [...(await instrumentsBySymbol(tx, stockGroupSymbols(input.universe.id))).values()];
+          : spans.size > 0
+            ? [...spans.keys()]
+            : [...(await instrumentsBySymbol(tx, stockGroupSymbols(input.universe.id))).values()];
       if (memberIds.length === 0)
         throw new Error('That universe has no instruments in the factor store yet');
       const config: PatternScanConfig = {
         ...input,
         memberIds: [...new Set(memberIds)].sort(),
+        ...(spans.size > 0
+          ? {
+              memberPeriods: Object.fromEntries(
+                [...spans].map(([id, list]) => [
+                  id,
+                  list.map((s): [string, string | null] => [s.from, s.to]),
+                ]),
+              ),
+            }
+          : {}),
         factors: scanFactors(input.categories as FactorCategory[]),
         catalogueVersion: FACTOR_CATALOGUE_VERSION,
       };

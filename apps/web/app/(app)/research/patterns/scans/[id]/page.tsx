@@ -103,9 +103,9 @@ export default async function PatternScanPage({ params }: { params: Promise<{ id
             {scan.status === 'done' && (
               <p className="text-sm text-ink-muted">
                 {n(scan.candidatesTested)} rules were tried, so some will look good by chance: only
-                Verified patterns passed the holdout test after correcting for that. Universes are
-                today&rsquo;s members, so earlier years leave out companies that have since left
-                (survivorship bias).
+                Verified patterns passed the holdout test after correcting for that. The S&amp;P 500
+                follows its members on each day; other universes are today&rsquo;s members, so
+                earlier years leave out companies that have since left (survivorship bias).
               </p>
             )}
           </section>

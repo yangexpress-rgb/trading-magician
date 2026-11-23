@@ -126,6 +126,11 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
         .string()
         .regex(/^\d{4}-\d{2}-\d{2}$/)
         .default('2016-01-04'),
+      /**
+       * Point-in-time S&P 500 membership (N324, ADR 0112): store the imported
+       * history when the worker starts and daily. 'off' leaves the table as it is.
+       */
+      GROUP_MEMBERSHIP_SYNC: z.enum(['on', 'off']).default('on'),
       /** The stock groups whose members are snapshotted (comma-separated), plus the options universe. */
       PATTERN_SNAPSHOT_GROUPS: z.string().max(200).default('sp500,ndx,dji,sp400,sp600'),
       PATTERN_SNAPSHOT_POLL_MS: z.coerce.number().int().min(1000).default(300_000),

@@ -27,7 +27,8 @@ export function CoverageReport({ report }: { report: FactorCoverageReport }) {
               {report.rows === 0
                 ? 'No factor snapshots yet: the backfill has not started.'
                 : `${count(report.rows)} snapshot rows for ${count(report.instruments)} instruments over ${count(report.days)} trading days, ${dash(report.first)} to ${dash(report.last)} (${size(report.tableBytes)} on disk).`}{' '}
-              Universes are today&rsquo;s stock-group members, so earlier years leave out companies
+              The S&amp;P 500 universe follows its members on each day (point in time); other
+              universes are today&rsquo;s stock-group members, so earlier years leave out companies
               that have since left them (survivorship bias).
             </p>
           </header>

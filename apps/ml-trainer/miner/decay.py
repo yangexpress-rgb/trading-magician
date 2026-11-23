@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .atoms import Atom, cross_quintiles, own_percentiles
+from .atoms import Atom, cross_input, cross_quintiles, own_percentiles
 from .labels import Outcomes
 from .scan import Occurrence
 from .search import FDR_Q, HOLDOUT_MIN_N, MIN_LIFT, WindowStats
@@ -26,7 +26,7 @@ DECAY_MIN_N = 10
 WEAK_LIFT = 1.1
 
 
-def rule_mask(factors: dict[str, np.ndarray], rule: list[Atom]) -> np.ndarray:
+def rule_mask(factors: dict[str, np.ndarray], rule: list[Atom], member: np.ndarray | None = None) -> np.ndarray:
     """Where every atom of the rule is true (unknown counts as false)."""
     shape = next(iter(factors.values())).shape
     mask = np.ones(shape, dtype=bool)
@@ -37,7 +37,7 @@ def rule_mask(factors: dict[str, np.ndarray], rule: list[Atom]) -> np.ndarray:
             return np.zeros(shape, dtype=bool)
         key = (a.factor, a.mode)
         if key not in cache:
-            cache[key] = cross_quintiles(grid) if a.mode == "cross" else own_percentiles(grid)
+            cache[key] = cross_quintiles(cross_input(grid, member)) if a.mode == "cross" else own_percentiles(grid)
         first, second = cache[key]
         mask &= first if a.bucket in ("top", "high") else second
     return mask
@@ -59,6 +59,7 @@ def score_after(
     after: int,
     horizon: int,
     window: str = "fresh",
+    member: np.ndarray | None = None,
 ) -> FreshScore:
     """The rule's statistics on days strictly after day index `after` whose horizon is in the data."""
     days, _ = outcomes.forward.shape
@@ -69,7 +70,7 @@ def score_after(
     hit = outcomes.hits(direction, threshold)
     cells = int(usable.sum())
     base = float((hit & usable).sum() / cells) if cells else 0.0
-    occ = rule_mask(factors, rule) & usable
+    occ = rule_mask(factors, rule, member) & usable
     n = int(occ.sum())
     h = int((occ & hit).sum())
     rate = h / n if n else 0.0

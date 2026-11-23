@@ -37,6 +37,8 @@ export interface ScenarioConfig {
   price: '5m' | '1d';
   earnings: boolean;
   ranking: boolean;
+  /** The S&P 500 built-in group instead of the members as a list (N324). */
+  universe?: 'list' | 'sp500';
 }
 
 /** A deterministic random walk per symbol. */
@@ -194,7 +196,10 @@ export async function createScenario(t: TestDatabase, cfg: ScenarioConfig) {
     trade: {
       kind: 'group',
       // The synthetic members as a list, so the up-front size check sees the real count.
-      universe: { type: 'list', instrumentIds: ids },
+      universe:
+        cfg.universe === 'sp500'
+          ? { type: 'builtin', id: 'sp500' }
+          : { type: 'list', instrumentIds: ids },
       ...(cfg.ranking
         ? {
             ranking: {

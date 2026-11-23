@@ -13,7 +13,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "sp500:update": "node scripts/update-sp500.mjs && prettier --write src/market/sp500-members.ts",
-    "groups:update": "node scripts/update-stock-groups.mjs; s=$?; prettier --write src/market/groups; exit $s"
+    "groups:update": "node scripts/update-stock-groups.mjs; s=$?; prettier --write src/market/groups; exit $s",
+    "groups:history": "node scripts/update-sp500-history.mjs"
   },
   "dependencies": {
     "decimal.js": "^10.6.0",

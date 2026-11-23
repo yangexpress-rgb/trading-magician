@@ -6,7 +6,8 @@ import { FAKE_SEC_DATA_URL, FAKE_SEC_WWW_URL, FakeSec } from '@tm/sec/testing';
 import { StripeBilling } from '@tm/billing';
 import { createDb } from '@tm/db';
 import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
-import { resolveBuiltinUniverse } from './universes';
+import { startMembershipSync } from './groups/membership-sync';
+import { resolveBuiltinUniverse, resolveStockSymbols } from './universes';
 import { startBacktestLoop, type BacktestLoop } from './backtests';
 import { startBillingLoop, type BillingLoop } from './billing-sync';
 import { loadWorkerEnv, patternSnapshotsOn, shiftedClock, shortInterestMode } from './env';
@@ -59,6 +60,8 @@ import {
   resolveFinraSymbol,
   saveRates,
   sharedFeedOwner,
+  instrumentsBySymbol,
+  membershipPeriodsBetween,
   shortInterestSymbols,
 } from '@tm/db';
 import { rateSeriesRefresher } from './events/rate-series';
@@ -120,6 +123,7 @@ let optionsLoop: OptionsLoop | undefined;
 let liveChains: LiveChainLoop | undefined;
 let eventsLoop: EventsLoop | undefined;
 let shortInterest: ShortInterestLoop | undefined;
+let membership: ReturnType<typeof startMembershipSync> | undefined;
 let mlSnapshots: MlSnapshotLoop | undefined;
 let patternSnapshots: PatternSnapshotLoop | undefined;
 let priceRanges: PriceRangeLoop | undefined;
@@ -206,11 +210,12 @@ if (databaseUrl) {
         patient: true,
         background: run.background,
       }),
-    resolveUniverse: (userId, group) =>
+    resolveUniverse: (userId, group, range) =>
       resolveBuiltinUniverse({
         db,
         userId,
         group,
+        ...(range ? { range } : {}),
         providers,
         privateKey: credentialKey,
         now: () => new Date(),
@@ -566,6 +571,15 @@ if (databaseUrl) {
             })
           ).ids)
             ids.add(id);
+        // Everyone who was an S&P 500 member since the store's first day, not only today's (N324).
+        if (groups.includes('sp500'))
+          for (const p of await membershipPeriodsBetween(
+            db,
+            'sp500',
+            env.PATTERN_SNAPSHOT_FROM,
+            nyDate(new Date()),
+          ))
+            if (p.instrumentId) ids.add(p.instrumentId);
         for (const u of await listOptionUniverse(db)) ids.add(u.underlyingId);
         return [...ids];
       },
@@ -575,6 +589,24 @@ if (databaseUrl) {
       pollMs: env.PATTERN_SNAPSHOT_POLL_MS,
     });
     logger.info({ groups }, 'pattern snapshot job started');
+  }
+  // Point-in-time S&P 500 membership (data inputs part 2, item C, N324): the imported file,
+  // stored and resolved through the sharing admin's feeds; back tests read members as of each day.
+  if (env.GROUP_MEMBERSHIP_SYNC === 'on') {
+    membership = startMembershipSync({
+      db,
+      logger,
+      now: () => new Date(),
+      barsFrom: env.PATTERN_SNAPSHOT_FROM,
+      resolve: async (symbols) => {
+        const owner = await db.transaction((tx) => sharedFeedOwner(tx));
+        if (!owner) return db.transaction((tx) => instrumentsBySymbol(tx, [...symbols]));
+        return resolveStockSymbols(
+          { db, userId: owner, providers, privateKey: credentialKey, now: () => new Date() },
+          symbols,
+        );
+      },
+    });
   }
   // FINRA short interest (data inputs part 2, item B, N323): optional credential, like the
   // earnings calendar; without it the job logs "not configured" once and never starts.
@@ -695,6 +727,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         liveChains?.stop(),
         eventsLoop?.stop(),
         shortInterest?.stop(),
+        membership?.stop(),
         mlSnapshots?.stop(),
         patternSnapshots?.stop(),
         priceRanges?.stop(),
