@@ -72,7 +72,14 @@ type TurnOff =
  * what it can trade, routing on or off, default, and last sync. Connecting,
  * testing and account discovery happen in the worker; results arrive live.
  */
-export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
+export function PlatformsView({
+  prefs,
+  liveEnabled = false,
+}: {
+  prefs: DisplayPreferences;
+  /** The server's live-trading flag (ADR 0109): off, only paper platforms can be added. */
+  liveEnabled?: boolean;
+}) {
   const [data, setData] = useState<PlatformListDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -85,6 +92,8 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
   const [feeding, setFeeding] = useState<AccountDto | null>(null);
   const [killing, setKilling] = useState<AccountDto | null>(null);
   const [releasing, setReleasing] = useState<AccountDto | null>(null);
+  const [piloting, setPiloting] = useState<AccountDto | null>(null);
+  const [endingPilot, setEndingPilot] = useState<AccountDto | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -296,7 +305,7 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
                         {p.accounts.map((a) => (
                           <tr key={a.id}>
                             <Td className="font-medium">
-                              {a.nickname}{' '}
+                              {a.nickname} {a.mode === 'live' && <ModeBadge mode="live" />}{' '}
                               {a.isDefault && (
                                 <Badge tone="info" icon={false}>
                                   Default
@@ -317,6 +326,7 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
                             </Td>
                             <Td className="text-sm">
                               <AccountLimitsText account={a} />
+                              <LiveAccountText account={a} />
                             </Td>
                             <Td className="text-sm">
                               <AccountFeedsText account={a} />
@@ -326,7 +336,7 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
                             </Td>
                             <Td>
                               <div className="flex flex-wrap gap-2">
-                                {!a.isDefault && a.isActive && p.isActive && (
+                                {!a.isDefault && a.isActive && p.isActive && a.mode === 'paper' && (
                                   <Button
                                     size="sm"
                                     aria-label={`Make ${a.nickname} the default`}
@@ -349,6 +359,24 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
                                 >
                                   Set limits
                                 </Button>
+                                {a.pilot && (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      aria-label={`Pilot caps for ${a.nickname}`}
+                                      onClick={() => setPiloting(a)}
+                                    >
+                                      Pilot caps
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      aria-label={`End pilot mode on ${a.nickname}`}
+                                      onClick={() => setEndingPilot(a)}
+                                    >
+                                      End pilot mode
+                                    </Button>
+                                  </>
+                                )}
                                 <Button
                                   size="sm"
                                   aria-label={`Data feeds for ${a.nickname}`}
@@ -414,7 +442,45 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
         </ul>
       )}
 
+      <PilotDialog
+        account={piloting}
+        onClose={() => setPiloting(null)}
+        onDone={() => {
+          setPiloting(null);
+          void load();
+        }}
+      />
+      <Dialog
+        open={endingPilot !== null}
+        onClose={() => setEndingPilot(null)}
+        title={`End pilot mode on ${endingPilot?.nickname ?? 'this account'}?`}
+        description={
+          endingPilot?.pilot
+            ? `Orders on this live account will no longer be held to ${dollars(endingPilot.pilot.maxOrder)} each and ${dollars(endingPilot.pilot.maxExposure)} in total. The account's own limits and each strategy's limits still apply. This trades real money.`
+            : ''
+        }
+      >
+        <div className="flex gap-2">
+          <Button
+            variant="danger"
+            onClick={() =>
+              endingPilot &&
+              void (async () => {
+                await act(
+                  () => apiClient.accounts.pilot(endingPilot.id, { endPilot: true }),
+                  'Could not end pilot mode.',
+                );
+                setEndingPilot(null);
+              })()
+            }
+          >
+            End pilot mode
+          </Button>
+          <Button onClick={() => setEndingPilot(null)}>Keep pilot mode</Button>
+        </div>
+      </Dialog>
       <AddPlatformDialog
+        liveEnabled={liveEnabled}
         open={adding}
         onClose={() => setAdding(false)}
         onSaved={() => {
@@ -552,15 +618,21 @@ function AddPlatformDialog({
   open,
   onClose,
   onSaved,
+  liveEnabled,
 }: {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
+  liveEnabled: boolean;
 }) {
   const [provider, setProvider] = useState<string>(BROKER_PROVIDERS[0] ?? 'alpaca');
+  const [environment, setEnvironment] = useState<'paper' | 'live'>('paper');
+  const [acknowledged, setAcknowledged] = useState(false);
   const [name, setName] = useState('');
   const [credentialId, setCredentialId] = useState('');
-  const [keys, setKeys] = useState<{ id: string; label: string; provider: string }[]>([]);
+  const [keys, setKeys] = useState<
+    { id: string; label: string; provider: string; environment: 'paper' | 'live' }[]
+  >([]);
   const [newKey, setNewKey] = useState<Record<string, string>>({});
   const [newKeyLabel, setNewKeyLabel] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -570,6 +642,8 @@ function AddPlatformDialog({
     if (!open) return;
     setName('');
     setCredentialId('');
+    setEnvironment('paper');
+    setAcknowledged(false);
     setNewKey({});
     setNewKeyLabel('');
     setError(null);
@@ -580,7 +654,11 @@ function AddPlatformDialog({
   }, [open]);
 
   const info = PROVIDERS[provider as keyof typeof PROVIDERS];
-  const keysForProvider = keys.filter((k) => k.provider === provider);
+  // A live platform signs in with a live key only, a paper one with a paper key (ADR 0109).
+  const keysForProvider = keys.filter(
+    (k) => k.provider === provider && k.environment === environment,
+  );
+  const live = environment === 'live';
   const addingKey = credentialId === 'new' || keysForProvider.length === 0;
 
   async function save(e: React.FormEvent) {
@@ -591,13 +669,20 @@ function AddPlatformDialog({
       if (addingKey) {
         const created = await apiClient.credentials.create({
           provider,
-          label: newKeyLabel || `${info.name} paper key`,
+          label: newKeyLabel || `${info.name} ${environment} key`,
           fields: newKey,
+          environment,
         });
         setNewKey({});
         keyId = created.id;
       }
-      await apiClient.brokers.create({ name, provider, credentialId: keyId });
+      await apiClient.brokers.create({
+        name,
+        provider,
+        credentialId: keyId,
+        environment,
+        ...(live ? { acknowledgeRealMoney: acknowledged } : {}),
+      });
       onSaved();
     } catch (err) {
       setError(message(err, 'Could not add the platform.'));
@@ -633,6 +718,21 @@ function AddPlatformDialog({
             </option>
           ))}
         </SelectField>
+        {liveEnabled && (
+          <SelectField
+            name="platform-environment"
+            label="Paper or live"
+            value={environment}
+            onChange={(e) => {
+              setEnvironment(e.target.value as 'paper' | 'live');
+              setCredentialId('');
+              setAcknowledged(false);
+            }}
+          >
+            <option value="paper">Paper (simulated orders, no real money)</option>
+            <option value="live">LIVE (real money)</option>
+          </SelectField>
+        )}
         <TextField
           name="platform-name"
           label="Name"
@@ -665,7 +765,7 @@ function AddPlatformDialog({
               label="Key name"
               maxLength={100}
               value={newKeyLabel}
-              placeholder={`${info.name} paper key`}
+              placeholder={`${info.name} ${environment} key`}
               onChange={(e) => setNewKeyLabel(e.target.value)}
             />
             <CredentialFields
@@ -676,8 +776,24 @@ function AddPlatformDialog({
             />
           </>
         )}
+        {live && (
+          <div className="rounded-md border border-danger/40 bg-danger-soft p-3 text-sm">
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={acknowledged}
+                onChange={(e) => setAcknowledged(e.target.checked)}
+              />
+              <span>
+                I understand this platform trades <strong>real money</strong>. Its accounts start in
+                pilot mode, capped at $500 per order and $2,500 in total, until I end pilot mode.
+              </span>
+            </label>
+          </div>
+        )}
         <div className="flex gap-2">
-          <Button type="submit" variant="primary" disabled={busy}>
+          <Button type="submit" variant="primary" disabled={busy || (live && !acknowledged)}>
             {busy ? 'Adding…' : 'Add platform'}
           </Button>
           <Button type="button" onClick={onClose} disabled={busy}>
@@ -1068,6 +1184,95 @@ function FeedsDialog({
         <div className="flex gap-2">
           <Button type="submit" variant="primary">
             Save feeds
+          </Button>
+          <Button type="button" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+/** A live account's pilot mode and what the broker reports for day trades (ADR 0109). */
+function LiveAccountText({ account: a }: { account: AccountDto }) {
+  if (a.mode !== 'live') return null;
+  const equity = a.broker.equity === null ? null : Number(a.broker.equity);
+  return (
+    <span className="mt-1 block text-xs text-content">
+      {a.pilot
+        ? `Pilot mode: ${dollars(a.pilot.maxOrder)} per order, ${dollars(a.pilot.maxExposure)} in total`
+        : 'Pilot mode ended'}
+      {a.broker.margin && (
+        <span className="block">
+          Day trades in the last 5 days: {a.broker.dayTrades ?? 'not reported yet'}
+          {equity !== null && equity < 25_000 && ' (under $25,000: the broker allows 3)'}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function PilotDialog({
+  account,
+  onClose,
+  onDone,
+}: {
+  account: AccountDto | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [maxOrder, setMaxOrder] = useState('');
+  const [maxExposure, setMaxExposure] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setMaxOrder(account?.pilot?.maxOrder ?? '');
+    setMaxExposure(account?.pilot?.maxExposure ?? '');
+    setError(null);
+  }, [account]);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!account) return;
+    try {
+      await apiClient.accounts.pilot(account.id, {
+        maxOrder: amount(maxOrder) ?? '',
+        maxExposure: amount(maxExposure) ?? '',
+      });
+      onDone();
+    } catch (err) {
+      setError(message(err, 'Could not save the pilot caps.'));
+    }
+  }
+
+  return (
+    <Dialog
+      open={account !== null}
+      onClose={onClose}
+      title={`Pilot caps for ${account?.nickname ?? 'account'}`}
+      description="While this live account is in pilot mode, orders above these caps are refused. They can be raised up to $5,000 per order and $25,000 in total; to go past that, end pilot mode."
+    >
+      <form onSubmit={(e) => void save(e)} className="space-y-3">
+        {error && <Alert>{error}</Alert>}
+        <TextField
+          name="pilot-max-order"
+          label="Most per order ($)"
+          inputMode="decimal"
+          required
+          value={maxOrder}
+          onChange={(e) => setMaxOrder(e.target.value)}
+        />
+        <TextField
+          name="pilot-max-exposure"
+          label="Most in total ($)"
+          inputMode="decimal"
+          required
+          value={maxExposure}
+          onChange={(e) => setMaxExposure(e.target.value)}
+        />
+        <div className="flex gap-2">
+          <Button type="submit" variant="primary">
+            Save pilot caps
           </Button>
           <Button type="button" onClick={onClose}>
             Cancel

@@ -13,6 +13,8 @@ export const RISK_CHECK_CODES = [
   'risk_order_size',
   'risk_exposure',
   'risk_account_exposure',
+  'risk_pilot_order',
+  'risk_pilot_exposure',
   'buying_power',
   'risk_daily_loss',
   'risk_drawdown',
@@ -34,6 +36,7 @@ export const CAPACITY_RISK_CODES = [
   'risk_active_orders',
   'risk_exposure',
   'risk_account_exposure',
+  'risk_pilot_exposure',
   'buying_power',
   'risk_open_positions',
 ] as const satisfies readonly RiskCheckCode[];
@@ -60,7 +63,18 @@ export interface RiskCheckInput {
    * The account's own exposure limit (Phase 7 P1, ADR 0107): the gross value
    * every run on the account holds and has working, before this order.
    */
-  account?: { maxExposure: string; grossExposure: Decimal } | undefined;
+  account?:
+    | {
+        /** The account's own maximum, when it has one. */
+        maxExposure?: string | undefined;
+        grossExposure: Decimal;
+        /**
+         * A live account's pilot caps (Phase 7 P3, ADR 0109): the most one opening
+         * order may be worth, and the most the account may hold and have working.
+         */
+        pilot?: { maxOrder: string; maxExposure: string } | undefined;
+      }
+    | undefined;
   /** Seconds since the reference price was observed; checked when given. */
   priceAgeSec?: number | undefined;
   staleDataSec?: number | undefined;
@@ -137,12 +151,34 @@ export function checkPreTradeRisk(input: RiskCheckInput): RiskCheckResult {
     )
       return done();
     if (input.account) {
+      const { pilot, maxExposure } = input.account;
       const accountAfter = input.account.grossExposure.plus(notional);
       if (
+        maxExposure &&
         !check(
           'risk_account_exposure',
-          accountAfter.lte(input.account.maxExposure),
-          input.account.maxExposure,
+          accountAfter.lte(maxExposure),
+          maxExposure,
+          accountAfter.toFixed(2),
+        )
+      )
+        return done();
+      if (
+        pilot &&
+        !check(
+          'risk_pilot_order',
+          notional.lte(pilot.maxOrder),
+          pilot.maxOrder,
+          notional.toFixed(2),
+        )
+      )
+        return done();
+      if (
+        pilot &&
+        !check(
+          'risk_pilot_exposure',
+          accountAfter.lte(pilot.maxExposure),
+          pilot.maxExposure,
           accountAfter.toFixed(2),
         )
       )
@@ -215,6 +251,8 @@ export const RISK_CHECK_TEXT: Record<RiskCheckCode, string> = {
   risk_order_size: 'Order size',
   risk_exposure: 'Strategy exposure',
   risk_account_exposure: 'Account exposure',
+  risk_pilot_order: 'Pilot cap per order',
+  risk_pilot_exposure: 'Pilot cap on exposure',
   buying_power: 'Buying power',
   risk_daily_loss: 'Daily loss',
   risk_drawdown: 'Drawdown',
@@ -228,6 +266,8 @@ const DOLLAR_CHECKS: readonly RiskCheckCode[] = [
   'risk_order_size',
   'risk_exposure',
   'risk_account_exposure',
+  'risk_pilot_order',
+  'risk_pilot_exposure',
   'buying_power',
 ];
 

@@ -19,6 +19,7 @@ import {
 } from '@tm/alpaca';
 import {
   addDays,
+  liveTradingEnabled,
   nyDate,
   regularSession,
   SCREEN_HISTORY_DAYS,
@@ -46,7 +47,11 @@ export interface AlpacaProviderOptions {
 }
 
 function clientFactory(options: AlpacaProviderOptions) {
-  return (ctx: Pick<ProviderContext, 'credential' | 'background'>) => {
+  return (
+    ctx: Pick<ProviderContext, 'credential' | 'background'> & {
+      environment?: 'paper' | 'live' | undefined;
+    },
+  ) => {
     const fields = ctx.credential?.fields;
     if (ctx.credential?.provider !== 'alpaca' || !fields?.keyId || !fields.secretKey) {
       throw new Error('No Alpaca key is stored for this feed');
@@ -55,6 +60,9 @@ function clientFactory(options: AlpacaProviderOptions) {
       credentials: { keyId: fields.keyId, secretKey: fields.secretKey },
       fetch: options.fetch,
       background: ctx.background ?? false,
+      // A live account's host only while the server's flag is on (ADR 0109).
+      environment: ctx.environment ?? 'paper',
+      liveEnabled: liveTradingEnabled(),
       ...(options.fake
         ? { tradingUrl: options.fake.tradingUrl, dataUrl: options.fake.dataUrl, allowLocal: true }
         : {}),
@@ -181,7 +189,7 @@ export function alpacaProvider(options: AlpacaProviderOptions = {}): MarketDataP
   };
 }
 
-/** Alpaca as a trading platform: one paper account per key (ADR 0018). */
+/** Alpaca as a trading platform: one account per key, paper or live (ADR 0018, ADR 0109). */
 export function alpacaBrokerProvider(options: AlpacaProviderOptions = {}): BrokerProvider {
   const clientFor = clientFactory(options);
   return {
@@ -206,7 +214,7 @@ export function alpacaBrokerProvider(options: AlpacaProviderOptions = {}): Broke
           externalId: found.externalId,
           displayId: found.displayId,
           currency: found.currency,
-          nickname: `Alpaca paper ${found.displayId}`,
+          nickname: `Alpaca ${found.environment} ${found.displayId}`,
           capabilities,
         },
       ];

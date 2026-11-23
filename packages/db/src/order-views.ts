@@ -4,6 +4,7 @@ import {
   type PhaseName,
   type PlannedOrder,
   type StrategyDefinition,
+  liveTradingEnabled,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { and, asc, count, desc, eq, inArray, sql, type AnyColumn, type SQL } from 'drizzle-orm';
@@ -14,7 +15,14 @@ import { assertCanResume } from './entitlements';
 import { listOpenIncidents, type IncidentRow } from './incidents';
 import type { Transaction } from './client';
 import { idempotencyKey, OrderError, recordOrderIntent } from './orders';
-import { requestCancel, resumeRuntime, setKillSwitch, WORKING_STATES } from './runtime';
+import { LIVE_OFF_TEXT } from './live-gate';
+import {
+  requestCancel,
+  resumeRuntime,
+  runtimeMode,
+  setKillSwitch,
+  WORKING_STATES,
+} from './runtime';
 import {
   brokerOrders,
   executionControls,
@@ -1152,6 +1160,9 @@ export async function resumeRuntimeByUser(
   // A run on a halted account waits for the halt to end (ADR 0107).
   const halt = await runtimeAccountHalt(tx, runtimeId);
   if (halt) throw new OrderError('invalid_state', haltText(halt.nickname, halt));
+  if (!liveTradingEnabled() && (await runtimeMode(tx, runtimeId)) === 'live') {
+    throw new OrderError('invalid_state', LIVE_OFF_TEXT);
+  }
   await assertCanResume(tx, runtimeId);
   if (!(await resumeRuntime(tx, userId, runtimeId))) {
     throw new OrderError('invalid_state', 'Release the kill switch before resuming a strategy');

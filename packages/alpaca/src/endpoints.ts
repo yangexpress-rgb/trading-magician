@@ -1,10 +1,12 @@
 /**
- * Alpaca endpoints (ADR 0017). Only the paper trading host is ever called for
- * orders and accounts; the live trading host is refused outright, alongside
- * the app-wide paper-only guard (ADR 0002). Market data has one host for paper
- * and live accounts alike.
+ * Alpaca endpoints (ADR 0017, ADR 0109). A paper account's orders go only to
+ * the paper trading host. A live account's go only to the live trading host,
+ * and only when the caller says live trading is on (the server's
+ * LIVE_TRADING_ENABLED flag); otherwise the live host is refused outright.
+ * Market data has one host for paper and live accounts alike.
  */
 export const ALPACA_PAPER_TRADING_URL = 'https://paper-api.alpaca.markets';
+export const ALPACA_LIVE_TRADING_URL = 'https://api.alpaca.markets';
 export const ALPACA_DATA_URL = 'https://data.alpaca.markets';
 
 /** The free real-time feed every Alpaca account gets: the IEX exchange only. */
@@ -14,7 +16,7 @@ const LIVE_TRADING_HOSTS = new Set(['api.alpaca.markets', 'broker-api.alpaca.mar
 
 export class LiveEndpointError extends Error {
   constructor() {
-    super('Only Alpaca paper trading is allowed');
+    super('This Alpaca trading host is not allowed for this account');
     this.name = 'LiveEndpointError';
   }
 }
@@ -29,6 +31,31 @@ export function assertPaperTradingUrl(url: string, options: { allowLocal?: boole
   }
   if (LIVE_TRADING_HOSTS.has(parsed.hostname)) throw new LiveEndpointError();
   if (parsed.origin === ALPACA_PAPER_TRADING_URL) return;
+  if (options.allowLocal && isLocal(parsed)) return;
+  throw new LiveEndpointError();
+}
+
+/**
+ * Throws unless `url` is the trading host of this environment: the paper host
+ * for paper; the live host for live, and only with live trading on.
+ */
+export function assertTradingUrl(
+  url: string,
+  environment: 'paper' | 'live',
+  options: { allowLocal?: boolean; liveEnabled?: boolean } = {},
+) {
+  if (environment === 'paper') {
+    assertPaperTradingUrl(url, options);
+    return;
+  }
+  if (!options.liveEnabled) throw new LiveEndpointError();
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new LiveEndpointError();
+  }
+  if (parsed.origin === ALPACA_LIVE_TRADING_URL) return;
   if (options.allowLocal && isLocal(parsed)) return;
   throw new LiveEndpointError();
 }

@@ -8,6 +8,11 @@ import type { BrokerAdapter } from '@tm/domain';
 export interface BrokerContext {
   now: () => Date;
   credential?: OpenedCredential | undefined;
+  /**
+   * The platform's environment (ADR 0109): it alone decides the endpoint. A live
+   * one is reached only while the server's LIVE_TRADING_ENABLED flag is on.
+   */
+  environment: 'paper' | 'live';
 }
 
 export interface BrokerProvider {

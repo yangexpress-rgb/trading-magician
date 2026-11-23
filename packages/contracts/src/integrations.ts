@@ -12,6 +12,8 @@ export const createCredentialRequest = z.object({
   provider: z.string().min(1).max(40),
   label: z.string().trim().min(1).max(100),
   fields: z.record(z.string().max(40), secretValue),
+  /** A live key, only while the server's live-trading flag is on (ADR 0109). */
+  environment: z.enum(['paper', 'live']).optional(),
 });
 export type CreateCredentialRequest = z.infer<typeof createCredentialRequest>;
 
@@ -29,7 +31,8 @@ export interface CredentialDto {
   id: string;
   provider: string;
   label: string;
-  environment: 'paper';
+  /** A live key signs only a live platform (ADR 0109). */
+  environment: 'paper' | 'live';
   /** Field name to masked tail, e.g. { keyId: '••••7Q2A' }. */
   hint: Record<string, string>;
   createdAt: string;
@@ -242,8 +245,14 @@ export const createPlatformRequest = z.object({
   name: z.string().trim().min(1).max(100),
   provider: z.string().min(1).max(40),
   credentialId: z.uuid(),
+  /**
+   * Live needs the server's live-trading flag, a live key and the person's acknowledgement
+   * that it trades real money (ADR 0109).
+   */
+  environment: z.enum(['paper', 'live']).default('paper'),
+  acknowledgeRealMoney: z.boolean().optional(),
 });
-export type CreatePlatformRequest = z.infer<typeof createPlatformRequest>;
+export type CreatePlatformRequest = z.input<typeof createPlatformRequest>;
 
 export const updatePlatformRequest = z.object({
   rowVersion: z.number().int().positive(),
@@ -296,7 +305,8 @@ export interface AccountDto {
   platformId: string;
   nickname: string;
   maskedExternalId: string;
-  mode: 'paper';
+  /** Paper or live, as its platform is (ADR 0109). */
+  mode: 'paper' | 'live';
   currency: string;
   capabilities: AccountCapabilitiesDto;
   isDefault: boolean;
@@ -317,6 +327,10 @@ export interface AccountDto {
   onFeedFailure: 'fallback' | 'pause' | null;
   /** The feed pricing it now, when it has feeds of its own. */
   feedNow: { id: string; name: string } | null;
+  /** A live account's pilot caps in dollars while in pilot mode (ADR 0109); null otherwise. */
+  pilot: { maxOrder: string; maxExposure: string } | null;
+  /** What the broker last reported: day trades in 5 days, equity, margin (ADR 0109). */
+  broker: { dayTrades: number | null; equity: string | null; margin: boolean | null };
   rowVersion: number;
 }
 
@@ -329,6 +343,23 @@ export const accountFeedsRequest = z.object({
   onFeedFailure: z.enum(['fallback', 'pause']).nullable(),
 });
 export type AccountFeedsRequest = z.infer<typeof accountFeedsRequest>;
+
+/** A live account's pilot caps (ADR 0109), in dollars, within the ceiling. */
+export const accountPilotRequest = z.union([
+  z.object({
+    maxOrder: z
+      .string()
+      .trim()
+      .regex(/^\d+(\.\d{1,2})?$/, 'Enter an amount in dollars'),
+    maxExposure: z
+      .string()
+      .trim()
+      .regex(/^\d+(\.\d{1,2})?$/, 'Enter an amount in dollars'),
+  }),
+  /** Ends pilot mode: a separate, deliberate action. */
+  z.object({ endPilot: z.literal(true) }),
+]);
+export type AccountPilotRequest = z.infer<typeof accountPilotRequest>;
 
 /** The account kill switch (ADR 0107): engage it, or release the account's halt. */
 export const accountKillSwitchRequest = z.object({
@@ -346,7 +377,7 @@ export interface PlatformDto {
   id: string;
   name: string;
   provider: string;
-  environment: 'paper';
+  environment: 'paper' | 'live';
   credential: { id: string; label: string } | null;
   isActive: boolean;
   health: ConnectionHealthDto;

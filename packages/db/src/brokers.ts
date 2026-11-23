@@ -1,6 +1,7 @@
 import { isProviderId, PROVIDERS, type AccountCapabilities } from '@tm/domain';
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { activeHalt, setAccountLimits } from './account-risk';
+import { assertLivePlatformAllowed, PILOT_DEFAULTS, pilotOf } from './live-gate';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
 import { assertFeature, assertWithinLimit, hasRoomFor } from './entitlements';
@@ -42,7 +43,8 @@ export interface AccountSummary {
   platformId: string;
   nickname: string;
   maskedExternalId: string;
-  mode: 'paper';
+  /** Paper or live, as its platform is (ADR 0109). */
+  mode: 'paper' | 'live';
   currency: string;
   capabilities: AccountCapabilities;
   isDefault: boolean;
@@ -63,6 +65,13 @@ export interface AccountSummary {
   onFeedFailure: 'fallback' | 'pause' | null;
   /** The feed pricing it now, when it has feeds of its own. */
   feedNow: { id: string; name: string } | null;
+  /** A live account's pilot caps while it is in pilot mode (ADR 0109); null otherwise. */
+  pilot: { maxOrder: string; maxExposure: string } | null;
+  /**
+   * What the broker last reported, for pattern-day-trader awareness (ADR 0109):
+   * day trades in the rolling five days, equity, margin. Null where it has not said.
+   */
+  broker: { dayTrades: number | null; equity: string | null; margin: boolean | null };
   rowVersion: number;
 }
 
@@ -70,7 +79,7 @@ export interface PlatformSummary {
   id: string;
   name: string;
   provider: string;
-  environment: 'paper';
+  environment: 'paper' | 'live';
   credential: { id: string; label: string } | null;
   isActive: boolean;
   health: Health;
@@ -150,7 +159,7 @@ export async function listPlatforms(tx: Transaction): Promise<PlatformSummary[]>
     id: p.id,
     name: p.name,
     provider: p.provider,
-    environment: 'paper',
+    environment: p.environment,
     credential: p.credentialRef ? { id: p.credentialRef, label: credentialLabel ?? '' } : null,
     isActive: p.isActive,
     health: p.health,
@@ -165,7 +174,7 @@ export async function listPlatforms(tx: Transaction): Promise<PlatformSummary[]>
         platformId: p.id,
         nickname: a.nickname,
         maskedExternalId: a.maskedExternalId,
-        mode: 'paper',
+        mode: a.mode,
         currency: a.currency,
         capabilities: a.capabilities as AccountCapabilities,
         isDefault: a.isDefault,
@@ -184,6 +193,12 @@ export async function listPlatforms(tx: Transaction): Promise<PlatformSummary[]>
         feeds: chains.get(a.id)?.feeds ?? [],
         onFeedFailure: a.feedFailure,
         feedNow: feedNow(chains.get(a.id)),
+        pilot: pilotOf(a),
+        broker: {
+          dayTrades: a.brokerDayTrades,
+          equity: a.brokerEquity,
+          margin: a.brokerMargin,
+        },
         rowVersion: a.rowVersion,
       })),
   }));
@@ -205,7 +220,11 @@ export async function getAccount(tx: Transaction, id: string): Promise<AccountSu
 
 async function checkPlatformInput(
   tx: Transaction,
-  input: { provider: string; credentialId: string | null | undefined },
+  input: {
+    provider: string;
+    credentialId: string | null | undefined;
+    environment?: 'paper' | 'live' | undefined;
+  },
 ) {
   if (!isProviderId(input.provider)) {
     throw new IntegrationError('bad_request', 'Choose a supported platform');
@@ -221,12 +240,25 @@ async function checkPlatformInput(
     throw new IntegrationError('bad_request', `Choose or add an API key for ${info.name}`);
   }
   const [cred] = await tx
-    .select({ id: credentials.id, provider: credentials.provider })
+    .select({
+      id: credentials.id,
+      provider: credentials.provider,
+      environment: credentials.environment,
+    })
     .from(credentials)
     .where(eq(credentials.id, input.credentialId));
   if (!cred) throw new IntegrationError('bad_request', 'That API key no longer exists');
   if (cred.provider !== input.provider) {
     throw new IntegrationError('bad_request', `That key is not for ${info.name}`);
+  }
+  // A paper key never signs a live platform, nor a live key a paper one (ADR 0109).
+  if (input.environment && cred.environment !== input.environment) {
+    throw new IntegrationError(
+      'bad_request',
+      input.environment === 'live'
+        ? 'Choose or add a live API key for a live platform'
+        : 'That is a live API key; a paper platform needs a paper key',
+    );
   }
   return cred.id;
 }
@@ -238,10 +270,18 @@ export async function createPlatform(
     name: string;
     provider: string;
     credentialId: string | null | undefined;
+    /** Live needs the server's flag, a live key and the real-money acknowledgement (ADR 0109). */
+    environment?: 'paper' | 'live' | undefined;
+    acknowledgeRealMoney?: boolean | undefined;
   },
 ): Promise<PlatformSummary> {
-  const credentialRef = await checkPlatformInput(tx, input);
-  await assertFeature(tx, 'paperIntegrations');
+  const environment = input.environment ?? 'paper';
+  const credentialRef = await checkPlatformInput(tx, { ...input, environment });
+  if (environment === 'live') {
+    await assertLivePlatformAllowed(tx, input.provider, input.acknowledgeRealMoney === true);
+  } else {
+    await assertFeature(tx, 'paperIntegrations');
+  }
   const [row] = await tx
     .insert(brokerConnections)
     .values({
@@ -249,6 +289,8 @@ export async function createPlatform(
       name: input.name.trim().slice(0, 100),
       provider: input.provider,
       credentialRef,
+      environment,
+      realMoneyAcknowledgedAt: environment === 'live' ? new Date() : null,
       // Connected straight away: the worker checks it and discovers its accounts.
       checkRequestedAt: new Date(),
     })
@@ -260,7 +302,11 @@ export async function createPlatform(
     action: 'broker_connection.created',
     resourceType: 'broker_connection',
     resourceId: row.id,
-    context: { provider: input.provider },
+    context: {
+      provider: input.provider,
+      environment,
+      ...(environment === 'live' ? { realMoneyAcknowledged: true } : {}),
+    },
   });
   return getPlatform(tx, row.id);
 }
@@ -512,6 +558,10 @@ export async function updateAccount(
     await assertWithinLimit(tx, input.userId, 'connectedAccounts');
   }
   if (input.makeDefault && !account.isDefault) {
+    // New legs never start on real money (ADR 0109).
+    if (account.mode === 'live') {
+      throw new IntegrationError('invalid_state', 'A live account cannot be the default');
+    }
     if (!(input.active ?? account.isActive) || !platform.isActive) {
       throw new IntegrationError('invalid_state', 'Only an active account can be the default');
     }
@@ -628,6 +678,7 @@ export interface PlatformToCheck {
   credentialRef: string | null;
   isActive: boolean;
   health: Health;
+  environment: 'paper' | 'live';
 }
 
 export async function loadPlatformToCheck(
@@ -642,6 +693,7 @@ export async function loadPlatformToCheck(
       credentialRef: brokerConnections.credentialRef,
       isActive: brokerConnections.isActive,
       health: brokerConnections.health,
+      environment: brokerConnections.environment,
     })
     .from(brokerConnections)
     .where(eq(brokerConnections.id, id));
@@ -713,6 +765,11 @@ export async function recordPlatformCheck(
         currency: found.currency,
         capabilities: found.capabilities,
         lastSyncedAt: now,
+        // Paper or live as its platform is; a live account starts in pilot mode (ADR 0109).
+        mode: platform.environment,
+        ...(platform.environment === 'live'
+          ? { pilotMaxOrder: PILOT_DEFAULTS.maxOrder, pilotMaxExposure: PILOT_DEFAULTS.maxExposure }
+          : {}),
         // Past the plan's limit an account is listed but left off (ADR 0022).
         isActive: await hasRoomFor(tx, 'connectedAccounts'),
       })
@@ -757,6 +814,8 @@ export interface AccountRouting {
   accountId: string;
   nickname: string;
   provider: string;
+  /** The account's environment, which alone decides the broker endpoint (ADR 0109). */
+  environment: 'paper' | 'live';
   platformActive: boolean;
   credentialRef: string | null;
   externalId: string | null;
@@ -774,6 +833,7 @@ export async function loadAccountRouting(
       accountId: tradingAccounts.id,
       nickname: tradingAccounts.nickname,
       provider: brokerConnections.provider,
+      environment: tradingAccounts.mode,
       platformActive: brokerConnections.isActive,
       credentialRef: brokerConnections.credentialRef,
       externalId: tradingAccounts.externalId,

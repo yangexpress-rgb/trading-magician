@@ -117,14 +117,20 @@ export const duplicateStrategyRequest = z
 export const startStrategyRequest = z
   .object({
     rowVersion,
-    /** Paper only in this build; the field makes the mode explicit in every start. */
-    mode: z.literal('paper'),
+    /** Paper or live: it must match the chosen account, so every start says which (ADR 0109). */
+    mode: z.enum(['paper', 'live']),
     confirmed: z.literal(true, { error: 'Confirm to start this strategy' }),
     acknowledgedWarnings: z.array(z.string().max(64)).max(50).default([]),
     /** The account the run trades on (N308); the legs' account when absent. */
     accountId: z.uuid().optional(),
+    /** A live run's own confirmation, separate from paper (ADR 0109). */
+    liveConfirmed: z.literal(true).optional(),
   })
-  .strict();
+  .strict()
+  .refine((b) => b.mode === 'paper' || (b.liveConfirmed === true && b.accountId !== undefined), {
+    error: 'Confirm that this run trades real money, on the account you chose',
+    path: ['liveConfirmed'],
+  });
 export type StartStrategyRequest = z.input<typeof startStrategyRequest>;
 
 /** Stopping ends new orders only; cancelling and closing are separate, explicit choices (§8.1). */

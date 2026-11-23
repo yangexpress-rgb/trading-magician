@@ -4,6 +4,7 @@ import {
   listMlModels,
   listTenantInstruments,
   optionUnderlyingOptions,
+  pilotOf,
   preferredLegAccountId,
   schema,
   StrategyError,
@@ -57,6 +58,14 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
         id: schema.tradingAccounts.id,
         nickname: schema.tradingAccounts.nickname,
         mode: schema.tradingAccounts.mode,
+        maxExposure: schema.tradingAccounts.maxExposure,
+        dailyLossLimit: schema.tradingAccounts.dailyLossLimit,
+        pilotMaxOrder: schema.tradingAccounts.pilotMaxOrder,
+        pilotMaxExposure: schema.tradingAccounts.pilotMaxExposure,
+        pilotEndedAt: schema.tradingAccounts.pilotEndedAt,
+        brokerEquity: schema.tradingAccounts.brokerEquity,
+        brokerDayTrades: schema.tradingAccounts.brokerDayTrades,
+        brokerMargin: schema.tradingAccounts.brokerMargin,
       })
       .from(schema.tradingAccounts)
       .where(eq(schema.tradingAccounts.isActive, true))
@@ -69,10 +78,13 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
   // Recorded options underlyings (options brief v2 §6) are offered only by the options picker.
   const { strategy, instruments, optionUnderlyings, mlModels } = loaded;
   // New legs start on the Alpaca paper account when there is one (pickLegAccount).
-  const accounts = loaded.accounts.map((a) => ({
-    ...a,
-    isDefault: a.id === loaded.preferredAccountId,
-  }));
+  const accounts = loaded.accounts.map(
+    ({ pilotMaxOrder, pilotMaxExposure, pilotEndedAt, ...a }) => ({
+      ...a,
+      pilot: pilotOf({ mode: a.mode, pilotMaxOrder, pilotMaxExposure, pilotEndedAt }),
+      isDefault: a.id === loaded.preferredAccountId,
+    }),
+  );
 
   // Moved from the side column into the Execution section (N176).
   const versionsCard = (

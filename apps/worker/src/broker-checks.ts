@@ -9,6 +9,7 @@ import {
   type DiscoveredAccountInput,
   type CredentialKey,
 } from '@tm/db';
+import { liveTradingEnabled } from '@tm/domain';
 import type { Logger } from 'pino';
 import type { BrokerRegistry } from './brokers';
 import { withTimeout } from './providers';
@@ -74,6 +75,17 @@ export async function runBrokerChecks(options: BrokerCheckOptions): Promise<numb
         });
         return;
       }
+      // A live platform is checked only while the server's live-trading flag is on (ADR 0109).
+      if (platform.environment === 'live' && !liveTradingEnabled()) {
+        await recordPlatformCheck(tx, {
+          userId,
+          platform,
+          now,
+          ok: false,
+          error: 'Live trading is turned off on this server',
+        });
+        return;
+      }
       let accounts: DiscoveredAccountInput[];
       try {
         const credential =
@@ -95,7 +107,7 @@ export async function runBrokerChecks(options: BrokerCheckOptions): Promise<numb
           return;
         }
         accounts = await withTimeout(
-          provider.discover({ now: () => now, credential }),
+          provider.discover({ now: () => now, credential, environment: platform.environment }),
           BROKER_CHECKS.timeoutMs,
           'The check',
         );

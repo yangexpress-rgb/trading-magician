@@ -1355,7 +1355,7 @@ function checkAccountForLeg(
     add(
       'error',
       'live_account_not_allowed',
-      `"${account.nickname}" is not a paper account; this build trades on paper only`,
+      `"${account.nickname}" is a live account and live trading is turned off on this server`,
       [...path, 'accountId'],
       o.id,
     );

@@ -14,11 +14,13 @@ import {
   type RuntimeTriggerState,
   type StrategyDefinition,
   type StrategyTrailState,
+  liveTradingEnabled,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { runtimeAccountHalt } from './account-risk';
 import { recordAudit } from './audit';
+import { pilotOf } from './live-gate';
 import type { Database, Transaction } from './client';
 import { announceOrderChange, OrderError } from './orders';
 import { bindDefinitionToAccount } from './strategy-accounts';
@@ -125,11 +127,12 @@ export async function createRuntime(
   strategyId: string,
   versionId: string,
   accountId: string,
+  mode: 'paper' | 'live' = 'paper',
 ): Promise<string> {
   const state: RuntimeState = { trigger: newRuntimeTriggerState() };
   const [row] = await tx
     .insert(strategyRuntimes)
-    .values({ userId, strategyId, versionId, accountId, startedBy: userId, state })
+    .values({ userId, strategyId, versionId, accountId, mode, startedBy: userId, state })
     .returning({ id: strategyRuntimes.id });
   if (!row) throw new Error('Failed to create the runtime');
   return row.id;
@@ -339,6 +342,18 @@ export async function filledSince(
 }
 
 /** Resumes a paused runtime, unless the kill switch is still engaged. */
+/** Paper or live: the run's own mode, set from its account at start (ADR 0109). */
+export async function runtimeMode(
+  tx: Transaction,
+  runtimeId: string,
+): Promise<'paper' | 'live' | undefined> {
+  const [row] = await tx
+    .select({ mode: strategyRuntimes.mode })
+    .from(strategyRuntimes)
+    .where(eq(strategyRuntimes.id, runtimeId));
+  return row?.mode;
+}
+
 export async function resumeRuntime(
   tx: Transaction,
   userId: string,
@@ -347,6 +362,8 @@ export async function resumeRuntime(
   if (await isHalted(tx, userId)) return false;
   // A run on a halted account stays paused until the halt ends (ADR 0107).
   if (await runtimeAccountHalt(tx, runtimeId)) return false;
+  // A live run resumes only while the server's live-trading flag is on (ADR 0109).
+  if (!liveTradingEnabled() && (await runtimeMode(tx, runtimeId)) === 'live') return false;
   const rows = await tx
     .update(strategyRuntimes)
     .set({ status: 'running', pauseReason: null, resumedAt: new Date() })
@@ -426,6 +443,8 @@ export interface RuntimeWork {
   accounts: string[];
   /** The run's account's maximum total exposure, if it has one (ADR 0107). */
   accountMaxExposure: string | null;
+  /** A live account's pilot caps while it is in pilot mode (ADR 0109). */
+  accountPilot: { maxOrder: string; maxExposure: string } | null;
   halted: boolean;
   cycles: ActiveCycle[];
   nextSeq: number;
@@ -467,7 +486,13 @@ export async function loadRuntimeWork(
   const ids = new Set<string>(strategyInstruments(definition, listMembers(definition)));
   const accounts = new Set<string>([runAccount]);
   const [accountLimits] = await tx
-    .select({ maxExposure: tradingAccounts.maxExposure })
+    .select({
+      maxExposure: tradingAccounts.maxExposure,
+      mode: tradingAccounts.mode,
+      pilotMaxOrder: tradingAccounts.pilotMaxOrder,
+      pilotMaxExposure: tradingAccounts.pilotMaxExposure,
+      pilotEndedAt: tradingAccounts.pilotEndedAt,
+    })
     .from(tradingAccounts)
     .where(eq(tradingAccounts.id, runAccount));
 
@@ -632,6 +657,7 @@ export async function loadRuntimeWork(
     accountId: runAccount,
     accounts: [...accounts],
     accountMaxExposure: accountLimits?.maxExposure ?? null,
+    accountPilot: accountLimits ? pilotOf(accountLimits) : null,
     halted: await isHalted(tx, rt.runtime.userId),
     cycles,
     nextSeq: (cycleRows.at(-1)?.seq ?? 0) + 1,

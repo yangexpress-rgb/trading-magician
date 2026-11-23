@@ -656,10 +656,7 @@ export const credentials = pgTable(
     ...timestamps(),
     rowVersion: rowVersion(),
   },
-  (t) => [
-    unique('credential_id_user_uq').on(t.id, t.userId),
-    check('credential_paper_only', sql`${t.environment} = 'paper'`),
-  ],
+  (t) => [unique('credential_id_user_uq').on(t.id, t.userId)],
 );
 
 export const dataFeedConnections = pgTable(
@@ -877,6 +874,11 @@ export const brokerConnections = pgTable(
     /** Set by Connect or Test; the worker checks the platform and discovers its accounts. */
     checkRequestedAt: timestamp('check_requested_at', { withTimezone: true }),
     checkLeaseExpiresAt: timestamp('check_lease_expires_at', { withTimezone: true }),
+    /**
+     * When the person acknowledged, on adding it, that a live platform trades
+     * real money (Phase 7 P3, ADR 0109). Required for a live platform.
+     */
+    realMoneyAcknowledgedAt: timestamp('real_money_acknowledged_at', { withTimezone: true }),
     ...timestamps(),
     rowVersion: rowVersion(),
   },
@@ -887,7 +889,10 @@ export const brokerConnections = pgTable(
       columns: [t.credentialRef, t.userId],
       foreignColumns: [credentials.id, credentials.userId],
     }),
-    check('broker_connection_paper_only', sql`${t.environment} = 'paper'`),
+    check(
+      'broker_connection_live_acknowledged',
+      sql`${t.environment} = 'paper' or ${t.realMoneyAcknowledgedAt} is not null`,
+    ),
   ],
 );
 
@@ -944,6 +949,22 @@ export const tradingAccounts = pgTable(
       onDelete: 'set null',
     }),
     feedPrimaryOkSince: timestamp('feed_primary_ok_since', { withTimezone: true }),
+    /**
+     * Pilot mode (Phase 7 P3, ADR 0109): a live account starts under hard caps
+     * per order and on total exposure, until a person ends pilot mode on
+     * purpose. Paper accounts have none.
+     */
+    pilotMaxOrder: numeric('pilot_max_order'),
+    pilotMaxExposure: numeric('pilot_max_exposure'),
+    pilotEndedAt: timestamp('pilot_ended_at', { withTimezone: true }),
+    /**
+     * What the broker last reported (ADR 0109), for pattern-day-trader
+     * awareness: day trades in the rolling five days, equity, and whether it is
+     * a margin account.
+     */
+    brokerDayTrades: integer('broker_day_trades'),
+    brokerEquity: numeric('broker_equity'),
+    brokerMargin: boolean('broker_margin'),
     ...timestamps(),
     rowVersion: rowVersion(),
   },
@@ -965,7 +986,10 @@ export const tradingAccounts = pgTable(
     uniqueIndex('trading_account_one_default_idx')
       .on(t.userId)
       .where(sql`${t.isDefault}`),
-    check('trading_account_paper_only', sql`${t.mode} = 'paper'`),
+    check(
+      'trading_account_pilot',
+      sql`(${t.pilotMaxOrder} is null or ${t.pilotMaxOrder} > 0) and (${t.pilotMaxExposure} is null or ${t.pilotMaxExposure} > 0)`,
+    ),
     check(
       'trading_account_feed_failure',
       sql`${t.feedFailure} is null or ${t.feedFailure} in ('fallback', 'pause')`,
@@ -1393,7 +1417,6 @@ export const strategyRuntimes = pgTable(
     index('strategy_runtime_lease_idx')
       .on(t.leaseExpiresAt)
       .where(sql`${t.status} = 'running'`),
-    check('strategy_runtime_paper_only', sql`${t.mode} = 'paper'`),
     check(
       'strategy_runtime_stopped',
       sql`(${t.status} = 'stopped') = (${t.stoppedAt} is not null)`,
@@ -1580,7 +1603,6 @@ export const orderIntents = pgTable(
     }),
     index('order_intent_cycle_idx').on(t.cycleId, t.createdAt),
     index('order_intent_user_created_idx').on(t.userId, t.createdAt),
-    check('order_intent_paper_only', sql`${t.mode} = 'paper'`),
     check('order_intent_quantity_positive', sql`${t.quantity} > 0`),
     check('order_intent_phase', sql`${t.phase} in ('entry', 'exit', 'flatten')`),
     check('order_intent_direction', sql`${t.direction} in ('buy', 'sell')`),

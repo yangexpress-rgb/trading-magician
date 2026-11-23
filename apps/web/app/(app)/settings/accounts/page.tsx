@@ -1,3 +1,4 @@
+import { liveTradingEnabled } from '@tm/domain';
 import type { Metadata } from 'next';
 import { PlatformsView } from '@/components/integrations/platforms-view';
 import { getProfile } from '@/lib/server/profile';
@@ -8,5 +9,11 @@ export const metadata: Metadata = { title: 'Trading platforms' };
 export default async function AccountsPage() {
   const tenant = await requireTenant();
   const profile = await getProfile(tenant);
-  return <PlatformsView prefs={{ timeZone: profile.timezone, locale: profile.locale }} />;
+  // Live platforms can be added only while the server's flag is on (ADR 0109).
+  return (
+    <PlatformsView
+      prefs={{ timeZone: profile.timezone, locale: profile.locale }}
+      liveEnabled={liveTradingEnabled()}
+    />
+  );
 }

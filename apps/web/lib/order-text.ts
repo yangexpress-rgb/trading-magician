@@ -67,6 +67,8 @@ export const RISK_CHECK_LABELS: Record<RiskCheckCode, string> = {
   risk_order_size: 'Order size',
   risk_exposure: 'Strategy exposure',
   risk_account_exposure: 'Account exposure',
+  risk_pilot_order: 'Pilot cap per order',
+  risk_pilot_exposure: 'Pilot cap on exposure',
   buying_power: 'Buying power',
   risk_daily_loss: 'Daily loss',
   risk_drawdown: 'Drawdown',
@@ -131,6 +133,8 @@ const MONEY_CHECKS = new Set<string>([
   'risk_order_size',
   'risk_exposure',
   'risk_account_exposure',
+  'risk_pilot_order',
+  'risk_pilot_exposure',
   'buying_power',
 ]);
 

@@ -152,6 +152,7 @@ import {
   withPositions,
   isIndicatorOnlyClass,
   type BuiltinUniverse,
+  type RiskCheckInput,
 } from '@tm/domain';
 import { randomUUID } from 'node:crypto';
 import Decimal from 'decimal.js';
@@ -1506,8 +1507,9 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   // The account's own exposure limit (ADR 0107): what every run on the account
   // holds and has working, read once when an Entry is about to be checked.
   let accountGross: Decimal | undefined;
+  // A live account in pilot mode is held to its pilot caps too (ADR 0109).
   const accountExposure = async () => {
-    if (!work.accountMaxExposure) return undefined;
+    if (!work.accountMaxExposure && !work.accountPilot) return undefined;
     if (accountGross === undefined) {
       const book = await accountExposureBook(tx, work.accountId);
       accountGross = book.pendingEntry;
@@ -1516,7 +1518,11 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         accountGross = accountGross.plus(p.quantity.abs().times(px));
       }
     }
-    return { maxExposure: work.accountMaxExposure, grossExposure: accountGross };
+    return {
+      maxExposure: work.accountMaxExposure ?? undefined,
+      grossExposure: accountGross,
+      pilot: work.accountPilot ?? undefined,
+    };
   };
 
   // 4. Plan and act on each active cycle.
@@ -1882,8 +1888,7 @@ interface PlaceInput {
   drawdownHit: boolean;
   activeOrders: number;
   /** The account's exposure limit and what the account holds, when it has one (ADR 0107). */
-  account?:
-    (() => Promise<{ maxExposure: string; grossExposure: Decimal } | undefined>) | undefined;
+  account?: (() => Promise<RiskCheckInput['account']>) | undefined;
   /** Called with the notional of an order that opens or adds risk once it is recorded ready. */
   onOpeningRecorded?: ((notional: Decimal) => void) | undefined;
   triggerEventId: string | undefined;

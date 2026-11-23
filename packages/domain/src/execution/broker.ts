@@ -52,6 +52,10 @@ export interface BrokerAccountBalance {
   currency: string;
   cash: string;
   equity: string;
+  /** Day trades in the rolling five business days, where the broker says (ADR 0109). */
+  dayTrades?: number | undefined;
+  /** Whether it is a margin account, where the broker says. */
+  margin?: boolean | undefined;
 }
 
 export interface BrokerAdapter {

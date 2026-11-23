@@ -130,6 +130,14 @@ connectors (`/.well-known/oauth-*`, `/oauth/authorize`, `/api/oauth/*`). Unset, 
 answer that agent connections are off. `APP_URL` must be the public origin: it is the OAuth
 issuer and the endpoint URL agents are given.
 
+### Live trading (off)
+
+Live trading stays off unless `LIVE_TRADING_ENABLED=true` is set on **both** web and worker
+(ADR 0109). Leave it unset: with it off no live key, platform or account can be added and no live
+run starts, resumes or reaches the broker. Setting it is a deliberate launch step for the owner,
+not part of a deploy. Even with it on, a live platform needs a live Alpaca key, a platform admin
+and the real-money acknowledgement, and new live accounts trade under pilot caps.
+
 ### No mail service
 
 `EMAIL_VERIFICATION=off` on web makes the app work without any email: sign-up signs the person

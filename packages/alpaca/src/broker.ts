@@ -435,7 +435,13 @@ export class AlpacaBroker implements BrokerAdapter {
 
   async account(_accountId: string): Promise<BrokerAccountBalance> {
     const a = await this.client.trading<AlpacaAccount>('GET', '/v2/account');
-    return { currency: a.currency, cash: a.cash, equity: a.equity };
+    return {
+      currency: a.currency,
+      cash: a.cash,
+      equity: a.equity,
+      dayTrades: a.daytrade_count,
+      margin: Number(a.multiplier) > 1,
+    };
   }
 
   async positions(_accountId: string): Promise<BrokerPosition[]> {

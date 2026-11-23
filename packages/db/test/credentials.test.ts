@@ -240,16 +240,49 @@ describe('stored credentials', () => {
     expect(left).toEqual([]);
   });
 
-  it('cannot hold a live credential', async () => {
-    const saved = await save(userA);
-    const error = await t.owner.db
-      .update(credentials)
-      .set({ environment: 'live' })
-      .where(eq(credentials.id, saved.id))
-      .then(
-        () => undefined,
-        (e: unknown) => e,
+  it('refuses a live key while live trading is off on the server (A8)', async () => {
+    delete process.env.LIVE_TRADING_ENABLED;
+    const error = await as(userA, (tx) =>
+      createCredential(tx, {
+        userId: userA,
+        provider: 'alpaca',
+        label: 'Live key',
+        environment: 'live',
+        fields: { keyId: KEY_ID, secretKey: SECRET },
+        publicKey: keys.publicKey,
+      }),
+    ).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CredentialError);
+    expect((error as Error).message).toMatch(/Live trading is turned off/);
+  });
+
+  it('holds a live key only while the flag is on, and opens it only then', async () => {
+    process.env.LIVE_TRADING_ENABLED = 'true';
+    let id = '';
+    try {
+      const saved = await as(userA, (tx) =>
+        createCredential(tx, {
+          userId: userA,
+          provider: 'alpaca',
+          label: 'Live key',
+          environment: 'live',
+          fields: { keyId: KEY_ID, secretKey: SECRET },
+          publicKey: keys.publicKey,
+        }),
       );
-    expect(pgCode(error)).toBe('23514');
+      expect(saved.environment).toBe('live');
+      id = saved.id;
+      const opened = await asWorker(userA, (tx) =>
+        openCredential(tx, { userId: userA, id, privateKey: keys.privateKey }),
+      );
+      expect(opened.environment).toBe('live');
+    } finally {
+      delete process.env.LIVE_TRADING_ENABLED;
+    }
+    const refused = await asWorker(userA, (tx) =>
+      openCredential(tx, { userId: userA, id, privateKey: keys.privateKey }),
+    ).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(CredentialError);
+    await as(userA, (tx) => deleteCredential(tx, { userId: userA, id }));
   });
 });

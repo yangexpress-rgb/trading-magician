@@ -7,6 +7,9 @@ import {
   type ValidateStrategyDto,
 } from '@tm/contracts';
 import {
+  finestBarMinutes,
+  PDT_EQUITY,
+  PDT_WARNING,
   STATUS_LABELS,
   type StrategyDefinition,
   type StrategyStatus,
@@ -201,16 +204,26 @@ function StartDialog({
   positions: string;
   busy: boolean;
   error: string | null;
-  onConfirm: (acknowledged: string[], accountId: string) => void;
+  onConfirm: (acknowledged: string[], account: AccountOption) => void;
 }) {
   const { instruments, baseCurrency } = useEditor();
   const [acknowledged, setAcknowledged] = useState<ReadonlySet<string>>(new Set());
+  const [realMoney, setRealMoney] = useState(false);
   const [accountId, setAccountId] = useState(initialAccountId ?? choices[0]?.id ?? '');
   const accountFieldId = useId();
   const unique = uniqueWarnings(warnings);
   const allAcknowledged = unique.every((w) => acknowledged.has(w.code));
   const chosen = choices.find((a) => a.id === accountId);
+  const live = chosen?.mode === 'live';
   const grouped = groupAccounts(choices);
+  const money = (v: string | null | undefined) => (v ? `${baseCurrency} ${v}` : 'Not set');
+  // Pattern-day-trader awareness (N320): an intraday run on a live margin account under $25,000.
+  const pdtWarning =
+    live &&
+    chosen.brokerMargin !== false &&
+    chosen.brokerEquity != null &&
+    Number(chosen.brokerEquity) < PDT_EQUITY &&
+    (finestBarMinutes(definition) < 1440 || definition.execution.flattenAtSessionEnd === true);
 
   const legs = [...definition.entry.orders, ...definition.exit.orders];
   const symbols = [...new Set(legs.map((l) => l.instrumentId))].map(
@@ -220,7 +233,26 @@ function StartDialog({
 
   const rows: [string, string][] = [
     ['Strategy', strategyName],
-    ['Mode', 'Paper (simulated orders, no real money)'],
+    [
+      'Mode',
+      live ? 'LIVE (real orders with real money)' : 'Paper (simulated orders, no real money)',
+    ],
+    ...(live && chosen
+      ? ([
+          ['Account', `${chosen.nickname} (LIVE)`],
+          ['Account exposure limit', money(chosen.maxExposure)],
+          ['Account daily loss limit', money(chosen.dailyLossLimit)],
+          [
+            'Pilot caps',
+            chosen.pilot
+              ? `${money(chosen.pilot.maxOrder)} per order, ${money(chosen.pilot.maxExposure)} in total`
+              : 'Pilot mode ended',
+          ],
+          ...(chosen.brokerDayTrades != null
+            ? ([['Day trades in 5 days', String(chosen.brokerDayTrades)]] as [string, string][])
+            : []),
+        ] as [string, string][])
+      : []),
     ['Instruments', symbols.join(', ') || 'None'],
     [
       'Order legs',
@@ -235,16 +267,16 @@ function StartDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Start on paper?"
+      title={live ? 'Start on real money?' : 'Start on paper?'}
       description="Starting pins these exact rules as a version and runs them on the account you choose."
     >
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (allAcknowledged && chosen)
+          if (allAcknowledged && chosen && (!live || realMoney))
             onConfirm(
               unique.map((w) => w.code),
-              chosen.id,
+              chosen,
             );
         }}
       >
@@ -255,7 +287,10 @@ function StartDialog({
           <select
             id={accountFieldId}
             value={accountId}
-            onChange={(e) => setAccountId(e.target.value)}
+            onChange={(e) => {
+              setAccountId(e.target.value);
+              setRealMoney(false);
+            }}
             className="mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm"
           >
             {grouped.paper.length > 0 && (
@@ -318,6 +353,24 @@ function StartDialog({
             </ul>
           </fieldset>
         )}
+        {pdtWarning && (
+          <div className="mt-3">
+            <Alert tone="warn">{PDT_WARNING}</Alert>
+          </div>
+        )}
+        {live && (
+          <label className="mt-4 flex items-start gap-2 rounded-md border border-danger/40 bg-danger-soft p-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={realMoney}
+              onChange={(e) => setRealMoney(e.target.checked)}
+            />
+            <span>
+              I understand this run sends real orders with real money to {chosen.nickname}.
+            </span>
+          </label>
+        )}
         <p className="mt-3 text-sm text-ink-muted">
           Orders go to {chosen ? chosen.nickname : 'the account'} as the rules trigger. You can
           follow them in Orders.
@@ -329,8 +382,12 @@ function StartDialog({
         )}
         <div className="mt-4 flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="primary" disabled={!allAcknowledged || !chosen || busy}>
-            {busy ? 'Starting…' : 'Start on paper'}
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={!allAcknowledged || !chosen || (live && !realMoney) || busy}
+          >
+            {busy ? 'Starting…' : live ? 'Start on real money' : 'Start on paper'}
           </Button>
         </div>
       </form>
@@ -965,14 +1022,15 @@ export function ExecutionSection({
           initialAccountId={initialAccountId}
           busy={busy === 'start'}
           error={error}
-          onConfirm={(acknowledgedWarnings, accountId) =>
+          onConfirm={(acknowledgedWarnings, account) =>
             act('start', () =>
               apiClient.strategies.start(strategyId, {
                 rowVersion,
-                mode: 'paper',
+                mode: account.mode,
                 confirmed: true,
                 acknowledgedWarnings,
-                accountId,
+                accountId: account.id,
+                ...(account.mode === 'live' ? { liveConfirmed: true as const } : {}),
               }),
             )
           }
