@@ -96,14 +96,13 @@ describe('order report', () => {
     });
   });
 
-  it('gives the figures behind a price-collar cancel', () => {
+  it('gives no collar cancel for an order decided at the close and filled at a gapped open (N325)', () => {
     const r = run([99, 101, 110, 110, 110]);
     expect(r.orders![0]).toMatchObject({
       phase: 'entry',
-      outcome: 'canceled',
-      reason: 'collar_cancel',
+      outcome: 'filled',
+      reason: null,
       referencePrice: '101',
-      detail: { reference: '101', price: '110', movePct: '8.91', limitPct: '5' },
     });
   });
 

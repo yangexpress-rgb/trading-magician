@@ -179,8 +179,18 @@ interface Order {
   tif: PlannedOrder['timeInForce'];
   quantity: Decimal;
   filled: Decimal;
-  /** Reference price when submitted, for the price collar. */
+  /**
+   * The price collar's anchor (N325): the last close when it was decided, while
+   * the order works in the session it was decided in; from the first bar it
+   * sees in any later session, that bar's open (the release snapshot). A price
+   * from an earlier session is never the anchor.
+   */
   reference: Decimal;
+  /** When the anchor was sampled (epoch ms). */
+  referenceAt: number;
+  /** The New York session date the anchor is from. */
+  referenceSession: string;
+  referenceSource: 'decision' | 'release_snapshot';
   /** When the order can first fill: the decision time, or the next open if the market was closed. */
   activeFrom: number;
   firstBarSeen: boolean;
@@ -712,6 +722,11 @@ export function simulate({
       quantity,
       filled: ZERO,
       reference: mark(leg.leg.instrumentId) ?? ZERO,
+      referenceAt: now,
+      // Decided outside the session (held for an open): no session's anchor yet,
+      // so the first bar it can fill on sets it.
+      referenceSession: activeFrom === now ? nyDate(iso(now)) : '',
+      referenceSource: 'decision',
       activeFrom,
       firstBarSeen: false,
       closing,
@@ -929,6 +944,15 @@ export function simulate({
     const bar = view.barEndingNow(execKey(order.instrumentId));
     if (!bar || Date.parse(bar.start) < order.activeFrom) return;
     const at = Date.parse(bar.start);
+    // Cross-session rule (N325): in a session other than the anchor's, the anchor
+    // becomes this session's first price the order sees, its release snapshot.
+    const session = nyDate(bar.start);
+    if (order.referenceSession !== session) {
+      order.reference = bar.open;
+      order.referenceAt = at;
+      order.referenceSession = session;
+      order.referenceSource = 'release_snapshot';
+    }
     const first = !order.firstBarSeen;
     order.firstBarSeen = true;
     const leg = order.leg;
@@ -958,7 +982,10 @@ export function simulate({
           'Orders were canceled because the price moved beyond the price collar',
           {
             reference: order.reference.toDecimalPlaces(4).toString(),
+            referenceAt: iso(order.referenceAt),
+            referenceSource: order.referenceSource,
             price: quote.base.toDecimalPlaces(4).toString(),
+            priceAt: iso(at),
             movePct: movePct.toDecimalPlaces(2).toString(),
             limitPct: collar.toString(),
           },
@@ -1292,6 +1319,9 @@ export function simulate({
         quantity,
         filled: ZERO,
         reference: close,
+        referenceAt: now,
+        referenceSession: nyDate(iso(now)),
+        referenceSource: 'decision',
         activeFrom: now,
         firstBarSeen: true,
         closing: true,

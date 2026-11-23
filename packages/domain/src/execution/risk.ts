@@ -1,4 +1,5 @@
 import type Decimal from 'decimal.js';
+import { nyDate, regularSession } from '../market/calendar';
 import type { RiskProfile } from '../strategy/schema';
 
 /**
@@ -213,13 +214,11 @@ export function checkPreTradeRisk(input: RiskCheckInput): RiskCheckResult {
 }
 
 /**
- * The price collar on a market order that fills later than it was decided
- * (§7.2, §8.6). The back test fills market orders at the next bar's open and
- * cancels an opening order whose fill moved more than the collar from the
- * price it was decided at. Paper execution does the same for an opening
- * market order decided while the market is closed: it holds the order until
- * the regular session opens, then sends it only if the opening price is still
- * within the collar of its reference price.
+ * The price collar on an opening market order decided while the regular
+ * session is closed (§7.2, §8.6, N325). Paper execution holds such an order
+ * (Ready) until the session opens instead of sending it at once. The collar
+ * then guards the seconds between releasing it and sending it, never the gap
+ * since it was decided: see `collarAtRelease`.
  */
 export function holdsForOpenCollar(
   order: { side: string; orderType: string; extendedHours: boolean },
@@ -243,6 +242,96 @@ export function collarBreach(
     ? price.minus(reference).abs().div(reference).times(100)
     : reference.minus(reference);
   return { movePct, breached: reference.gt(0) && movePct.gt(collarPct) };
+}
+
+/** A price the collar compares, with when it was sampled and what it is (N325). */
+export interface CollarSample {
+  price: Decimal;
+  /** Provider timestamp, ISO 8601 UTC. */
+  at: string;
+  source: 'release_snapshot' | 'send_attempt';
+}
+
+export const COLLAR_SOURCE_TEXT: Record<CollarSample['source'], string> = {
+  release_snapshot: 'release snapshot',
+  send_attempt: 'at the send attempt',
+};
+
+/** What to do with a held order at the open (N325). */
+export type CollarRelease =
+  | { kind: 'wait' }
+  | { kind: 'send'; anchor: CollarSample; price: CollarSample; movePct: Decimal }
+  | {
+      kind: 'block';
+      anchor: CollarSample;
+      price: CollarSample;
+      movePct: Decimal;
+      /** The reason shown to the person, naming both prices and when each was sampled. */
+      reason: string;
+    };
+
+/**
+ * Whether a price was sampled in the regular session open at `now`: on or after
+ * that session's open and not after `now`. A price from any earlier session
+ * (Friday's close, a pre-market quote) is not.
+ */
+export function sampledInSessionAt(at: string, now: number): boolean {
+  const session = regularSession(nyDate(new Date(now)));
+  if (!session) return false;
+  const t = Date.parse(at);
+  return (
+    Number.isFinite(t) && t >= Date.parse(session.open) && t < Date.parse(session.close) && t <= now
+  );
+}
+
+const etTime = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  hour: 'numeric',
+  minute: '2-digit',
+  second: '2-digit',
+});
+
+/** "9:30:01 AM ET". */
+export function formatCollarTime(at: string): string {
+  return `${etTime.format(new Date(at))} ET`;
+}
+
+/**
+ * The price collar for an order released at the open (N325, ADR 0113). Its
+ * anchor is the release snapshot, the freshest price the worker has when it
+ * releases the order, which must be from the session the order is sent in; the
+ * price compared with it is read again at the send attempt, seconds later at
+ * most. The price the order was decided at plays no part: an order held for the
+ * open was decided in an earlier session by construction, and the move since
+ * then is the market's ordinary move across sessions, not an anomaly.
+ *
+ * Waits (sends nothing yet) while either price is missing or is not from the
+ * current session.
+ */
+export function collarAtRelease(input: {
+  snapshot: { last: Decimal; at: string } | undefined;
+  sendQuote: { last: Decimal; at: string } | undefined;
+  now: number;
+  collarPct: string;
+}): CollarRelease {
+  const { snapshot, sendQuote, now, collarPct } = input;
+  if (!snapshot || !sampledInSessionAt(snapshot.at, now)) return { kind: 'wait' };
+  if (!sendQuote || !sampledInSessionAt(sendQuote.at, now)) return { kind: 'wait' };
+  const anchor: CollarSample = {
+    price: snapshot.last,
+    at: snapshot.at,
+    source: 'release_snapshot',
+  };
+  const price: CollarSample = { price: sendQuote.last, at: sendQuote.at, source: 'send_attempt' };
+  const { movePct, breached } = collarBreach(anchor.price, price.price, collarPct);
+  if (!breached) return { kind: 'send', anchor, price, movePct };
+  const reason =
+    `Not sent: the price moved ${movePct.toFixed(1)}% while the order was being sent, ` +
+    `from $${anchor.price.toFixed(2)} at ${formatCollarTime(anchor.at)} ` +
+    `(${COLLAR_SOURCE_TEXT[anchor.source]}) ` +
+    `to $${price.price.toFixed(2)} at ${formatCollarTime(price.at)} ` +
+    `(${COLLAR_SOURCE_TEXT[price.source]}). The price collar allows ${collarPct}%.`;
+  return { kind: 'block', anchor, price, movePct, reason };
 }
 
 /** Each pre-trade check in words, for notifications (N287). */

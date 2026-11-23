@@ -72,7 +72,9 @@ import {
   optionInstruments,
   mlReads,
   activeFromFor,
-  collarBreach,
+  collarAtRelease,
+  sampledInSessionAt,
+  type CollarRelease,
   holdsForOpenCollar,
   regularSessionOpenAt,
   sendsExtendedHours,
@@ -932,39 +934,74 @@ async function submitReady(
     if (o.state !== 'ready' || o.brokerOrderId || o.cancelRequested) continue;
     const i = o.intent;
     if (i.source === 'strategy' && risk.priceCollarPct && holdsForOpenCollar(i, risk)) {
-      // Held for the open (see placeLeg); sent only within the collar.
+      // Held for the open (see placeLeg); released only within the collar.
       if (!open) continue;
-      const quote = await ctx.quotes.latestQuote({
-        instrumentId: i.instrumentId,
-        symbol: o.symbol,
-      });
-      if (!quote) continue;
-      const reference = new Decimal(i.referencePrice);
-      const { movePct, breached } = collarBreach(reference, quote.last, risk.priceCollarPct);
-      if (breached) {
-        const opened = quote.last.toFixed(2);
-        const decided = reference.toFixed(2);
-        await requestCancel(
-          tx,
-          i.id,
-          'app',
-          'The price opened at ' +
-            '$' +
-            opened +
-            ', ' +
-            movePct.toFixed(1) +
-            '% from ' +
-            '$' +
-            decided +
-            ' when the order was decided. The price collar allows ' +
-            risk.priceCollarPct +
-            '%.',
-        );
+      const release = await releaseHeldOrder(ctx, o, risk.priceCollarPct);
+      if (release.kind === 'wait') continue;
+      if (release.kind === 'block') {
+        await requestCancel(tx, i.id, 'app', release.reason);
+        await recordAudit(tx, {
+          userId: ctx.work.userId,
+          actorType: 'system',
+          action: 'order.collar_blocked',
+          resourceType: 'order_intent',
+          resourceId: i.id,
+          context: { runtimeId: ctx.work.id, ...collarAuditContext(release, risk.priceCollarPct) },
+        });
         continue;
       }
+      ctx.logger.info(
+        {
+          intentId: i.id,
+          runtimeId: ctx.work.id,
+          ...collarAuditContext(release, risk.priceCollarPct),
+        },
+        'held order released within the collar',
+      );
     }
     await submit(tx, ctx, i.id, requestFor(o));
   }
+}
+
+/**
+ * The collar check for an order held for the open (N325, ADR 0113), the only
+ * place a paper collar anchor is sampled. The anchor is the release snapshot,
+ * this pass's price for the instrument, and must be from the session the order
+ * is sent in; it is compared with the price read again from the feed at the
+ * send attempt. The order's decision price (`referencePrice`, from an earlier
+ * session by construction) is never read here.
+ */
+export async function releaseHeldOrder(
+  ctx: Pick<PassContext, 'quotes' | 'now'>,
+  o: Pick<WorkingOrder, 'symbol'> & { intent: Pick<WorkingOrder['intent'], 'instrumentId'> },
+  collarPct: string,
+): Promise<CollarRelease> {
+  const ref = { instrumentId: o.intent.instrumentId, symbol: o.symbol };
+  const snapshot = await ctx.quotes.latestQuote(ref);
+  const now = ctx.now.getTime();
+  // Not yet a price from this session (e.g. no trade since the open): wait for one.
+  if (!snapshot || !sampledInSessionAt(snapshot.at, now)) return { kind: 'wait' };
+  const sendQuote = ctx.quotes.freshQuote
+    ? await ctx.quotes.freshQuote(ref)
+    : await ctx.quotes.latestQuote(ref);
+  return collarAtRelease({ snapshot, sendQuote, now, collarPct });
+}
+
+/** Both prices the collar compared, when each was sampled and the anchor's source. */
+function collarAuditContext(
+  r: Exclude<CollarRelease, { kind: 'wait' }>,
+  collarPct: string,
+): Record<string, string> {
+  return {
+    anchorSource: r.anchor.source,
+    anchorPrice: r.anchor.price.toString(),
+    anchorAt: r.anchor.at,
+    priceSource: r.price.source,
+    price: r.price.price.toString(),
+    priceAt: r.price.at,
+    movePct: r.movePct.toDecimalPlaces(4).toString(),
+    collarPct,
+  };
 }
 
 interface PassContext {
@@ -2038,8 +2075,8 @@ async function placeLeg(
   });
   if (!recorded.created || recorded.state !== 'ready') return false;
   if (!sized.closing) input.onOpeningRecorded?.(sized.quantity.times(quote.last));
-  // Decided while the market is closed: wait for the open, then check the
-  // collar against the opening price, as the back test does (§7.2).
+  // Decided while the market is closed: wait for the open. The collar is then
+  // anchored on a price from the send session, never this one (N325, releaseHeldOrder).
   if (
     holdsForOpenCollar({ ...order, extendedHours }, def.risk) &&
     !regularSessionOpenAt(now.getTime())
