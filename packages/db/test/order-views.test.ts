@@ -410,6 +410,49 @@ describe('listing orders (§8.3, §14.3)', () => {
     );
   });
 
+  it('counts cycles completed today and lists them with their orders (N326)', async () => {
+    const c = await startCycle('Today run');
+    const today = '2026-11-20';
+    const at = (iso: string) => new Date(iso);
+    await asA(async (tx) => {
+      await tx.insert(strategyCycles).values(
+        (
+          [
+            // Closed today at 10:00 and 15:59 New York time.
+            [2, 'closed', '2026-11-20T15:00:00Z', '5.00'],
+            [3, 'closed', '2026-11-20T20:59:00Z', '-2.00'],
+            // Closed the day before, and at 7:30 pm New York the evening before (UTC next day).
+            [4, 'closed', '2026-11-19T16:00:00Z', '9.00'],
+            [5, 'closed', '2026-11-20T00:30:00Z', '1.00'],
+            // Still holding a position.
+            [6, 'open', null, null],
+          ] as const
+        ).map(([seq, status, closedAt, pnl]) => ({
+          userId: userA,
+          runtimeId: c.runtimeId,
+          seq,
+          status,
+          entryTriggeredAt: at('2026-11-19T15:00:00Z'),
+          closedAt: closedAt ? at(closedAt) : null,
+          realizedPnl: pnl,
+          state: newCycleState(Date.now()),
+        })),
+      );
+    });
+    const status = await asA((tx) => getExecutionStatus(tx, today));
+    expect(status.todaySession).toBe(today);
+    const run = status.runtimes.find((r) => r.id === c.runtimeId);
+    expect(run?.completedToday).toBe(2);
+    expect(run?.cycles.completed).toBe(4);
+    // No valuations stored for this run: today's return is zero with no %.
+    expect(run?.today).toEqual({ pnl: '0.00', realized: '0.00', unrealized: '0.00', pct: null });
+
+    const done = await asA((tx) => getRunDetail(tx, c.runtimeId, 'completed_today', today));
+    expect(done.cycles.map((x) => x.seq)).toEqual([3, 2]);
+    const behind = await asA((tx) => getRunDetail(tx, c.runtimeId, 'today', today));
+    expect(behind.cycles.map((x) => x.seq)).toEqual([6, 3, 2]);
+  });
+
   it('shows another user nothing', async () => {
     const list = await as(userB, (tx) => listOrders(tx));
     expect(list.counts.all).toBe(0);

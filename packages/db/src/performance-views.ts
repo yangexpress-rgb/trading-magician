@@ -718,3 +718,59 @@ export async function performanceSummary(
     },
   };
 }
+
+/** One run's results over today's session (N327), realized and unrealized apart. */
+export interface RuntimeToday {
+  /** Realized plus unrealized change over the session, in dollars. */
+  pnl: string;
+  realized: string;
+  unrealized: string;
+  /** The P/L over the capital at work that session; null with nothing at work. */
+  pct: string | null;
+}
+
+/**
+ * Today's return for each run (N327): the change in its books' realized and
+ * unrealized P/L since the close before `today`, measured exactly as the
+ * Performance Today column measures a strategy (N296), so the two agree.
+ * Runs with no books get zero and no %.
+ */
+export async function runtimeTodayFigures(
+  tx: Transaction,
+  runtimeIds: readonly string[],
+  today: string = valuationSession(new Date()).date,
+): Promise<Map<string, RuntimeToday>> {
+  const out = new Map<string, RuntimeToday>();
+  if (runtimeIds.length === 0) return out;
+  const books = await loadBooks(
+    tx,
+    { empty: false, filtered: true, runtimeIds: [...runtimeIds] },
+    undefined,
+  );
+  if (books.length === 0) return out;
+  const strategyIds = [...new Set(books.map((b) => b.strategyId))];
+  const wanted = new Set(runtimeIds);
+  const trades = (await listCycleTrades(tx, { strategyIds })).filter(
+    (t) =>
+      wanted.has(t.runtimeId) &&
+      (nyDate(t.openedAt) === today || (t.closedAt !== null && nyDate(t.closedAt) === today)),
+  );
+  for (const [runtimeId, g] of groupBy(books, (b) => b.runtimeId)) {
+    const { change, pct: p } = sessionChange(
+      g.rows,
+      trades.filter((t) => t.runtimeId === runtimeId),
+      today,
+    );
+    const part = (m: (b: BookRow) => Decimal) => {
+      const s = bookSeries(g.rows, m);
+      return carried(s, today).minus(before(s, today));
+    };
+    out.set(runtimeId, {
+      pnl: money(change),
+      realized: money(part((b) => b.realized)),
+      unrealized: money(part((b) => b.unrealized)),
+      pct: p,
+    });
+  }
+  return out;
+}

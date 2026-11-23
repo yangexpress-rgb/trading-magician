@@ -5,9 +5,10 @@ import {
   type PlannedOrder,
   type StrategyDefinition,
   liveTradingEnabled,
+  valuationSession,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
-import { and, asc, count, desc, eq, inArray, sql, type AnyColumn, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { accountFeedChains, fallbackInUse } from './account-feeds';
 import { haltText, runtimeAccountHalt } from './account-risk';
 import { recordAudit } from './audit';
@@ -16,6 +17,7 @@ import { listOpenIncidents, type IncidentRow } from './incidents';
 import type { Transaction } from './client';
 import { idempotencyKey, OrderError, recordOrderIntent } from './orders';
 import { LIVE_OFF_TEXT } from './live-gate';
+import { runtimeTodayFigures, type RuntimeToday } from './performance-views';
 import {
   requestCancel,
   resumeRuntime,
@@ -897,6 +899,10 @@ export interface RuntimeSummary {
   workingOrders: number;
   /** This run's cycles by outcome (N280). */
   cycles: CycleCounts;
+  /** Cycles that completed (Exit closed them) in today's session (N326). */
+  completedToday: number;
+  /** Today's return (N327): realized plus unrealized over today's session. */
+  today: RuntimeToday;
   /** Realized profit or loss of this run's completed cycles, in dollars (N304). */
   realizedPnl: string;
   /** Completed cycles that closed with a gain (N304). */
@@ -918,6 +924,8 @@ export interface CycleCounts {
 }
 
 export interface ExecutionStatus {
+  /** The NYSE session "today" means (N326): the one under way, or the last before the open. */
+  todaySession: string;
   halted: { at: string; reason: string | null } | null;
   runtimes: RuntimeSummary[];
   /** Open incidents (§8.5): reconciliation mismatches, rejects, data and broker problems. */
@@ -925,7 +933,10 @@ export interface ExecutionStatus {
 }
 
 /** The kill switch, and every runtime that is active or still has working orders. */
-export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStatus> {
+export async function getExecutionStatus(
+  tx: Transaction,
+  today: string = valuationSession(new Date()).date,
+): Promise<ExecutionStatus> {
   const [control] = await tx.select().from(executionControls);
   const working = tx
     .select({ runtimeId: orderIntents.runtimeId, n: count().as('n') })
@@ -945,6 +956,10 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
           .mapWith(Number)
           .as('active'),
       rejected: byStatus('aborted').as('rejected'),
+      completedToday:
+        sql<number>`count(*) filter (where ${strategyCycles.status} = 'closed' and ${closedOn(today)})`
+          .mapWith(Number)
+          .as('completed_today'),
       entering: byStatus('entry_working').as('entering'),
       realizedPnl:
         sql<string>`coalesce(sum(${strategyCycles.realizedPnl}) filter (where ${strategyCycles.status} = 'closed'), 0)::text`.as(
@@ -976,6 +991,7 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
       active: cycleCounts.active,
       rejected: cycleCounts.rejected,
       entering: cycleCounts.entering,
+      completedToday: cycleCounts.completedToday,
       realizedPnl: cycleCounts.realizedPnl,
       wins: cycleCounts.wins,
       lastEntryAt: cycleCounts.lastEntryAt,
@@ -988,7 +1004,13 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
     .where(sql`${strategyRuntimes.status} <> 'stopped' or ${working.n} > 0`)
     .orderBy(desc(strategyRuntimes.startedAt));
   const [incidents, chains] = await Promise.all([listOpenIncidents(tx), accountFeedChains(tx)]);
+  const todays = await runtimeTodayFigures(
+    tx,
+    rows.map((r) => r.id),
+    today,
+  );
   return {
+    todaySession: today,
     incidents,
     halted: control?.haltedAt
       ? { at: control.haltedAt.toISOString(), reason: control.reason }
@@ -1013,6 +1035,8 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
         rejected: Number(r.rejected ?? 0),
         entering: Number(r.entering ?? 0),
       },
+      completedToday: Number(r.completedToday ?? 0),
+      today: todays.get(r.id) ?? NO_TODAY,
       realizedPnl: r.realizedPnl ?? '0',
       wins: Number(r.wins ?? 0),
       // A raw aggregate comes back as text, not a Date.
@@ -1025,10 +1049,27 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
  * What a figure on Strategies on paper counts (N305): the run's working orders, or its cycles
  * by outcome. `completed` also stands behind Realized P/L and Win rate.
  */
-export const RUN_DETAIL_KINDS = ['working', 'completed', 'active', 'rejected', 'entering'] as const;
+export const RUN_DETAIL_KINDS = [
+  'working',
+  'completed',
+  'active',
+  'rejected',
+  'entering',
+  'completed_today',
+  'today',
+] as const;
 export type RunDetailKind = (typeof RUN_DETAIL_KINDS)[number];
 
-const DETAIL_CYCLE_STATUSES: Record<Exclude<RunDetailKind, 'working'>, string[]> = {
+/** A cycle closed in the NYSE session `day` (New York date). */
+const closedOn = (day: string) =>
+  sql`to_char(${strategyCycles.closedAt} at time zone 'America/New_York', 'YYYY-MM-DD') = ${day}`;
+
+const NO_TODAY: RuntimeToday = { pnl: '0.00', realized: '0.00', unrealized: '0.00', pct: null };
+
+const DETAIL_CYCLE_STATUSES: Record<
+  Exclude<RunDetailKind, 'working' | 'completed_today' | 'today'>,
+  string[]
+> = {
   completed: ['closed'],
   active: ['open', 'exit_working'],
   rejected: ['aborted'],
@@ -1068,6 +1109,7 @@ export async function getRunDetail(
   tx: Transaction,
   runtimeId: string,
   kind: RunDetailKind,
+  today: string = valuationSession(new Date()).date,
 ): Promise<RunDetail> {
   const [run] = await tx
     .select({ id: strategyRuntimes.id })
@@ -1075,6 +1117,17 @@ export async function getRunDetail(
     .where(eq(strategyRuntimes.id, runtimeId));
   if (!run) throw new OrderError('not_found', 'Strategy run not found');
 
+  const byKind = (): SQL | undefined => {
+    if (kind === 'completed_today')
+      return and(eq(strategyCycles.status, 'closed'), closedOn(today));
+    // Today's return: cycles closed today, and those still holding a position.
+    if (kind === 'today')
+      return or(
+        and(eq(strategyCycles.status, 'closed'), closedOn(today)),
+        inArray(strategyCycles.status, ['open', 'exit_working']),
+      );
+    return inArray(strategyCycles.status, DETAIL_CYCLE_STATUSES[kind as 'completed'] as never[]);
+  };
   const cycleWhere =
     kind === 'working'
       ? and(
@@ -1082,10 +1135,7 @@ export async function getRunDetail(
           sql`exists (select 1 from ${orderIntents} join ${brokerOrders} on ${brokerOrders.intentId} = ${orderIntents.id}
             where ${orderIntents.cycleId} = ${strategyCycles.id} and ${inArray(brokerOrders.state, [...WORKING_STATES])})`,
         )
-      : and(
-          eq(strategyCycles.runtimeId, runtimeId),
-          inArray(strategyCycles.status, DETAIL_CYCLE_STATUSES[kind] as never[]),
-        );
+      : and(eq(strategyCycles.runtimeId, runtimeId), byKind());
   const [{ n }] = (await tx.select({ n: count() }).from(strategyCycles).where(cycleWhere)) as [
     { n: number },
   ];

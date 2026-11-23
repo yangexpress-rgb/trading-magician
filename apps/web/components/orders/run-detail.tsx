@@ -29,6 +29,8 @@ const KIND_TITLE: Record<RunDetailKindDto, string> = {
   active: 'Active cycles',
   rejected: 'Rejected cycles',
   entering: 'Entering cycles',
+  completed_today: 'Cycles completed today',
+  today: "Today's return cycles",
 };
 
 const KIND_DESCRIPTION: Record<RunDetailKindDto, string> = {
@@ -39,6 +41,9 @@ const KIND_DESCRIPTION: Record<RunDetailKindDto, string> = {
   rejected:
     'Every order of the cycles that ended with nothing filled: refused by a risk limit, rejected, canceled or expired.',
   entering: 'Every order of the cycles whose Entry orders are still working.',
+  completed_today: "Every cycle Exit closed in today's session, with all its orders and its P/L.",
+  today:
+    "Every order of the cycles behind today's return: those that completed today (realized) and those still holding a position (unrealized).",
 };
 
 const CYCLE_STATUS: Record<RunDetailCycleDto['status'], { label: string; tone: Tone }> = {
@@ -135,21 +140,24 @@ function DetailBody({
       ? `${plural(detail.orders.length, 'working order')} in ${plural(detail.totalCycles, 'cycle')}`
       : `${plural(detail.totalCycles, 'cycle')}, ${plural(detail.orders.length, 'order')}`,
   ];
-  if (detail.kind === 'completed' && closed.length > 0)
+  if ((detail.kind === 'completed' || detail.kind === 'completed_today') && closed.length > 0)
     summary.push(`${plural(wins, 'gain')}, ${plural(closed.length - wins, 'loss', 'losses')}`);
 
   return (
     <div className="space-y-3">
       <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
         <span>{summary.join(' · ')}</span>
-        {detail.kind === 'completed' && closed.length > 0 && (
-          <span>
-            Realized P/L{' '}
-            <span className={signTone(pnl)}>
-              <strong>{formatSignedMoney(pnl)}</strong>
+        {(detail.kind === 'completed' ||
+          detail.kind === 'completed_today' ||
+          detail.kind === 'today') &&
+          closed.length > 0 && (
+            <span>
+              Realized P/L{' '}
+              <span className={signTone(pnl)}>
+                <strong>{formatSignedMoney(pnl)}</strong>
+              </span>
             </span>
-          </span>
-        )}
+          )}
       </p>
       {detail.totalCycles > detail.cycles.length && (
         <p className="text-sm text-ink-muted">

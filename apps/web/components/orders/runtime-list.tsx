@@ -40,6 +40,7 @@ export function RuntimeList({
   onDetail,
   filters,
   onFilters,
+  todaySession,
 }: {
   runtimes: RuntimeSummaryDto[];
   highlight: string | undefined;
@@ -49,7 +50,10 @@ export function RuntimeList({
   onDetail: (request: RunDetailRequest) => void;
   filters: RuntimeListFilters;
   onFilters: (f: RuntimeListFilters) => void;
+  /** The NYSE session "today" means (N326), as a New York date. */
+  todaySession: string;
 }) {
+  const sessionText = sessionLabel(todaySession);
   const shown = runtimes.filter((r) => matchesRuntime(r, filters));
   const set = countRuntimeFilters(filters);
   const patch = (p: Partial<RuntimeListFilters>) => onFilters({ ...filters, ...p });
@@ -179,8 +183,22 @@ export function RuntimeList({
             >
               Last entry
             </Th>
-            <Th numeric filter={range('working', 'Working orders')}>
-              Working orders
+            <Th numeric filter={range('completedToday', 'Completed today')}>
+              <span
+                title={`Cycles that completed in the ${sessionText} session. Click a figure to list them with their orders.`}
+              >
+                Completed today
+              </span>
+            </Th>
+            <Th
+              numeric
+              filter={range('todayPnl', "Today's return", 'In dollars, such as -50 or 200.')}
+            >
+              <span
+                title={`Realized plus unrealized P/L over the ${sessionText} session, in dollars and as a % of the capital at work that session.`}
+              >
+                Today&apos;s return
+              </span>
             </Th>
             <Th numeric filter={range('completed', 'Completed')}>
               Completed
@@ -257,16 +275,23 @@ export function RuntimeList({
                     <span className="text-ink-muted">None yet</span>
                   )}
                 </Td>
-                <Td numeric sortValue={r.workingOrders} className="tabular-nums">
+                <Td
+                  numeric
+                  sortValue={r.completedToday}
+                  className={cx(
+                    'font-semibold tabular-nums',
+                    r.completedToday > 0 ? 'text-ok' : 'text-ink-muted',
+                  )}
+                >
                   <Figure
-                    label={`${r.workingOrders} working orders`}
-                    onOpen={() =>
-                      onDetail({ runtime: r, kind: 'working', column: 'Working orders' })
-                    }
+                    label={`${r.completedToday} completed today`}
+                    onOpen={detail('completed_today', 'Completed today')}
+                    click
                   >
-                    {r.workingOrders}
+                    {r.completedToday}
                   </Figure>
                 </Td>
+                <TodayReturn today={r.today} open={detail('today', "Today's return")} />
                 <Count
                   n={r.cycles.completed}
                   tone="text-ok"
@@ -320,7 +345,7 @@ export function RuntimeList({
           })}
           {shown.length === 0 && (
             <tr>
-              <td colSpan={14} className="px-3 py-4 text-sm text-ink-muted">
+              <td colSpan={15} className="px-3 py-4 text-sm text-ink-muted">
                 No strategy on paper matches these filters.
               </td>
             </tr>
@@ -374,21 +399,27 @@ function Figure({
   children,
   label,
   onOpen,
+  click = false,
 }: {
   children: ReactNode;
   label: string;
   onOpen: () => void;
+  /** Opens on a single click too, for figures meant to be looked into (N326). */
+  click?: boolean;
 }) {
   return (
     <span
       role="button"
       tabIndex={0}
       aria-label={`${label}: list the orders`}
-      title="Double-click to list these orders"
+      title={
+        click ? 'Click to list these cycles and their orders' : 'Double-click to list these orders'
+      }
+      onClick={click ? onOpen : undefined}
       onDoubleClick={(e) => {
         e.preventDefault();
         window.getSelection()?.removeAllRanges();
-        onOpen();
+        if (!click) onOpen();
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -400,5 +431,41 @@ function Figure({
     >
       {children}
     </span>
+  );
+}
+
+/** "Nov 21" for a New York session date, the session Today figures measure. */
+function sessionLabel(date: string): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  return Number.isNaN(d.getTime())
+    ? date
+    : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+/**
+ * Today's return (N327): realized plus unrealized over today's session, in
+ * dollars over its %; hovering shows the two parts. Double-click lists the
+ * cycles behind it.
+ */
+function TodayReturn({ today, open }: { today: RuntimeSummaryDto['today']; open: () => void }) {
+  const parts = `Realized ${formatSignedMoney(today.realized)}, unrealized ${formatSignedMoney(today.unrealized)}`;
+  return (
+    <Td numeric sortValue={Number(today.pnl)} className="tabular-nums">
+      <span title={parts}>
+        <Figure label={`Today's return ${formatSignedMoney(today.pnl)}`} onOpen={open}>
+          <span className={cx('font-semibold', signTone(today.pnl))}>
+            {formatSignedMoney(today.pnl)}
+          </span>
+        </Figure>
+        <span
+          className={cx(
+            'block text-xs',
+            today.pct === null ? 'text-ink-muted' : signTone(today.pct),
+          )}
+        >
+          {today.pct === null ? '—' : formatPct(today.pct, true)}
+        </span>
+      </span>
+    </Td>
   );
 }
