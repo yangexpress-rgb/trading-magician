@@ -105,23 +105,27 @@ export async function syncSp500Membership(options: {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const RETRY_MS = 10 * 60 * 1000;
 
 /**
  * Runs the sync now and then daily, so symbols a feed lists later resolve.
- * A failure is logged and retried at the next run; it never stops the worker.
+ * A failure is logged and retried after 10 minutes; it never stops the worker.
  */
 export function startMembershipSync(
-  options: Parameters<typeof syncSp500Membership>[0] & { everyMs?: number },
+  options: Parameters<typeof syncSp500Membership>[0] & { everyMs?: number; retryMs?: number },
 ): { stop: () => void; done: Promise<void> } {
   let stopped = false;
   let timer: NodeJS.Timeout | undefined;
   const run = async () => {
+    let wait = options.everyMs ?? DAY_MS;
     try {
       await syncSp500Membership(options);
     } catch (error) {
-      options.logger.warn({ err: error }, 'group membership not stored; trying again tomorrow');
+      // A worker can start before the web deploy has added the table: try again soon.
+      wait = options.retryMs ?? RETRY_MS;
+      options.logger.warn({ err: error }, 'group membership not stored; trying again shortly');
     }
-    if (!stopped) timer = setTimeout(() => void run(), options.everyMs ?? DAY_MS);
+    if (!stopped) timer = setTimeout(() => void run(), wait);
   };
   const done = run();
   return {
