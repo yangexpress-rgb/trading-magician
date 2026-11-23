@@ -49,6 +49,7 @@ import {
 } from '@/lib/runtime-list';
 import { OrderDrawer } from './order-drawer';
 import { RunDetailDialog, type RunDetailRequest } from './run-detail';
+import { OrderPriceCells, OrderPriceHeads } from './order-prices';
 import { RuntimeList } from './runtime-list';
 import { AccountLabel, accountText, groupAccounts } from '@/components/accounts/account-label';
 import { AccountSwitcher } from '@/components/accounts/account-switcher';
@@ -616,7 +617,7 @@ function OrdersTable({
           <Th>Status</Th>
           <Th>Submitted</Th>
           <Th>Filled</Th>
-          <Th numeric>Avg price</Th>
+          <OrderPriceHeads />
           <Th>Account</Th>
           <Th>Mode</Th>
         </tr>
@@ -676,7 +677,7 @@ function OrdersTable({
               </Td>
               <Td className="whitespace-nowrap text-content">{when(o.submittedAt)}</Td>
               <Td className="whitespace-nowrap text-content">{when(o.filledAt)}</Td>
-              <Td numeric>{formatPrice(o.averagePrice)}</Td>
+              <OrderPriceCells order={o} when={when} />
               <Td sortValue={o.accountName}>
                 <AccountLabel name={o.accountName} mode={o.accountMode} />
               </Td>

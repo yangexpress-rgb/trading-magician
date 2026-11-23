@@ -77,3 +77,7 @@ Move up and Move down are hidden, since they change the saved order. No schema c
 ## Amendment (2026-11-17, N298)
 
 Yong found the list mixed the regular session with extended hours. The worker now splits each Alpaca snapshot: a trade inside the regular session (from `regularSession`, early closes included) is the regular price; otherwise the regular price is the latest daily bar's close (Alpaca builds daily bars from regular-hours trades), measured from the bar before it, and a trade made after that close is stored apart as `watch_quote.ext_last` / `ext_at` (migration 0101). The page shows the regular session by default; its Ext hours button (not remembered, so the page always opens on the regular session) swaps in the pre-market or after-hours trade, tagged Pre or Post and measured from the latest regular close, the usual broker convention. Sorting follows what is shown.
+
+## Amendment (2026-11-23, N330)
+
+The same pricing pass also serves order tables: while a person has Orders open (`order_price_view`, at least a 90-second window since Orders re-reads about every 30 seconds), `watch_list_demand` adds the stock and ETF instruments of their orders from runs not yet stopped and of any order from the last 7 days. They share the per-feed batching, so a person with a handful of strategies adds one request per 100 symbols at most. Order rows read `lastPrice` / `lastPriceAt` from `watch_quote` (migration 0110).

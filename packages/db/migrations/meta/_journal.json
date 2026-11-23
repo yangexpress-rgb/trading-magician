@@ -771,6 +771,13 @@
       "when": 1795443961598,
       "tag": "0109_group_membership",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1795453544865,
+      "tag": "0110_order_prices",
+      "breakpoints": true
     }
   ]
 }

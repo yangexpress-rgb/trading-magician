@@ -74,6 +74,10 @@ export interface OrderRowDto {
   state: OrderState;
   filledQuantity: string;
   averagePrice: string | null;
+  /** The instrument's latest price (N330); null when none is known yet. */
+  lastPrice: number | null;
+  /** When that price was traded. */
+  lastPriceAt: string | null;
   accountId: string;
   accountName: string;
   /** PAPER or LIVE, shown in words beside the account (N309). */

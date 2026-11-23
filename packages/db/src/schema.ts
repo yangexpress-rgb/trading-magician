@@ -3539,6 +3539,19 @@ export const watchListViews = pgTable('watch_list_view', {
 });
 
 /**
+ * When each person last had Orders open (N330): while it is open, the worker
+ * also prices the instruments of their orders, so order tables can show a
+ * Last price. Apart from `watch_list_view`, whose first row starts the
+ * default watch list.
+ */
+export const orderPriceViews = pgTable('order_price_view', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  viewedAt: timestamp('viewed_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
  * The latest price of each watched symbol (N292): public market data kept once
  * for every tenant, like the 52-week ranges. Only the worker writes it.
  */
