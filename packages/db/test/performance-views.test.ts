@@ -6,6 +6,7 @@ import {
   performanceSummary,
   performanceTimeseries,
   performanceTrades,
+  runtimeTodayFigures,
 } from '../src/performance-views';
 import { provisionWorkspace } from '../src/provision';
 import { instruments, strategyRuntimes, tradingAccounts, users } from '../src/schema';
@@ -310,6 +311,20 @@ describe('performanceSummary', () => {
     // A session with no valuation yet has moved nothing.
     const quiet = await asA((tx) => performanceSummary(tx, { today: '2026-10-08' }));
     expect(quiet.today).toEqual({ sessionDate: '2026-10-08', pnl: '0.00', pct: null });
+  });
+
+  it("gives each run today's return, realized and unrealized apart (N327)", async () => {
+    const figures = await asA((tx) =>
+      runtimeTodayFigures(tx, [s1.runtimeId, s2.runtimeId], '2026-10-07'),
+    );
+    // The same as the Performance Today column per strategy (N296).
+    expect(figures.get(s1.runtimeId)).toMatchObject({ pnl: '300.00', pct: '30.00' });
+    expect(figures.get(s2.runtimeId)).toMatchObject({ pnl: '-100.00', pct: '-10.00' });
+    for (const f of figures.values())
+      expect(new Decimal(f.realized).plus(f.unrealized).toFixed(2)).toBe(f.pnl);
+    // S1 sold today: its gain is realized, and yesterday's mark comes back out of unrealized.
+    expect(Number(figures.get(s1.runtimeId)?.realized)).toBeGreaterThan(0);
+    expect((await asA((tx) => runtimeTodayFigures(tx, [], '2026-10-07'))).size).toBe(0);
   });
 
   it('is empty in live mode, which does not exist yet', async () => {
