@@ -149,6 +149,27 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
       /** Free-tier calendar keys; without them the admin's calendar feed key, else EDGAR-only. */
       FMP_API_KEY: z.string().min(8).max(200).optional(),
       FINNHUB_API_KEY: z.string().min(8).max(200).optional(),
+      /**
+       * FINRA short interest (data inputs part 2, item B, N323): the kill switch,
+       * on by default; without FINRA_CLIENT_ID and FINRA_CLIENT_SECRET the job
+       * logs "not configured" once and does nothing.
+       */
+      SHORT_INTEREST_ENABLED: z.enum(['on', 'off']).default('on'),
+      /**
+       * FINRA API client credentials (scope data.public.read). Any text is
+       * accepted here so a bad value never stops the worker's boot; FINRA
+       * refusing it is logged by the job instead.
+       */
+      FINRA_CLIENT_ID: z.string().max(500).optional(),
+      FINRA_CLIENT_SECRET: z.string().max(500).optional(),
+      /** FINRA's API and token endpoint; FINRA's own when unset. */
+      FINRA_API_URL: z.string().url().startsWith('https://').optional(),
+      FINRA_TOKEN_URL: z.string().url().startsWith('https://').optional(),
+      /** Tests only: FINRA's API comes from an in-process fake. */
+      SHORT_INTEREST_FAKE: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((v) => v === 'true'),
       /** Tests only: EDGAR's filings and the calendar vendors come from an in-process fake. */
       EVENTS_FAKE: z
         .enum(['true', 'false'])
@@ -199,10 +220,28 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
   if (env.NODE_ENV === 'production' && env.EVENTS_FAKE && !source.E2E_TEST) {
     throw new Error('EVENTS_FAKE is for tests only');
   }
+  if (env.NODE_ENV === 'production' && env.SHORT_INTEREST_FAKE && !source.E2E_TEST) {
+    throw new Error('SHORT_INTEREST_FAKE is for tests only');
+  }
   if (env.NODE_ENV === 'production' && env.SEC_FAKE && !source.E2E_TEST) {
     throw new Error('SEC_FAKE is for tests only');
   }
   return env;
+}
+
+/**
+ * Whether the FINRA short interest job runs (N323): 'off' by the kill switch,
+ * 'not_configured' without both credentials (the job then does nothing), else 'on'.
+ */
+export function shortInterestMode(env: {
+  SHORT_INTEREST_ENABLED: 'on' | 'off';
+  FINRA_CLIENT_ID?: string | undefined;
+  FINRA_CLIENT_SECRET?: string | undefined;
+  SHORT_INTEREST_FAKE?: boolean;
+}): 'off' | 'not_configured' | 'on' {
+  if (env.SHORT_INTEREST_ENABLED === 'off') return 'off';
+  if (env.SHORT_INTEREST_FAKE) return 'on';
+  return env.FINRA_CLIENT_ID?.trim() && env.FINRA_CLIENT_SECRET?.trim() ? 'on' : 'not_configured';
 }
 
 /** Whether the pattern snapshot job runs: the switch, or by default only on Railway staging. */

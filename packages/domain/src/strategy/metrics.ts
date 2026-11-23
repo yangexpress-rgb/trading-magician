@@ -120,7 +120,16 @@ export interface MetricSpec {
   label: string;
   /** One line for the builder's help text. */
   help: string;
-  category: 'price' | 'fundamental' | 'options' | 'earnings' | 'deals' | 'rates' | 'ml' | 'session';
+  category:
+    | 'price'
+    | 'fundamental'
+    | 'options'
+    | 'earnings'
+    | 'deals'
+    | 'rates'
+    | 'short'
+    | 'ml'
+    | 'session';
   /** How a value reads: a fraction (0.12 is 12%), a plain number, or US dollars. */
   unit: 'fraction' | 'number' | 'usd';
   params: readonly MetricParamSpec[];
@@ -752,7 +761,7 @@ const OPTIONS_METRICS: readonly MetricSpec[] = [
 
 function eventMetric(
   id: EventMetricId,
-  category: 'earnings' | 'deals' | 'rates',
+  category: 'earnings' | 'deals' | 'rates' | 'short',
   label: string,
   help: string,
   unit: MetricSpec['unit'],
@@ -914,6 +923,30 @@ const EVENT_METRICS: readonly MetricSpec[] = [
     'fraction',
     PRICE_CLASSES,
   ),
+  eventMetric(
+    'short.shares',
+    'short',
+    'Short interest (shares)',
+    'Shares sold short as reported to FINRA (consolidated short interest, exchange-listed and OTC) on the latest settlement date. Read from the day FINRA published it (about seven trading days after the settlement date), never earlier; carried forward until the next publication. Unknown before the first publication on record and for stocks FINRA does not list.',
+    'number',
+    ['stock', 'etf'],
+  ),
+  eventMetric(
+    'short.days_to_cover',
+    'short',
+    'Days to cover',
+    "FINRA's days to cover for the latest settlement: short interest ÷ average daily volume, as FINRA published it. Unknown when FINRA had no volume for the stock. Read from the day FINRA published it (about seven trading days after the settlement date), never earlier; carried forward until the next publication. Unknown before the first publication on record and for stocks FINRA does not list.",
+    'number',
+    ['stock', 'etf'],
+  ),
+  eventMetric(
+    'short.change_pct',
+    'short',
+    'Short interest change (%)',
+    "Change in short interest since the prior settlement ÷ the prior settlement's short interest, from FINRA's published figures. 0.1 is a 10% rise. Unknown when the prior figure is 0 or missing. Read from the day FINRA published it (about seven trading days after the settlement date), never earlier; carried forward until the next publication. Unknown before the first publication on record and for stocks FINRA does not list.",
+    'fraction',
+    ['stock', 'etf'],
+  ),
 ];
 
 /** The `ml.score` metric id (ML brief v1 §8). */
@@ -1025,10 +1058,10 @@ export function mlModelKey(ref: { metric: string; params: Record<string, number 
   return typeof key === 'string' && key ? key : undefined;
 }
 
-/** Whether a metric reads earnings, deals or rates (event data the worker records, ADR 0058). */
+/** Whether a metric reads earnings, deals, rates or short interest (event data the worker records, ADR 0058, N323). */
 export function isEventMetric(id: string): boolean {
   const c = getMetric(id)?.category;
-  return c === 'earnings' || c === 'deals' || c === 'rates';
+  return c === 'earnings' || c === 'deals' || c === 'rates' || c === 'short';
 }
 
 /** Whether a metric reads company filings (a company data feed is then needed). */

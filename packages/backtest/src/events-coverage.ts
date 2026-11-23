@@ -50,6 +50,23 @@ export function ratesBeforeFirstDate(
   return first > to ? `No ${spec.label} data before ${first}` : undefined;
 }
 
+/**
+ * The message for a run that ends before a stock's first published FINRA
+ * short interest (N323), or undefined.
+ */
+export function shortBeforeFirstDate(
+  symbol: string,
+  data: EventData,
+  instrumentId: string,
+  to: string,
+): string | undefined {
+  const first = data.shortInterest?.get(instrumentId)?.[0];
+  if (!first) return `No short interest data for ${symbol} yet`;
+  return first.availableDate > to
+    ? `No short interest data for ${symbol} before ${first.availableDate}`
+    : undefined;
+}
+
 /** "AAPL: earnings data on 180 of 252 bars (72 without)" for each stock read. */
 export function describeEarningsCoverage(
   steps: readonly number[],

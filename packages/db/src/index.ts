@@ -122,3 +122,4 @@ export * from './screen-snapshots';
 export * from './ai-assistant';
 export * from './watch-list';
 export * from './live-gate';
+export * from './short-interest';

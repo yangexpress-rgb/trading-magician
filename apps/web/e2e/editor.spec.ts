@@ -258,7 +258,7 @@ test('Earnings window needs no comparison: "Not needed" is its default (N216)', 
   ).toHaveCount(0);
   await left
     .getByLabel('Type', { exact: true })
-    .selectOption({ label: 'Earnings, deals and rates (EDGAR, FRED)' });
+    .selectOption({ label: 'Earnings, deals, rates and short interest (EDGAR, FRED, FINRA)' });
   await left.getByLabel('Event metric').selectOption({ label: 'Earnings window' });
   await expect(c1.getByLabel('Comparison')).toHaveValue('is_true');
   await expect(c1.getByRole('group', { name: 'Right side', exact: true })).toHaveCount(0);

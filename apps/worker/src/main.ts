@@ -9,7 +9,7 @@ import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
 import { resolveBuiltinUniverse } from './universes';
 import { startBacktestLoop, type BacktestLoop } from './backtests';
 import { startBillingLoop, type BillingLoop } from './billing-sync';
-import { loadWorkerEnv, patternSnapshotsOn, shiftedClock } from './env';
+import { loadWorkerEnv, patternSnapshotsOn, shiftedClock, shortInterestMode } from './env';
 import { createHealthServer } from './health';
 import { loadCredentialKey } from './credential-key';
 import { startFeedCheckLoop, type FeedCheckLoop } from './feed-checks';
@@ -53,12 +53,29 @@ import {
   FakeEdgarEvents,
 } from '@tm/sec/testing';
 import { fetchTickers, SecClient } from '@tm/sec';
-import { listOptionUniverse, priceRangeMembers, saveRates, sharedFeedOwner } from '@tm/db';
+import {
+  listOptionUniverse,
+  priceRangeMembers,
+  resolveFinraSymbol,
+  saveRates,
+  sharedFeedOwner,
+  shortInterestSymbols,
+} from '@tm/db';
 import { rateSeriesRefresher } from './events/rate-series';
+import {
+  FAKE_FINRA_API_URL,
+  FAKE_FINRA_ID,
+  FAKE_FINRA_SECRET,
+  FAKE_FINRA_TOKEN_URL,
+  FakeFinra,
+} from './short-interest/fake';
+import { finraClient } from './short-interest/finra';
+import { startShortInterestLoop, type ShortInterestLoop } from './short-interest/job';
 import {
   AVAILABLE_STOCK_GROUPS,
   EVENT_HISTORY_FROM,
   isStockGroupId,
+  stockGroupSymbols,
   nyDate,
   type BuiltinUniverse,
 } from '@tm/domain';
@@ -102,6 +119,7 @@ let valuations: ValuationLoop | undefined;
 let optionsLoop: OptionsLoop | undefined;
 let liveChains: LiveChainLoop | undefined;
 let eventsLoop: EventsLoop | undefined;
+let shortInterest: ShortInterestLoop | undefined;
 let mlSnapshots: MlSnapshotLoop | undefined;
 let patternSnapshots: PatternSnapshotLoop | undefined;
 let priceRanges: PriceRangeLoop | undefined;
@@ -558,6 +576,51 @@ if (databaseUrl) {
     });
     logger.info({ groups }, 'pattern snapshot job started');
   }
+  // FINRA short interest (data inputs part 2, item B, N323): optional credential, like the
+  // earnings calendar; without it the job logs "not configured" once and never starts.
+  const shortFake = env.SHORT_INTEREST_FAKE ? new FakeFinra() : undefined;
+  const shortMode = shortInterestMode(env);
+  if (shortMode === 'off') {
+    logger.info('short interest: switched off (SHORT_INTEREST_ENABLED=off)');
+  } else if (shortMode === 'not_configured') {
+    logger.info(
+      'short interest: not configured (FINRA_CLIENT_ID and FINRA_CLIENT_SECRET unset); the job does nothing',
+    );
+  } else {
+    shortInterest = startShortInterestLoop({
+      db,
+      client: finraClient(
+        shortFake
+          ? {
+              clientId: FAKE_FINRA_ID,
+              clientSecret: FAKE_FINRA_SECRET,
+              apiUrl: FAKE_FINRA_API_URL,
+              tokenUrl: FAKE_FINRA_TOKEN_URL,
+              fetch: shortFake.fetch,
+            }
+          : {
+              clientId: (env.FINRA_CLIENT_ID ?? '').trim(),
+              clientSecret: (env.FINRA_CLIENT_SECRET ?? '').trim(),
+              apiUrl: env.FINRA_API_URL,
+              tokenUrl: env.FINRA_TOKEN_URL,
+            },
+      ),
+      logger,
+      // The coverage report's universe: the pattern snapshot groups' members (B4).
+      members: async () => {
+        const map = await db.transaction((tx) => shortInterestSymbols(tx));
+        const ids = new Set<string>();
+        for (const g of env.PATTERN_SNAPSHOT_GROUPS.split(',').map((x) => x.trim()))
+          if (isStockGroupId(g))
+            for (const symbol of stockGroupSymbols(g)) {
+              const id = resolveFinraSymbol(map, symbol);
+              if (id) ids.add(id);
+            }
+        return [...ids];
+      },
+    });
+    logger.info('short interest job started');
+  }
   if (env.PRICE_RANGES === 'on') {
     // 52-week lows and highs (N290, ADR 0099), through the sharing admin's feeds.
     let groupsResolvedOn = '';
@@ -631,6 +694,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         optionsLoop?.stop(),
         liveChains?.stop(),
         eventsLoop?.stop(),
+        shortInterest?.stop(),
         mlSnapshots?.stop(),
         patternSnapshots?.stop(),
         priceRanges?.stop(),

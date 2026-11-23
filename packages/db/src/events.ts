@@ -21,6 +21,7 @@ import {
 } from '@tm/domain';
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import type { Database, Transaction } from './client';
+import { loadShortInterest } from './short-interest';
 import { withTenant } from './tenant';
 import {
   dataFeedConnections,
@@ -1185,6 +1186,7 @@ export async function loadEventData(
     rates: wantMetric('rates.tbill_3m') ? await loadRates(db) : [],
     rateSeries: await loadRateSeries(db, RATE_SERIES.map((s) => s.metric).filter(wantMetric)),
     dealsFrom: dealIds.length > 0 ? await dealsCoveredFrom(db) : undefined,
+    shortInterest: await loadShortInterest(db, want('short.')),
   };
 }
 

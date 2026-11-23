@@ -9,6 +9,12 @@ import {
   type ScheduledEarnings,
 } from './earnings';
 import { rateOn, type RatePoint, type SeriesPoint } from './rates';
+import {
+  shortChangePct,
+  shortDaysToCover,
+  shortInterestOn,
+  type ShortInterestPoint,
+} from './short-interest';
 
 /**
  * Event signals as strategies read them (free data feeds brief v1 §4, §6):
@@ -32,6 +38,10 @@ export const EVENT_METRIC_IDS = [
   'rates.term_spread_10y2y',
   'rates.ust_10y',
   'rates.ust_2y',
+  // FINRA short interest (data inputs part 2, item B, N323), by publication date.
+  'short.days_to_cover',
+  'short.shares',
+  'short.change_pct',
 ] as const;
 export type EventMetricId = (typeof EVENT_METRIC_IDS)[number];
 
@@ -46,6 +56,8 @@ export interface EventData {
   rates: readonly RatePoint[];
   /** The other FRED series (N322), by metric id, each sorted by date; absent when not read. */
   rateSeries?: ReadonlyMap<string, readonly SeriesPoint[]>;
+  /** FINRA short interest (N323) by instrument id, sorted by settlement date; absent when not read. */
+  shortInterest?: ReadonlyMap<string, readonly ShortInterestPoint[]>;
   /** The first day the deal tracker's scans cover; absent before its first scan. */
   dealsFrom?: string | undefined;
 }
@@ -132,6 +144,22 @@ export function eventPointAt(
     case 'rates.ust_2y': {
       const r = rateOn(data.rateSeries?.get(metric), barDate);
       return r ? point(r.value, r.date) : undefined;
+    }
+    // Short interest is read by the day FINRA published it (N323), dated by its settlement.
+    case 'short.days_to_cover':
+    case 'short.shares':
+    case 'short.change_pct': {
+      const p = shortInterestOn(data.shortInterest?.get(instrumentId), barDate);
+      if (!p) return undefined;
+      const v =
+        metric === 'short.shares'
+          ? p.shortShares
+          : metric === 'short.days_to_cover'
+            ? shortDaysToCover(p)
+            : shortChangePct(p);
+      return v === undefined
+        ? undefined
+        : point(v, p.settlementDate, `published ${p.availableDate}`);
     }
     default:
       return undefined;

@@ -7,6 +7,7 @@ import {
   earningsBeforeFirstDate,
   optionsBeforeFirstDate,
   ratesBeforeFirstDate,
+  shortBeforeFirstDate,
   planSeries,
   simulate,
   watchOnlyInstruments,
@@ -312,7 +313,10 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
             reads
               .filter((m) => m.startsWith('rates.'))
               .map((m) => ratesBeforeFirstDate(events, work.inputs.to, m))
-              .find((p) => p !== undefined);
+              .find((p) => p !== undefined) ??
+            (reads.some((m) => m.startsWith('short.'))
+              ? shortBeforeFirstDate(symbol, events, id, work.inputs.to)
+              : undefined);
           if (problem) throw new UnsupportedBarRequestError(problem);
         }
       }

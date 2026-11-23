@@ -11,6 +11,7 @@ import {
   type ConditionNode,
   type Expr,
   inCooldown,
+  rateSeriesByMetric,
   type SeriesResolver,
   type Trigger,
   type TriggerState,
@@ -219,7 +220,10 @@ function eventDates(exprs: (Expr | undefined)[], r: SeriesResolver): string[] {
         dates.add(`Earnings release ${p.asOfDate}${rebuilt(p.note)}`);
       else if (e.metric.startsWith('deals.'))
         dates.add(p.note ? `Deal ${p.note} of ${p.asOfDate}` : `Deal of ${p.asOfDate}`);
-      else dates.add(`T-bill rate of ${p.asOfDate}`);
+      else if (e.metric.startsWith('short.'))
+        dates.add(`Short interest settled ${p.asOfDate}${p.note ? `, ${p.note}` : ''}`);
+      else if (e.metric === 'rates.tbill_3m') dates.add(`T-bill rate of ${p.asOfDate}`);
+      else dates.add(`${rateSeriesByMetric(e.metric)?.label ?? 'Rate'} of ${p.asOfDate}`);
     } else if (e.kind === 'calc') e.args.forEach(visit);
     else if (e.kind === 'stat') visit(e.input);
   };
