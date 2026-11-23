@@ -24,7 +24,9 @@ import {
   listPositions,
   resumeRuntimeByUser,
   setKillSwitchByUser,
+  touchOrderPriceView,
 } from '../src/order-views';
+import { saveWatchQuotes, watchListDemand } from '../src/watch-list';
 import {
   applyBrokerUpdates,
   idempotencyKey,
@@ -458,6 +460,39 @@ describe('listing orders (§8.3, §14.3)', () => {
     expect(refused.cycles.map((x) => x.seq)).toEqual([7]);
     const behind = await asA((tx) => getRunDetail(tx, c.runtimeId, 'today', today));
     expect(behind.cycles.map((x) => x.seq)).toEqual([6, 3, 2]);
+  });
+
+  it('prices the instruments of open Orders and shows the last price (N330)', async () => {
+    const before = await asA((tx) => listOrders(tx));
+    expect(before.orders.length).toBeGreaterThan(0);
+    expect(before.orders.every((o) => o.lastPrice === null)).toBe(true);
+
+    // Orders not open: the worker is not asked for its instruments.
+    expect((await watchListDemand(t.worker.db, 30)).some((d) => d.userId === userA)).toBe(false);
+    await asA((tx) => touchOrderPriceView(tx, userA));
+    const demand = await watchListDemand(t.worker.db, 30);
+    expect(demand.filter((d) => d.userId === userA).map((d) => d.symbol)).toContain('DEMO-A');
+    expect(demand.some((d) => d.userId === userB)).toBe(false);
+
+    await saveWatchQuotes(t.worker.db, [
+      {
+        symbol: 'DEMO-A',
+        last: 101.25,
+        prevClose: 100,
+        priceAt: new Date('2026-11-23T16:00:00Z'),
+        daily: false,
+        source: 'test',
+      },
+    ]);
+    const after = await asA((tx) => listOrders(tx));
+    const demo = after.orders.filter((o) => o.symbol === 'DEMO-A');
+    expect(demo.length).toBeGreaterThan(0);
+    expect(demo.every((o) => o.lastPrice === 101.25)).toBe(true);
+    expect(demo[0]?.lastPriceAt).toBe('2026-11-23T16:00:00.000Z');
+
+    // Closing Orders for a while drops it from the demand again.
+    await t.ownerSql`update order_price_view set viewed_at = now() - interval '5 minutes' where user_id = ${userA}`;
+    expect((await watchListDemand(t.worker.db, 30)).some((d) => d.userId === userA)).toBe(false);
   });
 
   it('shows another user nothing', async () => {

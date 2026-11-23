@@ -37,6 +37,7 @@ import {
   instruments,
   orderEvents,
   orderIntents,
+  orderPriceViews,
   scheduledActions,
   strategies,
   strategyCycles,
@@ -44,6 +45,7 @@ import {
   strategyVersions,
   tradingAccounts,
   triggerEvents,
+  watchQuotes,
 } from './schema';
 
 /**
@@ -102,6 +104,12 @@ export interface OrderRow {
   state: OrderState;
   filledQuantity: string;
   averagePrice: string | null;
+  /**
+   * The instrument's latest price (N330), from the prices the worker keeps
+   * while Orders is open (after-hours trade when newer); null when none.
+   */
+  lastPrice: number | null;
+  lastPriceAt: string | null;
   accountId: string;
   accountName: string;
   accountMode: 'paper' | 'live';
@@ -227,6 +235,8 @@ function toOrderRow(r: RawOrder): OrderRow {
     state: r.state as OrderState,
     filledQuantity: r.filledQuantity ?? '0',
     averagePrice: r.averagePrice,
+    lastPrice: null,
+    lastPriceAt: null,
     accountId: r.accountId as string,
     accountName: r.accountName ?? 'Unknown account',
     accountMode: r.accountMode ?? 'paper',
@@ -328,6 +338,51 @@ async function listScheduled(tx: Transaction, f: OrderFilters): Promise<Schedule
 }
 
 /** Orders newest first, the legs still waiting on timing, and counts per view (§8.3, §15.2). */
+/** Adds each order's instrument's latest stored price (N330). */
+async function withLastPrices(tx: Transaction, rows: OrderRow[]): Promise<OrderRow[]> {
+  if (rows.length === 0) return rows;
+  const quotes = await tx
+    .select({
+      symbol: watchQuotes.symbol,
+      last: watchQuotes.last,
+      priceAt: watchQuotes.priceAt,
+      extLast: watchQuotes.extLast,
+      extAt: watchQuotes.extAt,
+    })
+    .from(watchQuotes)
+    .where(inArray(watchQuotes.symbol, [...new Set(rows.map((r) => r.symbol))]));
+  const bySymbol = new Map(
+    quotes.map((q) => {
+      const ext = q.extLast !== null && q.extAt !== null && q.extAt > q.priceAt;
+      return [
+        q.symbol,
+        ext
+          ? { price: q.extLast as number, at: (q.extAt as Date).toISOString() }
+          : { price: q.last, at: q.priceAt.toISOString() },
+      ];
+    }),
+  );
+  return rows.map((r) => {
+    const q = bySymbol.get(r.symbol);
+    return q ? { ...r, lastPrice: q.price, lastPriceAt: q.at } : r;
+  });
+}
+
+/**
+ * Marks Orders as open now (N330), at most every 10 seconds: while it is,
+ * the worker also prices the instruments of this person's orders.
+ */
+export async function touchOrderPriceView(tx: Transaction, userId: string): Promise<void> {
+  await tx
+    .insert(orderPriceViews)
+    .values({ userId })
+    .onConflictDoUpdate({
+      target: orderPriceViews.userId,
+      set: { viewedAt: sql`now()` },
+      setWhere: sql`${orderPriceViews.viewedAt} < now() - interval '10 seconds'`,
+    });
+}
+
 export async function listOrders(tx: Transaction, f: OrderFilters = {}): Promise<OrderList> {
   const base = intentConditions(f);
   const view = f.view ?? 'all';
@@ -356,7 +411,7 @@ export async function listOrders(tx: Transaction, f: OrderFilters = {}): Promise
       .where(and(...where))
       .orderBy(desc(orderIntents.createdAt), desc(orderIntents.id))
       .limit(f.limit ?? 200);
-    orders = rows.map(toOrderRow);
+    orders = await withLastPrices(tx, rows.map(toOrderRow));
   }
   return { orders, scheduled: view === 'all' || view === 'scheduled' ? scheduled : [], counts };
 }
@@ -1201,7 +1256,7 @@ export async function getRunDetail(
     const found = await orderQuery(tx)
       .where(and(...where))
       .orderBy(desc(strategyCycles.seq), asc(orderIntents.createdAt), asc(orderIntents.id));
-    orders = found.map(toOrderRow);
+    orders = await withLastPrices(tx, found.map(toOrderRow));
   }
   return { runtimeId, kind, totalCycles: Number(n), cycles, orders };
 }

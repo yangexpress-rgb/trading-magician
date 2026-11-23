@@ -13,6 +13,7 @@ import { formatSignedMoney } from '@/lib/backtest-text';
 import { formatPrice, ORDER_STATE, PHASE_LABELS } from '@/lib/order-text';
 import { signTone } from '@/lib/sign-tone';
 import { ORDER_TYPE_LABELS, SIDE_LABELS } from '@/lib/strategy-text';
+import { OrderPriceCells, OrderPriceHeads } from './order-prices';
 import { strategyLabel } from './strategy-ref';
 
 /** A figure on Strategies on paper that was double-clicked (N305). */
@@ -186,7 +187,7 @@ function DetailBody({
               <Th>Status</Th>
               <Th>Submitted</Th>
               <Th>Filled</Th>
-              <Th numeric>Avg price</Th>
+              <OrderPriceHeads />
             </tr>
           </thead>
           <tbody>
@@ -230,7 +231,7 @@ function DetailBody({
                   <Td className="whitespace-nowrap">
                     <When iso={o.filledAt} when={when} />
                   </Td>
-                  <Td numeric>{formatPrice(o.averagePrice)}</Td>
+                  <OrderPriceCells order={o} when={when} />
                 </tr>
               );
             })}
@@ -246,6 +247,8 @@ function DetailBody({
                 <Td>{''}</Td>
                 <Td>{''}</Td>
                 <Td>{''}</Td>
+                <Td numeric>{''}</Td>
+                <Td numeric>{''}</Td>
                 <Td numeric>{''}</Td>
               </tr>
             ))}
