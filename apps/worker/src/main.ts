@@ -22,6 +22,7 @@ import { startInstrumentLookupLoop, type LookupLoop } from './instrument-lookups
 import { startPriceChartLoop, type PriceChartLoop } from './price-charts';
 import { startStockScreenLoop, type StockScreenLoop } from './stock-screens';
 import { startWatchQuoteLoop, type WatchQuoteLoop } from './watch-quotes';
+import { startTrafficLog, type TrafficLog } from './traffic-log';
 import { startCompanyReportLoop, type CompanyReportLoop } from './company-reports';
 import { demoProvider, type FundamentalsRegistry, type ProviderRegistry } from './providers';
 import { secProvider, type SecProviderOptions } from './sec';
@@ -116,6 +117,7 @@ let lookups: LookupLoop | undefined;
 let charts: PriceChartLoop | undefined;
 let screens: StockScreenLoop | undefined;
 let watchQuotes: WatchQuoteLoop | undefined;
+let trafficLog: TrafficLog | undefined;
 let companies: CompanyReportLoop | undefined;
 let brokerChecks: BrokerCheckLoop | undefined;
 let valuations: ValuationLoop | undefined;
@@ -313,6 +315,8 @@ if (databaseUrl) {
     pollMs: env.BACKTEST_POLL_MS,
   });
   // Watch list prices (N292, ADR 0101), only while someone has their list open.
+  // What the worker asks Alpaca for, once a minute.
+  trafficLog = startTrafficLog({ logger });
   watchQuotes = startWatchQuoteLoop({
     db,
     providers,
@@ -710,6 +714,9 @@ server.listen(env.WORKER_HEALTH_PORT, () => {
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
     logger.info({ signal }, 'worker shutting down');
+    // Log the last part-minute of Alpaca traffic before the process goes.
+    trafficLog?.flush();
+    trafficLog?.stop();
     // Finish the current run (or give up its lease to lapse), then exit.
     void (async () => {
       await Promise.all([

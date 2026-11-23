@@ -7,7 +7,13 @@ export {
   assertTradingUrl,
   LiveEndpointError,
 } from './endpoints';
-export { AlpacaRequestBudget, sharedAlpacaBudget, type RequestBudgetOptions } from './budget';
+export {
+  AlpacaRequestBudget,
+  sharedAlpacaBudget,
+  type KeyTraffic,
+  type RequestBudgetOptions,
+  type RequestOutcome,
+} from './budget';
 export {
   AlpacaAuthError,
   AlpacaClient,
@@ -16,6 +22,7 @@ export {
   AlpacaUnavailableError,
   type AlpacaClientOptions,
   type AlpacaCredentials,
+  routeOf,
   type Fetch,
 } from './client';
 export {

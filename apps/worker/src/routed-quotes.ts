@@ -25,6 +25,84 @@ import { withTimeout, type ProviderRegistry } from './providers';
 
 const QUOTE_TIMEOUT_MS = 5_000;
 
+/**
+ * What the runtimes' quote asks got, per symbol, since the last drain.
+ * A failed ask used to vanish into "no price" with nothing logged; the worker
+ * now logs this once a minute so a missing price can be traced to its cause.
+ */
+interface SymbolTrail {
+  asked: number;
+  failed: number;
+  /** Why the last failed ask failed: the error's name, or 'missing' when the reply left it out. */
+  lastError?: string;
+  lastFailedAt?: number;
+  /** When an ask last came back with a price, epoch ms. */
+  lastOkAt?: number;
+  /** The newest trade or quote time a reply carried. */
+  lastQuoteAt?: string;
+}
+
+let trail = new Map<string, SymbolTrail>();
+/** Kept across drains, so a symbol that keeps failing still shows when it last worked. */
+const lastOk = new Map<string, number>();
+
+function noteAsk(symbol: string, quote: Quote | undefined, error?: string): void {
+  const t = trail.get(symbol) ?? { asked: 0, failed: 0 };
+  t.asked++;
+  const now = Date.now();
+  if (quote) {
+    t.lastOkAt = now;
+    lastOk.set(symbol, now);
+    if (!t.lastQuoteAt || quote.at > t.lastQuoteAt) t.lastQuoteAt = quote.at;
+  } else {
+    t.failed++;
+    t.lastError = error ?? 'missing';
+    t.lastFailedAt = now;
+  }
+  trail.set(symbol, t);
+}
+
+const errorLabel = (error: unknown) => {
+  const e = error as Error;
+  if (e?.name === 'Error' && /timed out/.test(e.message)) return 'Timeout';
+  return e?.name || 'Error';
+};
+
+/** Batched asks that failed as a whole since the last drain, by error. */
+let batchFailures = new Map<string, number>();
+
+export function drainBatchFailures(): Record<string, number> {
+  const out = Object.fromEntries(batchFailures);
+  batchFailures = new Map();
+  return out;
+}
+
+export interface QuoteTrailEntry {
+  symbol: string;
+  asked: number;
+  failed: number;
+  lastError: string | null;
+  lastFailedAt: string | null;
+  lastOkAt: string | null;
+  lastQuoteAt: string | null;
+}
+
+/** The symbols asked for since the last call, failures first, and starts afresh. */
+export function drainQuoteTrail(): QuoteTrailEntry[] {
+  const iso = (ms: number | undefined) => (ms === undefined ? null : new Date(ms).toISOString());
+  const out = [...trail].map(([symbol, t]) => ({
+    symbol,
+    asked: t.asked,
+    failed: t.failed,
+    lastError: t.lastError ?? null,
+    lastFailedAt: iso(t.lastFailedAt),
+    lastOkAt: iso(t.lastOkAt ?? lastOk.get(symbol)),
+    lastQuoteAt: t.lastQuoteAt ?? null,
+  }));
+  trail = new Map();
+  return out.sort((a, b) => b.failed - a.failed || a.symbol.localeCompare(b.symbol));
+}
+
 export interface RoutedQuotes extends LiveQuoteProvider {
   /** Fetches these instruments' quotes for the pass in as few requests as the feeds allow. */
   prefetch(refs: readonly QuoteRequest[]): Promise<void>;
@@ -112,8 +190,14 @@ export function createFeedAsker(options: {
     const source = await sourceFor(feed);
     if (!source) return undefined;
     try {
-      return stamp(feed.id, await withTimeout(source.latestQuote(ref), QUOTE_TIMEOUT_MS, 'quote'));
-    } catch {
+      const quote = stamp(
+        feed.id,
+        await withTimeout(source.latestQuote(ref), QUOTE_TIMEOUT_MS, 'quote'),
+      );
+      noteAsk(ref.symbol, quote);
+      return quote;
+    } catch (error) {
+      noteAsk(ref.symbol, undefined, errorLabel(error));
       return undefined;
     }
   }
@@ -123,13 +207,22 @@ export function createFeedAsker(options: {
     const source = feed?.isActive ? await sourceFor(feed) : undefined;
     if (!source?.latestQuotes || list.length < 2) return;
     const all = withTimeout(source.latestQuotes(list), QUOTE_TIMEOUT_MS, 'quotes').catch(
-      () => undefined,
+      (error: unknown) => {
+        const label = errorLabel(error);
+        batchFailures.set(label, (batchFailures.get(label) ?? 0) + 1);
+        return undefined;
+      },
     );
     for (const ref of list) {
       // A batch that fails leaves each instrument to be asked on its own.
       asked.set(
         `${feedId}:${ref.instrumentId}`,
-        all.then((m) => (m ? stamp(feedId, m.get(ref.instrumentId)) : askFeed(feedId, ref))),
+        all.then((m) => {
+          if (!m) return askFeed(feedId, ref);
+          const quote = stamp(feedId, m.get(ref.instrumentId));
+          noteAsk(ref.symbol, quote);
+          return quote;
+        }),
       );
     }
   }

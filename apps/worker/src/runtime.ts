@@ -2224,6 +2224,9 @@ export interface RuntimeLoop {
   stop(): Promise<void>;
 }
 
+/** A pass this long is logged. */
+const SLOW_PASS_MS = 5_000;
+
 /** Leases due runtimes and runs a pass over each, every `pollMs`. */
 export function startRuntimeLoop(
   options: RuntimeWorkerOptions & { pollMs: number; batch?: number },
@@ -2238,11 +2241,20 @@ export function startRuntimeLoop(
     });
     for (const { runtimeId, userId } of claimed) {
       if (stopped) return;
+      const started = Date.now();
       try {
         await runRuntimePass(options, runtimeId, userId);
       } catch (error) {
         options.logger.error({ err: error, runtimeId }, 'runtime pass failed');
       }
+      // Passes run one after another, so a slow one holds every other runtime
+      // back: logged so a stall shows up next to the prices it aged.
+      const ms = Date.now() - started;
+      if (ms >= SLOW_PASS_MS)
+        options.logger.warn(
+          { event: 'runtime.slow_pass', runtimeId, ms, claimed: claimed.length },
+          'slow runtime pass',
+        );
     }
   };
   const schedule = () => {

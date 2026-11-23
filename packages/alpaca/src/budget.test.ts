@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AlpacaRequestBudget } from './budget';
-import { AlpacaClient, AlpacaRateLimitError } from './client';
+import { AlpacaClient, AlpacaRateLimitError, routeOf } from './client';
 
 /** A key's request budget (ADR 0052): background work yields to everything else. */
 
@@ -112,5 +112,60 @@ describe('the Alpaca request budget', () => {
     status = 200;
     await recorder.data('/v2/stocks/bars');
     expect(c.slept).toEqual([7_000]);
+  });
+});
+
+describe('the Alpaca traffic log', () => {
+  it('counts requests, 429s and timeouts per key and route, then starts afresh', () => {
+    const budget = new AlpacaRequestBudget();
+    const ok = { host: 'data' as const, background: false, ms: 20 };
+    budget.record('KEYID1234', { ...ok, route: '/v2/stocks/snapshots', status: 200 });
+    budget.record('KEYID1234', { ...ok, route: '/v2/stocks/snapshots', status: 429 });
+    budget.record('KEYID1234', { ...ok, route: '/v2/stocks/bars', status: 'timeout', ms: 10_000 });
+    budget.record('KEYID1234', {
+      host: 'trading',
+      route: '/v2/orders',
+      background: true,
+      status: 200,
+      ms: 5,
+    });
+    const [k] = budget.drainTraffic();
+    expect(k).toMatchObject({
+      key: '1234',
+      requests: 4,
+      data: 3,
+      trading: 1,
+      background: 1,
+      throttled: 1,
+      timeouts: 1,
+      slowestMs: 10_000,
+    });
+    expect(k!.routes[0]).toEqual({ route: '/v2/stocks/snapshots', n: 2, throttled: 1 });
+    expect(budget.drainTraffic()).toEqual([]);
+  });
+
+  it('records what the client saw, 429s included', async () => {
+    const budget = new AlpacaRequestBudget();
+    const client = new AlpacaClient({
+      credentials: { keyId: 'abcdWXYZ', secretKey: 's' },
+      budget,
+      fetch: async () => new Response('{}', { status: 429 }),
+    });
+    await expect(client.data('/v2/stocks/SPY/snapshot')).rejects.toBeInstanceOf(
+      AlpacaRateLimitError,
+    );
+    const [k] = budget.drainTraffic();
+    expect(k).toMatchObject({ key: 'WXYZ', requests: 1, data: 1, throttled: 1 });
+    expect(k!.routes).toEqual([{ route: '/v2/stocks/:symbol/snapshot', n: 1, throttled: 1 }]);
+  });
+});
+
+describe('routeOf', () => {
+  it('folds symbols and ids out of paths', () => {
+    expect(routeOf('/v2/stocks/SPY/snapshot')).toBe('/v2/stocks/:symbol/snapshot');
+    expect(routeOf('/v2/stocks/snapshots')).toBe('/v2/stocks/snapshots');
+    expect(routeOf('/v2/stocks/bars')).toBe('/v2/stocks/bars');
+    expect(routeOf('/v2/orders/0b8879b8-8c5f-4ebd-87df-fd96c3e36823')).toBe('/v2/orders/:id');
+    expect(routeOf('/v2/positions/QQQ')).toBe('/v2/positions/:symbol');
   });
 });

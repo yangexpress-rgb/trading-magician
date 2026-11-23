@@ -34,6 +34,57 @@ interface KeyState {
 
 const MINUTE = 60_000;
 
+/** What happened to one request, for the per-minute traffic log. */
+export interface RequestOutcome {
+  host: 'data' | 'trading';
+  /** The path with symbols and ids folded away, e.g. /v2/stocks/:symbol/snapshot. */
+  route: string;
+  background: boolean;
+  /** HTTP status, or 'timeout' / 'network' when no answer came. */
+  status: number | 'timeout' | 'network';
+  ms: number;
+}
+
+/** One key's traffic since the last drain. */
+export interface KeyTraffic {
+  /** The key id's last four characters; the full id is never logged. */
+  key: string;
+  requests: number;
+  data: number;
+  trading: number;
+  background: number;
+  throttled: number;
+  timeouts: number;
+  failed: number;
+  slowestMs: number;
+  /** Requests per route, busiest first (top 8). */
+  routes: { route: string; n: number; throttled: number }[];
+}
+
+interface TrafficState {
+  requests: number;
+  data: number;
+  trading: number;
+  background: number;
+  throttled: number;
+  timeouts: number;
+  failed: number;
+  slowestMs: number;
+  routes: Map<string, { n: number; throttled: number }>;
+}
+
+const emptyTraffic = (): TrafficState => ({
+  requests: 0,
+  data: 0,
+  trading: 0,
+  background: 0,
+  throttled: 0,
+  timeouts: 0,
+  failed: 0,
+  slowestMs: 0,
+  routes: new Map(),
+});
+
 export class AlpacaRequestBudget {
   private readonly perMinute: number;
   private readonly backgroundPerMinute: number;
@@ -43,6 +94,7 @@ export class AlpacaRequestBudget {
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly keys = new Map<string, KeyState>();
+  private traffic = new Map<string, TrafficState>();
 
   constructor(options: RequestBudgetOptions = {}) {
     this.perMinute = options.perMinute ?? 200;
@@ -108,6 +160,51 @@ export class AlpacaRequestBudget {
   throttled(key: string, retryAfterMs: number | undefined): void {
     const s = this.state(key);
     s.pausedUntil = Math.max(s.pausedUntil, this.now() + (retryAfterMs ?? this.pauseMs));
+  }
+
+  /** Counts one request's outcome for the traffic log. Changes nothing else. */
+  record(key: string, outcome: RequestOutcome): void {
+    let t = this.traffic.get(key);
+    if (!t) {
+      t = emptyTraffic();
+      this.traffic.set(key, t);
+    }
+    t.requests++;
+    t[outcome.host]++;
+    if (outcome.background) t.background++;
+    const throttled = outcome.status === 429;
+    if (throttled) t.throttled++;
+    else if (outcome.status === 'timeout') t.timeouts++;
+    else if (typeof outcome.status !== 'number' || outcome.status >= 400) t.failed++;
+    t.slowestMs = Math.max(t.slowestMs, outcome.ms);
+    const r = t.routes.get(outcome.route) ?? { n: 0, throttled: 0 };
+    r.n++;
+    if (throttled) r.throttled++;
+    t.routes.set(outcome.route, r);
+  }
+
+  /** Every key's traffic since the last call, and starts counting afresh. */
+  drainTraffic(): KeyTraffic[] {
+    const out: KeyTraffic[] = [];
+    for (const [key, t] of this.traffic) {
+      out.push({
+        key: key.slice(-4),
+        requests: t.requests,
+        data: t.data,
+        trading: t.trading,
+        background: t.background,
+        throttled: t.throttled,
+        timeouts: t.timeouts,
+        failed: t.failed,
+        slowestMs: Math.round(t.slowestMs),
+        routes: [...t.routes]
+          .map(([route, r]) => ({ route, ...r }))
+          .sort((a, b) => b.n - a.n)
+          .slice(0, 8),
+      });
+    }
+    this.traffic = new Map();
+    return out;
   }
 
   /** Tests: how many requests the key sent in the last minute. */
