@@ -305,7 +305,7 @@ export function PlatformsView({
                         {p.accounts.map((a) => (
                           <tr key={a.id}>
                             <Td className="font-medium">
-                              {a.nickname} <ModeBadge mode={a.mode} />{' '}
+                              {a.nickname} {a.mode === 'live' && <ModeBadge mode="live" />}{' '}
                               {a.isDefault && (
                                 <Badge tone="info" icon={false}>
                                   Default
