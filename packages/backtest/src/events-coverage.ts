@@ -1,4 +1,4 @@
-import { latestRelease, type EventData } from '@tm/domain';
+import { latestRelease, rateSeriesByMetric, type EventData } from '@tm/domain';
 
 /**
  * Whether a run's dates are covered by the event data it reads (free data
@@ -29,11 +29,25 @@ export function dealsBeforeFirstDate(data: EventData, to: string): string | unde
   return data.dealsFrom > to ? `No deal data before ${data.dealsFrom}` : undefined;
 }
 
-/** The message for a run that ends before the first stored T-bill rate, or undefined. */
-export function ratesBeforeFirstDate(data: EventData, to: string): string | undefined {
-  const first = data.rates[0]?.date;
-  if (!first) return 'No T-bill rates yet: they are stored with the next FRED fetch';
-  return first > to ? `No T-bill rates before ${first}` : undefined;
+/**
+ * The message for a run that ends before the first stored value of a rates
+ * metric (the T-bill rate, or a regime series from N322), or undefined.
+ */
+export function ratesBeforeFirstDate(
+  data: EventData,
+  to: string,
+  metric = 'rates.tbill_3m',
+): string | undefined {
+  if (metric === 'rates.tbill_3m') {
+    const first = data.rates[0]?.date;
+    if (!first) return 'No T-bill rates yet: they are stored with the next FRED fetch';
+    return first > to ? `No T-bill rates before ${first}` : undefined;
+  }
+  const spec = rateSeriesByMetric(metric);
+  if (!spec) return undefined;
+  const first = data.rateSeries?.get(metric)?.[0]?.date;
+  if (!first) return `No ${spec.label} data yet: it is stored with the next FRED fetch`;
+  return first > to ? `No ${spec.label} data before ${first}` : undefined;
 }
 
 /** "AAPL: earnings data on 180 of 252 bars (72 without)" for each stock read. */

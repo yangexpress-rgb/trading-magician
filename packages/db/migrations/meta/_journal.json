@@ -750,6 +750,13 @@
       "when": 1795402426427,
       "tag": "0106_live_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1795441941334,
+      "tag": "0107_fred_series",
+      "breakpoints": true
     }
   ]
 }

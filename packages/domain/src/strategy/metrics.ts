@@ -874,6 +874,46 @@ const EVENT_METRICS: readonly MetricSpec[] = [
     'fraction',
     PRICE_CLASSES,
   ),
+  eventMetric(
+    'rates.credit_spread_ig',
+    'rates',
+    'Investment-grade credit spread',
+    "FRED's ICE BofA US corporate investment-grade option-adjusted spread (BAMLC0A0CM) on or before the bar date: the extra yield of investment-grade corporate bonds over Treasuries. 0.012 is 1.2 percentage points. Values as currently published by FRED (later revisions replace earlier ones; past vintages are not kept).",
+    'fraction',
+    PRICE_CLASSES,
+  ),
+  eventMetric(
+    'rates.credit_spread_hy',
+    'rates',
+    'High-yield credit spread',
+    "FRED's ICE BofA US high-yield option-adjusted spread (BAMLH0A0HYM2) on or before the bar date: the extra yield of junk bonds over Treasuries, which widens when markets are stressed. 0.06 is 6 percentage points. Values as currently published by FRED (later revisions replace earlier ones; past vintages are not kept).",
+    'fraction',
+    PRICE_CLASSES,
+  ),
+  eventMetric(
+    'rates.term_spread_10y2y',
+    'rates',
+    'Yield curve (10-year minus 2-year)',
+    "FRED's 10-year minus 2-year Treasury yield (T10Y2Y) on or before the bar date. Negative when the curve is inverted. 0.005 is 0.5 percentage points. Values as currently published by FRED (later revisions replace earlier ones; past vintages are not kept).",
+    'fraction',
+    PRICE_CLASSES,
+  ),
+  eventMetric(
+    'rates.ust_10y',
+    'rates',
+    '10-year Treasury yield',
+    "FRED's 10-year Treasury constant-maturity yield (DGS10) on or before the bar date. 0.045 is 4.5%. Values as currently published by FRED (later revisions replace earlier ones; past vintages are not kept).",
+    'fraction',
+    PRICE_CLASSES,
+  ),
+  eventMetric(
+    'rates.ust_2y',
+    'rates',
+    '2-year Treasury yield',
+    "FRED's 2-year Treasury constant-maturity yield (DGS2) on or before the bar date. 0.045 is 4.5%. Values as currently published by FRED (later revisions replace earlier ones; past vintages are not kept).",
+    'fraction',
+    PRICE_CLASSES,
+  ),
 ];
 
 /** The `ml.score` metric id (ML brief v1 §8). */

@@ -8,7 +8,7 @@ import {
   type EarningsSignal,
   type ScheduledEarnings,
 } from './earnings';
-import { rateOn, type RatePoint } from './rates';
+import { rateOn, type RatePoint, type SeriesPoint } from './rates';
 
 /**
  * Event signals as strategies read them (free data feeds brief v1 §4, §6):
@@ -26,6 +26,12 @@ export const EVENT_METRIC_IDS = [
   'earnings.next_date_days',
   'deals.spread_pct',
   'rates.tbill_3m',
+  // Market-regime series from FRED (data inputs part 2, item A, N322).
+  'rates.credit_spread_ig',
+  'rates.credit_spread_hy',
+  'rates.term_spread_10y2y',
+  'rates.ust_10y',
+  'rates.ust_2y',
 ] as const;
 export type EventMetricId = (typeof EVENT_METRIC_IDS)[number];
 
@@ -38,6 +44,8 @@ export interface EventData {
   calendar: ReadonlyMap<string, readonly ScheduledEarnings[]>;
   deals: ReadonlyMap<string, readonly DealSignal[]>;
   rates: readonly RatePoint[];
+  /** The other FRED series (N322), by metric id, each sorted by date; absent when not read. */
+  rateSeries?: ReadonlyMap<string, readonly SeriesPoint[]>;
   /** The first day the deal tracker's scans cover; absent before its first scan. */
   dealsFrom?: string | undefined;
 }
@@ -116,6 +124,14 @@ export function eventPointAt(
     case 'rates.tbill_3m': {
       const r = rateOn(data.rates, barDate);
       return r ? point(r.tbill3m, r.date) : undefined;
+    }
+    case 'rates.credit_spread_ig':
+    case 'rates.credit_spread_hy':
+    case 'rates.term_spread_10y2y':
+    case 'rates.ust_10y':
+    case 'rates.ust_2y': {
+      const r = rateOn(data.rateSeries?.get(metric), barDate);
+      return r ? point(r.value, r.date) : undefined;
     }
     default:
       return undefined;

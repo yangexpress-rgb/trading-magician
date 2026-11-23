@@ -221,6 +221,42 @@ export function parseFredSeries(csv: string): { days: CboeDay[]; skipped: number
 }
 
 /**
+ * Parses a FRED series CSV into plain dated values (N322), keeping zero and
+ * negative values (a yield-curve spread can be below zero), unlike
+ * `parseFredSeries`, whose values are prices. A blank or "." is a day with no
+ * value; a value that is not a number is skipped and counted.
+ */
+export function parseFredValues(csv: string): {
+  days: { date: string; value: string }[];
+  skipped: number;
+} {
+  const lines = csv.split(/\r?\n/).filter((l) => l.trim() !== '');
+  const header = (lines.shift() ?? '').split(',').map((h) => h.trim().toUpperCase());
+  if (header.length < 2 || !/^(OBSERVATION_DATE|DATE)$/.test(header[0] ?? '')) {
+    throw new Error('The FRED file has no date column');
+  }
+  const byDate = new Map<string, string>();
+  let skipped = 0;
+  for (const line of lines) {
+    const [date = '', value = ''] = line.split(',').map((c) => c.trim());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      skipped++;
+      continue;
+    }
+    if (value === '' || value === '.') continue;
+    if (!NUMBER.test(value)) {
+      skipped++;
+      continue;
+    }
+    byDate.set(date, value);
+  }
+  const days = [...byDate]
+    .map(([date, value]) => ({ date, value }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  return { days, skipped };
+}
+
+/**
  * Daily bars from CBOE days, aligned to the US trading calendar (v1.2 item 5):
  * each bar spans that day's NYSE regular session, so it lines up with every
  * stock's daily bar. A value published on a day the exchange is closed is

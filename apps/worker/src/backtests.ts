@@ -295,7 +295,8 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
       done = trace.stage('load_events');
       const eventReads = eventInstruments(work.definition, members);
       if (eventReads.size > 0) {
-        data.events = await loadEventData(db, eventReads);
+        const events = await loadEventData(db, eventReads);
+        data.events = events;
         for (const [id, metrics] of eventReads) {
           // A Selection member without event data just reads unknown; a named stock fails.
           if (members.includes(id)) continue;
@@ -308,9 +309,10 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
             (reads.some((m) => m.startsWith('deals.'))
               ? dealsBeforeFirstDate(data.events, work.inputs.to)
               : undefined) ??
-            (reads.some((m) => m.startsWith('rates.'))
-              ? ratesBeforeFirstDate(data.events, work.inputs.to)
-              : undefined);
+            reads
+              .filter((m) => m.startsWith('rates.'))
+              .map((m) => ratesBeforeFirstDate(events, work.inputs.to, m))
+              .find((p) => p !== undefined);
           if (problem) throw new UnsupportedBarRequestError(problem);
         }
       }

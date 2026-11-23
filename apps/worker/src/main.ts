@@ -54,6 +54,7 @@ import {
 } from '@tm/sec/testing';
 import { fetchTickers, SecClient } from '@tm/sec';
 import { listOptionUniverse, priceRangeMembers, saveRates, sharedFeedOwner } from '@tm/db';
+import { rateSeriesRefresher } from './events/rate-series';
 import {
   AVAILABLE_STOCK_GROUPS,
   EVENT_HISTORY_FROM,
@@ -475,6 +476,10 @@ if (databaseUrl) {
               inputs.dailyBars({ id: symbol, symbol, assetClass: 'stock' }, from, to, 'none')
           : undefined,
         refreshRates: (today) => inputs.riskFreeRate(today),
+        // The regime series come from the same FRED route as DTB3 (N322).
+        refreshRateSeries: env.CBOE_OPTIONS_FAKE
+          ? undefined
+          : rateSeriesRefresher({ db, fredUrl: env.FRED_CSV_URL, logger }).refresh,
         logger,
       });
       logger.info('event data recording started');

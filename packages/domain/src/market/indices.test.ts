@@ -6,6 +6,7 @@ import {
   isIndicatorOnlyClass,
   parseCboeHistory,
   parseFredSeries,
+  parseFredValues,
 } from './indices';
 
 const CSV = `DATE,OPEN,HIGH,LOW,CLOSE
@@ -89,6 +90,25 @@ garbage,1
     expect(skipped).toBe(1);
     expect(parseFredSeries('DATE,VIXCLS\n2024-03-28,13.01\n').days).toHaveLength(1);
     expect(() => parseFredSeries('nothing')).toThrow();
+  });
+
+  it('reads FRED values keeping zero and negative ones (N322), a blank day being none', () => {
+    const { days, skipped } = parseFredValues(`observation_date,T10Y2Y
+2023-07-05,-0.99
+2023-07-04,
+2023-07-03,-1.08
+2024-09-05,0.00
+2024-09-06,.
+garbage,1
+2024-09-09,abc
+`);
+    expect(days).toEqual([
+      { date: '2023-07-03', value: '-1.08' },
+      { date: '2023-07-05', value: '-0.99' },
+      { date: '2024-09-05', value: '0.00' },
+    ]);
+    expect(skipped).toBe(2);
+    expect(() => parseFredValues('nothing')).toThrow();
   });
 
   it("flags the VIX's Cboe display terms as not yet reviewed, with FRED as its fallback", () => {
