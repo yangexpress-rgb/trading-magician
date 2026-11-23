@@ -31,6 +31,9 @@ import type { MetricRef } from '../strategy/schema';
 
 export const FACTOR_CATALOGUE_VERSION = 1;
 
+/** The market-level factors (N322), whose values the fill adds to older rows. */
+export const marketLevelFactors = () => FACTOR_CATALOGUE_V1.filter((f) => f.marketLevel);
+
 export const FACTOR_CATEGORIES = [
   'price',
   'fundamentals',
@@ -62,6 +65,12 @@ export interface FactorSpec {
   metric?: MetricRef;
   /** Instruments it is worked out for: every snapshot member, or the options universe only (§4). */
   scope: 'all' | 'options_universe';
+  /**
+   * The same value for every stock on a date, from a market-wide series
+   * (N322): rows stored before the factor joined the catalogue get it added
+   * by the market-level fill, which never changes a value already stored.
+   */
+  marketLevel?: true;
 }
 
 const CROSS: readonly AtomMode[] = ['cross'];
@@ -263,6 +272,25 @@ export const FACTOR_CATALOGUE_V1: readonly FactorSpec[] = [
     metric: plainMetric('rates.tbill_3m'),
     scope: 'all',
   },
+  // Market-regime values from FRED (data inputs part 2, item A, N322): the same
+  // value for every stock on a date, so own-history atoms only, as for the T-bill.
+  ...(
+    [
+      ['rates.credit_spread_ig', 'Investment-grade credit spread'],
+      ['rates.credit_spread_hy', 'High-yield credit spread'],
+      ['rates.term_spread_10y2y', 'Yield curve (10y − 2y)'],
+      ['rates.ust_10y', '10-year Treasury yield'],
+    ] as const
+  ).map(([id, label]): FactorSpec => ({
+    id,
+    category: 'earnings',
+    label,
+    definition: `Registry ${id} (the same for every stock: own-history atoms only; values as currently published by FRED)`,
+    modes: OWN,
+    metric: plainMetric(id),
+    scope: 'all',
+    marketLevel: true,
+  })),
   // Options signals as recorded (or rebuilt), any instrument with signals.
   ...(
     [

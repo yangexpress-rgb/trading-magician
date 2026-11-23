@@ -2769,12 +2769,21 @@ export const dealStatusHistory = pgTable(
   ],
 );
 
-/** FRED's 3-month T-bill rate per day, as a fraction (brief §3, §5.4). */
+/**
+ * FRED rates per day, as fractions (brief §3, §5.4): the 3-month T-bill and,
+ * from N322 (ADR 0110), five market-regime series. Each column is null on a
+ * day its series has no value (holidays, and before the series is kept).
+ */
 export const ratesDaily = pgTable(
   'rates_daily',
   {
     date: date('date', { mode: 'string' }).primaryKey(),
-    tbill3m: eventValue('tbill_3m').notNull(),
+    tbill3m: eventValue('tbill_3m'),
+    creditSpreadIg: eventValue('credit_spread_ig'),
+    creditSpreadHy: eventValue('credit_spread_hy'),
+    termSpread10y2y: eventValue('term_spread_10y2y'),
+    ust10y: eventValue('ust_10y'),
+    ust2y: eventValue('ust_2y'),
     source: text('source').notNull().default('fred'),
     recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull().defaultNow(),
   },

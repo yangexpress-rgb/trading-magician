@@ -41,6 +41,11 @@ export interface EventsLoopOptions {
   dealClosesDeadlineMs?: number;
   /** Fetches DTB3 through the options market inputs, which store it in rates_daily. */
   refreshRates: (today: string) => Promise<unknown>;
+  /**
+   * The market-regime FRED series (N322): asked every pass, it fetches when
+   * its last fetch is stale, so a new deploy fills the history straight away.
+   */
+  refreshRateSeries?: (() => Promise<unknown>) | undefined;
   logger: Pick<Logger, 'info' | 'warn'>;
   now?: () => Date;
   pollMs?: number;
@@ -211,6 +216,8 @@ export async function runEventsPass(o: EventsLoopOptions): Promise<void> {
   if (eveningDue(now)) {
     await step('rates', () => o.refreshRates(today));
   }
+  const series = o.refreshRateSeries;
+  if (series) await step('rate_series', () => series());
 }
 
 export interface EventsLoop {

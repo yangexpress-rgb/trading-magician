@@ -32,7 +32,8 @@ import {
 
 /**
  * Pattern discovery's factor store (pattern brief §3, ADR 0091). Global
- * market data, written only by the worker's snapshot job, insert-only.
+ * market data, written only by the worker's snapshot job, insert-only (except the
+ * market-level fill of N322, which only adds keys a row lacks).
  */
 
 type Db = Database | Transaction;
@@ -129,6 +130,84 @@ export async function saveFactorSnapshots(
     });
   }
   return written;
+}
+
+/**
+ * The market-level fill (N322, ADR 0110): adds market-wide factor values to
+ * snapshot rows that were stored before those factors joined the catalogue.
+ * `valueOn` gives each factor's value for a date (undefined: unknown, left
+ * out as the snapshot job does). Existing keys always win, so no stored value
+ * changes; the coverage counts grow by the rows that gained each factor, in
+ * the same transaction. At most `maxDates` dates per call, oldest first, so
+ * a long fill yields. Returns the dates filled and the rows touched.
+ */
+export async function fillMarketFactors(
+  db: Database,
+  factorIds: readonly string[],
+  valueOn: (factorId: string, date: string) => number | undefined,
+  maxDates = 20,
+): Promise<{ dates: number; rows: number; pending: number }> {
+  if (factorIds.length === 0) return { dates: 0, rows: 0, pending: 0 };
+  // Dates where a factor with a value that day is known on fewer rows than were stored.
+  const lines = await db
+    .select({
+      factor: factorCoverage.factor,
+      asOf: factorCoverage.asOf,
+      known: factorCoverage.known,
+    })
+    .from(factorCoverage)
+    .where(inArray(factorCoverage.factor, [ROWS_FACTOR, ...factorIds]));
+  const byDate = new Map<string, Map<string, number>>();
+  for (const l of lines) {
+    const m = byDate.get(l.asOf) ?? new Map<string, number>();
+    m.set(l.factor, l.known);
+    byDate.set(l.asOf, m);
+  }
+  const pending: { date: string; obj: Record<string, number> }[] = [];
+  for (const [date, m] of [...byDate].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const rows = m.get(ROWS_FACTOR) ?? 0;
+    const obj: Record<string, number> = {};
+    for (const f of factorIds) {
+      const v = valueOn(f, date);
+      if (v !== undefined && Number.isFinite(v) && (m.get(f) ?? 0) < rows) obj[f] = v;
+    }
+    if (Object.keys(obj).length > 0) pending.push({ date, obj });
+  }
+  let rowsTouched = 0;
+  const batch = pending.slice(0, maxDates);
+  for (const { date, obj } of batch) {
+    rowsTouched += await db.transaction(async (tx) => {
+      const keys = Object.keys(obj);
+      const counts = await tx.execute<Record<string, string>>(sql`
+        select ${sql.join(
+          keys.map(
+            (k, i) =>
+              sql`count(*) filter (where not (${factorSnapshots.values} ? ${k}))::text as ${sql.identifier(`k${i}`)}`,
+          ),
+          sql`, `,
+        )}
+        from ${factorSnapshots} where ${factorSnapshots.asOf} = ${date}`);
+      const updated = await tx.execute(sql`
+        update ${factorSnapshots}
+        set "values" = ${JSON.stringify(obj)}::jsonb || ${factorSnapshots.values}
+        where ${factorSnapshots.asOf} = ${date}
+          and not (${factorSnapshots.values} ?& ${sql.raw(`array[${keys.map((k) => `'${k.replace(/'/g, "''")}'`).join(',')}]`)})`);
+      const row = counts[0] ?? {};
+      const values = keys
+        .map((factor, i) => ({ factor, asOf: date, known: Number(row[`k${i}`] ?? 0) }))
+        .filter((v) => v.known > 0);
+      if (values.length > 0)
+        await tx
+          .insert(factorCoverage)
+          .values(values)
+          .onConflictDoUpdate({
+            target: [factorCoverage.factor, factorCoverage.asOf],
+            set: { known: sql`${factorCoverage.known} + excluded.known` },
+          });
+      return updated.count ?? 0;
+    });
+  }
+  return { dates: batch.length, rows: rowsTouched, pending: pending.length - batch.length };
 }
 
 export interface FactorCoverageLine {

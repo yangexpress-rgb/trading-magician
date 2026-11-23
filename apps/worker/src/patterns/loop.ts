@@ -1,5 +1,5 @@
-import { sharedFeedOwner, type Database } from '@tm/db';
-import type { HistoricalDataProvider } from '@tm/domain';
+import { fillMarketFactors, loadRateSeries, sharedFeedOwner, type Database } from '@tm/db';
+import { marketLevelFactors, rateOn, type HistoricalDataProvider } from '@tm/domain';
 import type { Logger } from 'pino';
 import type { FundamentalsLoader } from '../fundamentals';
 import { runPatternSnapshotPass, type PatternSnapshotOptions } from './snapshots';
@@ -41,6 +41,9 @@ export function startPatternSnapshotLoop(options: PatternSnapshotLoopOptions): P
   const attempts = new Map<string, string>();
 
   const pass = async () => {
+    await fillMarketLevel(options).catch((e: unknown) =>
+      options.logger.warn({ err: shortError(e) }, 'pattern market-level fill failed'),
+    );
     const owner = await options.db.transaction((tx) => sharedFeedOwner(tx));
     if (!owner) {
       const day = new Date().toISOString().slice(0, 10);
@@ -94,4 +97,26 @@ export function startPatternSnapshotLoop(options: PatternSnapshotLoopOptions): P
       await running;
     },
   };
+}
+
+/**
+ * Adds the market-level factors (N322) to snapshot rows stored before they
+ * joined the catalogue, a few dates a pass. Each value is the one the
+ * registry metric reads for that date: the latest stored on or before it.
+ */
+export async function fillMarketLevel(
+  options: Pick<PatternSnapshotLoopOptions, 'db' | 'logger'>,
+  maxDates = 20,
+): Promise<{ dates: number; rows: number; pending: number }> {
+  const ids = marketLevelFactors().map((f) => f.id);
+  const series = await loadRateSeries(options.db, ids);
+  const result = await fillMarketFactors(
+    options.db,
+    ids,
+    (factor, date) => rateOn(series.get(factor), date)?.value,
+    maxDates,
+  );
+  if (result.dates > 0)
+    options.logger.info(result, 'pattern snapshots: market-level factors added to stored rows');
+  return result;
 }

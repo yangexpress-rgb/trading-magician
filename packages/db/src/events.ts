@@ -12,9 +12,14 @@ import {
   type EarningsSource,
   type EventData,
   type RatePoint,
+  type RateSeriesColumn,
   type ScheduledEarnings,
+  type SeriesPoint,
+  RATE_SERIES,
+  rateSeriesByMetric,
+  regularSession,
 } from '@tm/domain';
-import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import type { Database, Transaction } from './client';
 import { withTenant } from './tenant';
 import {
@@ -870,11 +875,169 @@ export async function saveRates(
 
 export async function loadRates(db: Db, fromDate?: string): Promise<RatePoint[]> {
   const rows = await db
-    .select()
+    .select({ date: ratesDaily.date, tbill3m: ratesDaily.tbill3m })
     .from(ratesDaily)
-    .where(fromDate ? gte(ratesDaily.date, fromDate) : sql`true`)
+    // A day holding only another series' value (N322) is not a T-bill day.
+    .where(
+      fromDate
+        ? and(gte(ratesDaily.date, fromDate), isNotNull(ratesDaily.tbill3m))
+        : isNotNull(ratesDaily.tbill3m),
+    )
     .orderBy(asc(ratesDaily.date));
   return rows.map((r) => ({ date: r.date, tbill3m: Number(r.tbill3m) }));
+}
+
+const RATE_COLUMNS = {
+  credit_spread_ig: ratesDaily.creditSpreadIg,
+  credit_spread_hy: ratesDaily.creditSpreadHy,
+  term_spread_10y2y: ratesDaily.termSpread10y2y,
+  ust_10y: ratesDaily.ust10y,
+  ust_2y: ratesDaily.ust2y,
+} as const;
+const RATE_KEYS = {
+  credit_spread_ig: 'creditSpreadIg',
+  credit_spread_hy: 'creditSpreadHy',
+  term_spread_10y2y: 'termSpread10y2y',
+  ust_10y: 'ust10y',
+  ust_2y: 'ust2y',
+} as const;
+
+/**
+ * Stores one FRED series' days on or after `fromDate` in its own column of
+ * rates_daily (N322); other columns of a day are left as they are. A value
+ * FRED revised replaces the stored one and moves recorded_at. Returns how
+ * many days were new or changed.
+ */
+export async function saveRateSeries(
+  db: Db,
+  column: RateSeriesColumn,
+  days: readonly SeriesPoint[],
+  fromDate: string,
+): Promise<number> {
+  const col = RATE_COLUMNS[column];
+  const key = RATE_KEYS[column];
+  const rows = days.filter((d) => d.date >= fromDate && Number.isFinite(d.value));
+  let changed = 0;
+  for (let i = 0; i < rows.length; i += 500) {
+    const done = await db
+      .insert(ratesDaily)
+      .values(rows.slice(i, i + 500).map((d) => ({ date: d.date, [key]: String(d.value) })))
+      .onConflictDoUpdate({
+        target: ratesDaily.date,
+        set: { [key]: sql.raw(`excluded.${column}`), recordedAt: sql`now()` },
+        setWhere: sql`${col} is distinct from ${sql.raw(`excluded.${column}`)}`,
+      })
+      .returning({ date: ratesDaily.date });
+    changed += done.length;
+  }
+  return changed;
+}
+
+/** The stored days of the FRED series a run reads (N322), by metric id, each sorted by date. */
+export async function loadRateSeries(
+  db: Db,
+  metrics: readonly string[],
+): Promise<Map<string, SeriesPoint[]>> {
+  const out = new Map<string, SeriesPoint[]>();
+  for (const metric of new Set(metrics)) {
+    const spec = rateSeriesByMetric(metric);
+    if (!spec) continue;
+    const col = RATE_COLUMNS[spec.column];
+    const rows = await db
+      .select({ date: ratesDaily.date, value: col })
+      .from(ratesDaily)
+      .where(isNotNull(col))
+      .orderBy(asc(ratesDaily.date));
+    out.set(
+      metric,
+      rows.map((r) => ({ date: r.date, value: Number(r.value) })),
+    );
+  }
+  return out;
+}
+
+export interface RateCoverageLine {
+  /** The FRED series id. */
+  series: string;
+  metric: string;
+  first: string | null;
+  last: string | null;
+  days: number;
+  /**
+   * NYSE trading days inside first..last without a value, other than the
+   * bond-market holidays (Columbus Day, Veterans Day) when FRED's Treasury
+   * and credit series have none: real gaps.
+   */
+  missingTradingDays: string[];
+  /** NYSE trading days without a value that are bond-market holidays. */
+  bondHolidays: number;
+  /** When a value of the series was last stored or changed. */
+  recordedAt: string | null;
+}
+
+/**
+ * The rates job's coverage report (item A, A3): for DTB3 and each regime
+ * series, its first and last stored day, how many days, and the NYSE trading
+ * days inside that range with no value (gaps other than weekends and holidays).
+ */
+export async function rateCoverage(db: Db): Promise<RateCoverageLine[]> {
+  const series = [
+    { series: 'DTB3', metric: 'rates.tbill_3m', column: 'tbill_3m' },
+    ...RATE_SERIES.map((s) => ({ series: s.fred, metric: s.metric, column: s.column })),
+  ];
+  const out: RateCoverageLine[] = [];
+  for (const s of series) {
+    const rows = await db.execute<{ date: string; recorded_at: string }>(
+      sql`select date::text as date, recorded_at::text as recorded_at from rates_daily where ${sql.raw(s.column)} is not null order by date`,
+    );
+    const dates = rows.map((r) => r.date);
+    const have = new Set(dates);
+    const missing: string[] = [];
+    let bondHolidays = 0;
+    const first = dates[0];
+    const last = dates.at(-1);
+    if (first && last) {
+      for (let d = first; d <= last; d = nextDay(d)) {
+        if (have.has(d) || !regularSession(d)) continue;
+        if (isBondMarketHoliday(d)) bondHolidays++;
+        else missing.push(d);
+      }
+    }
+    const recorded =
+      rows
+        .map((r) => r.recorded_at)
+        .sort()
+        .at(-1) ?? null;
+    out.push({
+      series: s.series,
+      metric: s.metric,
+      first: first ?? null,
+      last: last ?? null,
+      days: dates.length,
+      missingTradingDays: missing,
+      bondHolidays,
+      recordedAt: recorded,
+    });
+  }
+  return out;
+}
+
+/**
+ * The US bond market's (SIFMA) full closes on days NYSE trades: Columbus Day
+ * (second Monday of October) and Veterans Day (11 November, a Sunday's moved
+ * to Monday). FRED's Treasury series have no value on them.
+ */
+export function isBondMarketHoliday(date: string): boolean {
+  const [, m, d] = date.split('-').map(Number) as [number, number, number];
+  const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+  if (m === 10 && dow === 1 && d >= 8 && d <= 14) return true;
+  if (m === 11 && (d === 11 || (d === 12 && dow === 1))) return true;
+  return false;
+}
+
+function nextDay(date: string): string {
+  const t = Date.parse(`${date}T00:00:00Z`) + 86_400_000;
+  return new Date(t).toISOString().slice(0, 10);
 }
 
 // ---------------------------------------------------------------------------
@@ -1010,6 +1173,7 @@ export async function loadEventData(
     }
     return out;
   };
+  const wantMetric = (metric: string) => [...reads.values()].some((ms) => ms.has(metric));
   const earningsIds = want('earnings.');
   const dealIds = want('deals.');
   const earningsSymbols = earningsIds.flatMap((id) => symbols.get(id) ?? []);
@@ -1018,7 +1182,8 @@ export async function loadEventData(
     earnings: byId(earningsIds, await loadEarningsBySymbol(db, earningsSymbols)),
     calendar: byId(earningsIds, await loadCalendarBySymbol(db, earningsSymbols)),
     deals: byId(dealIds, await loadDealsBySymbol(db, dealSymbols)),
-    rates: want('rates.').length > 0 ? await loadRates(db) : [],
+    rates: wantMetric('rates.tbill_3m') ? await loadRates(db) : [],
+    rateSeries: await loadRateSeries(db, RATE_SERIES.map((s) => s.metric).filter(wantMetric)),
     dealsFrom: dealIds.length > 0 ? await dealsCoveredFrom(db) : undefined,
   };
 }
