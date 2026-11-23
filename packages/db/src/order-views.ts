@@ -13,7 +13,12 @@ import { accountFeedChains, fallbackInUse } from './account-feeds';
 import { haltText, runtimeAccountHalt } from './account-risk';
 import { recordAudit } from './audit';
 import { assertCanResume } from './entitlements';
-import { listOpenIncidents, type IncidentRow } from './incidents';
+import {
+  listOpenIncidents,
+  listRecentlyClosedFeedIncidents,
+  type ClosedIncidentRow,
+  type IncidentRow,
+} from './incidents';
 import type { Transaction } from './client';
 import { idempotencyKey, OrderError, recordOrderIntent } from './orders';
 import { LIVE_OFF_TEXT } from './live-gate';
@@ -930,6 +935,8 @@ export interface ExecutionStatus {
   runtimes: RuntimeSummary[];
   /** Open incidents (§8.5): reconciliation mismatches, rejects, data and broker problems. */
   incidents: IncidentRow[];
+  /** Price incidents that closed themselves lately, with how long they lasted (N328). */
+  recentlyClosed: ClosedIncidentRow[];
 }
 
 /** The kill switch, and every runtime that is active or still has working orders. */
@@ -1003,7 +1010,11 @@ export async function getExecutionStatus(
     .leftJoin(cycleCounts, eq(cycleCounts.runtimeId, strategyRuntimes.id))
     .where(sql`${strategyRuntimes.status} <> 'stopped' or ${working.n} > 0`)
     .orderBy(desc(strategyRuntimes.startedAt));
-  const [incidents, chains] = await Promise.all([listOpenIncidents(tx), accountFeedChains(tx)]);
+  const [incidents, chains, recentlyClosed] = await Promise.all([
+    listOpenIncidents(tx),
+    accountFeedChains(tx),
+    listRecentlyClosedFeedIncidents(tx),
+  ]);
   const todays = await runtimeTodayFigures(
     tx,
     rows.map((r) => r.id),
@@ -1012,6 +1023,7 @@ export async function getExecutionStatus(
   return {
     todaySession: today,
     incidents,
+    recentlyClosed,
     halted: control?.haltedAt
       ? { at: control.haltedAt.toISOString(), reason: control.reason }
       : null,

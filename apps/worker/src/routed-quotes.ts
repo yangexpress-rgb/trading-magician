@@ -22,12 +22,94 @@ import {
 } from '@tm/domain';
 import type { Logger } from 'pino';
 import { withTimeout, type ProviderRegistry } from './providers';
+import { missReasonOf, type HubTrail, type MissReason, type QuoteHub } from './quote-hub';
 
 const QUOTE_TIMEOUT_MS = 5_000;
+
+/**
+ * What the runtimes' quote asks got, per symbol, since the last drain.
+ * A failed ask used to vanish into "no price" with nothing logged; the worker
+ * now logs this once a minute so a missing price can be traced to its cause.
+ */
+interface SymbolTrail {
+  asked: number;
+  failed: number;
+  /** Why the last failed ask failed: the error's name, or 'missing' when the reply left it out. */
+  lastError?: string;
+  lastFailedAt?: number;
+  /** When an ask last came back with a price, epoch ms. */
+  lastOkAt?: number;
+  /** The newest trade or quote time a reply carried. */
+  lastQuoteAt?: string;
+}
+
+let trail = new Map<string, SymbolTrail>();
+/** Kept across drains, so a symbol that keeps failing still shows when it last worked. */
+const lastOk = new Map<string, number>();
+
+export function noteAsk(symbol: string, quote: Quote | undefined, error?: string): void {
+  const t = trail.get(symbol) ?? { asked: 0, failed: 0 };
+  t.asked++;
+  const now = Date.now();
+  if (quote) {
+    t.lastOkAt = now;
+    lastOk.set(symbol, now);
+    if (!t.lastQuoteAt || quote.at > t.lastQuoteAt) t.lastQuoteAt = quote.at;
+  } else {
+    t.failed++;
+    t.lastError = error ?? 'missing';
+    t.lastFailedAt = now;
+  }
+  trail.set(symbol, t);
+}
+
+/** Batched asks that failed as a whole since the last drain, by reason. */
+let batchFailures = new Map<string, number>();
+
+function noteBatchFailure(reason: string): void {
+  batchFailures.set(reason, (batchFailures.get(reason) ?? 0) + 1);
+}
+
+/** The process's quote trail, for the shared hub to write to. */
+export const quoteTrail: HubTrail = { noteAsk, noteBatchFailure };
+
+export function drainBatchFailures(): Record<string, number> {
+  const out = Object.fromEntries(batchFailures);
+  batchFailures = new Map();
+  return out;
+}
+
+export interface QuoteTrailEntry {
+  symbol: string;
+  asked: number;
+  failed: number;
+  lastError: string | null;
+  lastFailedAt: string | null;
+  lastOkAt: string | null;
+  lastQuoteAt: string | null;
+}
+
+/** The symbols asked for since the last call, failures first, and starts afresh. */
+export function drainQuoteTrail(): QuoteTrailEntry[] {
+  const iso = (ms: number | undefined) => (ms === undefined ? null : new Date(ms).toISOString());
+  const out = [...trail].map(([symbol, t]) => ({
+    symbol,
+    asked: t.asked,
+    failed: t.failed,
+    lastError: t.lastError ?? null,
+    lastFailedAt: iso(t.lastFailedAt),
+    lastOkAt: iso(t.lastOkAt ?? lastOk.get(symbol)),
+    lastQuoteAt: t.lastQuoteAt ?? null,
+  }));
+  trail = new Map();
+  return out.sort((a, b) => b.failed - a.failed || a.symbol.localeCompare(b.symbol));
+}
 
 export interface RoutedQuotes extends LiveQuoteProvider {
   /** Fetches these instruments' quotes for the pass in as few requests as the feeds allow. */
   prefetch(refs: readonly QuoteRequest[]): Promise<void>;
+  /** Why the instrument's quote this pass came back empty, if it did (N328). */
+  missReason(instrumentId: string): MissReason | undefined;
 }
 
 export interface FeedAsker {
@@ -40,6 +122,8 @@ export interface FeedAsker {
   has(feedId: string, instrumentId: string): boolean;
   /** One feed's quote asked again now, past this pass's cache (N325). */
   askFresh(feedId: string | null, ref: QuoteRequest): Promise<Quote | undefined>;
+  /** Why an ask this pass came back without a price (N328). */
+  missReason(instrumentId: string): MissReason | undefined;
 }
 
 /**
@@ -56,6 +140,8 @@ export function createFeedAsker(options: {
   privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'warn'>;
   scope?: FeedScope | undefined;
+  /** The process's shared prices (N328); without it each ask goes to the feed. */
+  hub?: QuoteHub | undefined;
 }): FeedAsker {
   const { tx, now } = options;
   const userId = options.scope?.userId ?? options.userId;
@@ -63,6 +149,14 @@ export function createFeedAsker(options: {
   const at = () => now;
   const sources = new Map<string, LiveQuoteProvider | undefined>();
   const asked = new Map<string, Promise<Quote | undefined>>();
+  const misses = new Map<string, MissReason>();
+  const hub = options.hub;
+  const fromHub = (feedId: string, ref: QuoteRequest): Quote | undefined => {
+    const entry = hub?.read(feedId, ref.instrumentId);
+    if (!entry?.quote) misses.set(ref.instrumentId, entry?.reason ?? 'error');
+    else misses.delete(ref.instrumentId);
+    return stamp(feedId, entry?.quote);
+  };
   const stamp = (feedId: string, q: Quote | undefined) => (q ? { ...q, feedId } : undefined);
 
   async function sourceFor(feed: RoutingFeed): Promise<LiveQuoteProvider | undefined> {
@@ -108,14 +202,31 @@ export function createFeedAsker(options: {
     return pending;
   }
 
-  async function askFeed(feedId: string | null, ref: QuoteRequest): Promise<Quote | undefined> {
+  async function askFeed(
+    feedId: string | null,
+    ref: QuoteRequest,
+    direct = false,
+  ): Promise<Quote | undefined> {
     const feed = feedId ? options.feeds.get(feedId) : undefined;
     if (!feed?.isActive) return undefined;
     const source = await sourceFor(feed);
     if (!source) return undefined;
+    if (hub && !direct) {
+      await hub.get(feed.id, source, [ref], now.getTime());
+      return fromHub(feed.id, ref);
+    }
     try {
-      return stamp(feed.id, await withTimeout(source.latestQuote(ref), QUOTE_TIMEOUT_MS, 'quote'));
-    } catch {
+      const quote = stamp(
+        feed.id,
+        await withTimeout(source.latestQuote(ref), QUOTE_TIMEOUT_MS, 'quote'),
+      );
+      noteAsk(ref.symbol, quote, 'no_reply');
+      if (!quote) misses.set(ref.instrumentId, 'no_reply');
+      return quote;
+    } catch (error) {
+      const reason = missReasonOf(error);
+      noteAsk(ref.symbol, undefined, reason);
+      misses.set(ref.instrumentId, reason);
       return undefined;
     }
   }
@@ -123,15 +234,36 @@ export function createFeedAsker(options: {
   async function prefetchFrom(feedId: string, list: readonly QuoteRequest[]): Promise<void> {
     const feed = options.feeds.get(feedId);
     const source = feed?.isActive ? await sourceFor(feed) : undefined;
-    if (!source?.latestQuotes || list.length < 2) return;
+    if (!source) return;
+    if (hub) {
+      // One shared request serves this runtime and every other one wanting these symbols.
+      const all = hub.get(feedId, source, list, now.getTime());
+      for (const ref of list)
+        asked.set(
+          `${feedId}:${ref.instrumentId}`,
+          all.then(() => fromHub(feedId, ref)),
+        );
+      await all;
+      return;
+    }
+    if (!source.latestQuotes || list.length < 2) return;
     const all = withTimeout(source.latestQuotes(list), QUOTE_TIMEOUT_MS, 'quotes').catch(
-      () => undefined,
+      (error: unknown) => {
+        noteBatchFailure(missReasonOf(error));
+        return undefined;
+      },
     );
     for (const ref of list) {
       // A batch that fails leaves each instrument to be asked on its own.
       asked.set(
         `${feedId}:${ref.instrumentId}`,
-        all.then((m) => (m ? stamp(feedId, m.get(ref.instrumentId)) : askFeed(feedId, ref))),
+        all.then((m) => {
+          if (!m) return askFeed(feedId, ref);
+          const quote = stamp(feedId, m.get(ref.instrumentId));
+          noteAsk(ref.symbol, quote, 'no_reply');
+          if (!quote) misses.set(ref.instrumentId, 'no_reply');
+          return quote;
+        }),
       );
     }
   }
@@ -141,7 +273,9 @@ export function createFeedAsker(options: {
     ask,
     prefetchFrom,
     has: (feedId, instrumentId) => asked.has(`${feedId}:${instrumentId}`),
-    askFresh: askFeed,
+    // Straight to the feed, past the shared prices too: the collar's read at release (N325).
+    askFresh: (feedId, ref) => askFeed(feedId, ref, true),
+    missReason: (instrumentId) => misses.get(instrumentId),
   };
 }
 
@@ -166,12 +300,13 @@ export function createRoutedQuotes(options: {
    * over, in the admin's tenant, in transactions of their own.
    */
   feeds?: FeedScope | undefined;
+  hub?: QuoteHub | undefined;
 }): RoutedQuotes {
   const { tx, now, routing } = options;
   const userId = options.feeds?.userId ?? options.userId;
   const inFeeds: TenantRunner = options.feeds?.inTenant ?? ((fn) => fn(tx));
   const decided = new Map<string, Promise<RouteLike>>();
-  const { ask, has, prefetchFrom, askFresh } = createFeedAsker({
+  const { ask, has, prefetchFrom, askFresh, missReason } = createFeedAsker({
     tx,
     userId: options.userId,
     now,
@@ -180,6 +315,7 @@ export function createRoutedQuotes(options: {
     privateKey: options.privateKey,
     logger: options.logger,
     scope: options.feeds,
+    hub: options.hub,
   });
 
   const healthy = (q: Quote | undefined) =>
@@ -225,6 +361,7 @@ export function createRoutedQuotes(options: {
 
   return {
     id: 'routed',
+    missReason,
     async latestQuote(ref) {
       const feedId = await feedOf(ref);
       if (feedId === undefined) return undefined;

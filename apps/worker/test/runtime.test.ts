@@ -33,6 +33,7 @@ import {
   type OptionSignalValues,
   type PlannedOrder,
   type Quote,
+  type QuoteRequest,
   type SeriesResolver,
   type StrategyDefinition,
 } from '@tm/domain';
@@ -45,6 +46,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   closeSinceFill,
   createRuntimeCaches,
+  FEED_CLEAR_MS,
   runRuntimePass,
   SAFETY,
   type RuntimeCaches,
@@ -65,6 +67,11 @@ const T0 = Date.parse('2026-10-06T14:31:00Z');
 let clock = T0;
 /** Test hooks: stale prices and a broker that stops answering. */
 let quoteDelayMs = 0;
+/** Test hooks (N328): only this instrument's prices are delayed; every quote ask fails with this. */
+let delayOnly: string | undefined;
+let quoteError: Error | undefined;
+/** Test hook (N328): how many quote asks reached the feed. */
+let feedAsks = 0;
 let brokerDown = false;
 let brokerThrottled = false;
 /** Test hook: DEMO-A daily closes replaced by the date the bar ended, for the N225 stop checks. */
@@ -107,19 +114,32 @@ const options = (workerId: string): RuntimeWorkerOptions => ({
   },
   quotes: (now) => {
     const { latestQuotes, ...feed } = createDemoLiveFeed({ now });
+    const delay = (q: Quote): Quote =>
+      quoteDelayMs > 0 && (!delayOnly || delayOnly === q.instrumentId)
+        ? { ...q, at: new Date(Date.parse(q.at) - quoteDelayMs).toISOString() }
+        : q;
     return {
       ...feed,
-      ...(quoteHook || !latestQuotes ? {} : { latestQuotes }),
+      ...(quoteHook || !latestQuotes
+        ? {}
+        : {
+            latestQuotes: async (refs: readonly QuoteRequest[]) => {
+              feedAsks++;
+              if (quoteError) throw quoteError;
+              const all = await latestQuotes(refs);
+              return new Map([...all].map(([id, q]) => [id, delay(q)]));
+            },
+          }),
       latestQuote: async (ref) => {
+        feedAsks++;
+        if (quoteError) throw quoteError;
         let q = await feed.latestQuote(ref);
         if (q && quoteHook) {
           const n = (quoteCalls.get(ref.instrumentId) ?? 0) + 1;
           quoteCalls.set(ref.instrumentId, n);
           q = quoteHook(q, n);
         }
-        return q && quoteDelayMs > 0
-          ? { ...q, at: new Date(Date.parse(q.at) - quoteDelayMs).toISOString() }
-          : q;
+        return q ? delay(q) : q;
       },
     };
   },
@@ -282,6 +302,8 @@ async function stopAll() {
   await t.ownerSql`update execution_control set halted_at = null`;
   await t.ownerSql`update execution_incident set resolved_at = now(), resolved_by = 'system' where resolved_at is null`;
   quoteDelayMs = 0;
+  delayOnly = undefined;
+  quoteError = undefined;
   brokerDown = false;
   dailyCloses.clear();
 }
@@ -1214,8 +1236,27 @@ describe('safety: reconciliation and automatic pauses (§8.5, §8.6, §16.3)', (
     await asUser((tx) => resumeRuntime(tx, userId, runtimeId));
     clock += 10_000;
     await pass();
-    // The data incident clears itself; the pause incident waits for a person.
+    // Prices are current, but the incident waits for 30 s of current prices (N328).
+    expect((await incidents()).map((i) => i.kind).sort()).toEqual(['feed_loss', 'stale_data']);
+    clock += FEED_CLEAR_MS;
+    await pass();
+    // The data incident clears itself with its duration; the pause incident waits for a person.
     expect((await incidents()).map((i) => i.kind)).toEqual(['feed_loss']);
+    const [closed] = await asUser((tx) =>
+      tx
+        .select()
+        .from(schema.executionIncidents)
+        .where(
+          and(
+            eq(schema.executionIncidents.kind, 'stale_data'),
+            eq(schema.executionIncidents.runtimeId, runtimeId),
+          ),
+        ),
+    );
+    expect(closed?.resolvedBy).toBe('system');
+    expect(closed?.resolution).toMatch(/^Closed on its own after \d+ min/);
+    expect((closed?.details as { durationSec?: number }).durationSec).toBeGreaterThan(60);
+    await t.ownerSql`update execution_incident set resolved_at = now(), resolved_by = 'user' where resolved_at is null`;
     await stopAll();
   });
 
@@ -2213,4 +2254,140 @@ describe('paper runtime: intraday pack (N255, N256)', () => {
     expect((await orders(runtimeId)).filter((x) => x.phase === 'exit')).toHaveLength(1);
     await stopAll();
   });
+});
+
+describe('live prices shared, named and closed on their own (N328)', () => {
+  // Earlier tests leave their strategies behind; make room under the plan's cap.
+  beforeAll(async () => {
+    await t.ownerSql`update strategy set deleted_at = now() where deleted_at is null`;
+  });
+
+  const priceNotices = async () =>
+    (await asUser((tx) => listNotifications(tx, { limit: 200 }))).notifications.filter(
+      (n) => n.kind === 'stale_data' || n.kind === 'disconnect' || n.kind === 'risk_pause',
+    );
+
+  it('names a refused feed as throttled, and asks every symbol again once it answers (A2)', async () => {
+    clock = T0 + 41 * 86_400_000;
+    const def = pairDefinition();
+    def.exit.condition = never();
+    const { runtimeId } = await startPaper('Throttled', def);
+    await pass();
+    quoteError = new AlpacaRateLimitError(undefined);
+    clock += 5_000;
+    await pass();
+    const [open] = await incidents();
+    expect(open?.kind).toBe('stale_data');
+    expect(open?.summary).toMatch(
+      /^Alpaca refused the price requests for DEMO-A, DEMO-B as over the key’s request limit/,
+    );
+    expect((await runtimeStatus(runtimeId))?.status).toBe('running');
+
+    // The connection comes back: both symbols are asked again and price again.
+    quoteError = undefined;
+    feedAsks = 0;
+    clock += 5_000;
+    await pass();
+    // Both symbols asked again.
+    expect(feedAsks).toBe(2);
+    expect(caches.quotes.wantedSymbols()).toEqual(['DEMO-A', 'DEMO-B']);
+    clock += FEED_CLEAR_MS;
+    await pass();
+    expect(await incidents()).toEqual([]);
+    await stopAll();
+  });
+
+  it('reports a subscribed but silent symbol on its own, without stopping orders (A3)', async () => {
+    clock = T0 + 42 * 86_400_000;
+    const def = pairDefinition();
+    def.exit.condition = never();
+    const { runtimeId } = await startPaper('Silent', def);
+    const before = (await priceNotices()).length;
+    delayOnly = demoB;
+    quoteDelayMs = 75_000;
+    await pass();
+    const [open] = await incidents();
+    expect(open?.kind).toBe('stale_data');
+    expect(open?.summary).toMatch(
+      /^Subscribed but silent: the feed is answering but sent no new price for DEMO-B for 7\d seconds; other prices are current, so orders still go\.$/,
+    );
+    expect((open?.details as { state: string }).state).toBe('silent');
+    expect((await runtimeStatus(runtimeId))?.status).toBe('running');
+    // Diagnostic only: it does not notify.
+    expect((await priceNotices()).length).toBe(before);
+    quoteDelayMs = 0;
+    delayOnly = undefined;
+    clock += 5_000;
+    await pass();
+    clock += FEED_CLEAR_MS;
+    await pass();
+    expect(await incidents()).toEqual([]);
+    await stopAll();
+  });
+
+  it(
+    'asks once for three strategies, and keeps a 10-minute outage over them to at most 4 notices, and closes it with its duration (A4, A5)',
+    { timeout: 120_000 },
+    async () => {
+      clock = T0 + 43 * 86_400_000;
+      const def = pairDefinition();
+      def.exit.condition = never();
+      const runs = [
+        await startPaper('Outage 1', def),
+        await startPaper('Outage 2', def),
+        await startPaper('Outage 3', def),
+      ];
+      // Three runtimes passing at the same moment: one ask per symbol, not one per runtime
+      // (the demo feed asks one symbol at a time; Alpaca's takes both in one request).
+      feedAsks = 0;
+      expect(await pass()).toBe(3);
+      expect(feedAsks).toBe(2);
+      await t.ownerSql`delete from notification`;
+      // Ten minutes of refused requests, flickering back for a pass now and then.
+      const start = clock;
+      let i = 0;
+      const pausedSeen = new Set<string>();
+      while (clock - start < 10 * 60_000) {
+        quoteError = i % 20 === 19 ? undefined : new AlpacaRateLimitError(undefined);
+        clock += 5_000;
+        await pass();
+        for (const r of runs)
+          if ((await runtimeStatus(r.runtimeId))?.status === 'paused') pausedSeen.add(r.runtimeId);
+        i++;
+      }
+      // The stale-price guard still pauses every strategy on the feed.
+      expect(pausedSeen.size).toBe(3);
+      // Prices come back for good: strategies resume, incidents close themselves.
+      quoteError = undefined;
+      for (let k = 0; k < 30; k++) {
+        clock += 5_000;
+        await pass();
+      }
+      for (const r of runs) expect((await runtimeStatus(r.runtimeId))?.status).toBe('running');
+      expect(await incidents()).toEqual([]);
+      const closed = await asUser((tx) =>
+        tx
+          .select()
+          .from(schema.executionIncidents)
+          .where(eq(schema.executionIncidents.kind, 'stale_data')),
+      );
+      const mine = closed.filter((c) => runs.some((r) => r.runtimeId === c.runtimeId));
+      expect(mine.length).toBeGreaterThan(0);
+      for (const c of mine) {
+        expect(c.resolvedBy).toBe('system');
+        expect(c.resolution).toMatch(/^Closed on its own after \d+ min/);
+      }
+      const notices = await priceNotices();
+      expect(notices.map((n) => n.title).sort()).toEqual(
+        [
+          'Live prices are missing',
+          'Prices are current again',
+          'Prices are stale',
+          expect.stringMatching(/resumed on its own$/),
+        ].sort(),
+      );
+      expect(notices.length).toBeLessThanOrEqual(4);
+      await stopAll();
+    },
+  );
 });

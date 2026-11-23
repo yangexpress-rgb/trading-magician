@@ -149,6 +149,15 @@ export class AlpacaClient {
     await this.budget.take(this.keyId, this.background);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const started = Date.now();
+    const record = (status: number | 'timeout' | 'network') =>
+      this.budget.record(this.keyId, {
+        host: base === this.dataUrl ? 'data' : 'trading',
+        route: routeOf(path),
+        background: this.background,
+        status,
+        ms: Date.now() - started,
+      });
     let response: Response;
     try {
       response = await this.fetch(url.toString(), {
@@ -161,12 +170,14 @@ export class AlpacaClient {
         signal: controller.signal,
       });
     } catch {
+      record(controller.signal.aborted ? 'timeout' : 'network');
       throw new AlpacaUnavailableError(
         controller.signal.aborted ? 'Alpaca did not answer in time' : undefined,
       );
     } finally {
       clearTimeout(timer);
     }
+    record(response.status);
     if (response.status === 204) return undefined as T;
     const text = await response.text().catch(() => '');
     if (response.ok) {
@@ -194,6 +205,31 @@ export class AlpacaClient {
     }
     throw new AlpacaRequestError(response.status, code, message);
   }
+}
+
+/**
+ * A request path with its symbols and ids folded away, so the traffic log
+ * counts routes, not instruments: `/v2/stocks/SPY/snapshot` →
+ * `/v2/stocks/:symbol/snapshot`, `/v2/orders/<uuid>` → `/v2/orders/:id`.
+ */
+export function routeOf(path: string): string {
+  const parts = (path.split('?')[0] ?? '').split('/');
+  return parts
+    .map((part, i) => {
+      if (i === 0 || part === '') return part;
+      if (/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(part) || /^\d+$/.test(part)) return ':id';
+      const prev = parts[i - 1];
+      if (
+        (prev === 'stocks' || prev === 'options' || prev === 'positions') &&
+        part !== 'bars' &&
+        part !== 'snapshots' &&
+        part !== 'quotes' &&
+        part !== 'trades'
+      )
+        return ':symbol';
+      return part;
+    })
+    .join('/');
 }
 
 /** When a 429 says to try again: `Retry-After` seconds, or the `X-RateLimit-Reset` epoch second. */

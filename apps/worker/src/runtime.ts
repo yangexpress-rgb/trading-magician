@@ -33,6 +33,9 @@ import {
   markOrderSubmitted,
   notify,
   openIncident,
+  openPriceIncident,
+  closePriceIncident,
+  hasOpenIncidentOfKind,
   PAPER_STARTING_CAPITAL,
   recentOrderStates,
   reconcileAccount,
@@ -164,10 +167,13 @@ import { accountResolver, createAccountRouter } from './account-router';
 import type { BrokerRegistry } from './brokers';
 import { createRoutedHistory } from './routed-history';
 import { quotesForAccount } from './account-quotes';
+import { QuoteHub } from './quote-hub';
+import { quoteTrail, type RoutedQuotes } from './routed-quotes';
 import { NO_COMPANY_FEED, type FundamentalsLoader } from './fundamentals';
 import { equityLimits } from './equity-limits';
 import {
   effectivePriceAgeSec,
+  feedIncidentSummary,
   feedVerdict,
   type FeedVerdict,
   type WatchedPrice,
@@ -247,15 +253,19 @@ export interface RuntimeCaches {
   bars: RuntimeBarCache;
   universes: RuntimeUniverses;
   side: RuntimeSideData<SideData>;
+  /** Live prices shared by every runtime, one feed request at a time (N328). */
+  quotes: QuoteHub;
 }
 
 export function createRuntimeCaches(
   resolveUniverse?: RuntimeWorkerOptions['resolveUniverse'],
+  logger?: Pick<Logger, 'info' | 'warn'>,
 ): RuntimeCaches {
   return {
     bars: new RuntimeBarCache(),
     universes: new RuntimeUniverses(resolveUniverse),
     side: new RuntimeSideData<SideData>(),
+    quotes: new QuoteHub({ logger, trail: quoteTrail }),
   };
 }
 
@@ -279,6 +289,9 @@ export const SAFETY = {
   /** How long Alpaca may keep answering "too many requests" before a pause (N282). */
   throttledPauseMs: 300_000,
 } as const;
+
+/** How long prices must stay current before a price incident closes itself (N328). */
+export const FEED_CLEAR_MS = 30_000;
 
 /** What went wrong with the broker during a pass. */
 interface PassHealth {
@@ -358,6 +371,7 @@ export async function runRuntimePass(
       logger,
       feeds,
       decide: true,
+      hub: options.caches?.quotes,
     });
     const store = new DbPaperBrokerStore(tx, userId);
     const paper = new PaperBroker({ quotes, store, now: at });
@@ -628,24 +642,44 @@ async function watchFeed(
   const verdict = await readFeed(tx, work, quotes, now, members);
   if (health) health.feedLive = verdict.feedLive;
   work.state.staleSinceBy = verdict.staleSince;
-  if (verdict.bad.length === 0) {
-    if (work.state.staleSince === undefined) return work;
+  const link = `/orders?strategy=${work.strategyId}`;
+  // An incident opened before N328 has no start of its own: it began when prices went stale.
+  if (work.state.feedIncidentAt === undefined && work.state.staleSince !== undefined)
+    work.state.feedIncidentAt = work.state.staleSince;
+  if (verdict.bad.length === 0 && verdict.silent.length === 0) {
     work.state.staleSince = undefined;
-    await resolveIncidentsOf(tx, work.userId, 'stale_data', work.id, 'Prices are current again');
+    if (work.state.feedIncidentAt === undefined) return work;
+    // Prices must stay current for a while before the incident closes, so a
+    // feed that flickers is one incident, not one per pass (N328).
+    work.state.feedClearSince ??= t;
+    if (t - work.state.feedClearSince < FEED_CLEAR_MS) return work;
+    await closePriceIncident(tx, {
+      userId: work.userId,
+      runtimeId: work.id,
+      durationSec: (work.state.feedClearSince - work.state.feedIncidentAt) / 1000,
+      why: 'prices were current again for 30 seconds',
+      link,
+    });
+    work.state.feedIncidentAt = undefined;
+    work.state.feedClearSince = undefined;
     return work;
   }
-  work.state.staleSince ??= t;
-  const link = `/orders?strategy=${work.strategyId}`;
-  await openIncident(tx, {
+  work.state.feedClearSince = undefined;
+  work.state.feedIncidentAt ??= t;
+  if (verdict.bad.length > 0) work.state.staleSince ??= t;
+  else work.state.staleSince = undefined;
+  await openPriceIncident(tx, {
     userId: work.userId,
-    kind: 'stale_data',
     runtimeId: work.id,
-    summary: `Prices older than ${limit} seconds or missing for ${verdict.bad.join(', ')}; no new orders are sent until they are current.`,
+    summary: feedIncidentSummary(verdict, limit),
+    bad: verdict.bad.length > 0,
+    symbols: [...verdict.problems.map((p) => p.symbol), ...verdict.silent.map((s) => s.symbol)],
     link,
   });
   if (verdict.lost.length === 0) return work;
   const longest = Math.max(...verdict.lost.map((l) => l.seconds));
-  const lostSummary = `Live prices for ${verdict.lost.map((l) => l.symbol).join(', ')} have been unavailable for ${longest} seconds.`;
+  const throttled = verdict.problems.some((p) => p.reason === 'throttled');
+  const lostSummary = `Live prices for ${verdict.lost.map((l) => l.symbol).join(', ')} have been unavailable for ${longest} seconds${throttled ? ' (Alpaca refused the requests as over the key’s limit)' : ''}.`;
   await openIncident(tx, {
     userId: work.userId,
     kind: 'feed_loss',
@@ -653,6 +687,8 @@ async function watchFeed(
     summary: lostSummary,
     pause: [work.id],
     link,
+    // One notice per outage, naming what it paused (N328).
+    notify: 'first_of_kind',
   });
   work.state.autoPause = { kind: 'feed_loss', reason: lostSummary.slice(0, 500), at: t };
   return { ...work, status: 'paused' };
@@ -668,12 +704,10 @@ async function readFeed(
 ): Promise<FeedVerdict> {
   const limit = work.definition.execution.staleDataSec;
   const prices: WatchedPrice[] = [];
+  const why = (quotes as Partial<Pick<RoutedQuotes, 'missReason'>>).missReason;
   for (const { instrumentId, symbol } of watchedInstruments(work, members)) {
-    prices.push({
-      instrumentId,
-      symbol,
-      quote: await quotes.latestQuote({ instrumentId, symbol }),
-    });
+    const quote = await quotes.latestQuote({ instrumentId, symbol });
+    prices.push({ instrumentId, symbol, quote, miss: quote ? undefined : why?.(instrumentId) });
   }
   const anyFresh = prices.some((p) => p.quote?.marketOpen && quoteAgeSec(p.quote, now) <= limit);
   const anyQuiet = prices.some((p) => p.quote?.marketOpen && quoteAgeSec(p.quote, now) > limit);
@@ -776,8 +810,19 @@ async function autoResume(
       'Resumed on its own after the outage cleared',
     );
   }
-  if (pause.kind === 'feed_loss')
-    await resolveIncidentsOf(tx, work.userId, 'stale_data', work.id, 'Prices are current again');
+  if (pause.kind === 'feed_loss') {
+    const since = work.state.feedIncidentAt ?? work.state.staleSince ?? pause.at;
+    await closePriceIncident(tx, {
+      userId: work.userId,
+      runtimeId: work.id,
+      durationSec: (t - since) / 1000,
+      why: 'prices were current again and the strategy resumed',
+      link,
+    });
+  }
+  // A feed outage pauses every strategy on the feed: one notice when the last resumes (N328).
+  const quietResume =
+    pause.kind === 'feed_loss' && (await hasOpenIncidentOfKind(tx, work.userId, 'feed_loss'));
   await recordAudit(tx, {
     userId: work.userId,
     actorType: 'system',
@@ -791,20 +836,21 @@ async function autoResume(
       pausedAt: new Date(pause.at).toISOString(),
     },
   });
-  await notify(tx, {
-    userId: work.userId,
-    kind: rejects ? 'risk_pause' : 'disconnect',
-    title: `${work.strategyName} resumed on its own`,
-    body: rejects
-      ? `${pause.reason} It is trying again at the market open (automatic retry ${step.attempt} of ${REJECT_RETRIES}; it stays paused if its orders are refused again before one fills).`
-      : pause.kind === 'reconciliation_mismatch'
-        ? `${pause.reason} Reconciliation has since come back clean, so it is running again (automatic resume ${step.attempt} of ${AUTO_RESUME.perDay} today).`
-        : `${pause.reason} That has cleared, so it is running again (automatic resume ${step.attempt} of ${AUTO_RESUME.perDay} today).`,
-    link,
-    resourceType: 'strategy_runtime',
-    resourceId: work.id,
-    dedupeKey: `auto_resume:${work.id}:${t}`,
-  });
+  if (!quietResume)
+    await notify(tx, {
+      userId: work.userId,
+      kind: rejects ? 'risk_pause' : 'disconnect',
+      title: `${work.strategyName} resumed on its own`,
+      body: rejects
+        ? `${pause.reason} It is trying again at the market open (automatic retry ${step.attempt} of ${REJECT_RETRIES}; it stays paused if its orders are refused again before one fills).`
+        : pause.kind === 'reconciliation_mismatch'
+          ? `${pause.reason} Reconciliation has since come back clean, so it is running again (automatic resume ${step.attempt} of ${AUTO_RESUME.perDay} today).`
+          : `${pause.reason} That has cleared, so it is running again (automatic resume ${step.attempt} of ${AUTO_RESUME.perDay} today).`,
+      link,
+      resourceType: 'strategy_runtime',
+      resourceId: work.id,
+      dedupeKey: `auto_resume:${work.id}:${t}`,
+    });
   work.state.autoPause = undefined;
   work.state.pauseChecked = undefined;
   if (rejects) work.state.rejectRetries = step.attempt;
@@ -812,6 +858,8 @@ async function autoResume(
   work.state.brokerDownSince = undefined;
   work.state.throttledSince = undefined;
   work.state.staleSince = undefined;
+  work.state.feedIncidentAt = undefined;
+  work.state.feedClearSince = undefined;
   return { ...work, status: 'running', activeSince: now };
 }
 
@@ -2261,6 +2309,9 @@ export interface RuntimeLoop {
   stop(): Promise<void>;
 }
 
+/** A pass this long is logged. */
+const SLOW_PASS_MS = 5_000;
+
 /** Leases due runtimes and runs a pass over each, every `pollMs`. */
 export function startRuntimeLoop(
   options: RuntimeWorkerOptions & { pollMs: number; batch?: number },
@@ -2275,11 +2326,20 @@ export function startRuntimeLoop(
     });
     for (const { runtimeId, userId } of claimed) {
       if (stopped) return;
+      const started = Date.now();
       try {
         await runRuntimePass(options, runtimeId, userId);
       } catch (error) {
         options.logger.error({ err: error, runtimeId }, 'runtime pass failed');
       }
+      // Passes run one after another, so a slow one holds every other runtime
+      // back: logged so a stall shows up next to the prices it aged.
+      const ms = Date.now() - started;
+      if (ms >= SLOW_PASS_MS)
+        options.logger.warn(
+          { event: 'runtime.slow_pass', runtimeId, ms, claimed: claimed.length },
+          'slow runtime pass',
+        );
     }
   };
   const schedule = () => {

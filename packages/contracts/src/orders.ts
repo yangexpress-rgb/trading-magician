@@ -272,6 +272,13 @@ export interface IncidentDto {
   openedAt: string;
 }
 
+/** A price incident that closed itself, with how long it lasted (N328). */
+export interface ClosedIncidentDto extends IncidentDto {
+  resolvedAt: string;
+  resolution: string | null;
+  durationSec: number | null;
+}
+
 export const resolveIncidentRequest = z
   .object({ note: z.string().trim().max(500).optional() })
   .strict();
@@ -284,6 +291,8 @@ export interface ExecutionStatusDto {
   runtimes: RuntimeSummaryDto[];
   /** Open incidents: reconciliation mismatches, repeated rejects, data and broker problems. */
   incidents: IncidentDto[];
+  /** Price incidents that closed themselves in the last few hours (N328). */
+  recentlyClosed: ClosedIncidentDto[];
 }
 
 // ---------------------------------------------------------------------------

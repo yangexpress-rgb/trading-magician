@@ -18,6 +18,7 @@ import {
 } from '@tm/domain';
 import type { Logger } from 'pino';
 import type { ProviderRegistry } from './providers';
+import type { QuoteHub } from './quote-hub';
 import { createFeedAsker, createRoutedQuotes, type RoutedQuotes } from './routed-quotes';
 
 export interface AccountQuotes extends RoutedQuotes {
@@ -43,6 +44,7 @@ export function createAccountQuotes(options: {
   privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'warn'>;
   decide: boolean;
+  hub?: QuoteHub | undefined;
 }): AccountQuotes {
   const { tx, now, chain } = options;
   const asker = createFeedAsker({
@@ -53,6 +55,7 @@ export function createAccountQuotes(options: {
     providers: options.providers,
     privateKey: options.privateKey,
     logger: options.logger,
+    hub: options.hub,
   });
   const primary = chain.feeds[0]?.id ?? '';
   const stored =
@@ -96,6 +99,7 @@ export function createAccountQuotes(options: {
 
   return {
     id: 'account',
+    missReason: (instrumentId) => asker.missReason(instrumentId),
     get step() {
       return step;
     },
@@ -130,6 +134,8 @@ export async function quotesForAccount(options: {
   logger: Pick<Logger, 'warn'>;
   feeds: FeedScope;
   decide: boolean;
+  /** The worker's shared prices (N328). */
+  hub?: QuoteHub | undefined;
 }): Promise<RoutedQuotes & { step?: ChainStep | undefined }> {
   const { tx, feeds } = options;
   const chain = options.accountId ? await accountFeedChain(tx, options.accountId) : undefined;
@@ -147,5 +153,6 @@ export async function quotesForAccount(options: {
     privateKey: options.privateKey,
     logger: options.logger,
     feeds: feeds.shared ? feeds : undefined,
+    hub: options.hub,
   });
 }
