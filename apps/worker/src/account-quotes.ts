@@ -102,6 +102,9 @@ export function createAccountQuotes(options: {
     async latestQuote(ref) {
       return asker.ask(await feedFor(ref), ref);
     },
+    async freshQuote(ref) {
+      return asker.askFresh(await feedFor(ref), ref);
+    },
     async prefetch(refs) {
       const [first] = refs;
       if (!first) return;

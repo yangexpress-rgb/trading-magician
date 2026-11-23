@@ -116,6 +116,8 @@ export interface FeedAsker {
   prefetchFrom(feedId: string, refs: readonly QuoteRequest[]): Promise<void>;
   /** Whether this feed's quote for the instrument is already asked for this pass. */
   has(feedId: string, instrumentId: string): boolean;
+  /** One feed's quote asked again now, past this pass's cache (N325). */
+  askFresh(feedId: string | null, ref: QuoteRequest): Promise<Quote | undefined>;
 }
 
 /**
@@ -232,6 +234,7 @@ export function createFeedAsker(options: {
     ask,
     prefetchFrom,
     has: (feedId, instrumentId) => asked.has(`${feedId}:${instrumentId}`),
+    askFresh: askFeed,
   };
 }
 
@@ -261,7 +264,7 @@ export function createRoutedQuotes(options: {
   const userId = options.feeds?.userId ?? options.userId;
   const inFeeds: TenantRunner = options.feeds?.inTenant ?? ((fn) => fn(tx));
   const decided = new Map<string, Promise<RouteLike>>();
-  const { ask, has, prefetchFrom } = createFeedAsker({
+  const { ask, has, prefetchFrom, askFresh } = createFeedAsker({
     tx,
     userId: options.userId,
     now,
@@ -319,6 +322,11 @@ export function createRoutedQuotes(options: {
       const feedId = await feedOf(ref);
       if (feedId === undefined) return undefined;
       return ask(feedId, ref);
+    },
+    async freshQuote(ref) {
+      const feedId = await feedOf(ref);
+      if (feedId === undefined) return undefined;
+      return askFresh(feedId, ref);
     },
     /**
      * Asks each feed for many instruments at once where it can (ADR 0087), so

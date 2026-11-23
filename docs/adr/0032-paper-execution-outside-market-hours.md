@@ -1,6 +1,6 @@
 # ADR 0032: Paper execution outside market hours
 
-- **Status:** accepted
+- **Status:** accepted; the collar at the open amended by ADR 0113 (anchor at release, never on a prior session)
 - **Date:** 2026-11-05
 - **Design refs:** §6.8, §7.2, §8.6; design v1.1 deviations D2 and D3
 

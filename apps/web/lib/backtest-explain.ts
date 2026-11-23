@@ -337,8 +337,17 @@ export function explainOrder(o: BacktestOrder): string {
     switch (o.reason) {
       case null:
         return '';
-      case 'collar_cancel':
-        return `The next open was ${money(d.price)}, ${pct(d.movePct)} from the last close of ${money(d.reference)}. The price collar allows ${pct(d.limitPct)}.`;
+      case 'collar_cancel': {
+        // Since N325 the anchor is never from an earlier session; older results say less.
+        if (!d.referenceAt || !d.priceAt)
+          return `The next open was ${money(d.price)}, ${pct(d.movePct)} from the last close of ${money(d.reference)}. The price collar allows ${pct(d.limitPct)}.`;
+        const when = (v: string) => `${formatMarketTime(v, '5m')} ET`;
+        const anchor =
+          d.referenceSource === 'release_snapshot'
+            ? `${money(d.reference)} at ${when(d.referenceAt)} (release snapshot: the session's first price)`
+            : `${money(d.reference)} at ${when(d.referenceAt)} (the last close when it was decided, the same session)`;
+        return `The price was ${money(d.price)} at ${when(d.priceAt)}, ${pct(d.movePct)} from ${anchor}. The price collar allows ${pct(d.limitPct)}.`;
+      }
       case 'risk_collar':
         return `The limit price was ${pct(d.value)} from the last close. The price collar allows ${pct(d.limit)}.`;
       case 'risk_order_size':
