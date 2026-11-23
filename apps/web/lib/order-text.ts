@@ -169,6 +169,7 @@ export const INCIDENT_LABELS: Record<IncidentKindDto, string> = {
   broker_disconnected: 'Broker not responding',
   safety_close: 'Safety close',
   account_daily_loss: 'Account daily loss',
+  account_feed: 'Account data feed',
 };
 
 export const NOTIFICATION_LABELS: Record<NotificationKindDto, { label: string; tone: Tone }> = {

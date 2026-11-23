@@ -7,6 +7,7 @@ import {
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { and, asc, count, desc, eq, inArray, sql, type AnyColumn, type SQL } from 'drizzle-orm';
+import { accountFeedChains, fallbackInUse } from './account-feeds';
 import { haltText, runtimeAccountHalt } from './account-risk';
 import { recordAudit } from './audit';
 import { assertCanResume } from './entitlements';
@@ -881,6 +882,8 @@ export interface RuntimeSummary {
   accountId: string | null;
   accountName: string;
   accountMode: 'paper' | 'live';
+  /** The fallback feed its account prices from now (ADR 0108); null on its primary or routes. */
+  fallbackFeed: string | null;
   startedAt: string;
   stoppedAt: string | null;
   workingOrders: number;
@@ -976,7 +979,7 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
     .leftJoin(cycleCounts, eq(cycleCounts.runtimeId, strategyRuntimes.id))
     .where(sql`${strategyRuntimes.status} <> 'stopped' or ${working.n} > 0`)
     .orderBy(desc(strategyRuntimes.startedAt));
-  const incidents = await listOpenIncidents(tx);
+  const [incidents, chains] = await Promise.all([listOpenIncidents(tx), accountFeedChains(tx)]);
   return {
     incidents,
     halted: control?.haltedAt
@@ -992,6 +995,7 @@ export async function getExecutionStatus(tx: Transaction): Promise<ExecutionStat
       accountId: r.accountId,
       accountName: r.accountName ?? 'Unknown account',
       accountMode: r.accountMode ?? 'paper',
+      fallbackFeed: r.accountId ? (fallbackInUse(chains.get(r.accountId))?.name ?? null) : null,
       startedAt: r.startedAt.toISOString(),
       stoppedAt: iso(r.stoppedAt),
       workingOrders: Number(r.workingOrders ?? 0),

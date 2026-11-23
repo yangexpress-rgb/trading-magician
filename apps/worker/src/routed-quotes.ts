@@ -30,35 +30,38 @@ export interface RoutedQuotes extends LiveQuoteProvider {
   prefetch(refs: readonly QuoteRequest[]): Promise<void>;
 }
 
+export interface FeedAsker {
+  sourceFor(feed: RoutingFeed): Promise<LiveQuoteProvider | undefined>;
+  /** One feed's quote for an instrument, asked once per pass and stamped with the feed. */
+  ask(feedId: string | null, ref: QuoteRequest): Promise<Quote | undefined>;
+  /** Asks one feed for many instruments in one request where it can (ADR 0087). */
+  prefetchFrom(feedId: string, refs: readonly QuoteRequest[]): Promise<void>;
+  /** Whether this feed's quote for the instrument is already asked for this pass. */
+  has(feedId: string, instrumentId: string): boolean;
+}
+
 /**
- * Prices for one pass, through the tenant's routes (§9.2; ADR 0016). Each
- * instrument resolves to a route; the route's primary feed answers unless it
- * is off, silent or stale, in which case the route fails over to its
- * fallback, and back once the primary has recovered. Each route is decided
- * once per pass, so every leg of a pass sees prices from the same feed.
+ * Asks named feeds for quotes during one pass: opens each feed's source once
+ * (with its key, in the tenant that owns it), times requests out, and stamps
+ * every quote with the feed that answered (ADR 0108).
  */
-export function createRoutedQuotes(options: {
+export function createFeedAsker(options: {
   tx: Transaction;
   userId: string;
   now: Date;
-  routing: Routing;
+  feeds: Routing['feeds'];
   providers: ProviderRegistry;
   privateKey: CredentialKey | undefined;
   logger: Pick<Logger, 'warn'>;
-  /**
-   * Whose routes and feeds these are when they are not the tenant's own: the
-   * sharing admin's (N237, ADR 0084). Their keys open, and their routes fail
-   * over, in the admin's tenant, in transactions of their own.
-   */
-  feeds?: FeedScope | undefined;
-}): RoutedQuotes {
-  const { tx, now, routing } = options;
-  const userId = options.feeds?.userId ?? options.userId;
-  const inFeeds: TenantRunner = options.feeds?.inTenant ?? ((fn) => fn(tx));
+  scope?: FeedScope | undefined;
+}): FeedAsker {
+  const { tx, now } = options;
+  const userId = options.scope?.userId ?? options.userId;
+  const inFeeds: TenantRunner = options.scope?.inTenant ?? ((fn) => fn(tx));
   const at = () => now;
   const sources = new Map<string, LiveQuoteProvider | undefined>();
-  const decided = new Map<string, Promise<RouteLike>>();
   const asked = new Map<string, Promise<Quote | undefined>>();
+  const stamp = (feedId: string, q: Quote | undefined) => (q ? { ...q, feedId } : undefined);
 
   async function sourceFor(feed: RoutingFeed): Promise<LiveQuoteProvider | undefined> {
     if (sources.has(feed.id)) return sources.get(feed.id);
@@ -104,16 +107,77 @@ export function createRoutedQuotes(options: {
   }
 
   async function askFeed(feedId: string | null, ref: QuoteRequest): Promise<Quote | undefined> {
-    const feed = feedId ? routing.feeds.get(feedId) : undefined;
+    const feed = feedId ? options.feeds.get(feedId) : undefined;
     if (!feed?.isActive) return undefined;
     const source = await sourceFor(feed);
     if (!source) return undefined;
     try {
-      return await withTimeout(source.latestQuote(ref), QUOTE_TIMEOUT_MS, 'quote');
+      return stamp(feed.id, await withTimeout(source.latestQuote(ref), QUOTE_TIMEOUT_MS, 'quote'));
     } catch {
       return undefined;
     }
   }
+
+  async function prefetchFrom(feedId: string, list: readonly QuoteRequest[]): Promise<void> {
+    const feed = options.feeds.get(feedId);
+    const source = feed?.isActive ? await sourceFor(feed) : undefined;
+    if (!source?.latestQuotes || list.length < 2) return;
+    const all = withTimeout(source.latestQuotes(list), QUOTE_TIMEOUT_MS, 'quotes').catch(
+      () => undefined,
+    );
+    for (const ref of list) {
+      // A batch that fails leaves each instrument to be asked on its own.
+      asked.set(
+        `${feedId}:${ref.instrumentId}`,
+        all.then((m) => (m ? stamp(feedId, m.get(ref.instrumentId)) : askFeed(feedId, ref))),
+      );
+    }
+  }
+
+  return {
+    sourceFor,
+    ask,
+    prefetchFrom,
+    has: (feedId, instrumentId) => asked.has(`${feedId}:${instrumentId}`),
+  };
+}
+
+/**
+ * Prices for one pass, through the tenant's routes (§9.2; ADR 0016). Each
+ * instrument resolves to a route; the route's primary feed answers unless it
+ * is off, silent or stale, in which case the route fails over to its
+ * fallback, and back once the primary has recovered. Each route is decided
+ * once per pass, so every leg of a pass sees prices from the same feed.
+ */
+export function createRoutedQuotes(options: {
+  tx: Transaction;
+  userId: string;
+  now: Date;
+  routing: Routing;
+  providers: ProviderRegistry;
+  privateKey: CredentialKey | undefined;
+  logger: Pick<Logger, 'warn'>;
+  /**
+   * Whose routes and feeds these are when they are not the tenant's own: the
+   * sharing admin's (N237, ADR 0084). Their keys open, and their routes fail
+   * over, in the admin's tenant, in transactions of their own.
+   */
+  feeds?: FeedScope | undefined;
+}): RoutedQuotes {
+  const { tx, now, routing } = options;
+  const userId = options.feeds?.userId ?? options.userId;
+  const inFeeds: TenantRunner = options.feeds?.inTenant ?? ((fn) => fn(tx));
+  const decided = new Map<string, Promise<RouteLike>>();
+  const { ask, has, prefetchFrom } = createFeedAsker({
+    tx,
+    userId: options.userId,
+    now,
+    feeds: routing.feeds,
+    providers: options.providers,
+    privateKey: options.privateKey,
+    logger: options.logger,
+    scope: options.feeds,
+  });
 
   const healthy = (q: Quote | undefined) =>
     q !== undefined && quoteAgeSec(q, now) <= FAILOVER.staleSec;
@@ -172,24 +236,10 @@ export function createRoutedQuotes(options: {
       const byFeed = new Map<string, QuoteRequest[]>();
       for (const ref of refs) {
         const feedId = await feedOf(ref);
-        if (!feedId || asked.has(`${feedId}:${ref.instrumentId}`)) continue;
+        if (!feedId || has(feedId, ref.instrumentId)) continue;
         byFeed.set(feedId, [...(byFeed.get(feedId) ?? []), ref]);
       }
-      for (const [feedId, list] of byFeed) {
-        const feed = routing.feeds.get(feedId);
-        const source = feed?.isActive ? await sourceFor(feed) : undefined;
-        if (!source?.latestQuotes || list.length < 2) continue;
-        const all = withTimeout(source.latestQuotes(list), QUOTE_TIMEOUT_MS, 'quotes').catch(
-          () => undefined,
-        );
-        for (const ref of list) {
-          // A batch that fails leaves each instrument to be asked on its own.
-          asked.set(
-            `${feedId}:${ref.instrumentId}`,
-            all.then((m) => (m ? m.get(ref.instrumentId) : askFeed(feedId, ref))),
-          );
-        }
-      }
+      for (const [feedId, list] of byFeed) await prefetchFrom(feedId, list);
     },
   };
 }

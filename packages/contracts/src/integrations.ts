@@ -308,8 +308,27 @@ export interface AccountDto {
   dailyLossLimit: string | null;
   /** The halt in force: the account's kill switch, or its daily loss limit for today. */
   halt: { kind: 'kill_switch' | 'daily_loss'; at: string; reason: string | null } | null;
+  /**
+   * The account's own data feeds in order, the first its primary (ADR 0108); empty means it
+   * prices through the data routes.
+   */
+  feeds: { id: string; name: string }[];
+  /** If the data feed stops: its own setting, or null for the default of its kind. */
+  onFeedFailure: 'fallback' | 'pause' | null;
+  /** The feed pricing it now, when it has feeds of its own. */
+  feedNow: { id: string; name: string } | null;
   rowVersion: number;
 }
+
+/**
+ * An account's own data feeds (ADR 0108): in order, the first its primary; an empty list
+ * goes back to the data routes. `onFeedFailure` null means the default (paper: fallback).
+ */
+export const accountFeedsRequest = z.object({
+  feedIds: z.array(z.string().uuid()).max(5),
+  onFeedFailure: z.enum(['fallback', 'pause']).nullable(),
+});
+export type AccountFeedsRequest = z.infer<typeof accountFeedsRequest>;
 
 /** The account kill switch (ADR 0107): engage it, or release the account's halt. */
 export const accountKillSwitchRequest = z.object({

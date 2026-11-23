@@ -118,6 +118,7 @@ export async function recordOrderIntent(
       idempotencyKey: intent.idempotencyKey,
       source: intent.source,
       closeReason: intent.closeReason?.trim().slice(0, 1000) ?? null,
+      pricedByFeedId: intent.pricedByFeedId ?? null,
     })
     .onConflictDoNothing({ target: [orderIntents.userId, orderIntents.idempotencyKey] })
     .returning({ id: orderIntents.id });

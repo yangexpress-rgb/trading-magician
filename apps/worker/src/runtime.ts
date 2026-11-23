@@ -59,7 +59,7 @@ import {
   type AccountRouting,
   feedScope,
   instrumentRefs,
-  loadRouting,
+  runtimeAccountId,
   type CredentialKey,
   recordSafetyClose,
   accountExposureBook,
@@ -160,7 +160,7 @@ import { demoProvider, type ProviderRegistry } from './providers';
 import { accountResolver, createAccountRouter } from './account-router';
 import type { BrokerRegistry } from './brokers';
 import { createRoutedHistory } from './routed-history';
-import { createRoutedQuotes } from './routed-quotes';
+import { quotesForAccount } from './account-quotes';
 import { NO_COMPANY_FEED, type FundamentalsLoader } from './fundamentals';
 import { equityLimits } from './equity-limits';
 import {
@@ -343,16 +343,18 @@ export async function runRuntimePass(
       providers,
       privateKey: options.privateKey,
     });
-    // Prices come through the tenant's routes, failing over between feeds (ADR 0016).
-    const quotes = createRoutedQuotes({
+    // Prices come from the run's account's own feeds when it has any (ADR 0108),
+    // otherwise through the tenant's routes, failing over between feeds (ADR 0016).
+    const quotes = await quotesForAccount({
       tx,
       userId,
+      accountId: await runtimeAccountId(tx, runtimeId),
       now,
-      routing: feeds.shared ? await feeds.inTenant(loadRouting) : await loadRouting(tx),
       providers,
       privateKey: options.privateKey,
       logger,
-      feeds: feeds.shared ? feeds : undefined,
+      feeds,
+      decide: true,
     });
     const store = new DbPaperBrokerStore(tx, userId);
     const paper = new PaperBroker({ quotes, store, now: at });
@@ -371,6 +373,9 @@ export async function runRuntimePass(
     // Every price this pass reads, asked for together (ADR 0087): one request
     // for all the holdings instead of one each, every pass.
     await quotes.prefetch(watchedInstruments(work, new Set(members)));
+    // The account's feed stopped and it is set to pause: this run is paused now too.
+    if (quotes.step?.kind === 'pause')
+      work = withMembers((await loadRuntimeWork(tx, runtimeId, workerId)) ?? work);
 
     // Each account's orders go to its own platform: the demo one to the simulator (ADR 0018).
     const accounts = await loadAccountRouting(tx, work.accounts);
@@ -2021,6 +2026,7 @@ async function placeLeg(
     timeInForce: order.timeInForce,
     extendedHours,
     referencePrice: quote.last.toString(),
+    pricedByFeedId: quote.feedId,
     risk,
     idempotencyKey: key,
     source: 'strategy',
@@ -2183,6 +2189,7 @@ async function placeFlatten(
     timeInForce: 'day',
     extendedHours: false,
     referencePrice: quote.last.toString(),
+    pricedByFeedId: quote.feedId,
     risk,
     idempotencyKey: key,
     source: 'system',

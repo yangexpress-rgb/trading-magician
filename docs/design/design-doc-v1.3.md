@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N314, O185, ADR 0108 and migration 0105** (N311 to N313, O181 to O184, ADR 0107 and migration 0104 were taken on 2026-11-22 for Phase 7 P1; N308 to N310, O177 to O180, ADR 0106 and migration 0103 were taken on 2026-11-22 for Phase 7 P0; N306, N307, ADR 0105 and migration 0102 were taken on 2026-11-22; N304 and N305 were taken on 2026-11-19; N299 to N303 and ADR 0102 to 0104 were taken on 2026-11-18; N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N298, ADR 0101 and migrations 0100 to 0101 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N317, O190, ADR 0109 and migration 0106** (N314 to N316, O185 to O189, ADR 0108 and migration 0105 were taken on 2026-11-23 for Phase 7 P2; N311 to N313, O181 to O184, ADR 0107 and migration 0104 were taken on 2026-11-22 for Phase 7 P1; N308 to N310, O177 to O180, ADR 0106 and migration 0103 were taken on 2026-11-22 for Phase 7 P0; N306, N307, ADR 0105 and migration 0102 were taken on 2026-11-22; N304 and N305 were taken on 2026-11-19; N299 to N303 and ADR 0102 to 0104 were taken on 2026-11-18; N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N298, ADR 0101 and migrations 0100 to 0101 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -758,6 +758,8 @@ Settings › Data feeds lists feeds by kind, each with its name, provider, cover
 
 **Routes** belong to their primary price feed and are listed under it. Adding a price feed creates its bars and live-price routes where none exist, or becomes the backup of existing ones ("Make primary" moves a route). Removing a feed deletes its routes, refused only while a running strategy uses one. A primary with no quote, or one older than 60 s, fails over to the backup and switches back after 5 minutes healthy, both audited and notified; **bars routes fall back too** when the primary cannot give bars, and the series names the source and why. Each active feed is checked every minute (every 15 minutes for a custom feed with a daily limit under 3,000) and when Test is pressed; raw provider errors are logged, never shown (C21, N21, N24, N27, ADR 0038).
 
+**Each account's own feeds (N314 to N316, ADR 0108).** An account can list its own price feeds in order in Settings › Accounts (**Data feeds**): the first is its primary, the rest fallbacks, up to five. Runs on it price from that chain instead of the routes; an account without feeds uses the routes as before. **If the data feed stops** is "Use the next fallback feed" (the default on paper) or "Pause this account's runs" (the default for live accounts). The chain is judged once per run pass on the first instrument asked for (O185): a feed is down with no quote, or one older than 60 s while the market is open. On a switch the account moves to the next feed that answers, opens an **Account data feed** incident with a notification, and its runs show "Now pricing from the fallback feed …"; it moves back after the primary has been healthy for 5 minutes (O188). In pause mode its runs pause instead and wait for a person. Every order records the feed that priced it (`priced_by_feed_id`). Bars still come through the routes (O186); valuations read the feed in use without switching it (O187).
+
 **Company data feeds**: SEC EDGAR (free, no key; its only credential is a contact email, sealed like a key and sent only to the SEC in its User-Agent; under the SEC's 10 requests a second). Not routed, not behind the plan's live-data limit (C22, ADR 0031).
 
 **Options data feeds**: CBOE delayed options (daily), free and keyless, no routes. Turning it on lets the person's strategies read options metrics and turns on Research › Options and the screener's options columns; the recording itself runs once for everyone (§16.2) (N51, ADR 0047).
@@ -1080,10 +1082,11 @@ Until decided, the defaults stand: paper-only execution, no live-account enablem
 
 ## 25. Open points
 
-Every open point O1 to O184 is listed with its proposal and outcome in `v1.2-deviations.md`; most are accepted or confirmed. These are still open:
+Every open point O1 to O189 is listed with its proposal and outcome in `v1.2-deviations.md`; most are accepted or confirmed. These are still open:
 
 **Waiting on Yong's decision**
 
+- Phase 7 P2 review (N314 to N316): O185 (the account's chain is judged on the first instrument a pass asks for), O186 (bars still come through the routes), O187 (valuations never switch the chain), O188 (prices move back to the primary after 5 healthy minutes; paused runs wait for a person), O189 (the dialog saves an explicit choice).
 - Phase 7 P1 review (N311 to N313): O181 (daily loss judged on the 5-minute account valuation), O182 (the account kill switch pauses runs, not stops them), O183 (account exposure counts the app's own fills only), O184 (the daily-loss halt ends with the day; runs stay paused until resumed).
 - Phase 7 P0 review (N308 to N310): O177 (moving a run to a newer version needs editing while running, not built), O178 (the plan counts strategies, not runs), O179 (legs on several accounts trade on the run's one account), O180 (live stays impossible until P3).
 
@@ -1215,6 +1218,7 @@ Survivorship bias in built-in groups (O6); custom feeds give daily bars only and
 | N307                                               | Orders that cross zero on a shared Alpaca account go in two parts          | §9.3                                           |
 | N308 to N310                                       | Runs on accounts, account switcher and labels, cross-account safety        | §12.1, §12.5, §12.7, §13                       |
 | N311 to N313                                       | Account exposure limit, account daily-loss halt, account kill switch       | §12.3                                          |
+| N314 to N316                                       | Account feed chain, its failover or pause, the feed stamped on each order  | §15.2                                          |
 | N284, N285, N289                                   | Units on values, gain/loss colours; S numbers wherever a strategy is named | §5.1, §12.7, §13                               |
 
 N228 to N230 were not used (renumbered to N233 to N235).

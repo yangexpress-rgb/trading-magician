@@ -8,7 +8,6 @@ import {
   loadAccountToValue,
   loadLedger,
   feedScope,
-  loadRouting,
   recordValuation,
   releaseValuation,
   withTenant,
@@ -28,7 +27,7 @@ import type { Logger } from 'pino';
 import { accountResolver } from './account-router';
 import type { BrokerRegistry } from './brokers';
 import { withTimeout, type ProviderRegistry } from './providers';
-import { createRoutedQuotes } from './routed-quotes';
+import { quotesForAccount } from './account-quotes';
 
 /**
  * Values trading accounts (Design v1.0 §10.2; ADR 0020): every few minutes
@@ -92,16 +91,18 @@ export async function valueAccount(
     }
     const { ledger } = await loadLedger(tx, { accountIds: [accountId] });
 
-    // Marks come through the tenant's routes, like the strategies' prices (ADR 0016).
-    const quotes = createRoutedQuotes({
+    // Marks come from the account's own feed in use (ADR 0108), otherwise through
+    // the tenant's routes, like the strategies' prices (ADR 0016).
+    const quotes = await quotesForAccount({
       tx,
       userId,
+      accountId,
       now,
-      routing: feeds.shared ? await feeds.inTenant(loadRouting) : await loadRouting(tx),
       providers: options.providers,
       privateKey: options.privateKey,
       logger: options.logger,
-      feeds: feeds.shared ? feeds : undefined,
+      feeds,
+      decide: false,
     });
     const marks = new Map<string, Mark>();
     for (const ref of await instrumentsToMark(tx, ledger)) {

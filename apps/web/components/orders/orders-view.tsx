@@ -446,6 +446,11 @@ function Runtimes({
                 <p className="mt-1 text-xs">
                   <AccountLabel name={r.accountName} mode={r.accountMode} />
                 </p>
+                {r.status !== 'stopped' && r.fallbackFeed && (
+                  <p className="mt-1 text-xs text-warn">
+                    Now pricing from the fallback feed {r.fallbackFeed}
+                  </p>
+                )}
                 <p className="mt-1 text-ink-muted">
                   Started {when(r.startedAt)} ·{' '}
                   {r.workingOrders === 1 ? '1 working order' : `${r.workingOrders} working orders`}

@@ -5,6 +5,7 @@ import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
 import { assertFeature, assertWithinLimit, hasRoomFor } from './entitlements';
 import { definitionAccounts, type Leg } from './strategy-accounts';
+import { accountFeedChains } from './account-feeds';
 import { IntegrationError } from './feeds';
 import { notify } from './notifications';
 import {
@@ -53,6 +54,15 @@ export interface AccountSummary {
   dailyLossLimit: string | null;
   /** The halt in force, if any: its kill switch, or its daily loss limit for today. */
   halt: { kind: 'kill_switch' | 'daily_loss'; at: string; reason: string | null } | null;
+  /**
+   * The account's own data feeds in order, the first its primary (ADR 0108); empty means it
+   * prices through the data routes.
+   */
+  feeds: { id: string; name: string }[];
+  /** If the data feed stops: its own setting, or null for the default of its kind. */
+  onFeedFailure: 'fallback' | 'pause' | null;
+  /** The feed pricing it now, when it has feeds of its own. */
+  feedNow: { id: string; name: string } | null;
   rowVersion: number;
 }
 
@@ -76,6 +86,13 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
 function haltSummary(a: Parameters<typeof activeHalt>[0]): AccountSummary['halt'] {
   const halt = activeHalt(a);
   return halt ? { kind: halt.kind, at: halt.at.toISOString(), reason: halt.reason } : null;
+}
+
+function feedNow(
+  chain: { feeds: { id: string; name: string }[]; activeId: string | null } | undefined,
+) {
+  if (!chain || chain.feeds.length === 0) return null;
+  return chain.feeds.find((f) => f.id === chain.activeId) ?? chain.feeds[0] ?? null;
 }
 
 /** Running or paused runs whose orders go to any of `accountIds`. */
@@ -122,10 +139,13 @@ export async function listPlatforms(tx: Transaction): Promise<PlatformSummary[]>
     .leftJoin(credentials, eq(credentials.id, brokerConnections.credentialRef))
     .orderBy(asc(brokerConnections.createdAt));
   const accounts = await tx.select().from(tradingAccounts).orderBy(asc(tradingAccounts.createdAt));
-  const dependents = await accountDependents(
-    tx,
-    accounts.map((a) => a.id),
-  );
+  const [dependents, chains] = await Promise.all([
+    accountDependents(
+      tx,
+      accounts.map((a) => a.id),
+    ),
+    accountFeedChains(tx),
+  ]);
   return rows.map(({ p, credentialLabel }) => ({
     id: p.id,
     name: p.name,
@@ -161,6 +181,9 @@ export async function listPlatforms(tx: Transaction): Promise<PlatformSummary[]>
         maxExposure: a.maxExposure,
         dailyLossLimit: a.dailyLossLimit,
         halt: haltSummary(a),
+        feeds: chains.get(a.id)?.feeds ?? [],
+        onFeedFailure: a.feedFailure,
+        feedNow: feedNow(chains.get(a.id)),
         rowVersion: a.rowVersion,
       })),
   }));
