@@ -90,7 +90,7 @@ describe('the traffic log', () => {
     expect(obj).toMatchObject({ event: 'quotes.trail', symbols: 2, asks: 3, failedAsks: 2 });
     const failed = obj.failed as { symbol: string; lastError: string; lastOkAt: string | null }[];
     expect(failed.map((f) => f.symbol)).toEqual(['QQQ', 'SPY']);
-    expect(failed.every((f) => f.lastError === 'AlpacaRateLimitError')).toBe(true);
+    expect(failed.every((f) => f.lastError === 'throttled')).toBe(true);
     expect(failed.find((f) => f.symbol === 'SPY')!.lastOkAt).not.toBeNull();
     expect(failed.find((f) => f.symbol === 'QQQ')!.lastOkAt).toBeNull();
   });

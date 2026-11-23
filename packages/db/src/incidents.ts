@@ -51,6 +51,13 @@ export interface OpenIncidentInput {
   pause?: string[] | undefined;
   /** Where the notification should lead. */
   link?: string | undefined;
+  /**
+   * Feed incidents come from every runtime at once, so one outage is told once
+   * (N326): `first_of_kind` notifies only when no other incident of the kind is
+   * open for the person, and leaves the per-strategy pause notice to the
+   * Orders page. Default `always`.
+   */
+  notify?: 'always' | 'first_of_kind' | 'never' | undefined;
 }
 
 /** Opens an incident unless the same one is already open. */
@@ -99,6 +106,11 @@ export async function openIncident(
   }
 
   const paused = await pauseForIncident(tx, input, row.id);
+  const tell =
+    input.notify === 'never'
+      ? false
+      : input.notify !== 'first_of_kind' ||
+        !(await otherOpenOfKind(tx, input.userId, input.kind, row.id));
   if (paused.length > 0) {
     await tx
       .update(executionIncidents)
@@ -118,6 +130,7 @@ export async function openIncident(
       pausedRuntimes: paused.map((p) => p.id),
     },
   });
+  if (!tell) return { incidentId: row.id, created: true };
   await notify(tx, {
     userId: input.userId,
     kind: NOTIFICATION_FOR[input.kind],
@@ -165,7 +178,8 @@ async function pauseForIncident(tx: Transaction, input: OpenIncidentInput, incid
       resourceId: p.id,
       context: { incidentId, kind: input.kind, reason: input.summary.slice(0, 500) },
     });
-    if (NOTIFICATION_FOR[input.kind] !== 'risk_pause') {
+    // A feed outage's one notice already names what it paused (N326).
+    if (NOTIFICATION_FOR[input.kind] !== 'risk_pause' && (input.notify ?? 'always') === 'always') {
       await notify(tx, {
         userId: input.userId,
         kind: 'risk_pause',
@@ -179,6 +193,192 @@ async function pauseForIncident(tx: Transaction, input: OpenIncidentInput, incid
     }
   }
   return paused;
+}
+
+/** Whether the person has another open incident of this kind (N326). */
+async function otherOpenOfKind(
+  tx: Transaction,
+  userId: string,
+  kind: IncidentKind,
+  exceptId: string,
+  onlyBad = false,
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ n: sql<number>`1` })
+    .from(executionIncidents)
+    .where(
+      and(
+        eq(executionIncidents.userId, userId),
+        eq(executionIncidents.kind, kind),
+        isNull(executionIncidents.resolvedAt),
+        sql`${executionIncidents.id} <> ${exceptId}`,
+        onlyBad ? sql`(${executionIncidents.details} ->> 'bad') = 'true'` : sql`true`,
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
+/** Whether the person has an open incident of this kind (N326). */
+export async function hasOpenIncidentOfKind(
+  tx: Transaction,
+  userId: string,
+  kind: IncidentKind,
+): Promise<boolean> {
+  return otherOpenOfKind(tx, userId, kind, '00000000-0000-0000-0000-000000000000');
+}
+
+/**
+ * Opens or updates a runtime's price incident (N326). Its wording follows the
+ * prices as they are now, and it notifies once per outage: when the first
+ * runtime's prices go bad while no other runtime's are, not on every pass and
+ * not for each runtime. A symbol that is only subscribed but silent (N276
+ * quiet, orders still go) is listed without a notification.
+ */
+export async function openPriceIncident(
+  tx: Transaction,
+  input: {
+    userId: string;
+    runtimeId: string;
+    summary: string;
+    /** Whether prices are missing or stale (orders refused), not only silent. */
+    bad: boolean;
+    symbols: string[];
+    link: string;
+  },
+): Promise<{ incidentId: string; created: boolean; notified: boolean }> {
+  const [existing] = await tx
+    .select({ id: executionIncidents.id, details: executionIncidents.details })
+    .from(executionIncidents)
+    .where(
+      and(
+        eq(executionIncidents.userId, input.userId),
+        eq(executionIncidents.kind, 'stale_data'),
+        eq(executionIncidents.runtimeId, input.runtimeId),
+        isNull(executionIncidents.resolvedAt),
+      ),
+    )
+    .limit(1);
+  const wasBad = (existing?.details as { bad?: boolean } | undefined)?.bad === true;
+  const details = {
+    state: input.bad ? 'stale' : 'silent',
+    bad: wasBad || input.bad,
+    symbols: input.symbols.slice(0, 50),
+  };
+  let incidentId: string;
+  let created = false;
+  if (existing) {
+    incidentId = existing.id;
+    await tx
+      .update(executionIncidents)
+      .set({
+        summary: input.summary.slice(0, 500),
+        details: sql`${executionIncidents.details} || ${JSON.stringify(details)}::jsonb`,
+      })
+      .where(eq(executionIncidents.id, existing.id));
+  } else {
+    const opened = await openIncident(tx, {
+      userId: input.userId,
+      kind: 'stale_data',
+      runtimeId: input.runtimeId,
+      summary: input.summary,
+      details,
+      link: input.link,
+      // Told below, once per outage.
+      notify: 'never',
+    });
+    if (!opened.incidentId) return { incidentId: '', created: false, notified: false };
+    incidentId = opened.incidentId;
+    created = opened.created;
+  }
+  // The outage starts with the first runtime whose prices go bad.
+  let notified = false;
+  if (
+    input.bad &&
+    !wasBad &&
+    !(await otherOpenOfKind(tx, input.userId, 'stale_data', incidentId, true))
+  ) {
+    await notify(tx, {
+      userId: input.userId,
+      kind: 'stale_data',
+      title: TITLES.stale_data,
+      body: input.summary,
+      link: input.link,
+      resourceType: 'execution_incident',
+      resourceId: incidentId,
+      dedupeKey: `incident:${incidentId}`,
+    });
+    notified = true;
+  }
+  return { incidentId, created, notified };
+}
+
+/** "3 min 12 s", "45 s", "1 h 4 min". */
+export function durationText(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return s % 60 === 0 ? `${m} min` : `${m} min ${s % 60} s`;
+  const h = Math.floor(m / 60);
+  return m % 60 === 0 ? `${h} h` : `${h} h ${m % 60} min`;
+}
+
+/**
+ * Closes a runtime's price incident once its prices have been current again
+ * (N326), recording how long it lasted. When it was the last runtime with bad
+ * prices, one notification says the outage is over and how long it took.
+ */
+export async function closePriceIncident(
+  tx: Transaction,
+  input: { userId: string; runtimeId: string; durationSec: number; why: string; link: string },
+): Promise<boolean> {
+  const open = await tx
+    .select({
+      id: executionIncidents.id,
+      details: executionIncidents.details,
+      summary: executionIncidents.summary,
+    })
+    .from(executionIncidents)
+    .where(
+      and(
+        eq(executionIncidents.userId, input.userId),
+        eq(executionIncidents.kind, 'stale_data'),
+        eq(executionIncidents.runtimeId, input.runtimeId),
+        isNull(executionIncidents.resolvedAt),
+      ),
+    );
+  if (open.length === 0) return false;
+  const took = durationText(input.durationSec);
+  for (const i of open) {
+    await resolveIncident(tx, {
+      userId: input.userId,
+      incidentId: i.id,
+      by: 'system',
+      note: `Closed on its own after ${took}: ${input.why}.`,
+    });
+    await tx
+      .update(executionIncidents)
+      .set({
+        details: sql`${executionIncidents.details} || ${JSON.stringify({ durationSec: Math.round(input.durationSec) })}::jsonb`,
+      })
+      .where(eq(executionIncidents.id, i.id));
+  }
+  const wasBad = open.some((i) => (i.details as { bad?: boolean }).bad === true);
+  const [first] = open;
+  if (!wasBad || !first) return true;
+  if (await otherOpenOfKind(tx, input.userId, 'stale_data', first.id, true)) return true;
+  const symbols = ((first.details as { symbols?: string[] }).symbols ?? []).join(', ');
+  await notify(tx, {
+    userId: input.userId,
+    kind: 'stale_data',
+    title: 'Prices are current again',
+    body: `Live prices${symbols ? ` for ${symbols}` : ''} are current again after ${took}. The incident closed on its own.`,
+    link: input.link,
+    resourceType: 'execution_incident',
+    resourceId: first.id,
+    dedupeKey: `incident_closed:${first.id}`,
+  });
+  return true;
 }
 
 /** Closes an open incident. A person's resolution can carry a note. */
@@ -242,6 +442,51 @@ export interface IncidentRow {
   details: unknown;
   pausedRuntimes: number;
   openedAt: string;
+}
+
+export interface ClosedIncidentRow extends IncidentRow {
+  resolvedAt: string;
+  resolution: string | null;
+  /** How long it lasted, when the system closed it (N326). */
+  durationSec: number | null;
+}
+
+/**
+ * Price incidents that closed themselves in the last few hours (N326), so the
+ * Orders page can show that an outage happened and how long it lasted.
+ */
+export async function listRecentlyClosedFeedIncidents(
+  tx: Transaction,
+  withinMs = 4 * 60 * 60_000,
+): Promise<ClosedIncidentRow[]> {
+  const rows = await tx
+    .select()
+    .from(executionIncidents)
+    .where(
+      and(
+        inArray(executionIncidents.kind, ['stale_data', 'feed_loss']),
+        eq(executionIncidents.resolvedBy, 'system'),
+        sql`${executionIncidents.resolvedAt} > now() - make_interval(secs => ${withinMs / 1000})`,
+      ),
+    )
+    .orderBy(desc(executionIncidents.resolvedAt))
+    .limit(10);
+  return rows.map((r) => {
+    const d = (r.details ?? {}) as { durationSec?: unknown };
+    return {
+      id: r.id,
+      kind: r.kind as IncidentKind,
+      runtimeId: r.runtimeId,
+      accountId: r.accountId,
+      summary: r.summary,
+      details: r.details,
+      pausedRuntimes: r.pausedRuntimes,
+      openedAt: r.openedAt.toISOString(),
+      resolvedAt: (r.resolvedAt ?? r.openedAt).toISOString(),
+      resolution: r.resolution,
+      durationSec: typeof d.durationSec === 'number' ? d.durationSec : null,
+    };
+  });
 }
 
 export async function listOpenIncidents(tx: Transaction): Promise<IncidentRow[]> {

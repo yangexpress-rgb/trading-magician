@@ -61,6 +61,25 @@ const LIVE_TEXT: Record<LiveState, string> = {
   reconnecting: 'Reconnecting live updates…',
 };
 
+/** Price incidents close themselves once prices are current again (N326). */
+const selfClosing = (i: IncidentDto) => i.kind === 'stale_data';
+
+/** A subscribed-but-silent price incident has its own label (N326). */
+function incidentLabel(i: IncidentDto) {
+  const state = (i.details as { state?: unknown } | null)?.state;
+  return i.kind === 'stale_data' && state === 'silent' ? 'Silent prices' : INCIDENT_LABELS[i.kind];
+}
+
+/** "3 min 12 s", "45 s", "1 h 4 min". */
+function durationText(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return s % 60 === 0 ? `${m} min` : `${m} min ${s % 60} s`;
+  const h = Math.floor(m / 60);
+  return m % 60 === 0 ? `${h} h` : `${h} h ${m % 60} min`;
+}
+
 function label(map: Record<string, string>, key: string) {
   return map[key] ?? key;
 }
@@ -106,7 +125,15 @@ function ExecutionBanner({
     }
   }
 
-  if (!status.halted && paused.length === 0 && status.incidents.length === 0 && !done) return null;
+  const closed = status.recentlyClosed ?? [];
+  if (
+    !status.halted &&
+    paused.length === 0 &&
+    status.incidents.length === 0 &&
+    closed.length === 0 &&
+    !done
+  )
+    return null;
   return (
     <div className="mb-4 space-y-2">
       {status.incidents.length > 0 && (
@@ -122,25 +149,56 @@ function ExecutionBanner({
           <ul className="mt-1 space-y-2">
             {status.incidents.map((i) => (
               <li key={i.id} className="flex flex-wrap items-start gap-2">
-                <Badge tone="danger">{INCIDENT_LABELS[i.kind]}</Badge>
+                <Badge tone="danger">{incidentLabel(i)}</Badge>
                 <span className="min-w-0 flex-1">
                   {i.summary}{' '}
                   <span className="text-xs text-ink-muted">Opened {when(i.openedAt)}</span>
                 </span>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setNote('');
-                    setError(null);
-                    setResolving(i);
-                  }}
-                >
-                  Mark resolved
-                </Button>
+                {selfClosing(i) ? (
+                  <span className="text-xs text-ink-muted">
+                    Closes on its own once prices are current for 30 s
+                  </span>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setNote('');
+                      setError(null);
+                      setResolving(i);
+                    }}
+                  >
+                    Mark resolved
+                  </Button>
+                )}
               </li>
             ))}
           </ul>
         </section>
+      )}
+      {closed.length > 0 && (
+        <details className="rounded-md border border-line px-3 py-2 text-sm">
+          <summary className="cursor-pointer text-ink-muted">
+            {closed.length === 1
+              ? '1 price incident closed on its own lately'
+              : `${closed.length} price incidents closed on their own lately`}
+          </summary>
+          <ul className="mt-1 space-y-2">
+            {closed.map((i) => (
+              <li key={i.id} className="flex flex-wrap items-start gap-2">
+                <Badge tone="neutral">{incidentLabel(i)}</Badge>
+                <span className="min-w-0 flex-1">
+                  {i.summary}{' '}
+                  <span className="text-xs text-ink-muted">
+                    Opened {when(i.openedAt)}
+                    {i.durationSec !== null
+                      ? `, lasted ${durationText(i.durationSec)}`
+                      : `, closed ${when(i.resolvedAt)}`}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
       {status.halted && (
         <div

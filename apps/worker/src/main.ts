@@ -239,15 +239,17 @@ if (databaseUrl) {
     privateKey: credentialKey,
     fundamentals: companyFilings,
     // Bars, group members and side data stay loaded between passes (ADR 0087).
-    caches: createRuntimeCaches((userId, group) =>
-      resolveBuiltinUniverse({
-        db: handle.db,
-        userId,
-        group,
-        providers,
-        privateKey: credentialKey,
-        now: () => new Date(),
-      }),
+    caches: createRuntimeCaches(
+      (userId, group) =>
+        resolveBuiltinUniverse({
+          db: handle.db,
+          userId,
+          group,
+          providers,
+          privateKey: credentialKey,
+          now: () => new Date(),
+        }),
+      logger,
     ),
     logger,
     pollMs: env.RUNTIME_POLL_MS,
