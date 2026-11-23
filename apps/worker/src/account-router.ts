@@ -8,6 +8,7 @@ import {
 } from '@tm/db';
 import {
   BrokerUnavailableError,
+  liveTradingEnabled,
   type BrokerAdapter,
   type BrokerCapabilities,
   type BrokerOrderRequest,
@@ -84,6 +85,13 @@ export function accountResolver(options: {
     if (!account.platformActive) {
       throw new AccountUnavailableError(`${account.nickname}'s platform is turned off`);
     }
+    // The order's run → account → environment decides the endpoint (ADR 0109). A live
+    // account is reached only while the server's live-trading flag is on.
+    if (account.environment === 'live' && !liveTradingEnabled()) {
+      throw new AccountUnavailableError(
+        `${account.nickname} is a live account and live trading is turned off on this server`,
+      );
+    }
     let credential: OpenedCredential | undefined;
     if (provider.needsCredential) {
       if (!account.credentialRef) {
@@ -99,8 +107,15 @@ export function accountResolver(options: {
         throw new AccountUnavailableError(`${account.nickname}'s API key could not be opened`);
       }
     }
-    return provider.adapter({ now: options.now, credential }, account, (symbol) =>
-      instrumentIdForSymbol(tx, symbol),
+    if (credential && credential.environment !== account.environment) {
+      throw new AccountUnavailableError(
+        `${account.nickname}'s API key is for ${credential.environment}, not ${account.environment}`,
+      );
+    }
+    return provider.adapter(
+      { now: options.now, credential, environment: account.environment },
+      account,
+      (symbol) => instrumentIdForSymbol(tx, symbol),
     );
   };
 }

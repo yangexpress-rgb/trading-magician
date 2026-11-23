@@ -36,6 +36,15 @@ export interface AccountOption {
   mode: 'paper' | 'live';
   /** The account new legs start on: a broker's paper account when there is one. */
   isDefault: boolean;
+  /** The account's own limits (N311), in dollars; null when not set. */
+  maxExposure?: string | null | undefined;
+  dailyLossLimit?: string | null | undefined;
+  /** A live account's pilot caps while in pilot mode (N318); null otherwise. */
+  pilot?: { maxOrder: string; maxExposure: string } | null | undefined;
+  /** What the broker last reported (N320): equity, day trades in 5 days, margin. */
+  brokerEquity?: string | null | undefined;
+  brokerDayTrades?: number | null | undefined;
+  brokerMargin?: boolean | null | undefined;
 }
 
 export interface EditorContextValue {

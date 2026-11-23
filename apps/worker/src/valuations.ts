@@ -8,6 +8,7 @@ import {
   loadAccountToValue,
   loadLedger,
   feedScope,
+  recordBrokerFigures,
   recordValuation,
   releaseValuation,
   withTenant,
@@ -137,6 +138,8 @@ export async function valueAccount(
         VALUATIONS.timeoutMs,
         'The broker',
       );
+      // Day trades, equity and margin, for pattern-day-trader awareness (ADR 0109).
+      await recordBrokerFigures(tx, accountId, balance);
       broker = {
         balance,
         positions: new Map(positions.map((p) => [p.instrumentId, new Decimal(p.quantity)])),

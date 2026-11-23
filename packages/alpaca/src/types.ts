@@ -17,6 +17,8 @@ export interface AlpacaAccount {
   account_blocked: boolean;
   shorting_enabled: boolean;
   multiplier: string;
+  /** Day trades in the rolling five business days (pattern-day-trader rule). */
+  daytrade_count?: number | undefined;
   created_at: string;
 }
 

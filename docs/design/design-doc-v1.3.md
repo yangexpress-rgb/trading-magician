@@ -45,7 +45,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 4. **Missing data is never zero.** An unknown value makes its condition false and leaves a member out of a ranking, with the reason recorded (N1, N35; one stated exception, O19).
 5. **Point in time.** Filings, earnings, deals, options signals and model scores are read as they were known at each bar, never later (N34, N57, N137, N240).
 6. **Backward compatible.** Saved strategies keep their results: definitions are migrated on read, never rewritten, and a regression corpus of every fixture back test re-runs identically (N15, N84, N214).
-7. **Paper only.** Live trading is off by a compile-time constant and database checks on every mode column; no setting turns it on (C27, ADR 0002).
+7. **Paper unless the server allows live.** Live trading is off unless the server runs with `LIVE_TRADING_ENABLED=true`; even then each real-money step is a separate deliberate action (a live key, a real-money acknowledgement, a live start confirmation, pilot caps until ended), and database checks keep every account, run and order in its platform's environment (C27, ADR 0002, ADR 0109).
 
 ---
 
@@ -61,7 +61,7 @@ Help (the new-user guide) follows Settings; platform admins also see Admin (§5.
 Rules for later revisions:
 
 - A change is its own pull request. A change that alters a design choice adds an ADR in `docs/adr` and updates this document **in the body**, citing a new row number in the same N series; open questions continue the O series in `v1.2-deviations.md`.
-- Numbers continue from the repository head. At v1.3 the next free numbers are **N317, O190, ADR 0109 and migration 0106** (N314 to N316, O185 to O189, ADR 0108 and migration 0105 were taken on 2026-11-23 for Phase 7 P2; N311 to N313, O181 to O184, ADR 0107 and migration 0104 were taken on 2026-11-22 for Phase 7 P1; N308 to N310, O177 to O180, ADR 0106 and migration 0103 were taken on 2026-11-22 for Phase 7 P0; N306, N307, ADR 0105 and migration 0102 were taken on 2026-11-22; N304 and N305 were taken on 2026-11-19; N299 to N303 and ADR 0102 to 0104 were taken on 2026-11-18; N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N298, ADR 0101 and migrations 0100 to 0101 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
+- Numbers continue from the repository head. At v1.3 the next free numbers are **N322, O197, ADR 0110 and migration 0107** (N317 to N321, O190 to O196, ADR 0109 and migration 0106 were taken on 2026-11-23 for Phase 7 P3; N314 to N316, O185 to O189, ADR 0108 and migration 0105 were taken on 2026-11-23 for Phase 7 P2; N311 to N313, O181 to O184, ADR 0107 and migration 0104 were taken on 2026-11-22 for Phase 7 P1; N308 to N310, O177 to O180, ADR 0106 and migration 0103 were taken on 2026-11-22 for Phase 7 P0; N306, N307, ADR 0105 and migration 0102 were taken on 2026-11-22; N304 and N305 were taken on 2026-11-19; N299 to N303 and ADR 0102 to 0104 were taken on 2026-11-18; N276 to N291, ADR 0096 to 0100 and migrations 0097 to 0099 were taken on 2026-11-16; N292 to N298, ADR 0101 and migrations 0100 to 0101 on 2026-11-17); other threads take numbers concurrently, so check `main` first.
 - **v1.x** stays for clarifications, UX changes and backward-compatible additions. **v2.0** is for a material change to the strategy model, execution model, data architecture or scope (live trading would qualify).
 
 ---
@@ -610,6 +610,8 @@ Strategy exposure and the daily loss limit are per run, so a strategy running on
 
 - **Account limits (N311 to N313, ADR 0107; closes the account part of D4).** An account can carry its own **maximum total exposure** and **daily loss limit**, set in Settings › Accounts (**Set limits**), above every strategy's own. They are optional; an account without them trades as before. Account exposure (`risk_account_exposure`) is checked after strategy exposure for orders that open or add risk: the order plus everything the app holds on the account across every run, plus every run's unfilled Entry orders there. It is a capacity refusal (N300). The account's loss for the New York day is judged on each account valuation (every 5 minutes, O181): reaching the limit halts the account for the rest of the day, pausing every run on it with an **Account daily loss** incident and a notification; positions stay. The **account kill switch** pauses every run on one account and cancels its working orders until **Release halt**. A halted account starts and resumes nothing, automatic resumes included; releasing resumes nothing. Other accounts are never touched.
 
+- **Pilot mode on live accounts (N318, ADR 0109).** A new live account trades under hard caps, $500 per order and $2,500 total exposure by default, changeable within $5,000 and $25,000 (**Pilot caps** in Settings › Accounts) until the owner chooses **End pilot mode**. Openings above a cap are refused before the broker with the plain reason ("Pilot cap per order: $5,000, limit $500"); closes are not held to the caps (O190).
+
 Not yet built and required before real trading: per-symbol and per-asset-class limits (v1.1 deviation D4).
 
 ### 12.4 Automatic pauses
@@ -621,6 +623,7 @@ A strategy pauses itself after 3 rejected or failed orders in a row since the la
 When a trigger and timing qualify, each leg becomes an immutable **order intent** recording user, strategy, version, cycle, phase, leg, trigger event and values, timing event, account, instrument, requested fields, risk-check result and an idempotency key (`tm1-` plus 32 hex characters from runtime, cycle, phase, leg and attempt, sent as the broker's client order id). Broker ids, acknowledgements, updates, fills, fees and rejection reasons are appended, never overwritten (C27, ADR 0010).
 
 - **Safety closes say why (N306, ADR 0105).** A closing order the app places on its own ("Safety close": the strategy trailing stop, Flatten at session end, or a failed multi-leg plan that closes filled legs) records its reason in words; one without a reason is refused. The reason shows on the order details and under the order in the list, and each pass that places safety closes logs a **Safety close** incident naming the strategy, the symbols and the reason, with a notification. It pauses nothing; a newer one for the same strategy resolves the older one.
+- **The live gate (N317, N319 to N321, ADR 0109).** Live trading needs the server's `LIVE_TRADING_ENABLED=true` (off by default; with it off nothing changes). An account's mode is its platform's environment, a run's its account's and an order's its run's, checked by the database; at the broker adapter the run's account's environment picks the endpoint, and the Alpaca live host is allowed only for a live account with the flag on and a live key. Adding a live platform needs a live key, a platform admin and the real-money acknowledgement (O192). Starting a run on a live account has its own confirmation (**Start on real money?**: the strategy, the account, its limits and pilot caps, and a real-money checkbox), needs a real-time feed among the account's chain or routes ("This account's data is delayed — live trading needs a real-time feed."), and each refused live start is audited. A live account shows the broker's day-trade count for 5 days, and an intraday start on a live margin account under $25,000 warns: "This account is under $25,000 — the broker limits it to 3 day trades in 5 days." (N320, O194, O195).
 - **An order goes only to its own run's account (N310, ADR 0106).** Recording an intent for another account is refused, the database refuses it too (`order_intent_run_account`), and the runtime refuses and audits any ready order whose account is not its run's before it reaches the broker adapter.
 - **Strategies sharing an Alpaca account (N307, ADR 0105).** Alpaca keeps one net position per symbol per account and refuses an order that would take it through zero, while the app keeps one book per strategy. Such an order goes in two parts under one intent: what the account holds now, then the rest once that has filled, so each strategy can always close its own full position even while another holds the opposite side.
 
@@ -1082,10 +1085,11 @@ Until decided, the defaults stand: paper-only execution, no live-account enablem
 
 ## 25. Open points
 
-Every open point O1 to O189 is listed with its proposal and outcome in `v1.2-deviations.md`; most are accepted or confirmed. These are still open:
+Every open point O1 to O196 is listed with its proposal and outcome in `v1.2-deviations.md`; most are accepted or confirmed. These are still open:
 
 **Waiting on Yong's decision**
 
+- Phase 7 P3 review (N317 to N321): O190 (pilot caps hold openings only), O191 (pilot cap ceiling $5,000 per order and $25,000 in total), O192 (live platforms for platform admins only), O193 (no plan check for live platforms), O194 (what counts as intraday for the PDT warning), O195 (day trades and equity are the broker's figures, every 5 minutes), O196 (a live account is never the default for new legs). Live stays off on staging until Yong sets `LIVE_TRADING_ENABLED=true`.
 - Phase 7 P2 review (N314 to N316): O185 (the account's chain is judged on the first instrument a pass asks for), O186 (bars still come through the routes), O187 (valuations never switch the chain), O188 (prices move back to the primary after 5 healthy minutes; paused runs wait for a person), O189 (the dialog saves an explicit choice).
 - Phase 7 P1 review (N311 to N313): O181 (daily loss judged on the 5-minute account valuation), O182 (the account kill switch pauses runs, not stops them), O183 (account exposure counts the app's own fills only), O184 (the daily-loss halt ends with the day; runs stay paused until resumed).
 - Phase 7 P0 review (N308 to N310): O177 (moving a run to a newer version needs editing while running, not built), O178 (the plan counts strategies, not runs), O179 (legs on several accounts trade on the run's one account), O180 (live stays impossible until P3).
@@ -1219,6 +1223,7 @@ Survivorship bias in built-in groups (O6); custom feeds give daily bars only and
 | N308 to N310                                       | Runs on accounts, account switcher and labels, cross-account safety        | §12.1, §12.5, §12.7, §13                       |
 | N311 to N313                                       | Account exposure limit, account daily-loss halt, account kill switch       | §12.3                                          |
 | N314 to N316                                       | Account feed chain, its failover or pause, the feed stamped on each order  | §15.2                                          |
+| N317 to N321                                       | Live gate: server flag, live platforms, pilot caps, PDT, live start        | §1, §12.3, §12.5                               |
 | N284, N285, N289                                   | Units on values, gain/loss colours; S numbers wherever a strategy is named | §5.1, §12.7, §13                               |
 
 N228 to N230 were not used (renumbered to N233 to N235).

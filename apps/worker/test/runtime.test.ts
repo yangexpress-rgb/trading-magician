@@ -4,6 +4,7 @@ import {
   claimRuntimes,
   createFeed,
   saveOptionSignal,
+  setAccountFeeds,
   createStrategy,
   eq,
   getExecutionStatus,
@@ -524,6 +525,86 @@ describe("paper runtime: the account's own exposure limit (ADR 0107)", () => {
       select 1 from paper_order where account_id = ${capped!.id}`;
     expect(atBroker).toHaveLength(0);
     await stopAll();
+  });
+});
+
+describe('live gate: pilot caps on a live-flagged account (ADR 0109, A7)', () => {
+  it('refuses an order above the pilot cap with the plain reason, before the broker', async () => {
+    clock = T0 + 2 * 86_400_000;
+    await stopAll();
+    process.env.LIVE_TRADING_ENABLED = 'true';
+    try {
+      const [first] = await asUser((tx) => tx.select().from(schema.tradingAccounts));
+      // A test live account on the simulated broker: nothing can reach a real one here.
+      const [connection] = await t.owner.db
+        .insert(schema.brokerConnections)
+        .values({
+          userId,
+          name: 'Test live',
+          provider: 'demo',
+          environment: 'live',
+          realMoneyAcknowledgedAt: new Date(),
+        })
+        .returning();
+      const [live] = await t.owner.db
+        .insert(schema.tradingAccounts)
+        .values({
+          userId,
+          brokerConnectionId: connection!.id,
+          nickname: 'Test live account',
+          externalId: 'test-live',
+          maskedExternalId: '••••0009',
+          currency: 'USD',
+          capabilities: first!.capabilities,
+          mode: 'live',
+          pilotMaxOrder: '1',
+          pilotMaxExposure: '2500',
+        })
+        .returning();
+      const [feed] = await t.owner.db
+        .insert(schema.dataFeedConnections)
+        .values({
+          userId,
+          name: 'Real-time test feed',
+          provider: 'demo',
+          assetClasses: ['stock', 'etf'],
+          isRealtime: true,
+        })
+        .returning();
+      await asUser((tx) => setAccountFeeds(tx, userId, live!.id, { feedIds: [feed!.id] }));
+      const s = await asUser(async (tx) => {
+        let created = await createStrategy(tx, userId, {
+          name: 'Pilot capped',
+          definition: pairDefinition(),
+        });
+        created = await updateStrategy(tx, userId, created.id, {
+          rowVersion: created.rowVersion,
+          status: 'under_testing',
+        });
+        const { validation } = await validateStoredStrategy(tx, created.id, live!.id);
+        return startStrategy(tx, userId, created.id, {
+          rowVersion: created.rowVersion,
+          confirmed: true,
+          acknowledgedWarnings: validation.warnings.map((w) => w.code),
+          accountId: live!.id,
+          mode: 'live',
+          liveConfirmed: true,
+        });
+      });
+      const run = s.runs.find((r) => r.accountId === live!.id)!.runtimeId;
+      await pass();
+      const placed = await orders(run);
+      expect(placed.length).toBeGreaterThan(0);
+      expect(placed.every((o) => o.reason === 'Risk check failed: risk_pilot_order')).toBe(true);
+      const intents = await t.ownerSql<{ mode: string }[]>`
+        select distinct mode from order_intent where runtime_id = ${run}`;
+      expect(intents.map((i) => i.mode)).toEqual(['live']);
+      const atBroker = await t.ownerSql`select 1 from paper_order where account_id = ${live!.id}`;
+      expect(atBroker).toHaveLength(0);
+    } finally {
+      delete process.env.LIVE_TRADING_ENABLED;
+      await stopAll();
+    }
   });
 });
 

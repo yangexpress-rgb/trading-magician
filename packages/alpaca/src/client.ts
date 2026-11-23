@@ -1,9 +1,10 @@
 import { BrokerUnavailableError } from '@tm/domain';
 import {
   ALPACA_DATA_URL,
+  ALPACA_LIVE_TRADING_URL,
   ALPACA_PAPER_TRADING_URL,
   assertDataUrl,
-  assertPaperTradingUrl,
+  assertTradingUrl,
 } from './endpoints';
 import { sharedAlpacaBudget, type AlpacaRequestBudget } from './budget';
 
@@ -28,6 +29,10 @@ export interface AlpacaClientOptions {
   dataUrl?: string | undefined;
   /** Tests only: allows a local fake in place of Alpaca's hosts. */
   allowLocal?: boolean | undefined;
+  /** The account's environment (ADR 0109): paper unless said otherwise. */
+  environment?: 'paper' | 'live' | undefined;
+  /** Live only: the server's live-trading flag; without it the live host is refused. */
+  liveEnabled?: boolean | undefined;
   timeoutMs?: number | undefined;
   /**
    * Background work (the options recording) waits for room in the key's
@@ -82,6 +87,7 @@ type Query = Record<string, string | number | boolean | undefined>;
 export class AlpacaClient {
   readonly tradingUrl: string;
   readonly dataUrl: string;
+  readonly environment: 'paper' | 'live';
   private readonly fetch: Fetch;
   private readonly timeoutMs: number;
   private readonly headers: Record<string, string>;
@@ -90,9 +96,16 @@ export class AlpacaClient {
   private readonly budget: AlpacaRequestBudget;
 
   constructor(options: AlpacaClientOptions) {
-    this.tradingUrl = options.tradingUrl ?? ALPACA_PAPER_TRADING_URL;
+    const environment = options.environment ?? 'paper';
+    this.environment = environment;
+    this.tradingUrl =
+      options.tradingUrl ??
+      (environment === 'live' ? ALPACA_LIVE_TRADING_URL : ALPACA_PAPER_TRADING_URL);
     this.dataUrl = options.dataUrl ?? ALPACA_DATA_URL;
-    assertPaperTradingUrl(this.tradingUrl, { allowLocal: options.allowLocal ?? false });
+    assertTradingUrl(this.tradingUrl, environment, {
+      allowLocal: options.allowLocal ?? false,
+      liveEnabled: options.liveEnabled ?? false,
+    });
     assertDataUrl(this.dataUrl, { allowLocal: options.allowLocal ?? false });
     this.fetch = options.fetch ?? ((url, init) => fetch(url, init));
     this.timeoutMs = options.timeoutMs ?? 10_000;

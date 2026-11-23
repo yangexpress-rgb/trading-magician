@@ -1,6 +1,7 @@
 # ADR 0002: Paper-only guard
 
-- **Status:** accepted
+- **Status:** superseded in part by ADR 0109 (the constant became the server's `LIVE_TRADING_ENABLED`
+  flag, off by default, and the paper-only checks became environment checks)
 - **Date:** 2026-10-04
 - **Design refs:** §18, §21 engineering rules, §22
 

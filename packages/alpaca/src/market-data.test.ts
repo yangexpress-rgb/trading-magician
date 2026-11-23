@@ -3,7 +3,7 @@ import { describeHistoryContract, describeLiveQuoteContract } from '@tm/market-d
 import { describe, expect, it } from 'vitest';
 import { discoverAlpacaAccount, lookupAlpacaAsset } from './account';
 import { AlpacaClient } from './client';
-import { assertPaperTradingUrl, LiveEndpointError } from './endpoints';
+import { assertPaperTradingUrl, assertTradingUrl, LiveEndpointError } from './endpoints';
 import { checkAlpacaData, createAlpacaHistory, createAlpacaQuotes } from './market-data';
 import account from './testing/fixtures/account.json';
 import asset from './testing/fixtures/asset.json';
@@ -61,6 +61,22 @@ describe('Alpaca endpoints', () => {
           tradingUrl: 'https://api.alpaca.markets',
           allowLocal: true,
         }),
+    ).toThrow(LiveEndpointError);
+  });
+
+  it('sends a live account to the live host only with live trading on (ADR 0109)', () => {
+    const live = (liveEnabled: boolean, tradingUrl?: string) =>
+      new AlpacaClient({
+        credentials: { keyId: 'k', secretKey: 's' },
+        environment: 'live',
+        liveEnabled,
+        ...(tradingUrl ? { tradingUrl } : {}),
+      });
+    expect(() => live(false)).toThrow(LiveEndpointError);
+    expect(live(true).tradingUrl).toBe('https://api.alpaca.markets');
+    expect(() => live(true, 'https://paper-api.alpaca.markets')).toThrow(LiveEndpointError);
+    expect(() =>
+      assertTradingUrl('https://api.alpaca.markets', 'paper', { liveEnabled: true }),
     ).toThrow(LiveEndpointError);
   });
 

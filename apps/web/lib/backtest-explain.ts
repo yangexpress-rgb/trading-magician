@@ -347,6 +347,10 @@ export function explainOrder(o: BacktestOrder): string {
         return `Exposure would have reached ${money(d.value)}, above the maximum strategy exposure of ${money(d.limit)}.`;
       case 'risk_account_exposure':
         return `The account's exposure would have reached ${money(d.value)}, above its maximum of ${money(d.limit)}.`;
+      case 'risk_pilot_order':
+        return `The order was worth ${money(d.value)}, above the live account's pilot cap of ${money(d.limit)} per order.`;
+      case 'risk_pilot_exposure':
+        return `The live account's exposure would have reached ${money(d.value)}, above its pilot cap of ${money(d.limit)}.`;
       case 'buying_power':
         return `Exposure would have reached ${money(d.value)}, more than the ${money(d.limit)} of equity (no leverage).`;
       case 'risk_active_orders':

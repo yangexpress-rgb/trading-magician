@@ -97,6 +97,9 @@ test('connects a second paper account, makes it the default and turns one off sa
   await page.getByRole('button', { name: 'Add a platform' }).click();
   const add = page.getByRole('dialog', { name: 'Add a trading platform' });
   await add.getByLabel('Platform').selectOption({ label: 'Alpaca' });
+  // Live trading is off on this server (A8): no live choice and no real-money step.
+  await expect(add.getByLabel('Paper or live')).toHaveCount(0);
+  await expect(add.getByText(/real money/)).toHaveCount(0);
   await add.getByLabel('Name', { exact: true }).fill('Alpaca');
   await add.getByLabel('API key ID').fill(FAKE_KEY_ID);
   await add.getByLabel('Secret key').fill(FAKE_SECRET);

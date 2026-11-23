@@ -78,7 +78,7 @@ export async function recordOrderIntent(
   // A6 (N310): an order only ever goes to its own run's account. The database refuses
   // one that doesn't too (migration 0103); this says so in words first.
   const [run] = await tx
-    .select({ accountId: strategyRuntimes.accountId })
+    .select({ accountId: strategyRuntimes.accountId, mode: strategyRuntimes.mode })
     .from(strategyRuntimes)
     .where(eq(strategyRuntimes.id, intent.runtimeId));
   // A run this tenant can't see is left to the foreign key, which refuses it.
@@ -119,6 +119,8 @@ export async function recordOrderIntent(
       source: intent.source,
       closeReason: intent.closeReason?.trim().slice(0, 1000) ?? null,
       pricedByFeedId: intent.pricedByFeedId ?? null,
+      // Paper or live as its run (and so its account) is (ADR 0109).
+      mode: run?.mode ?? 'paper',
     })
     .onConflictDoNothing({ target: [orderIntents.userId, orderIntents.idempotencyKey] })
     .returning({ id: orderIntents.id });

@@ -50,6 +50,7 @@ import {
 import { activeOptionsFeed, addOptionUnderlyings, listOptionUniverse } from './options';
 import { demoDataEnabled } from './demo';
 import { accountHalt, haltText } from './account-risk';
+import { liveStartProblem } from './live-gate';
 import { recordAudit } from './audit';
 import { preferredLegAccountId } from './leg-accounts';
 import { bindDefinitionToAccount, legsAccount } from './strategy-accounts';
@@ -1074,6 +1075,13 @@ export interface StartStrategyInput {
    * name. A strategy already running on other accounts gets one more run.
    */
   accountId?: string | undefined;
+  /**
+   * A live account's own confirmation (ADR 0109), separate from paper: the person saw the
+   * strategy, the account and its limits and chose real money. Required to start live.
+   */
+  liveConfirmed?: boolean | undefined;
+  /** The mode the person chose; it must be the account's (ADR 0109). Paper when absent. */
+  mode?: 'paper' | 'live' | undefined;
 }
 
 /** The account a run starts on: the one asked for, else the legs', checked (N308). */
@@ -1113,13 +1121,6 @@ async function runAccountFor(
       { reason: 'account_off', details: [] },
     );
   }
-  // The live gate (Phase 7 §6) is not built: only paper accounts can run.
-  if (account.mode !== 'paper') {
-    throw new StrategyError('transition_blocked', 'Live trading is not available', {
-      reason: 'live_disabled',
-      details: [],
-    });
-  }
   // A halted account starts nothing until the halt ends (ADR 0107).
   const halt = await accountHalt(tx, account.id);
   if (halt) {
@@ -1148,6 +1149,32 @@ export async function startStrategy(
   if (row.archivedAt)
     throw new StrategyError('invalid_state', 'Restore this strategy before starting it');
   const account = await runAccountFor(tx, row.draftDefinition, input.accountId);
+  if ((input.mode ?? 'paper') !== account.mode) {
+    throw new StrategyError(
+      'transition_blocked',
+      account.mode === 'live'
+        ? `${account.nickname} is a live account: start it with the live confirmation`
+        : `${account.nickname} is a paper account`,
+      { reason: 'mode_mismatch', details: [] },
+    );
+  }
+  if (account.mode === 'live') {
+    // The live gate (ADR 0109): the server's flag, a real-time feed, its own confirmation.
+    const problem = await liveStartProblem(tx, account.id, id);
+    if (problem) {
+      throw new StrategyError('transition_blocked', problem.message, {
+        reason: problem.reason,
+        details: [],
+      });
+    }
+    if (input.accountId !== account.id || input.liveConfirmed !== true) {
+      throw new StrategyError(
+        'transition_blocked',
+        `Confirm that this run trades real money on ${account.nickname}`,
+        { reason: 'live_unconfirmed', details: [] },
+      );
+    }
+  }
   const adding = row.status === 'actively_executing';
   if (adding) {
     const [existing] = await tx
@@ -1237,7 +1264,7 @@ export async function startStrategy(
   }
   if (!versionId) throw new StrategyError('invalid_state', 'The strategy has no version to run');
   // The worker picks the runtime up on its next poll (§8.1).
-  const runtimeId = await createRuntime(tx, userId, id, versionId, account.id);
+  const runtimeId = await createRuntime(tx, userId, id, versionId, account.id, account.mode);
   if (!adding) {
     await tx.insert(strategyStatusChanges).values({
       userId,
@@ -1256,7 +1283,7 @@ export async function startStrategy(
     resourceId: id,
     afterRef: row.draftHash,
     context: {
-      mode: 'paper',
+      mode: account.mode,
       versionId,
       fromStatus: row.status,
       acknowledgedWarnings: acknowledged,
@@ -1269,8 +1296,10 @@ export async function startStrategy(
     userId,
     kind: 'strategy_started',
     title: adding
-      ? `${strategyLabelOf(row)} started on ${account.nickname} (paper)`
-      : `${strategyLabelOf(row)} started on paper`,
+      ? `${strategyLabelOf(row)} started on ${account.nickname} (${account.mode})`
+      : account.mode === 'live'
+        ? `${strategyLabelOf(row)} started on ${account.nickname} (LIVE)`
+        : `${strategyLabelOf(row)} started on paper`,
     body: 'New orders appear in Orders as its rules trigger.',
     link: `/orders?started=${id}`,
     resourceType: 'strategy_runtime',

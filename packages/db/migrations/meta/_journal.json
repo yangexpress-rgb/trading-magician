@@ -743,6 +743,13 @@
       "when": 1795400500983,
       "tag": "0105_account_feeds",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1795402426427,
+      "tag": "0106_live_gate",
+      "breakpoints": true
     }
   ]
 }

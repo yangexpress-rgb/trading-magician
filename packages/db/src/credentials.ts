@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { inspect } from 'node:util';
-import { isProviderId, PROVIDERS } from '@tm/domain';
+import { isProviderId, liveTradingEnabled, PROVIDERS } from '@tm/domain';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Transaction } from './client';
@@ -34,7 +34,7 @@ export interface CredentialSummary {
   id: string;
   provider: string;
   label: string;
-  environment: 'paper';
+  environment: 'paper' | 'live';
   /** Field name to masked tail, e.g. { keyId: '••••7Q2A' }. */
   hint: Record<string, string>;
   createdAt: string;
@@ -82,8 +82,17 @@ export async function createCredential(
     label: string;
     fields: Record<string, string>;
     publicKey: string | undefined;
+    /** A live key (ADR 0109): only while the server's live-trading flag is on. */
+    environment?: 'paper' | 'live' | undefined;
   },
 ): Promise<CredentialSummary> {
+  const environment = input.environment ?? 'paper';
+  if (environment === 'live' && !liveTradingEnabled()) {
+    throw new CredentialError(
+      'bad_request',
+      'Live trading is turned off on this server, so live keys cannot be added',
+    );
+  }
   if (!input.publicKey) {
     throw new CredentialError('unavailable', 'Secure credential storage is not set up yet');
   }
@@ -95,7 +104,7 @@ export async function createCredential(
     userId: input.userId,
     provider: input.provider,
     label: input.label.trim().slice(0, 100),
-    environment: 'paper',
+    environment,
     hint,
     ...sealedColumns(sealed),
   });
@@ -202,6 +211,7 @@ async function summaries(tx: Transaction, ids?: string[]): Promise<CredentialSum
       id: credentials.id,
       provider: credentials.provider,
       label: credentials.label,
+      environment: credentials.environment,
       hint: credentials.hint,
       createdAt: credentials.createdAt,
       rotatedAt: credentials.rotatedAt,
@@ -233,7 +243,7 @@ async function summaries(tx: Transaction, ids?: string[]): Promise<CredentialSum
     id: r.id,
     provider: r.provider,
     label: r.label,
-    environment: 'paper',
+    environment: r.environment,
     hint: r.hint as Record<string, string>,
     createdAt: r.createdAt.toISOString(),
     rotatedAt: r.rotatedAt?.toISOString() ?? null,
@@ -250,7 +260,7 @@ async function summaries(tx: Transaction, ids?: string[]): Promise<CredentialSum
 
 export interface OpenedCredential {
   provider: string;
-  environment: 'paper';
+  environment: 'paper' | 'live';
   fields: Record<string, string>;
 }
 
@@ -281,8 +291,9 @@ export async function openCredential(
     .from(credentials)
     .where(and(eq(credentials.id, input.id), eq(credentials.userId, input.userId)));
   if (!row) throw new CredentialError('not_found', 'Credential not found');
-  if (row.environment !== 'paper') {
-    throw new CredentialError('unavailable', 'Only paper credentials can be used');
+  // A live key opens only while the server's live-trading flag is on (ADR 0109).
+  if (row.environment === 'live' && !liveTradingEnabled()) {
+    throw new CredentialError('unavailable', 'Live trading is turned off on this server');
   }
   const plaintext = await openSecretWith(
     input.privateKey,
@@ -291,11 +302,15 @@ export async function openCredential(
   );
   const opened: OpenedCredential = {
     provider: row.provider,
-    environment: 'paper',
+    environment: row.environment,
     fields: JSON.parse(plaintext) as Record<string, string>,
   };
   // If it is ever logged or serialized by mistake, the values stay hidden.
-  const hidden = () => ({ provider: opened.provider, environment: 'paper', fields: '[redacted]' });
+  const hidden = () => ({
+    provider: opened.provider,
+    environment: opened.environment,
+    fields: '[redacted]',
+  });
   Object.defineProperties(opened, {
     toJSON: { value: hidden },
     [inspect.custom]: { value: hidden },

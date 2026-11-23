@@ -13,7 +13,7 @@ export interface DiscoveredAccount {
   externalId: string;
   /** The account number with all but the last four characters masked. */
   displayId: string;
-  environment: 'paper';
+  environment: 'paper' | 'live';
   currency: string;
   status: string;
   /** Trading is blocked by Alpaca (for example, a restricted account). */
@@ -45,7 +45,7 @@ export async function discoverAlpacaAccount(client: AlpacaClient): Promise<Disco
   return {
     externalId: account.id,
     displayId: maskAccountNumber(account.account_number),
-    environment: 'paper',
+    environment: client.environment,
     currency: account.currency,
     status: account.status,
     tradingBlocked: account.trading_blocked || account.account_blocked,

@@ -76,6 +76,25 @@ describe('checkPreTradeRisk', () => {
     expect(CAPACITY_RISK_CODES).toContain('risk_account_exposure');
   });
 
+  it("holds a live account's openings to its pilot caps (ADR 0109)", () => {
+    // The order is 100 × $50 = $5,000.
+    const pilot = (maxOrder: string, maxExposure: string, gross = 0) => ({
+      grossExposure: d(gross),
+      pilot: { maxOrder, maxExposure },
+    });
+    expect(code({ account: pilot('5000', '25000') })).toBeUndefined();
+    expect(code({ account: pilot('500', '25000') })).toBe('risk_pilot_order');
+    const r = checkPreTradeRisk({ ...base, account: pilot('500', '25000') });
+    expect(riskRefusalText(r)).toBe('Pilot cap per order: $5,000, limit $500');
+    expect(code({ account: pilot('5000', '2500') })).toBe('risk_pilot_exposure');
+    expect(code({ account: pilot('5000', '25000', 20_001) })).toBe('risk_pilot_exposure');
+    // Closing orders are never trapped by the caps.
+    expect(code({ closing: true, account: pilot('1', '1', 100_000) })).toBeUndefined();
+    // The exposure cap clears as positions close; the per-order cap does not.
+    expect(CAPACITY_RISK_CODES).toContain('risk_pilot_exposure');
+    expect(CAPACITY_RISK_CODES).not.toContain('risk_pilot_order');
+  });
+
   it('lets closing orders through the exposure limits but not the active-order cap', () => {
     expect(code({ closing: true, quantity: d(10_000), dailyLossHit: true })).toBeUndefined();
     expect(code({ closing: true, activeOrders: 10 })).toBe('risk_active_orders');
