@@ -1091,7 +1091,7 @@ Every open point O1 to O196 is listed with its proposal and outcome in `v1.2-dev
 
 - Phase 7 P3 review (N317 to N321): O190 (pilot caps hold openings only), O191 (pilot cap ceiling $5,000 per order and $25,000 in total), O192 (live platforms for platform admins only), O193 (no plan check for live platforms), O194 (what counts as intraday for the PDT warning), O195 (day trades and equity are the broker's figures, every 5 minutes), O196 (a live account is never the default for new legs). Live stays off on staging until Yong sets `LIVE_TRADING_ENABLED=true`.
 - Phase 7 P2 review (N314 to N316): O185 (the account's chain is judged on the first instrument a pass asks for), O186 (bars still come through the routes), O187 (valuations never switch the chain), O188 (prices move back to the primary after 5 healthy minutes; paused runs wait for a person), O189 (the dialog saves an explicit choice).
-- Phase 7 P1 review (N311 to N313): O182 (the account kill switch pauses runs, not stops them), O183 (account exposure counts the app's own fills only), O184 (the daily-loss halt ends with the day; runs stay paused until resumed).
+- Phase 7 P1 review (N311 to N313): O183 (account exposure counts the app's own fills only), O184 (the daily-loss halt ends with the day; runs stay paused until resumed).
 
 - O17: removing the S&P 500 back-test-only cap on paper. The capability is built (N245, ADR 0087), but Yong has not confirmed it.
 - O45: what Research shows from CBOE (open interest and volume beside the app's own IV and greeks); also on the launch gate (§20.4).
