@@ -60,6 +60,13 @@ export type PatternScanInput = z.infer<typeof patternScanInputSchema>;
 /** The stored config: the input plus what the miner needs resolved (members, the catalogue). */
 export interface PatternScanConfig extends PatternScanInput {
   memberIds: string[];
+  /**
+   * Point-in-time membership (N324, ADR 0112): each member's `[from, to]`
+   * spans (`to` null while still a member). When present, the miner counts a
+   * day for an instrument only while it was a member; absent, every member
+   * counts on every day (today's list).
+   */
+  memberPeriods?: Record<string, [string, string | null][]>;
   factors: { id: string; category: FactorCategory; modes: string[] }[];
   catalogueVersion: number;
 }

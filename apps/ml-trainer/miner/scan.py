@@ -66,6 +66,7 @@ def mine(
     windows: Windows,
     max_depth: int = 3,
     min_support: int = 40,
+    member: np.ndarray | None = None,
 ) -> ScanOutput:
     """Atoms, labels and the §7 search and verification for one outcome over one range."""
     days, inst = outcomes.forward.shape
@@ -78,7 +79,7 @@ def mine(
     usable_disc_grid &= known
     usable_hold_grid &= known
     hit_grid = outcomes.hits(direction, threshold)
-    built = build_atoms(factors, modes)
+    built = build_atoms(factors, modes, member)
     packed = [(a, pack(g)) for a, g in built]
     result = beam_search(
         packed,

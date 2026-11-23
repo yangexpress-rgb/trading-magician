@@ -59,6 +59,8 @@ import {
   type Slot,
   evaluateExpr,
   nyDate,
+  spanCovers,
+  type MembershipSpan,
   nextTradingDay,
   regularSession,
   relativeDelaySeconds,
@@ -310,6 +312,11 @@ export interface SimulationInput {
   data: LoadedData;
   /** A Selection group's universe, resolved to instrument ids (v1.2 item 1). */
   members?: readonly string[];
+  /**
+   * Point-in-time membership (N324, ADR 0112): each member's spans in the
+   * group. When given, a selection on a day ranks only that day's members.
+   */
+  memberSpans?: ReadonlyMap<string, readonly MembershipSpan[]>;
 }
 
 /** Rounds of a selection log kept in a result, so results stay small. */
@@ -347,6 +354,7 @@ export function simulate({
   inputs,
   data,
   members = [],
+  memberSpans,
 }: SimulationInput): BacktestResult {
   const warnings = new Warnings();
   const mode = slotModeOf(def);
@@ -1455,6 +1463,13 @@ export function simulate({
     return key && p ? { ml: mlProvenance(key, p.prediction) } : {};
   }
 
+  /** The group's members on the day of `now`: all of them unless membership is point in time. */
+  function membersOnDay(now: number): readonly string[] {
+    if (!memberSpans) return members;
+    const day = nyDate(iso(now));
+    return members.filter((id) => memberSpans.get(id)?.some((s) => spanCovers(s, day)) === true);
+  }
+
   /** One evaluation of a Selection group or per-leg conditions (v1.2 items 1, 2). */
   function selectSlots(now: number, period: string) {
     if (mode === 'none') return;
@@ -1465,7 +1480,7 @@ export function simulate({
     let inGroup: Slot[] | undefined;
     let pickOf: ((instrumentId: string) => CyclePick) | undefined;
     if (mode === 'selection' && selection && template) {
-      const ranking = rankUniverse(selection, members, view, symbol);
+      const ranking = rankUniverse(selection, membersOnDay(now), view, symbol);
       // Why each new pick was picked: its filter, ranking and Enter when (N219).
       pickOf = (instrumentId) => {
         const r = withContext(view, instrumentId);

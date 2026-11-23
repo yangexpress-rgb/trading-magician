@@ -2841,6 +2841,33 @@ export const shortInterestSettlement = pgTable('short_interest_settlement', {
   fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Point-in-time index membership (data inputs part 2, item C, N324, ADR 0112):
+ * a symbol is a member of `group_id` from `from_date` until the day before
+ * `to_date` (null while still a member). Imported from a file a person
+ * downloaded (fja05680/sp500 for the S&P 500); `instrument_id` is null when
+ * the symbol matches no instrument or the period has no bars, never dropped.
+ */
+export const groupMembershipPeriod = pgTable(
+  'group_membership_period',
+  {
+    groupId: text('group_id').notNull(),
+    symbol: text('symbol').notNull(),
+    instrumentId: uuid('instrument_id').references(() => instruments.id),
+    fromDate: date('from_date', { mode: 'string' }).notNull(),
+    toDate: date('to_date', { mode: 'string' }),
+    source: text('source').notNull(),
+    recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: 'group_membership_period_pk', columns: [t.groupId, t.symbol, t.fromDate] }),
+    index('group_membership_period_dates_idx').on(t.groupId, t.fromDate, t.toDate),
+    index('group_membership_period_instrument_idx').on(t.instrumentId),
+    check('group_membership_period_group', sql`${t.groupId} = 'sp500'`),
+    check('group_membership_period_dates', sql`${t.toDate} is null or ${t.toDate} > ${t.fromDate}`),
+  ],
+);
+
 /** Where each event job has got to: covered dates, last run and last error. */
 export const eventScanState = pgTable(
   'event_scan_state',

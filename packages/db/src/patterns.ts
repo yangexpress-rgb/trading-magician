@@ -533,7 +533,9 @@ export async function promotePattern(
     '',
     `Scan: ${scan.summary} Run ${scanned.toISOString().slice(0, 10)}; it tested ${scan.candidatesTested ?? '?'} rules, so most patterns like this are luck: the holdout figures are the evidence.`,
     `Factors: ${cfg.categories.map((c) => FACTOR_CATEGORY_LABELS[c]).join(', ')}, point in time as of each close.`,
-    "Universe: today's members, so survivorship bias applies.",
+    cfg.memberPeriods
+      ? 'Universe: the members on each day (point in time); former members no feed lists are left out.'
+      : "Universe: today's members, so survivorship bias applies.",
   ].join('\n');
   const short = `${status} pattern: ${hitRateWords(h)} holdout occurrences, the stock ${outcome} (base ${pctText(h.baseRate)}).`;
   const entry = await registerLibraryEntry(tx, userId, {

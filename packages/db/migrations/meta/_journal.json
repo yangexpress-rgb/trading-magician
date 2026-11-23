@@ -764,6 +764,13 @@
       "when": 1795442898292,
       "tag": "0108_short_interest",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1795443961598,
+      "tag": "0109_group_membership",
+      "breakpoints": true
     }
   ]
 }

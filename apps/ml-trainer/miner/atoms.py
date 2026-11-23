@@ -81,14 +81,25 @@ def own_percentiles(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return high, low
 
 
-def build_atoms(factors: dict[str, np.ndarray], modes: dict[str, list[str]]) -> list[tuple[Atom, np.ndarray]]:
-    """Every atom of every factor in `factors` (grid per factor id), by the modes each offers."""
+def cross_input(grid: np.ndarray, member: np.ndarray | None) -> np.ndarray:
+    """The values a cross-section ranks: only that day's members when membership is point in time (N324)."""
+    return grid if member is None else np.where(member, grid, np.nan)
+
+
+def build_atoms(
+    factors: dict[str, np.ndarray], modes: dict[str, list[str]], member: np.ndarray | None = None
+) -> list[tuple[Atom, np.ndarray]]:
+    """Every atom of every factor in `factors` (grid per factor id), by the modes each offers.
+
+    `member` (day, instrument) marks the days each instrument was in the universe; cross-sectional
+    quintiles rank only those, while own-history percentiles read the instrument's whole history.
+    """
     out: list[tuple[Atom, np.ndarray]] = []
     for fid in sorted(factors):
         grid = factors[fid]
         for mode in modes.get(fid, []):
             if mode == "cross":
-                top, bottom = cross_quintiles(grid)
+                top, bottom = cross_quintiles(cross_input(grid, member))
                 out.append((Atom(fid, "cross", "top"), top))
                 out.append((Atom(fid, "cross", "bottom"), bottom))
             elif mode == "own":

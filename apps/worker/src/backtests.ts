@@ -37,6 +37,7 @@ import {
   UnsupportedBarRequestError,
   type BuiltinUniverse,
   type HistoricalDataProvider,
+  type MembershipSpan,
 } from '@tm/domain';
 import type { Logger } from 'pino';
 import { BacktestTrace } from './backtest-trace';
@@ -68,7 +69,9 @@ export interface BacktestWorkerOptions {
   resolveUniverse?: (
     userId: string,
     group: BuiltinUniverse,
-  ) => Promise<{ ids: string[]; warnings: string[] }>;
+    /** The run's days: groups with a history resolve to their members over them (N324). */
+    range?: { from: string; to: string },
+  ) => Promise<{ ids: string[]; warnings: string[]; spans?: Map<string, MembershipSpan[]> }>;
   /** Point-in-time company filings, for strategies with fundamental metrics (v1.2 item 6). */
   fundamentals?: FundamentalsLoader;
   /**
@@ -187,6 +190,8 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
 
       // A Selection group's universe: a list as stored, or a built-in stock group resolved now.
       let members = listMembers(work.definition);
+      /** Point-in-time members (N324): each one's spans in the group; absent for today's list. */
+      let memberSpans: Map<string, MembershipSpan[]> | undefined;
       const universeWarnings: string[] = [];
       const instruments = new Map<string, InstrumentRef>(work.instruments);
       const trade = work.definition.trade;
@@ -194,8 +199,12 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
       if (trade.kind === 'group' && trade.universe.type === 'builtin') {
         if (!options.resolveUniverse)
           throw new UnsupportedBarRequestError('This worker cannot resolve built-in stock groups');
-        const resolved = await options.resolveUniverse(userId, trade.universe.id);
+        const resolved = await options.resolveUniverse(userId, trade.universe.id, {
+          from: work.inputs.from,
+          to: work.inputs.to,
+        });
         members = resolved.ids;
+        memberSpans = resolved.spans;
         universeWarnings.push(...resolved.warnings);
         const refs = await inTenant((tx) => instrumentRefs(tx, members));
         for (const [id, ref] of refs) instruments.set(id, ref);
@@ -372,6 +381,7 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
         inputs: work.inputs,
         data,
         members,
+        ...(memberSpans ? { memberSpans } : {}),
       });
       done({
         steps: result.equity.length,

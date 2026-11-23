@@ -43,6 +43,7 @@ describe('worker env', () => {
       EVENTS_FAKE: false,
       ML_SNAPSHOTS: 'on',
       ML_SNAPSHOT_POLL_MS: 600000,
+      GROUP_MEMBERSHIP_SYNC: 'on',
       PATTERN_SNAPSHOT_FROM: '2016-01-04',
       PATTERN_SNAPSHOT_GROUPS: 'sp500,ndx,dji,sp400,sp600',
       PATTERN_SNAPSHOT_POLL_MS: 300000,
