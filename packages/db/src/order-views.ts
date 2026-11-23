@@ -906,6 +906,8 @@ export interface RuntimeSummary {
   cycles: CycleCounts;
   /** Cycles that completed (Exit closed them) in today's session (N326). */
   completedToday: number;
+  /** Cycles rejected (ended with nothing filled) in today's session (N329). */
+  rejectedToday: number;
   /** Today's return (N327): realized plus unrealized over today's session. */
   today: RuntimeToday;
   /** Realized profit or loss of this run's completed cycles, in dollars (N304). */
@@ -967,6 +969,10 @@ export async function getExecutionStatus(
         sql<number>`count(*) filter (where ${strategyCycles.status} = 'closed' and ${closedOn(today)})`
           .mapWith(Number)
           .as('completed_today'),
+      rejectedToday:
+        sql<number>`count(*) filter (where ${strategyCycles.status} = 'aborted' and ${closedOn(today)})`
+          .mapWith(Number)
+          .as('rejected_today'),
       entering: byStatus('entry_working').as('entering'),
       realizedPnl:
         sql<string>`coalesce(sum(${strategyCycles.realizedPnl}) filter (where ${strategyCycles.status} = 'closed'), 0)::text`.as(
@@ -999,6 +1005,7 @@ export async function getExecutionStatus(
       rejected: cycleCounts.rejected,
       entering: cycleCounts.entering,
       completedToday: cycleCounts.completedToday,
+      rejectedToday: cycleCounts.rejectedToday,
       realizedPnl: cycleCounts.realizedPnl,
       wins: cycleCounts.wins,
       lastEntryAt: cycleCounts.lastEntryAt,
@@ -1048,6 +1055,7 @@ export async function getExecutionStatus(
         entering: Number(r.entering ?? 0),
       },
       completedToday: Number(r.completedToday ?? 0),
+      rejectedToday: Number(r.rejectedToday ?? 0),
       today: todays.get(r.id) ?? NO_TODAY,
       realizedPnl: r.realizedPnl ?? '0',
       wins: Number(r.wins ?? 0),
@@ -1068,6 +1076,7 @@ export const RUN_DETAIL_KINDS = [
   'rejected',
   'entering',
   'completed_today',
+  'rejected_today',
   'today',
 ] as const;
 export type RunDetailKind = (typeof RUN_DETAIL_KINDS)[number];
@@ -1079,7 +1088,7 @@ const closedOn = (day: string) =>
 const NO_TODAY: RuntimeToday = { pnl: '0.00', realized: '0.00', unrealized: '0.00', pct: null };
 
 const DETAIL_CYCLE_STATUSES: Record<
-  Exclude<RunDetailKind, 'working' | 'completed_today' | 'today'>,
+  Exclude<RunDetailKind, 'working' | 'completed_today' | 'rejected_today' | 'today'>,
   string[]
 > = {
   completed: ['closed'],
@@ -1132,6 +1141,8 @@ export async function getRunDetail(
   const byKind = (): SQL | undefined => {
     if (kind === 'completed_today')
       return and(eq(strategyCycles.status, 'closed'), closedOn(today));
+    if (kind === 'rejected_today')
+      return and(eq(strategyCycles.status, 'aborted'), closedOn(today));
     // Today's return: cycles closed today, and those still holding a position.
     if (kind === 'today')
       return or(

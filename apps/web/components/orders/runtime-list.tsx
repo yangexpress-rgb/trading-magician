@@ -190,6 +190,16 @@ export function RuntimeList({
                 Completed today
               </span>
             </Th>
+            <Th numeric filter={range('active', 'Active')}>
+              Active
+            </Th>
+            <Th numeric filter={range('rejectedToday', 'Rejected today')}>
+              <span
+                title={`Cycles that ended with nothing filled in the ${sessionText} session. Click a figure to list them with their orders.`}
+              >
+                Rejected today
+              </span>
+            </Th>
             <Th
               numeric
               filter={range('todayPnl', "Today's return", 'In dollars, such as -50 or 200.')}
@@ -202,9 +212,6 @@ export function RuntimeList({
             </Th>
             <Th numeric filter={range('completed', 'Completed')}>
               Completed
-            </Th>
-            <Th numeric filter={range('active', 'Active')}>
-              Active
             </Th>
             <Th numeric filter={range('rejected', 'Rejected')}>
               Rejected
@@ -291,13 +298,19 @@ export function RuntimeList({
                     {r.completedToday}
                   </Figure>
                 </Td>
+                <Count n={r.cycles.active} tone="text-info" open={detail('active', 'Active')} />
+                <Count
+                  n={r.rejectedToday}
+                  tone="text-danger"
+                  open={detail('rejected_today', 'Rejected today')}
+                  click
+                />
                 <TodayReturn today={r.today} open={detail('today', "Today's return")} />
                 <Count
                   n={r.cycles.completed}
                   tone="text-ok"
                   open={detail('completed', 'Completed')}
                 />
-                <Count n={r.cycles.active} tone="text-info" open={detail('active', 'Active')} />
                 <Count
                   n={r.cycles.rejected}
                   tone="text-danger"
@@ -345,7 +358,7 @@ export function RuntimeList({
           })}
           {shown.length === 0 && (
             <tr>
-              <td colSpan={15} className="px-3 py-4 text-sm text-ink-muted">
+              <td colSpan={16} className="px-3 py-4 text-sm text-ink-muted">
                 No strategy on paper matches these filters.
               </td>
             </tr>
@@ -377,14 +390,24 @@ function When({ iso, text }: { iso: string; text: string }) {
 }
 
 /** A cycle count in its outcome's colour; a zero stays grey (N281). */
-function Count({ n, tone, open }: { n: number; tone: string; open: () => void }) {
+function Count({
+  n,
+  tone,
+  open,
+  click = false,
+}: {
+  n: number;
+  tone: string;
+  open: () => void;
+  click?: boolean;
+}) {
   return (
     <Td
       numeric
       sortValue={n}
       className={cx('font-semibold tabular-nums', n > 0 ? tone : 'text-ink-muted')}
     >
-      <Figure label={String(n)} onOpen={open}>
+      <Figure label={String(n)} onOpen={open} click={click}>
         {n}
       </Figure>
     </Td>

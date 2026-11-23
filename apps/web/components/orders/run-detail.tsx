@@ -30,6 +30,7 @@ const KIND_TITLE: Record<RunDetailKindDto, string> = {
   rejected: 'Rejected cycles',
   entering: 'Entering cycles',
   completed_today: 'Cycles completed today',
+  rejected_today: 'Cycles rejected today',
   today: "Today's return cycles",
 };
 
@@ -42,6 +43,8 @@ const KIND_DESCRIPTION: Record<RunDetailKindDto, string> = {
     'Every order of the cycles that ended with nothing filled: refused by a risk limit, rejected, canceled or expired.',
   entering: 'Every order of the cycles whose Entry orders are still working.',
   completed_today: "Every cycle Exit closed in today's session, with all its orders and its P/L.",
+  rejected_today:
+    "Every order of the cycles that ended with nothing filled in today's session: refused by a risk limit, rejected, canceled or expired.",
   today:
     "Every order of the cycles behind today's return: those that completed today (realized) and those still holding a position (unrealized).",
 };
