@@ -198,6 +198,8 @@ export interface RuntimeSummaryDto {
   cycles: { completed: number; active: number; rejected: number; entering: number };
   /** Cycles that completed in today's session (N326). */
   completedToday: number;
+  /** Cycles rejected (ended with nothing filled) in today's session (N329). */
+  rejectedToday: number;
   /**
    * Today's return (N327): realized plus unrealized P/L over today's session in dollars,
    * its parts, and as a % of the capital at work that session (null with none).
@@ -220,6 +222,8 @@ export const RUN_DETAIL_KINDS = [
   'entering',
   /** Cycles completed in today's session (N326). */
   'completed_today',
+  /** Cycles rejected in today's session (N329). */
+  'rejected_today',
   /** Cycles behind Today's return: completed today, or still holding a position (N327). */
   'today',
 ] as const;

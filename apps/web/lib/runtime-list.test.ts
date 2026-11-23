@@ -30,6 +30,7 @@ function run(over: Partial<RuntimeSummaryDto> = {}): RuntimeSummaryDto {
     workingOrders: 0,
     cycles: { completed: 4, active: 1, rejected: 2, entering: 0 },
     completedToday: 2,
+    rejectedToday: 1,
     today: { pnl: '-40.00', realized: '10.00', unrealized: '-50.00', pct: '-0.80' },
     realizedPnl: '125.50',
     wins: 3,
@@ -107,6 +108,9 @@ describe('Strategies on paper list (N304)', () => {
       true,
     );
     expect(matchesRuntime(run(), filters({ ranges: ranges('completedToday', '3', '') }), NOW)).toBe(
+      false,
+    );
+    expect(matchesRuntime(run(), filters({ ranges: ranges('rejectedToday', '2', '') }), NOW)).toBe(
       false,
     );
     expect(matchesRuntime(run(), filters({ ranges: ranges('todayPnl', '', '0') }), NOW)).toBe(true);

@@ -16,9 +16,10 @@ export function parseRuntimeView(saved: string | null | undefined): RuntimeView 
 
 export const RANGE_KEYS = [
   'completedToday',
+  'active',
+  'rejectedToday',
   'todayPnl',
   'completed',
-  'active',
   'rejected',
   'entering',
   'pnl',
@@ -81,6 +82,8 @@ export function rangeValue(r: RuntimeSummaryDto, key: RangeKey): number | null {
   switch (key) {
     case 'completedToday':
       return r.completedToday;
+    case 'rejectedToday':
+      return r.rejectedToday;
     case 'todayPnl':
       return Number(r.today.pnl);
     case 'completed':

@@ -426,6 +426,9 @@ describe('listing orders (§8.3, §14.3)', () => {
             [5, 'closed', '2026-11-20T00:30:00Z', '1.00'],
             // Still holding a position.
             [6, 'open', null, null],
+            // Rejected today, and rejected the day before (N329).
+            [7, 'aborted', '2026-11-20T15:30:00Z', null],
+            [8, 'aborted', '2026-11-19T15:30:00Z', null],
           ] as const
         ).map(([seq, status, closedAt, pnl]) => ({
           userId: userA,
@@ -443,12 +446,16 @@ describe('listing orders (§8.3, §14.3)', () => {
     expect(status.todaySession).toBe(today);
     const run = status.runtimes.find((r) => r.id === c.runtimeId);
     expect(run?.completedToday).toBe(2);
+    expect(run?.rejectedToday).toBe(1);
+    expect(run?.cycles.rejected).toBe(2);
     expect(run?.cycles.completed).toBe(4);
     // No valuations stored for this run: today's return is zero with no %.
     expect(run?.today).toEqual({ pnl: '0.00', realized: '0.00', unrealized: '0.00', pct: null });
 
     const done = await asA((tx) => getRunDetail(tx, c.runtimeId, 'completed_today', today));
     expect(done.cycles.map((x) => x.seq)).toEqual([3, 2]);
+    const refused = await asA((tx) => getRunDetail(tx, c.runtimeId, 'rejected_today', today));
+    expect(refused.cycles.map((x) => x.seq)).toEqual([7]);
     const behind = await asA((tx) => getRunDetail(tx, c.runtimeId, 'today', today));
     expect(behind.cycles.map((x) => x.seq)).toEqual([6, 3, 2]);
   });
