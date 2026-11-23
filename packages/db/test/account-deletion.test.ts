@@ -202,6 +202,7 @@ describe('account purge (design v1.1 D1)', () => {
       'account_valuation',
       'book_valuation',
       'data_route',
+      'account_feed',
       'entitlement',
       'subscription',
       'billing_event',

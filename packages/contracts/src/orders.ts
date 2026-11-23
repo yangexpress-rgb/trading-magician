@@ -186,6 +186,8 @@ export interface RuntimeSummaryDto {
   accountId: string | null;
   accountName: string;
   accountMode: 'paper' | 'live';
+  /** The fallback feed its account prices from now (ADR 0108); null on its primary or routes. */
+  fallbackFeed: string | null;
   startedAt: string;
   stoppedAt: string | null;
   workingOrders: number;
@@ -238,6 +240,7 @@ export const INCIDENT_KINDS = [
   'broker_disconnected',
   'safety_close',
   'account_daily_loss',
+  'account_feed',
 ] as const;
 export type IncidentKindDto = (typeof INCIDENT_KINDS)[number];
 

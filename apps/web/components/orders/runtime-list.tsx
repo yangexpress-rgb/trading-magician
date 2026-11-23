@@ -241,6 +241,11 @@ export function RuntimeList({
                       {r.pauseReason}
                     </span>
                   )}
+                  {r.status !== 'stopped' && r.fallbackFeed && (
+                    <span className="mt-0.5 block text-xs text-warn">
+                      Now pricing from the fallback feed {r.fallbackFeed}
+                    </span>
+                  )}
                 </Td>
                 <Td>
                   <When iso={r.startedAt} text={when(r.startedAt)} />

@@ -21,8 +21,10 @@ import {
 } from '../src/orders';
 import { provisionWorkspace } from '../src/provision';
 import {
+  accountFeeds,
   accountValuations,
   brokerOrders,
+  dataFeedConnections,
   executionIncidents,
   fills,
   notifications,
@@ -45,7 +47,9 @@ import {
   setAccountKillSwitch,
   setAccountLimits,
 } from '../src/account-risk';
-import { resumeRuntimeByUser } from '../src/order-views';
+import { resumeRuntimeByUser, getExecutionStatus } from '../src/order-views';
+import { accountFeedChain, applyChainStep, setAccountFeeds } from '../src/account-feeds';
+import { getAccount } from '../src/brokers';
 import { nyDate } from '@tm/domain';
 import { withTenant } from '../src/tenant';
 import { createTestDatabase, type TestDatabase } from './harness';
@@ -769,5 +773,83 @@ describe('the account risk layer (Phase 7 P1, ADR 0107)', () => {
       t.ownerSql`update trading_account set daily_loss_limit = 0 where id = ${accountB}`,
       '23514',
     );
+  });
+});
+
+describe("an account's own data feeds (Phase 7 P2, ADR 0108)", () => {
+  it('keeps feeds in order, checks them, and shows the fallback in use on its runs', async () => {
+    const account = await secondAccount(userA);
+    const feeds = await asA((tx) =>
+      tx
+        .insert(dataFeedConnections)
+        .values([
+          { userId: userA, name: 'Feed one', provider: 'demo', assetClasses: ['stock'] },
+          { userId: userA, name: 'Feed two', provider: 'demo', assetClasses: ['stock'] },
+          { userId: userA, name: 'Company data', provider: 'sec', assetClasses: ['stock'] },
+        ])
+        .returning({ id: dataFeedConnections.id }),
+    );
+    const [one, two, edgar] = feeds.map((f) => f.id) as [string, string, string];
+
+    // Nothing set: the data routes, and the default for paper.
+    let chain = await asA((tx) => accountFeedChain(tx, account));
+    expect(chain).toMatchObject({ feeds: [], onFailure: 'fallback', onFailureSetting: null });
+
+    await asA((tx) => setAccountFeeds(tx, userA, account, { feedIds: [two, one] }));
+    chain = await asA((tx) => accountFeedChain(tx, account));
+    expect(chain!.feeds.map((f) => f.name)).toEqual(['Feed two', 'Feed one']);
+
+    await expect(
+      asA((tx) => setAccountFeeds(tx, userA, account, { feedIds: [one, one] })),
+    ).rejects.toMatchObject({ code: 'bad_request' });
+    await expect(
+      asA((tx) => setAccountFeeds(tx, userA, account, { feedIds: [edgar] })),
+    ).rejects.toMatchObject({
+      code: 'bad_request',
+      message: 'Company data does not give live prices',
+    });
+
+    // A switch to the fallback is shown on the account and on its runs.
+    const run = await startCycle(userA, account);
+    await asA(async (tx) => {
+      const c = (await accountFeedChain(tx, account))!;
+      await applyChainStep(tx, {
+        userId: userA,
+        chain: c,
+        step: { kind: 'switch', to: one, back: false },
+        now: new Date(),
+      });
+    });
+    expect(await asA((tx) => getAccount(tx, account))).toMatchObject({
+      feeds: [{ name: 'Feed two' }, { name: 'Feed one' }],
+      feedNow: { name: 'Feed one' },
+    });
+    const status = await asA((tx) => getExecutionStatus(tx));
+    expect(status.runtimes.find((r) => r.id === run.runtimeId)).toMatchObject({
+      fallbackFeed: 'Feed one',
+    });
+    expect(status.incidents.find((i) => i.kind === 'account_feed')?.summary).toContain(
+      'Now pricing from the fallback feed Feed one',
+    );
+
+    // Changing the feeds starts again from the new primary and closes the incident.
+    await asA((tx) =>
+      setAccountFeeds(tx, userA, account, { feedIds: [one], onFeedFailure: 'pause' }),
+    );
+    chain = await asA((tx) => accountFeedChain(tx, account));
+    expect(chain).toMatchObject({ activeId: null, onFailure: 'pause', pausedForFeed: false });
+    expect(
+      (await asA((tx) => getExecutionStatus(tx))).incidents.filter(
+        (i) => i.kind === 'account_feed',
+      ),
+    ).toEqual([]);
+
+    // Another tenant sees none of it, and the database checks the setting.
+    expect(await as(userB, (tx) => tx.select().from(accountFeeds))).toEqual([]);
+    await expectPgError(
+      t.ownerSql`update trading_account set feed_failure = 'maybe' where id = ${account}`,
+      '23514',
+    );
+    await asA((tx) => setAccountFeeds(tx, userA, account, { feedIds: [] }));
   });
 });

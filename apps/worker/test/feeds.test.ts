@@ -511,6 +511,135 @@ describe('failover', () => {
   });
 });
 
+describe("an account's own feeds (Phase 7 P2, ADR 0108)", () => {
+  const intents = async (runtimeId: string) =>
+    asUser((tx) =>
+      tx
+        .select({ feedId: schema.orderIntents.pricedByFeedId })
+        .from(schema.orderIntents)
+        .where(eq(schema.orderIntents.runtimeId, runtimeId)),
+    );
+  const runStatus = async (runtimeId: string) =>
+    (
+      await asUser((tx) =>
+        tx
+          .select({
+            status: schema.strategyRuntimes.status,
+            reason: schema.strategyRuntimes.pauseReason,
+          })
+          .from(schema.strategyRuntimes)
+          .where(eq(schema.strategyRuntimes.id, runtimeId)),
+      )
+    )[0]!;
+  const feedIncidents = async () =>
+    asUser((tx) =>
+      tx
+        .select()
+        .from(schema.executionIncidents)
+        .where(eq(schema.executionIncidents.kind, 'account_feed')),
+    );
+  const accountRow = async () =>
+    (
+      await asUser((tx) =>
+        tx.select().from(schema.tradingAccounts).where(eq(schema.tradingAccounts.id, account)),
+      )
+    )[0]!;
+
+  async function chainOf(primary: string) {
+    await t.owner.db.insert(schema.accountFeeds).values([
+      { userId, accountId: account, feedId: primary, position: 0 },
+      { userId, accountId: account, feedId: demoFeed, position: 1 },
+    ]);
+  }
+  async function clearChain(primary: string) {
+    await t.ownerSql`delete from account_feed where account_id = ${account}`;
+    await t.ownerSql`update trading_account set feed_failure = null, feed_active_id = null, feed_primary_ok_since = null where id = ${account}`;
+    await t.ownerSql`delete from data_feed_connection where id = ${primary}`;
+  }
+  const flakyFeed = async () =>
+    (
+      await t.owner.db
+        .insert(schema.dataFeedConnections)
+        .values({ userId, name: 'Flaky feed', provider: 'flaky', assetClasses: ['stock'] })
+        .returning({ id: schema.dataFeedConnections.id })
+    )[0]!.id;
+
+  it('A5: a killed primary moves a paper run to the fallback, with an incident, and stamps orders', async () => {
+    const primary = await flakyFeed();
+    await chainOf(primary);
+
+    const first = await startBuyer('Account feed buyer');
+    await pass();
+    clock += 5_000;
+    await pass();
+    expect((await filledBuys(first.runtimeId)).map((o) => o.state)).toEqual(['filled']);
+    // The account's primary priced it, not the data route (which is the demo feed).
+    expect(await intents(first.runtimeId)).toEqual([{ feedId: primary }]);
+
+    // The primary dies mid-run: the next pass prices from the fallback and says so.
+    flakyDown = true;
+    clock += 60_000;
+    await pass();
+    expect((await accountRow()).feedActiveId).toBe(demoFeed);
+    expect(await runStatus(first.runtimeId)).toMatchObject({ status: 'running' });
+    const [incident] = await feedIncidents();
+    expect(incident).toMatchObject({ accountId: account, resolvedAt: null, pausedRuntimes: 0 });
+    expect(incident!.summary).toContain('Now pricing from the fallback feed Demo feed');
+    expect(await notices()).toContain('An account’s data feed stopped');
+
+    // Orders after the switch carry the fallback's id.
+    const second = await startBuyer('After the switch');
+    await pass();
+    clock += 5_000;
+    await pass();
+    expect((await filledBuys(second.runtimeId)).map((o) => o.state)).toEqual(['filled']);
+    expect(await intents(second.runtimeId)).toEqual([{ feedId: demoFeed }]);
+
+    // The primary recovers: prices move back after five healthy minutes, and the incident closes.
+    flakyDown = false;
+    clock += 60_000;
+    await pass();
+    expect((await accountRow()).feedActiveId).toBe(demoFeed);
+    clock += 5 * 60_000 + 1_000;
+    await pass();
+    expect((await accountRow()).feedActiveId).toBeNull();
+    expect((await feedIncidents())[0]!.resolvedAt).not.toBeNull();
+    expect(await notices()).toContain('Prices are back on Flaky feed');
+
+    await clearChain(primary);
+  });
+
+  it('A5: an account set to pause pauses its runs instead, and they wait for a person', async () => {
+    const primary = await flakyFeed();
+    await chainOf(primary);
+    await t.ownerSql`update trading_account set feed_failure = 'pause' where id = ${account}`;
+
+    const run = await startBuyer('Pausing buyer');
+    await pass();
+    flakyDown = true;
+    clock += 60_000;
+    await pass();
+    expect(await runStatus(run.runtimeId)).toMatchObject({
+      status: 'paused',
+      reason: expect.stringContaining('Flaky feed stopped sending current prices'),
+    });
+    // It did not switch.
+    expect((await accountRow()).feedActiveId).toBeNull();
+    const open = (await feedIncidents()).filter((i) => i.resolvedAt === null);
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({ pausedRuntimes: 1 });
+
+    // The feed answers again: the incident closes, the run stays paused.
+    flakyDown = false;
+    clock += 60_000;
+    await pass();
+    expect((await feedIncidents()).filter((i) => i.resolvedAt === null)).toHaveLength(0);
+    expect(await runStatus(run.runtimeId)).toMatchObject({ status: 'paused' });
+
+    await clearChain(primary);
+  });
+});
+
 describe('turning off a feed in use (§9.4)', () => {
   it('needs a replacement feed or pausing the strategies that use it', async () => {
     const { runtimeId } = await startBuyer('Depends on demo');

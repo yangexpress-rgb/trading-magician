@@ -19,6 +19,8 @@ export interface Quote {
   source: string;
   /** False once the session has closed; the quote is then the last one of that session. */
   marketOpen: boolean;
+  /** The data feed connection that answered, when it came through one (ADR 0108). */
+  feedId?: string | undefined;
 }
 
 export interface QuoteRequest {

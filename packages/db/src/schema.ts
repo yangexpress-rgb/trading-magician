@@ -933,6 +933,17 @@ export const tradingAccounts = pgTable(
     haltReason: text('halt_reason'),
     /** New York date of a daily-loss halt; it ends with that day. */
     haltDate: date('halt_date'),
+    /**
+     * Prices for runs on the account (Phase 7 P2, ADR 0108), when it has a feed
+     * chain (`account_feed`): what to do when the feed pricing it stops, null
+     * for the default of its kind (paper: the fallback; live: pause), the feed
+     * pricing it now, and since when the primary has looked healthy again.
+     */
+    feedFailure: text('feed_failure').$type<'fallback' | 'pause'>(),
+    feedActiveId: uuid('feed_active_id').references(() => dataFeedConnections.id, {
+      onDelete: 'set null',
+    }),
+    feedPrimaryOkSince: timestamp('feed_primary_ok_since', { withTimezone: true }),
     ...timestamps(),
     rowVersion: rowVersion(),
   },
@@ -955,6 +966,44 @@ export const tradingAccounts = pgTable(
       .on(t.userId)
       .where(sql`${t.isDefault}`),
     check('trading_account_paper_only', sql`${t.mode} = 'paper'`),
+    check(
+      'trading_account_feed_failure',
+      sql`${t.feedFailure} is null or ${t.feedFailure} in ('fallback', 'pause')`,
+    ),
+  ],
+);
+
+/**
+ * An account's own data feeds, in order (Phase 7 P2, ADR 0108): position 0 is
+ * its primary, the rest its fallbacks. An account without any prices through
+ * the data routes, as before.
+ */
+export const accountFeeds = pgTable(
+  'account_feed',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    accountId: uuid('account_id').notNull(),
+    feedId: uuid('feed_id').notNull(),
+    position: integer('position').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      name: 'account_feed_account_fk',
+      columns: [t.accountId, t.userId],
+      foreignColumns: [tradingAccounts.id, tradingAccounts.userId],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'account_feed_feed_fk',
+      columns: [t.feedId, t.userId],
+      foreignColumns: [dataFeedConnections.id, dataFeedConnections.userId],
+    }).onDelete('cascade'),
+    unique('account_feed_feed_uq').on(t.accountId, t.feedId),
+    unique('account_feed_position_uq').on(t.accountId, t.position),
+    check('account_feed_position', sql`${t.position} >= 0`),
   ],
 );
 
@@ -1501,6 +1550,8 @@ export const orderIntents = pgTable(
     source: text('source').notNull().default('strategy'),
     /** Why a safety close was placed, in words (N306); required when `source` is 'system'. */
     closeReason: text('close_reason'),
+    /** The data feed whose price this order was placed on (Phase 7 P2, ADR 0108). */
+    pricedByFeedId: uuid('priced_by_feed_id'),
     mode: tradingMode('mode').notNull().default('paper'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1858,6 +1909,7 @@ export const INCIDENT_KINDS = [
   'broker_disconnected',
   'safety_close',
   'account_daily_loss',
+  'account_feed',
 ] as const;
 
 /** Something that made execution unsafe or uncertain; open until resolved. */
@@ -1896,7 +1948,7 @@ export const executionIncidents = pgTable(
     index('execution_incident_user_idx').on(t.userId, t.openedAt),
     check(
       'execution_incident_kind',
-      sql`${t.kind} in ('reconciliation_mismatch', 'repeated_rejects', 'stale_data', 'feed_loss', 'broker_disconnected', 'safety_close', 'account_daily_loss')`,
+      sql`${t.kind} in ('reconciliation_mismatch', 'repeated_rejects', 'stale_data', 'feed_loss', 'broker_disconnected', 'safety_close', 'account_daily_loss', 'account_feed')`,
     ),
     check('execution_incident_summary_length', sql`char_length(${t.summary}) <= 500`),
     check('execution_incident_resolution_length', sql`char_length(${t.resolution}) <= 500`),

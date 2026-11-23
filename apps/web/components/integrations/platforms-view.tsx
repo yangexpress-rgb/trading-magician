@@ -7,7 +7,14 @@ import {
   type PlatformDto,
   type PlatformListDto,
 } from '@tm/contracts';
-import { formatDateTime, PROVIDER_IDS, PROVIDERS, type DisplayPreferences } from '@tm/domain';
+import {
+  formatDateTime,
+  isMarketDataProvider,
+  PROVIDER_IDS,
+  PROVIDERS,
+  providerDataTypes,
+  type DisplayPreferences,
+} from '@tm/domain';
 import {
   Alert,
   Badge,
@@ -75,6 +82,7 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
   const [makingDefault, setMakingDefault] = useState<AccountDto | null>(null);
   const [renaming, setRenaming] = useState<AccountDto | null>(null);
   const [limiting, setLimiting] = useState<AccountDto | null>(null);
+  const [feeding, setFeeding] = useState<AccountDto | null>(null);
   const [killing, setKilling] = useState<AccountDto | null>(null);
   const [releasing, setReleasing] = useState<AccountDto | null>(null);
 
@@ -277,6 +285,7 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
                           <Th>Trades</Th>
                           <Th>Routing</Th>
                           <Th>Account limits</Th>
+                          <Th>Data feeds</Th>
                           <Th>Last sync</Th>
                           <Th>
                             <span className="sr-only">Actions</span>
@@ -309,6 +318,9 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
                             <Td className="text-sm">
                               <AccountLimitsText account={a} />
                             </Td>
+                            <Td className="text-sm">
+                              <AccountFeedsText account={a} />
+                            </Td>
                             <Td className="text-content">
                               {p.provider === 'demo' ? 'Built in' : when(a.lastSyncedAt)}
                             </Td>
@@ -336,6 +348,13 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
                                   onClick={() => setLimiting(a)}
                                 >
                                   Set limits
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  aria-label={`Data feeds for ${a.nickname}`}
+                                  onClick={() => setFeeding(a)}
+                                >
+                                  Data feeds
                                 </Button>
                                 {a.halt ? (
                                   <Button
@@ -445,6 +464,14 @@ export function PlatformsView({ prefs }: { prefs: DisplayPreferences }) {
         onDone={(text) => {
           setMakingDefault(null);
           setNotice(text);
+          void load();
+        }}
+      />
+      <FeedsDialog
+        account={feeding}
+        onClose={() => setFeeding(null)}
+        onDone={() => {
+          setFeeding(null);
           void load();
         }}
       />
@@ -873,6 +900,174 @@ function LimitsDialog({
         <div className="flex gap-2">
           <Button type="submit" variant="primary">
             Save limits
+          </Button>
+          <Button type="button" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function AccountFeedsText({ account: a }: { account: AccountDto }) {
+  if (a.feeds.length === 0) return <span className="text-content">Data routes</span>;
+  const onFallback = a.feedNow !== null && a.feedNow.id !== a.feeds[0]?.id;
+  return (
+    <>
+      <span className="text-content">{a.feeds.map((f) => f.name).join(' → ')}</span>
+      {onFallback && (
+        <span className="mt-1 block">
+          <Badge tone="warn">Now pricing from the fallback feed {a.feedNow?.name}</Badge>
+        </span>
+      )}
+    </>
+  );
+}
+
+type FeedOption = { id: string; name: string };
+
+/**
+ * An account's own data feeds (ADR 0108): a primary and fallbacks in order,
+ * and what its runs do when the feed pricing them stops.
+ */
+function FeedsDialog({
+  account,
+  onClose,
+  onDone,
+}: {
+  account: AccountDto | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [chain, setChain] = useState<FeedOption[]>([]);
+  const [available, setAvailable] = useState<FeedOption[]>([]);
+  const [onFailure, setOnFailure] = useState<'fallback' | 'pause'>('fallback');
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!account) return;
+    setChain(account.feeds);
+    setOnFailure(account.onFeedFailure ?? (account.mode === 'paper' ? 'fallback' : 'pause'));
+    setError(null);
+    apiClient.feeds
+      .list()
+      .then((list) =>
+        setAvailable(
+          list.feeds
+            .filter(
+              (f) =>
+                isMarketDataProvider(f.provider) &&
+                providerDataTypes(f.provider).includes('quotes'),
+            )
+            .map((f) => ({ id: f.id, name: f.name })),
+        ),
+      )
+      .catch((err: unknown) => setError(message(err, 'Could not load your data feeds.')));
+  }, [account]);
+
+  const move = (i: number, by: -1 | 1) =>
+    setChain((c) => {
+      const next = [...c];
+      const [item] = next.splice(i, 1);
+      if (item) next.splice(i + by, 0, item);
+      return next;
+    });
+  const left = available.filter((f) => !chain.some((c) => c.id === f.id));
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!account) return;
+    try {
+      await apiClient.accounts.setFeeds(account.id, {
+        feedIds: chain.map((f) => f.id),
+        onFeedFailure: onFailure,
+      });
+      onDone();
+    } catch (err) {
+      setError(message(err, 'Could not save the data feeds.'));
+    }
+  }
+
+  return (
+    <Dialog
+      open={account !== null}
+      onClose={onClose}
+      title={`Data feeds for ${account?.nickname ?? 'account'}`}
+      description="Strategy runs on this account price from the first feed; the others are fallbacks, in order. With no feeds here, the account uses the data routes in Settings › Data feeds."
+    >
+      <form onSubmit={(e) => void save(e)} className="space-y-3">
+        {error && <Alert>{error}</Alert>}
+        {chain.length === 0 ? (
+          <p className="text-sm text-ink-muted">No feeds of its own: it uses the data routes.</p>
+        ) : (
+          <ol aria-label="Feeds in order" className="space-y-1">
+            {chain.map((f, i) => (
+              <li key={f.id} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="min-w-[10rem] text-content">
+                  {i + 1}. {f.name}{' '}
+                  <span className="text-ink-muted">{i === 0 ? '(primary)' : '(fallback)'}</span>
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  aria-label={`Move ${f.name} up`}
+                  disabled={i === 0}
+                  onClick={() => move(i, -1)}
+                >
+                  Up
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  aria-label={`Move ${f.name} down`}
+                  disabled={i === chain.length - 1}
+                  onClick={() => move(i, 1)}
+                >
+                  Down
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  aria-label={`Remove ${f.name}`}
+                  onClick={() => setChain((c) => c.filter((x) => x.id !== f.id))}
+                >
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ol>
+        )}
+        {left.length > 0 && chain.length < 5 && (
+          <SelectField
+            name="account-add-feed"
+            label="Add a feed"
+            value=""
+            onChange={(e) => {
+              const feed = left.find((f) => f.id === e.target.value);
+              if (feed) setChain((c) => [...c, feed]);
+            }}
+          >
+            <option value="">Choose a price feed</option>
+            {left.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </SelectField>
+        )}
+        <SelectField
+          name="account-feed-failure"
+          label="If the data feed stops"
+          hint="Either way it is recorded as an incident and you are notified."
+          value={onFailure}
+          onChange={(e) => setOnFailure(e.target.value as 'fallback' | 'pause')}
+        >
+          <option value="fallback">Use the next fallback feed</option>
+          <option value="pause">Pause this account’s runs</option>
+        </SelectField>
+        <div className="flex gap-2">
+          <Button type="submit" variant="primary">
+            Save feeds
           </Button>
           <Button type="button" onClick={onClose}>
             Cancel

@@ -42,6 +42,8 @@ export interface OrderIntent {
    * close (`source: 'system'`); recording one without it is refused.
    */
   closeReason?: string | undefined;
+  /** The data feed whose price `referencePrice` is (ADR 0108), when it came through one. */
+  pricedByFeedId?: string | undefined;
 }
 
 /**

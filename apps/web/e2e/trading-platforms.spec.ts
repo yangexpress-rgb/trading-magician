@@ -227,3 +227,44 @@ test("an account's own limits, its kill switch and the halt it leaves (ADR 0107)
   const scan = await new AxeBuilder({ page }).analyze();
   expect(scan.violations).toEqual([]);
 });
+
+test("an account's own data feeds, in order, and what happens when one stops (ADR 0108)", async ({
+  page,
+  baseURL,
+}) => {
+  await signUpAndVerify(page, uniqueEmail('account-feeds'));
+  const headers = { origin: baseURL! };
+  const backup = await page.request.post('/api/v1/data-feeds', {
+    headers,
+    data: { name: 'Backup demo feed', provider: 'demo', assetClasses: ['stock'] },
+  });
+  expect(backup.status()).toBe(201);
+
+  await page.goto('/settings/accounts');
+  const table = page.getByRole('table', { name: 'Demo paper broker accounts' });
+  await expect(table).toContainText('Data routes');
+
+  await table.getByRole('button', { name: 'Data feeds for Demo paper account' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Data feeds for Demo paper account' });
+  await expect(dialog.getByLabel('If the data feed stops')).toHaveValue('fallback');
+  await dialog.getByLabel('Add a feed').selectOption({ label: 'Demo feed' });
+  await dialog.getByLabel('Add a feed').selectOption({ label: 'Backup demo feed' });
+  const order = dialog.getByRole('list', { name: 'Feeds in order' });
+  await expect(order).toContainText('1. Demo feed (primary)');
+  await dialog.getByRole('button', { name: 'Move Backup demo feed up' }).click();
+  await expect(order).toContainText('1. Backup demo feed (primary)');
+  await dialog.getByLabel('If the data feed stops').selectOption('pause');
+  await dialog.getByRole('button', { name: 'Save feeds' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(table).toContainText('Backup demo feed → Demo feed');
+
+  const accounts = await (await page.request.get('/api/v1/brokers')).json();
+  const account = accounts.platforms[0].accounts[0];
+  expect(account).toMatchObject({
+    onFeedFailure: 'pause',
+    feedNow: { name: 'Backup demo feed' },
+  });
+
+  const scan = await new AxeBuilder({ page }).analyze();
+  expect(scan.violations).toEqual([]);
+});

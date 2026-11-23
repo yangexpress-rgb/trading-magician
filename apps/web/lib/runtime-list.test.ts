@@ -24,6 +24,7 @@ function run(over: Partial<RuntimeSummaryDto> = {}): RuntimeSummaryDto {
     accountId: 'a1',
     accountName: 'Alpaca paper ••••4BD4',
     accountMode: 'paper',
+    fallbackFeed: null,
     startedAt: new Date(NOW - 2 * DAY).toISOString(),
     stoppedAt: null,
     workingOrders: 0,
