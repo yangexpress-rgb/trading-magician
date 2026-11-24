@@ -27,6 +27,33 @@ def code_version() -> str:
     return f"ml-trainer {__version__}" + (f" @ {sha[:12]}" if sha else "")
 
 
+def reason_kind(reason: str) -> str:
+    """A skip reason without its per-date numbers, so skips can be counted by kind."""
+    if "cross-sections with realised labels" in reason:
+        return f"fewer than {protocol.MIN_CROSS_SECTIONS} cross-sections with realised labels since the training start"
+    return reason
+
+
+def skip_summary(skipped: dict[str, str]) -> dict[str, object]:
+    """Dates that couldn't be served, counted by reason, with the latest one quoted.
+
+    Every pending date is tried on every run, oldest first, and a date that can't
+    be served never holds up a later one. Quoting the latest skip (not the oldest)
+    says how close the series is to its next servable date.
+    """
+    dates = sorted(skipped)
+    by_reason: dict[str, int] = {}
+    for d in dates:
+        kind = reason_kind(skipped[d])
+        by_reason[kind] = by_reason.get(kind, 0) + 1
+    return {
+        "notTrainable": len(dates),
+        "notTrainableRange": [dates[0], dates[-1]] if dates else None,
+        "notTrainableByReason": by_reason,
+        "latestNotTrainable": {"date": dates[-1], "reason": skipped[dates[-1]]} if dates else None,
+    }
+
+
 def catch_up(conn, *, model_keys: list[str] | None = None, until_year: int | None = None, write_report: bool = True, force_report: bool = False) -> dict[str, object]:
     out: dict[str, object] = {}
     version = code_version()
@@ -67,12 +94,12 @@ def catch_up(conn, *, model_keys: list[str] | None = None, until_year: int | Non
                 os.makedirs(report_dir, exist_ok=True)
                 with open(os.path.join(report_dir, f"{model.key}.md"), "w", encoding="utf-8") as f:
                     f.write(markdown)
-        not_trainable = sorted(skipped)
         out[model.key] = {
             "written": len(written),
             "evaluated": evaluated,
-            "notTrainable": len(not_trainable),
-            "firstNotTrainable": skipped[not_trainable[0]] if not_trainable else None,
+            **skip_summary(skipped),
+            "lastServed": max(served | set(written), default=None),
+            "latestSnapshot": max(data.snapshots, default=None),
             "summary": summary,
         }
         log("model done", model=model.key, **{k: v for k, v in out[model.key].items() if k != "summary"})
