@@ -1,4 +1,3 @@
-import { pipeline } from 'node:stream/promises';
 import type postgres from 'postgres';
 import { RESEARCH_TABLES, type ResearchTable } from './research';
 
@@ -6,8 +5,8 @@ import { RESEARCH_TABLES, type ResearchTable } from './research';
  * Moves the research tables from Core into the Research Store (ADR 0115).
  *
  * Copying never deletes anything. Each table is read in slices of physical
- * pages (TID ranges), streamed with COPY into a temporary table on the
- * Research side, and inserted with ON CONFLICT DO NOTHING, so a run can be
+ * pages (TID ranges), sent to the Research side as one JSON array per slice
+ * and inserted with ON CONFLICT DO NOTHING, so a run can be
  * repeated: rows already there (including rows the worker wrote after the
  * switch) are kept as they are. The proof that every Core row arrived is a
  * second run that inserts nothing, plus the per-table counts.
@@ -26,7 +25,7 @@ export interface TableMove {
   researchAfter: number;
 }
 
-const PAGES_PER_SLICE = 8192; // 64 MB of heap per slice
+const PAGES_PER_SLICE = 512; // 4 MB of heap per slice
 
 /** Rows whose parent must already be there (a foreign key inside the Research Store). */
 const PARENT_CHECK: Partial<Record<ResearchTable, string>> = {
@@ -64,10 +63,11 @@ export async function moveTable(
   research: postgres.Sql,
   table: ResearchTable,
   log: (line: string) => void = () => undefined,
+  pagesPerSlice = PAGES_PER_SLICE,
 ): Promise<TableMove> {
   const coreRows = await countRows(core, table);
   const researchBefore = await countRows(research, table);
-  // Both sides must have the same columns, in the same order, for COPY.
+  // Both sides must have the same columns, in the same order.
   const cols = await columns(core, table);
   const rcols = await columns(research, table);
   if (cols.join(',') !== rcols.join(','))
@@ -76,37 +76,38 @@ export async function moveTable(
   const total = await pages(core, table);
   let inserted = 0;
   let skipped = 0;
-  for (let from = 0; from <= total; from += PAGES_PER_SLICE) {
-    const to = from + PAGES_PER_SLICE;
+  for (let from = 0; from <= total; from += pagesPerSlice) {
+    const to = from + pagesPerSlice;
     const where = `ctid >= '(${from},0)'::tid and ctid < '(${to},0)'::tid`;
+    // One round trip each way, no open streams: Core hands over the slice as
+    // JSON text and Research rebuilds the rows from it with the table's types.
+    const [slice] = await core.unsafe<{ n: string; rows: string }[]>(
+      `select count(*)::text as n, coalesce(json_agg(s), '[]')::text as rows
+         from (select ${list} from ${ident(table)} where ${where}) s`,
+    );
+    const staged = Number(slice?.n ?? 0);
+    const json = slice?.rows ?? '[]';
+    if (staged === 0) continue;
+    const source = `json_populate_recordset(null::${ident(table)}, $1::text::json)`;
+    const check = PARENT_CHECK[table];
     const result = await research.begin(async (tx) => {
-      await tx.unsafe(
-        `create temp table move_stage (like ${ident(table)} including defaults) on commit drop`,
-      );
-      const reader = await core
-        .unsafe(`copy (select ${list} from ${ident(table)} where ${where}) to stdout`)
-        .readable();
-      const writer = await tx.unsafe(`copy move_stage (${list}) from stdin`).writable();
-      await pipeline(reader, writer);
-      const check = PARENT_CHECK[table];
-      const [staged] = await tx.unsafe<{ n: string }[]>(
-        `select count(*)::text as n from move_stage`,
-      );
       const rows = await tx.unsafe(
-        `insert into ${ident(table)} (${list}) select ${list} from move_stage` +
+        `insert into ${ident(table)} (${list}) select ${list} from ${source}` +
           (check ? ` where ${check}` : '') +
           ` on conflict do nothing`,
+        [json],
       );
       const parentless = check
         ? Number(
             (
               await tx.unsafe<{ n: string }[]>(
-                `select count(*)::text as n from move_stage where not (${check})`,
+                `select count(*)::text as n from ${source} where not (${check})`,
+                [json],
               )
             )[0]?.n ?? 0,
           )
         : 0;
-      return { staged: Number(staged?.n ?? 0), inserted: rows.count, parentless };
+      return { staged, inserted: rows.count, parentless };
     });
     inserted += result.inserted;
     skipped += result.parentless;
@@ -123,11 +124,15 @@ export async function moveTable(
 export async function moveResearchTables(
   core: postgres.Sql,
   research: postgres.Sql,
-  options: { tables?: readonly ResearchTable[]; log?: (line: string) => void } = {},
+  options: {
+    tables?: readonly ResearchTable[];
+    log?: (line: string) => void;
+    pagesPerSlice?: number;
+  } = {},
 ): Promise<TableMove[]> {
   const out: TableMove[] = [];
   for (const table of options.tables ?? RESEARCH_TABLES) {
-    const moved = await moveTable(core, research, table, options.log);
+    const moved = await moveTable(core, research, table, options.log, options.pagesPerSlice);
     options.log?.(
       `${table}: Core ${moved.coreRows}, Research ${moved.researchBefore} → ${moved.researchAfter} (${moved.inserted} copied, ${moved.skipped} without parent)`,
     );
