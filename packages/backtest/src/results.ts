@@ -431,4 +431,23 @@ export interface BacktestResult {
   cycles?: CycleDetail[];
   /** The strategy's three parts as the run read them (N220). Absent on older runs. */
   plan?: RunPlan;
+  /** A group run's members and how many could be priced (O208). Absent on older and single-stock runs. */
+  membership?: MembershipCoverage;
+}
+
+/**
+ * Whose members a group run tested and how many it could price (O207, O208),
+ * shown on the result's face so a priced subset is never silent.
+ */
+export interface MembershipCoverage {
+  /** "S&P 500", or "the list" for a list of instruments. */
+  label: string;
+  /** The day the member data runs to; null for a list of instruments. */
+  asOf: string | null;
+  /** Whether the members followed the group day by day (N324) or are today's list. */
+  pointInTime: boolean;
+  /** Companies that were members on some day of the run (the picked ones when only some were). */
+  members: number;
+  /** Of those, the ones the run had price bars for. */
+  priceable: number;
 }

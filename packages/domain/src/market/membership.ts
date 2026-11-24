@@ -1,4 +1,5 @@
 import { SP500_HISTORY_PERIODS, SP500_HISTORY_THROUGH } from './groups/sp500-history';
+import { stockGroup, type StockGroupId } from './stock-groups';
 
 /**
  * Point-in-time index membership (data inputs part 2, item C, N324, ADR 0112).
@@ -32,6 +33,17 @@ export const SP500_PERIODS: readonly MembershipPeriod[] = SP500_HISTORY_PERIODS.
 
 /** The last day the imported file describes; later changes arrive with the next import. */
 export const SP500_PERIODS_THROUGH = SP500_HISTORY_THROUGH;
+
+/**
+ * How current a group's member data is, as a back test or pattern scan reads
+ * it (O207): the imported history's last day for a point-in-time group, else
+ * the day today's list was last refreshed ('' before its first refresh).
+ */
+export function groupMembersAsOf(id: StockGroupId): { asOf: string; pointInTime: boolean } {
+  return isPointInTimeGroup(id)
+    ? { asOf: SP500_PERIODS_THROUGH, pointInTime: true }
+    : { asOf: stockGroup(id).asOf, pointInTime: false };
+}
 
 /** Whether a span covers `date`. */
 export const spanCovers = (s: MembershipSpan, date: string) =>

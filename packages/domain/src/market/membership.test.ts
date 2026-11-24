@@ -2,13 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { SP500_HISTORY_PERIODS } from './groups/sp500-history';
 import {
   currentSymbolFor,
+  groupMembersAsOf,
   membersOn,
   SP500_PERIODS,
+  SP500_PERIODS_THROUGH,
   SYMBOL_RENAMES,
   spanCovers,
   spanOverlaps,
 } from './membership';
-import { stockGroupSymbols } from './stock-groups';
+import { stockGroup, stockGroupSymbols } from './stock-groups';
 
 const isMember = (symbol: string, date: string) => membersOn(SP500_PERIODS, date).includes(symbol);
 
@@ -80,5 +82,15 @@ describe('point-in-time S&P 500 membership (N324)', () => {
     expect(spanOverlaps(s, '2021-01-01', '2021-12-31')).toBe(true);
     expect(spanOverlaps(s, '2021-03-01', '2021-12-31')).toBe(false);
     expect(spanOverlaps({ from: '2020-12-21', to: null }, '2030-01-01', '2030-02-01')).toBe(true);
+  });
+});
+
+describe('members as of (O207)', () => {
+  it('names the imported history for a point-in-time group and the list date otherwise', () => {
+    expect(groupMembersAsOf('sp500')).toEqual({ asOf: SP500_PERIODS_THROUGH, pointInTime: true });
+    expect(groupMembersAsOf('ndx')).toEqual({
+      asOf: stockGroup('ndx').asOf,
+      pointInTime: false,
+    });
   });
 });

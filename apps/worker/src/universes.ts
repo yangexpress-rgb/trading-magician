@@ -13,6 +13,7 @@ import {
 } from '@tm/db';
 import {
   isPointInTimeGroup,
+  SP500_PERIODS_THROUGH,
   providerCoversVenue,
   resolveRoute,
   stockGroup,
@@ -93,6 +94,8 @@ export interface ResolvedUniverse {
    * back test reads members as of each day from these.
    */
   spans?: Map<string, MembershipSpan[]>;
+  /** The group's member count and how current its data is, for the result's face (O208). */
+  coverage: { label: string; asOf: string; pointInTime: boolean; members: number };
 }
 
 /**
@@ -133,7 +136,12 @@ export async function resolveBuiltinUniverse(
         warnings.push(
           `${unresolved.length} of them have no price history in the app (most were delisted after leaving) and were left out: ${unresolved.slice(0, 10).join(', ')}${unresolved.length > 10 ? '…' : ''}`,
         );
-      return { ids: [...spans.keys()].sort(), warnings, spans };
+      return {
+        ids: [...spans.keys()].sort(),
+        warnings,
+        spans,
+        coverage: { label, asOf: SP500_PERIODS_THROUGH, pointInTime: true, members: symbols.size },
+      };
     }
   }
   const symbols = stockGroupSymbols(group);
@@ -147,5 +155,14 @@ export async function resolveBuiltinUniverse(
       `${left.length} ${label} members could not be found with your data feed and were left out: ${left.slice(0, 10).join(', ')}${left.length > 10 ? '…' : ''}`,
     );
   }
-  return { ids: symbols.flatMap((s) => known.get(s) ?? []), warnings };
+  return {
+    ids: symbols.flatMap((s) => known.get(s) ?? []),
+    warnings,
+    coverage: {
+      label,
+      asOf: stockGroup(group).asOf,
+      pointInTime: false,
+      members: symbols.length,
+    },
+  };
 }

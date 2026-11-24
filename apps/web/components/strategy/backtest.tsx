@@ -18,7 +18,7 @@ import {
   type BacktestRunSummaryDto,
   type BacktestTradeDto,
 } from '@tm/contracts';
-import { addDays, nyDate, stockGroup } from '@tm/domain';
+import { addDays, groupMembersAsOf, nyDate, stockGroup } from '@tm/domain';
 import {
   Alert,
   Badge,
@@ -46,6 +46,8 @@ import {
   formatPct,
   formatSignedMoney,
   isActive,
+  membersAsOfText,
+  membershipText,
   metricTiles,
   RUN_STATUS,
   thin,
@@ -246,6 +248,8 @@ interface GroupInfo {
   /** Members by symbol, for a list group; absent for a built-in stock group. */
   symbols?: string[];
   has: (symbol: string) => boolean;
+  /** How current a built-in group's members are (O207); absent for a list. */
+  asOf?: string;
 }
 
 function groupInfo(
@@ -256,7 +260,12 @@ function groupInfo(
   if (trade?.kind !== 'group') return undefined;
   if (trade.universe.type === 'builtin') {
     const group = stockGroup(trade.universe.id);
-    return { label: group.label, size: group.members.size, has: (s) => group.members.has(s) };
+    return {
+      label: group.label,
+      size: group.members.size,
+      has: (s) => group.members.has(s),
+      asOf: membersAsOfText(group.label, groupMembersAsOf(group.id)),
+    };
   }
   const symbols = trade.universe.instrumentIds.flatMap((id) => {
     const s = instruments.find((i) => i.id === id)?.symbol;
@@ -458,6 +467,7 @@ export function BacktestInputsForm({
               Only some of them
             </label>
           </div>
+          {group.asOf && <p className="mt-2 text-xs text-ink-muted">{group.asOf}</p>}
           {values.scope === 'some' && (
             <div className="mt-3">
               <TextField
@@ -676,6 +686,10 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
           </a>
         )}
       </div>
+      {/* A group run's members and the priced subset, never hidden (O208). */}
+      {run.result?.membership && (
+        <p className="mt-2 text-sm text-content">{membershipText(run.result.membership)}</p>
+      )}
       {/* The run's dates, figures, charts and assumptions, collapsed by default (N170). */}
       <details className="mt-3 rounded-md border border-line p-3">
         <summary className="cursor-pointer text-sm font-medium">
