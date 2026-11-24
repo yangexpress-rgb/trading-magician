@@ -1,7 +1,7 @@
 import { createDb } from '../src/client';
 import { loadOwnerDbEnv } from '../src/env';
 import { runMigrations } from '../src/migrate';
-import { runResearchMigrations } from '../src/research';
+import { runResearchMigrations } from '../src/research-migrate';
 
 const { DATABASE_URL } = loadOwnerDbEnv();
 const { db, close } = createDb(DATABASE_URL, { max: 1 });

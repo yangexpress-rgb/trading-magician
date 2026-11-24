@@ -4,7 +4,7 @@ import postgres from 'postgres';
 import { createDb, type DbHandle } from '../src/client';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { MIGRATIONS_FOLDER, runMigrations } from '../src/migrate';
-import { runResearchMigrations } from '../src/research';
+import { runResearchMigrations } from '../src/research-migrate';
 import { seedReferenceData } from '../src/seed';
 
 // The tests run on the invented demo instruments and demo feed (ADR 0039).

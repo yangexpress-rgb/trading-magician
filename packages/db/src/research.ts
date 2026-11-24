@@ -1,5 +1,3 @@
-import { fileURLToPath } from 'node:url';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import type { Database, Transaction } from './client';
 import { withTenant, type TenantContext } from './tenant';
 
@@ -14,10 +12,6 @@ import { withTenant, type TenantContext } from './tenant';
  * URLs), the same tables in the Core database answer: every caller goes
  * through a `ResearchStore`, so pointing it elsewhere is configuration only.
  */
-
-export const RESEARCH_MIGRATIONS_FOLDER = fileURLToPath(
-  new URL('../research-migrations', import.meta.url),
-);
 
 /**
  * The tables that live in the Research Store, parents before children (the
@@ -39,11 +33,6 @@ export const RESEARCH_TABLES = [
   'backtest_trade',
 ] as const;
 export type ResearchTable = (typeof RESEARCH_TABLES)[number];
-
-/** Applies the Research Store's own migrations. Requires its owner connection. */
-export async function runResearchMigrations(db: Database): Promise<void> {
-  await migrate(db, { migrationsFolder: RESEARCH_MIGRATIONS_FOLDER });
-}
 
 /**
  * Where research reads and writes go. `separate` is false while the Core
