@@ -7,7 +7,7 @@ import {
   syncMembershipPeriods,
 } from '@tm/db';
 import { createTestDatabase, type TestDatabase } from '@tm/db/testing';
-import { nyDate, SP500_PERIODS } from '@tm/domain';
+import { nyDate, SP500_PERIODS, SP500_PERIODS_THROUGH } from '@tm/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { processNextRun } from '../src/backtests';
 import { syncSp500Membership } from '../src/groups/membership-sync';
@@ -189,6 +189,14 @@ describe('S&P 500 back tests read members as of each day (C4)', () => {
     const run = await scenario.asUser((tx) => getBacktest(tx, started.runId));
     expect(JSON.stringify(run)).toMatch(/point in time/);
     expect(JSON.stringify(run)).toMatch(/GONE/);
+    // O208: four companies were members in 2019; GONE has no price history.
+    expect((run as { result?: { membership?: unknown } }).result?.membership).toEqual({
+      label: 'S&P 500',
+      asOf: SP500_PERIODS_THROUGH,
+      pointInTime: true,
+      members: 4,
+      priceable: 3,
+    });
     const trades = await scenario.asUser((tx) => listBacktestTrades(tx, started.runId));
     expect(trades.length).toBeGreaterThan(0);
     const spans: Record<string, [string, string | null]> = {

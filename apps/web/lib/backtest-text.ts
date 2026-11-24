@@ -4,6 +4,7 @@ import {
   coarserThan,
   type BacktestInterval,
   type BacktestMetrics,
+  type MembershipCoverage,
 } from '@tm/backtest';
 import type { BarInterval } from '@tm/domain';
 import { INTERVAL_LABELS } from '@tm/domain/strategy-text';
@@ -273,4 +274,28 @@ export function barsFromStrategy(
       ? ` Some conditions read every ${INTERVAL_LABELS[finest]}; back tests stop at 5-minute bars.`
       : '';
   return `${name} bars, set by the strategy's Check Entry, Check Exit and conditions. A ${name.toLowerCase()} back test covers at most ${RANGE_LIMIT_WORDS[interval]}.${coarser}`;
+}
+
+/**
+ * A group run's members on the result's face (O207, O208): whose list, as of
+ * when, and how many of them the run could price.
+ */
+export function membershipText(m: MembershipCoverage): string {
+  const asOf = m.asOf === null ? '' : ` as of ${m.asOf || 'its first refresh'}`;
+  const how = m.asOf === null ? '' : m.pointInTime ? ' (point in time)' : ' (today’s list)';
+  const left = m.members - m.priceable;
+  return `${m.label === 'the list' ? 'Members' : `${m.label} members`}${asOf}${how}: ${m.members}, priceable: ${m.priceable}${
+    left > 0 ? ` (${left} without price history left out)` : ''
+  }`;
+}
+
+/** How current a group's member data is, for the back test and scan forms (O207). */
+export function membersAsOfText(
+  label: string,
+  { asOf, pointInTime }: { asOf: string; pointInTime: boolean },
+): string {
+  const when = asOf || 'its first refresh';
+  return pointInTime
+    ? `${label} members as of ${when}: each day uses that day’s members (point in time); later index changes arrive with the next import.`
+    : `${label} members as of ${when}: today’s list on every day, so earlier years leave out companies that have since left (survivorship bias).`;
 }

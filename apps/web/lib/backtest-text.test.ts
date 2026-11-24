@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   barsFromStrategy,
   describeRun,
+  membershipText,
+  membersAsOfText,
   DIRECTION_WORDS,
   tradeDirection,
   formatMarketTime,
@@ -162,5 +164,48 @@ describe('barsFromStrategy (N233)', () => {
         inputs: { from: '2025-03-03', to: '2025-03-31', interval: '5m' },
       } as never),
     ).toBe('Version 2 · Mar 3, 2025 to Mar 31, 2025 · 5-minute bars');
+  });
+});
+
+describe('members as of and priceable (O207, O208)', () => {
+  it('states the date, members and the priced subset', () => {
+    expect(
+      membershipText({
+        label: 'S&P 500',
+        asOf: '2026-08-18',
+        pointInTime: true,
+        members: 520,
+        priceable: 511,
+      }),
+    ).toBe(
+      'S&P 500 members as of 2026-08-18 (point in time): 520, priceable: 511 (9 without price history left out)',
+    );
+    expect(
+      membershipText({
+        label: 'the list',
+        asOf: null,
+        pointInTime: false,
+        members: 5,
+        priceable: 5,
+      }),
+    ).toBe('Members: 5, priceable: 5');
+    expect(
+      membershipText({
+        label: 'Nasdaq 100',
+        asOf: '2026-11-10',
+        pointInTime: false,
+        members: 101,
+        priceable: 101,
+      }),
+    ).toBe('Nasdaq 100 members as of 2026-11-10 (today’s list): 101, priceable: 101');
+  });
+
+  it('words the form note for both kinds of group', () => {
+    expect(membersAsOfText('S&P 500', { asOf: '2026-08-18', pointInTime: true })).toMatch(
+      /^S&P 500 members as of 2026-08-18: each day uses that day’s members/,
+    );
+    expect(membersAsOfText('Dow 30', { asOf: '', pointInTime: false })).toMatch(
+      /as of its first refresh: today’s list/,
+    );
   });
 });

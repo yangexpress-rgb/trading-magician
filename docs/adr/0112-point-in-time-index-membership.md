@@ -53,4 +53,8 @@ every change since 1996 ("S&P 500 Historical Components & Changes (Updated).csv"
   survivorship bias remains; the run's warnings name how many (O208).
 - The file ends on its last change date (2026-08-18 at import); later changes appear when it is
   imported again (O207).
+- Amended 2026-11-24 (N334, Yong's dispositions of O207 and O208): every group back test result
+  states, above its collapsed summary, whose members it tested, as of which day, how many there
+  were and how many it could price (`result.membership`). The back test form and the pattern scan
+  form show the group's member data date, and the scan and pattern pages name it.
 - The factor store backfills former members, about a third more instruments (O209).
