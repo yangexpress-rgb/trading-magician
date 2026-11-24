@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -49,7 +49,7 @@ jobs:
       TEST_DATABASE_URL: postgres://tm_owner:ci_only_password@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -83,7 +83,7 @@ jobs:
       ML_TEST_RESEARCH_URL: postgres://tm_owner:ci_only_password@localhost:5432/trading_magician_research
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -108,7 +108,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -192,7 +192,7 @@ jobs:
       BETTER_AUTH_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
