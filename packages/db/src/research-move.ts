@@ -86,6 +86,7 @@ export async function moveTable(
          from (select ${list} from ${ident(table)} where ${where}) s`,
     );
     const staged = Number(slice?.n ?? 0);
+    const json = slice?.rows ?? '[]';
     if (staged === 0) continue;
     const source = `json_populate_recordset(null::${ident(table)}, $1::text::json)`;
     const check = PARENT_CHECK[table];
@@ -94,14 +95,14 @@ export async function moveTable(
         `insert into ${ident(table)} (${list}) select ${list} from ${source}` +
           (check ? ` where ${check}` : '') +
           ` on conflict do nothing`,
-        [slice!.rows],
+        [json],
       );
       const parentless = check
         ? Number(
             (
               await tx.unsafe<{ n: string }[]>(
                 `select count(*)::text as n from ${source} where not (${check})`,
-                [slice!.rows],
+                [json],
               )
             )[0]?.n ?? 0,
           )
