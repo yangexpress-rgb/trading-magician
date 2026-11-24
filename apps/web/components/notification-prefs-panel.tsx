@@ -27,6 +27,7 @@ const KIND_TEXT: Record<NotificationKindDto, string> = {
   share_received: 'Someone shares a theory or strategy with you',
   share_accepted: 'Someone accepts a theory or strategy you shared',
   share_declined: 'Someone declines a theory or strategy you shared',
+  storage_alert: 'A database is more than 80% full (platform admins)',
 };
 
 const isLocked = (kind: NotificationKindDto) =>

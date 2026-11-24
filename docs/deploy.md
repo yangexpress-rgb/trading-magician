@@ -166,6 +166,37 @@ An **Admin** tab then appears under Settings in the side bar. `users:revoke-admi
 away. Admins can lock and unlock people (locking signs them out everywhere and refuses sign-in),
 reset passwords, create, revoke and release invite codes, and read the whole audit trail.
 
+### Research database (ADR 0115)
+
+Research data (factor snapshots, raw option chains, pattern results, ML training data, back test
+trades) lives in a second Postgres service with its own volume, so a full research volume can
+never stop trading. Without the variables below the same tables in the main database are used.
+
+1. New → Database → PostgreSQL. Name it `Research`. It gets its own volume.
+2. On **web**, add:
+
+   ```text
+   RESEARCH_DATABASE_URL=${{Research.DATABASE_URL}}
+   RESEARCH_DATABASE_APP_URL=postgresql://tm_app_login:${{shared.DB_APP_LOGIN_PASSWORD}}@${{Research.PGHOST}}:${{Research.PGPORT}}/${{Research.PGDATABASE}}
+   ```
+
+   The pre-deploy command then also applies the Research migrations and creates its logins.
+
+3. On **worker** and **ml-trainer**, add:
+
+   ```text
+   RESEARCH_DATABASE_WORKER_URL=postgresql://tm_worker_login:${{shared.DB_WORKER_LOGIN_PASSWORD}}@${{Research.PGHOST}}:${{Research.PGPORT}}/${{Research.PGDATABASE}}
+   ```
+
+4. On **worker**, set each volume's size in MB so the 80% storage alert measures against it:
+   `CORE_VOLUME_MB` and `RESEARCH_VOLUME_MB` (both default to 10000; 0 turns a check off).
+   Update them whenever a volume is grown.
+5. Copy the existing research rows with `pnpm --filter @tm/db research:move` (needs
+   `DATABASE_URL` and `RESEARCH_DATABASE_URL`, both owner URLs). Run it once before step 2's
+   `RESEARCH_DATABASE_APP_URL` and step 3, and once after; the second pass must print
+   `VERIFIED`. It never deletes. `pnpm --filter @tm/db research:clear-core` empties the main
+   database's copies, and only after a verifying pass: run it only when the owner says so.
+
 ## Staging and production
 
 Railway environments keep two full copies apart (ADR 0025). **Staging comes first**: the steps

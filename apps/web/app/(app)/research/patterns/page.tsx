@@ -1,4 +1,4 @@
-import { factorCoverageReport, listPatternScans, withTenant } from '@tm/db';
+import { factorCoverageReport, listPatternScans } from '@tm/db';
 import { AVAILABLE_STOCK_GROUPS } from '@tm/domain';
 import { Card, PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
@@ -6,7 +6,8 @@ import { CoverageReport } from '@/components/patterns/coverage-report';
 import { NewScanForm } from '@/components/patterns/new-scan-form';
 import { ScanList } from '@/components/patterns/scan-list';
 import { ResearchNav } from '@/components/research/research-nav';
-import { appDb } from '@/lib/server/db';
+import { readResearch, ResearchUnavailable } from '@/components/research/research-unavailable';
+import { researchFor } from '@/lib/server/db';
 import { requireTenant } from '@/lib/server/session';
 import { startPatternScan } from './actions';
 
@@ -20,9 +21,19 @@ export const dynamic = 'force-dynamic';
  */
 export default async function PatternsPage() {
   const tenant = await requireTenant();
-  const [report, scans] = await withTenant(appDb(), tenant, (tx) =>
-    Promise.all([factorCoverageReport(tx), listPatternScans(tx)]),
+  // Patterns and the factor store live in the Research Store (ADR 0115).
+  const found = await readResearch(() =>
+    researchFor(tenant)((tx) => Promise.all([factorCoverageReport(tx), listPatternScans(tx)])),
   );
+  if (!found)
+    return (
+      <>
+        <PageHeader title="Quantitative Research" />
+        <ResearchNav />
+        <ResearchUnavailable />
+      </>
+    );
+  const [report, scans] = found;
   return (
     <>
       <PageHeader

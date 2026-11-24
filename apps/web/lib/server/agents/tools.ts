@@ -38,6 +38,7 @@ import {
   validateStoredStrategy,
   type AgentScope,
   type Transaction,
+  type ResearchTx,
 } from '@tm/db';
 import {
   BUILT_STATUSES,
@@ -91,6 +92,8 @@ export interface ToolContext {
   userId: string;
   /** Runs `fn` in a transaction scoped to the connection's person. */
   tx: <T>(fn: (tx: Transaction) => Promise<T>) => Promise<T>;
+  /** The same person's Research Store runner (ADR 0115); without it research reads use `tx`. */
+  research?: ResearchTx;
   /** The app's own origin, for links back into the app. */
   appUrl: string;
   now: () => Date;
@@ -379,7 +382,7 @@ const getBacktestTool = tool({
       const run = asJson<BacktestRunDto>(await getBacktest(t, a.runId));
       const { result, ...summary } = run;
       if (!result) return { ...summary, cycles: { total: 0, items: [] } };
-      const trades = asJson<BacktestTradeDto[]>(await listBacktestTrades(t, a.runId));
+      const trades = asJson<BacktestTradeDto[]>(await listBacktestTrades(t, a.runId, ctx.research));
       const symbols = result.symbols ?? {};
       const symbol: SymbolLookup = (id) => symbols[id];
       const cycles = buildCycles(result, trades);

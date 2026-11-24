@@ -53,14 +53,24 @@ export const OPTIONS_RECORDING = {
   pendingDays: 10,
 } as const;
 
+/** Raw option chains older than this are deleted; signals are kept (ADR 0115). */
+export const RAW_CHAIN_DAYS = 90;
+
 export interface OptionsJobOptions {
   db: Database;
+  /**
+   * Where raw chain snapshots go (ADR 0115: the Research Store). Signals and
+   * the universe stay in `db`, the Core Store. Defaults to `db`.
+   */
+  research?: Database;
   chains: ChainSource;
   inputs: MarketInputs;
   logger: Pick<Logger, 'info' | 'warn'>;
   now?: () => Date;
   /** OPTIONS_HISTORY_DAYS (§3.5). */
   historyDays?: number;
+  /** Days of raw chain snapshots kept (ADR 0115); defaults to RAW_CHAIN_DAYS. */
+  chainDays?: number;
   /**
    * Tests only: stands in for the pricing package, so the derive step can be
    * fed the brief's worked chain (fixture F1). Production uses `computeChain`.
@@ -143,7 +153,7 @@ export async function recordUnderlying(
     deltaCalc: null,
     gammaCalc: null,
   }));
-  await saveOptionSnapshot(o.db, {
+  await saveOptionSnapshot(o.research ?? o.db, {
     underlyingId: u.underlyingId,
     asOfDate: day,
     underlyingClose: null,
@@ -208,7 +218,7 @@ export async function deriveDay(
   u: Pick<UniverseRow, 'underlyingId' | 'symbol' | 'assetClass'>,
   day: string,
 ): Promise<DeriveOutcome> {
-  const snapshot = await loadOptionSnapshot(o.db, u.underlyingId, day);
+  const snapshot = await loadOptionSnapshot(o.research ?? o.db, u.underlyingId, day);
   if (!snapshot) return 'no_snapshot';
   const underlying = { id: u.underlyingId, symbol: u.symbol, assetClass: u.assetClass };
   const raw = await o.inputs.dailyBars(underlying, addDays(day, -10), day, 'none');
@@ -236,7 +246,7 @@ export async function deriveDay(
       gamma: c?.gamma ?? null,
     });
   });
-  await updateSnapshotCalc(o.db, u.underlyingId, day, close, calc);
+  await updateSnapshotCalc(o.research ?? o.db, u.underlyingId, day, close, calc);
 
   const adjusted = await o.inputs.dailyBars(
     underlying,
@@ -291,14 +301,23 @@ export async function deriveDay(
   return 'derived';
 }
 
-/** Deletes rows older than the history window (§3.5); contracts stay. */
+/**
+ * Deletes rows older than the history window (§3.5); contracts stay. Raw
+ * chains are kept only `chainDays` (ADR 0115: 90 days), the computed signals
+ * the whole window, so no signal a strategy reads changes.
+ */
 export async function runRetention(o: OptionsJobOptions) {
   const now = (o.now ?? (() => new Date()))();
   const days = o.historyDays ?? OPTIONS_HISTORY_DAYS_DEFAULT;
   const cutoff = addDays(nyDate(now), -days);
-  const pruned = await pruneOptionHistory(o.db, cutoff);
+  const chainDays = Math.min(days, o.chainDays ?? RAW_CHAIN_DAYS);
+  const chainCutoff = addDays(nyDate(now), -chainDays);
+  const pruned = await pruneOptionHistory(o.db, cutoff, {
+    db: o.research ?? o.db,
+    cutoffDate: chainCutoff,
+  });
   if (pruned.snapshots + pruned.signals + pruned.expiries > 0)
-    o.logger.info({ cutoff, ...pruned }, 'old options history deleted');
+    o.logger.info({ cutoff, chainCutoff, ...pruned }, 'old options history deleted');
   return pruned;
 }
 
@@ -324,6 +343,7 @@ export async function runOptionsRecording(o: OptionsJobOptions, state: PassState
   }
   const byId = new Map(universe.map((u) => [u.underlyingId, u]));
   const waiting = await snapshotsAwaitingSignal(
+    o.research ?? o.db,
     o.db,
     addDays(nyDate(now), -OPTIONS_RECORDING.pendingDays),
   );

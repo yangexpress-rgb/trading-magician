@@ -18,6 +18,14 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
       /** The tm_app login. Without either URL the worker serves health checks only. */
       DATABASE_APP_URL: pgUrl.optional(),
       /**
+       * The Research Store (ADR 0115): the worker's login on the research
+       * database. Unset, research data stays in the Core database.
+       */
+      RESEARCH_DATABASE_WORKER_URL: pgUrl.optional(),
+      /** Volume sizes in MB for the 80% storage alert (A3); 0 turns that check off. */
+      CORE_VOLUME_MB: z.coerce.number().int().min(0).default(10_000),
+      RESEARCH_VOLUME_MB: z.coerce.number().int().min(0).default(10_000),
+      /**
        * DEVELOPMENT ONLY: opens sealed provider credentials with a private key
        * held in the environment. Refused on Railway; staging and production use
        * CREDENTIALS_KMS_KEY_ID instead (ADR 0035).

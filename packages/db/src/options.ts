@@ -390,16 +390,25 @@ export async function updateSnapshotCalc(
   });
 }
 
-/** Days with a stored snapshot but no signal yet (the close was not in), oldest first. */
-export async function snapshotsAwaitingSignal(db: Db, sinceDate: string) {
-  const rows = await db.execute<{ underlying_id: string; as_of_date: string }>(sql`
+/**
+ * Days with a stored snapshot but no signal yet (the close was not in), oldest
+ * first. Snapshots are read from the Research Store and signals from Core
+ * (ADR 0115), so the two lists are compared here rather than joined.
+ */
+export async function snapshotsAwaitingSignal(research: Db, core: Db, sinceDate: string) {
+  const days = await research.execute<{ underlying_id: string; as_of_date: string }>(sql`
     select distinct s.underlying_id, s.as_of_date::text as as_of_date
       from option_chain_snapshot s
      where s.as_of_date >= ${sinceDate}::date
-       and not exists (select 1 from option_daily_signal d
-                        where d.underlying_id = s.underlying_id and d.as_of_date = s.as_of_date)
-     order by 2`);
-  return [...rows].map((r) => ({ underlyingId: r.underlying_id, asOfDate: r.as_of_date }));
+     order by 2, 1`);
+  const signalled = await core.execute<{ underlying_id: string; as_of_date: string }>(sql`
+    select d.underlying_id, d.as_of_date::text as as_of_date
+      from option_daily_signal d
+     where d.as_of_date >= ${sinceDate}::date`);
+  const done = new Set([...signalled].map((r) => `${r.underlying_id}|${r.as_of_date}`));
+  return [...days]
+    .filter((r) => !done.has(`${r.underlying_id}|${r.as_of_date}`))
+    .map((r) => ({ underlyingId: r.underlying_id, asOfDate: r.as_of_date }));
 }
 
 // ---------------------------------------------------------------------------
@@ -608,12 +617,21 @@ export async function signalDates(db: Db, underlyingId: string, sinceDate: strin
  * The rolling history (brief §3.5): deletes snapshot, signal and per-expiry
  * rows dated before `cutoffDate`. Contract rows are kept.
  */
-export async function pruneOptionHistory(db: Database, cutoffDate: string) {
+export async function pruneOptionHistory(
+  db: Database,
+  cutoffDate: string,
+  /**
+   * Raw chains go to their own cutoff in the Research Store (ADR 0115: 90
+   * days); the computed signals keep `cutoffDate`. Defaults to `db` and `cutoffDate`.
+   */
+  chains?: { db: Database; cutoffDate: string },
+) {
+  const chainDb = chains?.db ?? db;
+  const snapshots = await chainDb
+    .delete(optionChainSnapshots)
+    .where(lt(optionChainSnapshots.asOfDate, chains?.cutoffDate ?? cutoffDate))
+    .returning({ id: optionChainSnapshots.id });
   return db.transaction(async (tx) => {
-    const snapshots = await tx
-      .delete(optionChainSnapshots)
-      .where(lt(optionChainSnapshots.asOfDate, cutoffDate))
-      .returning({ id: optionChainSnapshots.id });
     const signals = await tx
       .delete(optionDailySignals)
       .where(lt(optionDailySignals.asOfDate, cutoffDate))

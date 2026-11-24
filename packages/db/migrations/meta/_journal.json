@@ -778,6 +778,13 @@
       "when": 1795453544865,
       "tag": "0110_order_prices",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1795533845044,
+      "tag": "0111_research_store",
+      "breakpoints": true
     }
   ]
 }

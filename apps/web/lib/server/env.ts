@@ -14,6 +14,11 @@ export function loadServerEnv(source: Record<string, string | undefined> = proce
       BETTER_AUTH_SECRET: z.string().min(32),
       DATABASE_APP_URL: pgUrl,
       DATABASE_AUTH_URL: pgUrl,
+      /**
+       * The Research Store's tm_app login (ADR 0115). Unset, research data is
+       * read from the Core database through DATABASE_APP_URL.
+       */
+      RESEARCH_DATABASE_APP_URL: pgUrl.optional(),
       MAIL_TRANSPORT: z.enum(['smtp', 'outbox']).default('smtp'),
       MAIL_FROM: z.string().default('Trading Magician <no-reply@localhost>'),
       SMTP_URL: z.string().url().default('smtp://localhost:1025'),

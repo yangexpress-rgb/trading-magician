@@ -27,7 +27,7 @@ import {
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
-import { appDb } from '@/lib/server/db';
+import { appDb, researchFor } from '@/lib/server/db';
 import { logger } from '@/lib/server/log';
 import { requireTenant } from '@/lib/server/session';
 
@@ -104,7 +104,10 @@ export async function startPatternScan(
         factors: scanFactors(input.categories as FactorCategory[]),
         catalogueVersion: FACTOR_CATALOGUE_VERSION,
       };
-      return queuePatternScan(tx, tenant.userId, config, scanSummary(input));
+      // The scan is queued in the Research Store, where the miner reads it (ADR 0115).
+      return researchFor(tenant)((rtx) =>
+        queuePatternScan(rtx, tenant.userId, config, scanSummary(input)),
+      );
     });
   } catch (error) {
     logger().error({ err: error }, 'Pattern scan not queued');
@@ -129,13 +132,22 @@ export async function promotePatternAction(
   if (!id.success) return { status: 'error', message: 'Unknown pattern.' };
   let number: string;
   try {
-    number = await withTenant(appDb(), tenant, async (tx) => {
-      const pattern = await getPattern(tx, id.data);
-      if (!pattern) throw new LibraryError('not_found', 'Unknown pattern.');
-      const scan = await getPatternScan(tx, pattern.scanId);
-      if (!scan) throw new LibraryError('not_found', 'Unknown scan.');
-      return (await promotePattern(tx, tenant.userId, pattern, scan)).registrationNumber;
+    const research = researchFor(tenant);
+    const found = await research(async (rtx) => {
+      const pattern = await getPattern(rtx, id.data);
+      const scan = pattern ? await getPatternScan(rtx, pattern.scanId) : undefined;
+      return { pattern, scan };
     });
+    const { pattern, scan } = found;
+    if (!pattern) throw new LibraryError('not_found', 'Unknown pattern.');
+    if (!scan) throw new LibraryError('not_found', 'Unknown scan.');
+    // The theory is registered in Core; the pattern's link is written in Research (ADR 0115).
+    number = await withTenant(
+      appDb(),
+      tenant,
+      async (tx) =>
+        (await promotePattern(tx, tenant.userId, pattern, scan, research)).registrationNumber,
+    );
   } catch (error) {
     if (error instanceof LibraryError) return { status: 'error', message: error.message };
     logger().error({ err: error }, 'Pattern promotion failed');
@@ -153,7 +165,7 @@ export async function reverifyPatternAction(
   const tenant = await requireTenant();
   const id = uuid.safeParse(form.get('patternId'));
   if (!id.success) return { status: 'error', message: 'Unknown pattern.' };
-  await withTenant(appDb(), tenant, (tx) => requestReverify(tx, id.data));
+  await researchFor(tenant)((tx) => requestReverify(tx, id.data));
   revalidatePath(`/research/patterns/${id.data}`);
   return {
     status: 'done',

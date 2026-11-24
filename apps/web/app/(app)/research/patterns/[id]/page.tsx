@@ -5,6 +5,7 @@ import {
   patternEventPaths,
   theoryNumberById,
   withTenant,
+  type Transaction,
 } from '@tm/db';
 import {
   eventStudy,
@@ -24,7 +25,8 @@ import { EventStudyChart } from '@/components/patterns/event-study-chart';
 import { PatternActionButton } from '@/components/patterns/pattern-actions';
 import { PatternChip } from '@/components/patterns/pattern-chip';
 import { ResearchNav } from '@/components/research/research-nav';
-import { appDb } from '@/lib/server/db';
+import { readResearch, ResearchUnavailable } from '@/components/research/research-unavailable';
+import { appDb, researchFor } from '@/lib/server/db';
 import { requireTenant } from '@/lib/server/session';
 import { promotePatternAction, reverifyPatternAction } from '../actions';
 import { Signed } from '@/components/signed';
@@ -63,20 +65,34 @@ export default async function PatternPage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   if (!z.string().uuid().safeParse(id).success) notFound();
   const tenant = await requireTenant();
-  const data = await withTenant(appDb(), tenant, async (tx) => {
-    const pattern = await getPattern(tx, id);
-    if (!pattern) return null;
-    const scan = await getPatternScan(tx, pattern.scanId);
-    if (!scan) return null;
-    const after = Math.min(scan.config.outcome.horizon + 5, 60);
-    const [occurrences, holdoutPaths, discoveryPaths, theoryNumber] = await Promise.all([
-      listPatternOccurrences(tx, id),
-      patternEventPaths(tx, id, 'holdout', BEFORE, after),
-      patternEventPaths(tx, id, 'discovery', BEFORE, after),
-      pattern.promotedTheoryId ? theoryNumberById(tx, pattern.promotedTheoryId) : null,
-    ]);
-    return { pattern, scan, occurrences, holdoutPaths, discoveryPaths, theoryNumber, after };
-  });
+  // The pattern and its evidence are in the Research Store; symbols and the
+  // promoted theory's number are in Core (ADR 0115).
+  const data = await readResearch(() =>
+    withTenant(appDb(), tenant, (core: Transaction) =>
+      researchFor(tenant)(async (tx) => {
+        const pattern = await getPattern(tx, id);
+        if (!pattern) return null;
+        const scan = await getPatternScan(tx, pattern.scanId);
+        if (!scan) return null;
+        const after = Math.min(scan.config.outcome.horizon + 5, 60);
+        const occurrences = await listPatternOccurrences(tx, id, core);
+        const holdoutPaths = await patternEventPaths(tx, id, 'holdout', BEFORE, after);
+        const discoveryPaths = await patternEventPaths(tx, id, 'discovery', BEFORE, after);
+        const theoryNumber = pattern.promotedTheoryId
+          ? await theoryNumberById(core, pattern.promotedTheoryId)
+          : null;
+        return { pattern, scan, occurrences, holdoutPaths, discoveryPaths, theoryNumber, after };
+      }),
+    ),
+  );
+  if (data === undefined)
+    return (
+      <>
+        <PageHeader title="Quantitative Research" />
+        <ResearchNav />
+        <ResearchUnavailable />
+      </>
+    );
   if (!data) notFound();
   const { pattern, scan, occurrences, theoryNumber, after } = data;
   const s = pattern.stats;

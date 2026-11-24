@@ -1,4 +1,4 @@
-import { getPatternScan, listPatterns, withTenant } from '@tm/db';
+import { getPatternScan, listPatterns } from '@tm/db';
 import { FACTOR_CATEGORY_LABELS, outcomeWords, type FactorCategory } from '@tm/domain';
 import { Alert, Card, DataValue, PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
@@ -7,7 +7,8 @@ import { notFound } from 'next/navigation';
 import { z } from 'zod';
 import { PatternTable } from '@/components/patterns/pattern-table';
 import { ResearchNav } from '@/components/research/research-nav';
-import { appDb } from '@/lib/server/db';
+import { readResearch, ResearchUnavailable } from '@/components/research/research-unavailable';
+import { researchFor } from '@/lib/server/db';
 import { requireTenant } from '@/lib/server/session';
 
 export const metadata: Metadata = { title: 'Pattern scan · Quantitative Research' };
@@ -35,10 +36,21 @@ export default async function PatternScanPage({ params }: { params: Promise<{ id
   const { id } = await params;
   if (!z.string().uuid().safeParse(id).success) notFound();
   const tenant = await requireTenant();
-  const { scan, rows } = await withTenant(appDb(), tenant, async (tx) => {
-    const scan = await getPatternScan(tx, id);
-    return { scan, rows: scan ? await listPatterns(tx, id) : [] };
-  });
+  const found = await readResearch(() =>
+    researchFor(tenant)(async (tx) => {
+      const scan = await getPatternScan(tx, id);
+      return { scan, rows: scan ? await listPatterns(tx, id) : [] };
+    }),
+  );
+  if (!found)
+    return (
+      <>
+        <PageHeader title="Quantitative Research" />
+        <ResearchNav />
+        <ResearchUnavailable />
+      </>
+    );
+  const { scan, rows } = found;
   if (!scan) notFound();
   const eff = (scan.effective ?? {}) as Effective;
   const verified = rows.filter((r) => r.status === 'verified');

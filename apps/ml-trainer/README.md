@@ -27,11 +27,12 @@ nothing changed.
 
 ## Settings
 
-| Variable              | Meaning                                                                  |
-| --------------------- | ------------------------------------------------------------------------ |
-| `ML_TRAINER_ENABLED`  | Must be `on`, or the run does nothing (the kill switch).                 |
-| `DATABASE_WORKER_URL` | The worker's login (tm_app plus tm_secrets), as the worker service uses. |
-| `ML_REPORT_DIR`       | Optional folder for the Markdown report.                                 |
+| Variable                       | Meaning                                                                                                                                                                                                  |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ML_TRAINER_ENABLED`           | Must be `on`, or the run does nothing (the kill switch).                                                                                                                                                 |
+| `DATABASE_WORKER_URL`          | The worker's login (tm_app plus tm_secrets), as the worker service uses.                                                                                                                                 |
+| `RESEARCH_DATABASE_WORKER_URL` | The same login on the Research Store (ADR 0115). Training data, evaluations, reports and the pattern miner's tables live there; models, runs and predictions stay in Core. Unset: everything is in Core. |
+| `ML_REPORT_DIR`                | Optional folder for the Markdown report.                                                                                                                                                                 |
 
 ## Deploying on Railway
 
@@ -43,6 +44,7 @@ Variables:
 
 ```text
 DATABASE_WORKER_URL=postgresql://tm_worker_login:${{shared.DB_WORKER_LOGIN_PASSWORD}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}
+RESEARCH_DATABASE_WORKER_URL=postgresql://tm_worker_login:${{shared.DB_WORKER_LOGIN_PASSWORD}}@${{Research.PGHOST}}:${{Research.PGPORT}}/${{Research.PGDATABASE}}
 ML_TRAINER_ENABLED=on
 ```
 

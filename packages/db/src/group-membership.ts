@@ -186,6 +186,8 @@ export async function membershipCoverageByYear(
   groupId: string,
   fromYear: number,
   toYear: number,
+  /** Where the factor store lives (ADR 0115: the Research Store); defaults to `db`. */
+  research: Db = db,
 ): Promise<MembershipYear[]> {
   const periods = await membershipPeriodsBetween(
     db,
@@ -198,7 +200,7 @@ export async function membershipCoverageByYear(
   const spans = new Map<string, { first: string; last: string }>();
   for (let i = 0; i < ids.length; i += 500) {
     const chunk = ids.slice(i, i + 500);
-    const rows = await db
+    const rows = await research
       .select({
         id: factorSnapshots.instrumentId,
         year: sql<number>`extract(year from ${factorSnapshots.asOf})::int`,

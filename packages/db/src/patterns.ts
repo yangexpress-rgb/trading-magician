@@ -20,6 +20,7 @@ import {
 import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Database, Transaction } from './client';
 import { LibraryError, registerLibraryEntry } from './library';
+import type { ResearchTx } from './research';
 import {
   factorCoverage,
   factorSnapshots,
@@ -417,14 +418,19 @@ export interface PatternOccurrenceRow {
   forwardReturn: number;
 }
 
+/**
+ * A pattern's occurrences, newest first. Occurrences live in the Research
+ * Store and symbols in Core (ADR 0115): pass Core's transaction as `core`
+ * when they are apart (defaults to `tx`).
+ */
 export async function listPatternOccurrences(
   tx: Transaction,
   patternId: string,
+  core: Transaction = tx,
 ): Promise<PatternOccurrenceRow[]> {
   const rows = await tx
     .select({
       instrumentId: patternOccurrences.instrumentId,
-      symbol: instruments.symbol,
       asOf: patternOccurrences.asOf,
       window: patternOccurrences.window,
       hit: patternOccurrences.hit,
@@ -433,10 +439,35 @@ export async function listPatternOccurrences(
       forwardReturn: patternOccurrences.forwardReturn,
     })
     .from(patternOccurrences)
-    .innerJoin(instruments, eq(instruments.id, patternOccurrences.instrumentId))
-    .where(eq(patternOccurrences.patternId, patternId))
-    .orderBy(desc(patternOccurrences.asOf), asc(instruments.symbol));
-  return rows.map((r) => ({ ...r, window: r.window as PatternOccurrenceRow['window'] }));
+    .where(eq(patternOccurrences.patternId, patternId));
+  const ids = [...new Set(rows.map((r) => r.instrumentId))];
+  const symbols = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += 1000) {
+    const chunk = ids.slice(i, i + 1000);
+    for (const r of await core
+      .select({ id: instruments.id, symbol: instruments.symbol })
+      .from(instruments)
+      .where(inArray(instruments.id, chunk)))
+      symbols.set(r.id, r.symbol);
+  }
+  return rows
+    .flatMap((r) => {
+      const symbol = symbols.get(r.instrumentId);
+      return symbol === undefined
+        ? []
+        : [{ ...r, symbol, window: r.window as PatternOccurrenceRow['window'] }];
+    })
+    .sort((a, b) =>
+      a.asOf === b.asOf
+        ? a.symbol < b.symbol
+          ? -1
+          : a.symbol > b.symbol
+            ? 1
+            : 0
+        : a.asOf < b.asOf
+          ? 1
+          : -1,
+    );
 }
 
 /**
@@ -499,6 +530,8 @@ export async function promotePattern(
   userId: string,
   pattern: PatternRow,
   scan: PatternScanRow,
+  /** The Research Store, where the pattern lives (ADR 0115); defaults to `tx`. */
+  research?: ResearchTx,
 ): Promise<{ id: string; registrationNumber: string }> {
   if (pattern.promotedTheoryId)
     throw new LibraryError('conflict', 'This pattern is already in the Theory Library.');
@@ -565,10 +598,13 @@ export async function promotePattern(
       detail: universeLabel(cfg.universe),
     },
   });
-  await tx
-    .update(patterns)
-    .set({ promotedTheoryId: entry.id, promotedStatus: pattern.status, promotedAt: new Date() })
-    .where(eq(patterns.id, pattern.id));
+  const link = (t: Transaction) =>
+    t
+      .update(patterns)
+      .set({ promotedTheoryId: entry.id, promotedStatus: pattern.status, promotedAt: new Date() })
+      .where(eq(patterns.id, pattern.id));
+  if (research) await research(link);
+  else await link(tx);
   return { id: entry.id, registrationNumber: entry.registrationNumber };
 }
 

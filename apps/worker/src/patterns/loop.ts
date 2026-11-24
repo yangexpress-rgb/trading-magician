@@ -18,6 +18,8 @@ export interface PatternSnapshotLoop {
 
 export interface PatternSnapshotLoopOptions {
   db: Database;
+  /** The factor store's home (ADR 0115: the Research Store); defaults to `db`. */
+  research?: Database;
   history: (userId: string) => HistoricalDataProvider;
   fundamentals: FundamentalsLoader;
   members: (userId: string) => Promise<string[]>;
@@ -54,6 +56,7 @@ export function startPatternSnapshotLoop(options: PatternSnapshotLoopOptions): P
     }
     const job: PatternSnapshotOptions = {
       db: options.db,
+      ...(options.research ? { research: options.research } : {}),
       history: options.history(owner),
       fundamentals: options.fundamentals,
       members: () => options.members(owner),
@@ -105,13 +108,13 @@ export function startPatternSnapshotLoop(options: PatternSnapshotLoopOptions): P
  * registry metric reads for that date: the latest stored on or before it.
  */
 export async function fillMarketLevel(
-  options: Pick<PatternSnapshotLoopOptions, 'db' | 'logger'>,
+  options: Pick<PatternSnapshotLoopOptions, 'db' | 'research' | 'logger'>,
   maxDates = 20,
 ): Promise<{ dates: number; rows: number; pending: number }> {
   const ids = marketLevelFactors().map((f) => f.id);
   const series = await loadRateSeries(options.db, ids);
   const result = await fillMarketFactors(
-    options.db,
+    options.research ?? options.db,
     ids,
     (factor, date) => rateOn(series.get(factor), date)?.value,
     maxDates,

@@ -322,6 +322,7 @@ export const NOTIFICATION_KINDS = [
   'share_received',
   'share_accepted',
   'share_declined',
+  'storage_alert',
 ] as const;
 export type NotificationKindDto = (typeof NOTIFICATION_KINDS)[number];
 

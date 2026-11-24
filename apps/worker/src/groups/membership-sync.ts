@@ -39,6 +39,8 @@ export interface MembershipReport extends MembershipSyncResult {
 
 export async function syncSp500Membership(options: {
   db: Database;
+  /** The Research Store, for the coverage report's factor rows (ADR 0115); defaults to `db`. */
+  research?: Database;
   /** Instruments for symbols, registering the ones the feed lists. */
   resolve: (symbols: readonly string[]) => Promise<Map<string, string>>;
   /** The first day the price feed has bars for; earlier periods have none. */
@@ -83,6 +85,7 @@ export async function syncSp500Membership(options: {
       'sp500',
       year,
       options.now().getUTCFullYear(),
+      options.research ?? options.db,
     ),
   };
   options.logger.info(

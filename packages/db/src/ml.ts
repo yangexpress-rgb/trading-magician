@@ -4,6 +4,7 @@ import type { Database, Transaction } from './client';
 import {
   instruments,
   mlFeatureSnapshots,
+  mlFrozenAsOf,
   mlLabels,
   mlModelRuns,
   mlModels,
@@ -170,7 +171,11 @@ export async function mlPredictionRange(
 // ---------------------------------------------------------------------------
 // Snapshot job (brief §5): worker only.
 
-/** Prediction dates with snapshots, and those frozen because predictions exist. */
+/**
+ * Prediction dates with snapshots, and those frozen because predictions exist.
+ * Reads the Research Store only: the trainer records each predicted date in
+ * `ml_frozen_as_of` beside the snapshots (ADR 0115).
+ */
 export async function snapshotState(
   db: Db,
   modelId: string,
@@ -181,10 +186,9 @@ export async function snapshotState(
     .where(eq(mlFeatureSnapshots.modelId, modelId))
     .groupBy(mlFeatureSnapshots.asOf);
   const frozen = await db
-    .selectDistinct({ asOf: mlPredictions.asOf })
-    .from(mlPredictions)
-    .innerJoin(mlModelRuns, eq(mlModelRuns.id, mlPredictions.modelRunId))
-    .where(eq(mlModelRuns.modelId, modelId));
+    .select({ asOf: mlFrozenAsOf.asOf })
+    .from(mlFrozenAsOf)
+    .where(eq(mlFrozenAsOf.modelId, modelId));
   const labels = await db
     .select({ asOf: mlLabels.asOf, n: sql<number>`count(*)::int` })
     .from(mlLabels)

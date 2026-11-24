@@ -10,6 +10,7 @@ Off unless ML_TRAINER_ENABLED=on.
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 import json
 import os
 import sys
@@ -54,13 +55,15 @@ def skip_summary(skipped: dict[str, str]) -> dict[str, object]:
     }
 
 
-def catch_up(conn, *, model_keys: list[str] | None = None, until_year: int | None = None, write_report: bool = True, force_report: bool = False) -> dict[str, object]:
+def catch_up(conn, *, research=None, model_keys: list[str] | None = None, until_year: int | None = None, write_report: bool = True, force_report: bool = False) -> dict[str, object]:
     out: dict[str, object] = {}
     version = code_version()
+    # Core: models, runs, predictions. Research: training data, evaluations, reports (ADR 0115).
+    research = research if research is not None else conn
     for model in db.registered_models(conn):
         if model_keys and model.key not in model_keys:
             continue
-        data = db.dataset(conn, model)
+        data = db.dataset(research, model)
         served = db.served_dates(conn, model)
         pending = [d for d in sorted(data.snapshots) if d not in served]
         if until_year is not None:
@@ -74,21 +77,22 @@ def catch_up(conn, *, model_keys: list[str] | None = None, until_year: int | Non
                 except protocol.NotTrainable as e:
                     skipped[date] = str(e)
                     continue
+                db.freeze_date(research, model, date)
                 run_id, run_no = db.write_run(conn, model, fit, version)
                 written.append(date)
                 log("run written", model=model.key, date=date, run=run_no, alpha=fit.alpha,
                     rows=fit.rows_trained, predicted=len(fit.scores), maxLabelEnd=fit.max_label_end)
             log("year done", model=model.key, year=year, written=len([d for d in written if d.startswith(year)]))
         evaluated = 0
-        for run_id, date in db.runs_to_evaluate(conn, model):
+        for run_id, date in db.runs_to_evaluate(conn, research, model):
             scores = db.run_scores(conn, run_id)
             ev = protocol.evaluate(scores, len(data.snapshots.get(date, [])), data.labels.get(date, {}))
-            db.write_evaluation(conn, run_id, date, ev)
+            db.write_evaluation(research, run_id, date, ev)
             evaluated += 1
         summary = None
         if write_report and (written or evaluated or force_report):
-            markdown, summary = report.build(model.key, model.name, model.feature_names, model.availability, db.report_inputs(conn, model))
-            db.write_report(conn, model, markdown, summary, version)
+            markdown, summary = report.build(model.key, model.name, model.feature_names, model.availability, db.report_inputs(conn, research, model))
+            db.write_report(research, model, markdown, summary, version)
             report_dir = os.environ.get("ML_REPORT_DIR")
             if report_dir:
                 os.makedirs(report_dir, exist_ok=True)
@@ -123,10 +127,12 @@ def main(argv: list[str] | None = None) -> int:
     if not url:
         log("no DATABASE_WORKER_URL set")
         return 2
+    # The Research Store (ADR 0115), when it has its own database.
+    research_url = os.environ.get("RESEARCH_DATABASE_WORKER_URL")
     started = time.time()
-    with db.connect(url) as conn:
+    with db.connect(url) as conn, (db.connect(research_url) if research_url else nullcontext(conn)) as research:
         if ml_on:
-            result = catch_up(conn, model_keys=args.model, until_year=args.until_year, write_report=not args.no_report, force_report=args.report)
+            result = catch_up(conn, research=research, model_keys=args.model, until_year=args.until_year, write_report=not args.no_report, force_report=args.report)
             log("trainer finished", seconds=round(time.time() - started, 1),
                 models={k: {kk: vv for kk, vv in v.items() if kk != "summary"} for k, v in result.items()})  # type: ignore[union-attr]
         else:
@@ -136,8 +142,9 @@ def main(argv: list[str] | None = None) -> int:
             from miner.run import run_decay, run_queued
 
             version = f"miner {miner_version}" + code_version().removeprefix(f"ml-trainer {__version__}")
-            scans = run_queued(conn, version)
-            scored = run_decay(conn, version)
+            # The miner's tables all live in the Research Store.
+            scans = run_queued(research, version)
+            scored = run_decay(research, version)
             log("pattern miner finished", scans=len(scans), scored=len(scored))
     return 0
 
