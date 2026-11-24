@@ -73,6 +73,12 @@ export function loadServerEnv(source: Record<string, string | undefined> = proce
         .enum(['true', 'false'])
         .default('false')
         .transform((v) => v === 'true'),
+      /**
+       * Where research jobs run (ADR 0116): `cloud` (S1, the default) or
+       * `companion`, when a paired Local Companion runs them and research
+       * pages say so while it is offline.
+       */
+      RESEARCH_MODE: z.enum(['cloud', 'companion']).default('cloud'),
       /** Tests only: an in-process stand-in for Stripe with its own checkout and portal pages. */
       BILLING_FAKE: z
         .enum(['true', 'false'])

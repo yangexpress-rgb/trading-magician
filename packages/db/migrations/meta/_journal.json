@@ -785,6 +785,13 @@
       "when": 1795533845044,
       "tag": "0111_research_store",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1795550733937,
+      "tag": "0112_research_companion",
+      "breakpoints": true
     }
   ]
 }

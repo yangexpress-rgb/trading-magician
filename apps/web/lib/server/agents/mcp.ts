@@ -179,6 +179,15 @@ export async function handleMcpRequest(request: Request, deps: McpDeps): Promise
   if (!cred || cred.kind === 'refresh') {
     return unauthorized(deps.appUrl, firstId, 'The token is not valid', true);
   }
+  // A Local Companion's pairing (ADR 0116) reaches only the companion API, never a tool.
+  if (cred.scope === 'research_sync') {
+    return unauthorized(
+      deps.appUrl,
+      firstId,
+      'This token pairs a local research companion and cannot be used by an AI agent',
+      true,
+    );
+  }
   const asUser = <T>(fn: Parameters<typeof withTenant<T>>[2]) =>
     withTenant(deps.db, { userId: cred.userId }, fn);
   if (cred.state !== 'ok') {

@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { and, desc, eq, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
 import {
@@ -17,7 +17,8 @@ import {
  * secret's owner through SECURITY DEFINER functions (migration 0092).
  */
 
-export type AgentScope = 'read' | 'operate';
+/** research_sync pairs a Local Companion (ADR 0116); it is never an AI agent's scope. */
+export type AgentScope = 'read' | 'operate' | 'research_sync';
 export type AgentAuthMethod = 'token' | 'oauth';
 export type AgentCredentialKind = 'token' | 'access' | 'refresh';
 
@@ -140,11 +141,12 @@ export async function createTokenConnection(
   return { connection: toSummary(row, now), token };
 }
 
-/** The person's connections, newest first. */
+/** The person's AI agent connections, newest first (companion pairings are listed apart). */
 export async function listAgentConnections(tx: Transaction): Promise<AgentConnectionSummary[]> {
   const rows = await tx
     .select()
     .from(agentConnections)
+    .where(ne(agentConnections.scope, 'research_sync'))
     .orderBy(desc(agentConnections.createdAt), desc(agentConnections.id));
   return rows.map((r) => toSummary(r));
 }

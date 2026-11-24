@@ -47,6 +47,7 @@ function CopyBlock({ label, text }: { label: string; text: string }) {
 const CAPABILITY = {
   read: 'Can view',
   operate: 'Can view and make changes',
+  research_sync: 'Local research companion',
 } as const;
 
 /**

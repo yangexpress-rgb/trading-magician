@@ -8,6 +8,7 @@ const SECTIONS = [
   { href: '/settings/accounts', label: 'Trading platforms and accounts' },
   { href: '/settings/billing', label: 'Subscription and billing' },
   { href: '/settings/ai-agents', label: 'AI agents' },
+  { href: '/settings/research-storage', label: 'Local research storage' },
   { href: '/settings/security', label: 'Notifications and security' },
 ];
 

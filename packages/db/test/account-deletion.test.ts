@@ -168,6 +168,7 @@ describe('account purge (design v1.1 D1)', () => {
       'agent_credential',
       'agent_oauth_code',
       'agent_call_log',
+      'research_companion', // with its agent_connection (ADR 0116)
       'screen_snapshot',
       'ai_assistant',
       'watch_list_item',
