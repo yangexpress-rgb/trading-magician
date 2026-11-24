@@ -7,6 +7,7 @@ import {
   LibraryError,
   OrderError,
   PlanLimitError,
+  ResearchUnavailableError,
   SealError,
   ShareError,
   StrategyError,
@@ -61,6 +62,9 @@ export function knownError(error: unknown): KnownError | null {
       message: 'Billing could not do that right now. Try again later.',
     };
   }
+  // Research storage down (ADR 0115): research reads pause, trading is unaffected.
+  if (error instanceof ResearchUnavailableError)
+    return { code: 'unavailable', message: error.message };
   if (error instanceof PlanLimitError) {
     return { code: 'plan_limit', message: error.message, details: error.details };
   }

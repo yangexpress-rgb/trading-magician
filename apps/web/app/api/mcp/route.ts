@@ -1,6 +1,6 @@
 import { handleMcpRequest } from '@/lib/server/agents/mcp';
 import { preflight } from '@/lib/server/agents/oauth-routes';
-import { appDb } from '@/lib/server/db';
+import { appDb, research } from '@/lib/server/db';
 import { serverEnv } from '@/lib/server/env';
 import { logger } from '@/lib/server/log';
 
@@ -16,6 +16,7 @@ async function handle(request: Request): Promise<Response> {
   try {
     return await handleMcpRequest(request, {
       db: appDb(),
+      research: research(),
       appUrl: env.APP_URL,
       enabled: env.AGENT_API_ENABLED,
       version: env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7),

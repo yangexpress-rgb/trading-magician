@@ -1,4 +1,11 @@
-"""Reads and writes for the trainer (ML brief v1 §4), with the worker's database login."""
+"""Reads and writes for the trainer (ML brief v1 §4), with the worker's database login.
+
+Two stores (ADR 0115): the Core Store holds the models, runs and predictions
+(the Frozen Outputs a strategy reads); the Research Store holds the training
+data (snapshots, labels), evaluations, reports and the frozen-date markers.
+Functions take the connection of the store their tables live in; with no
+Research database configured both are the same connection.
+"""
 
 from __future__ import annotations
 
@@ -73,8 +80,18 @@ def served_dates(conn: psycopg.Connection, model: Model) -> set[str]:
         return {r[0] for r in cur.fetchall()}
 
 
+def freeze_date(research: psycopg.Connection, model: Model, as_of: str) -> None:
+    """Marks a date's snapshots frozen before its predictions are written (ADR 0115)."""
+    with research.cursor() as cur:
+        cur.execute(
+            "insert into ml_frozen_as_of (model_id, as_of) values (%s, %s) on conflict do nothing",
+            (model.id, as_of),
+        )
+    research.commit()
+
+
 def write_run(conn: psycopg.Connection, model: Model, fit: Fit, code_version: str) -> tuple[str, int]:
-    """One run and its predictions, in one transaction (immutable once committed)."""
+    """One run and its predictions, in one Core transaction (immutable once committed)."""
     with conn.cursor() as cur:
         cur.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"ml_model_run:{model.id}",))
         cur.execute("select coalesce(max(run_no), 0) + 1 from ml_model_run where model_id = %s", (model.id,))
@@ -115,18 +132,21 @@ def write_run(conn: psycopg.Connection, model: Model, fit: Fit, code_version: st
     return run_id, run_no
 
 
-def runs_to_evaluate(conn: psycopg.Connection, model: Model) -> list[tuple[str, str]]:
-    """Active runs without an evaluation whose date has realised labels."""
-    with conn.cursor() as cur:
+def runs_to_evaluate(core: psycopg.Connection, research: psycopg.Connection, model: Model) -> list[tuple[str, str]]:
+    """Active runs (Core) without an evaluation whose date has realised labels (Research)."""
+    with core.cursor() as cur:
         cur.execute(
             "select r.id::text, r.prediction_date::text from ml_model_run r "
-            "where r.model_id = %s and r.status = 'active' "
-            "and not exists (select 1 from ml_evaluation e where e.model_run_id = r.id) "
-            "and exists (select 1 from ml_label l where l.model_id = r.model_id and l.as_of = r.prediction_date) "
-            "order by r.prediction_date",
+            "where r.model_id = %s and r.status = 'active' order by r.prediction_date",
             (model.id,),
         )
-        return [(r[0], r[1]) for r in cur.fetchall()]
+        runs = [(r[0], r[1]) for r in cur.fetchall()]
+    with research.cursor() as cur:
+        cur.execute("select model_run_id::text from ml_evaluation")
+        evaluated = {r[0] for r in cur.fetchall()}
+        cur.execute("select distinct as_of::text from ml_label where model_id = %s", (model.id,))
+        labelled = {r[0] for r in cur.fetchall()}
+    return [(rid, d) for rid, d in runs if rid not in evaluated and d in labelled]
 
 
 def run_scores(conn: psycopg.Connection, run_id: str) -> dict[str, float]:
@@ -147,17 +167,24 @@ def write_evaluation(conn: psycopg.Connection, run_id: str, as_of: str, ev: Eval
     conn.commit()
 
 
-def report_inputs(conn: psycopg.Connection, model: Model) -> dict[str, Any]:
-    with conn.cursor() as cur:
+def report_inputs(core: psycopg.Connection, research: psycopg.Connection, model: Model) -> dict[str, Any]:
+    with research.cursor() as cur:
+        cur.execute(
+            "select model_run_id::text, ic, universe_size, predicted, labelled, decile_spread from ml_evaluation"
+        )
+        evals = {r[0]: r[1:] for r in cur.fetchall()}
+    none = (None, None, None, None, None)
+    with core.cursor() as cur:
         cur.execute(
             "select r.run_no, r.prediction_date::text, r.training_start::text, r.training_end::text, "
             "r.max_label_end::text, r.rows_trained, r.cross_sections, r.hyperparams, r.coefficients, "
-            "(select count(*) from ml_prediction p where p.model_run_id = r.id), "
-            "e.ic, e.universe_size, e.predicted, e.labelled, e.decile_spread "
-            "from ml_model_run r left join ml_evaluation e on e.model_run_id = r.id "
+            "(select count(*) from ml_prediction p where p.model_run_id = r.id), r.id::text "
+            "from ml_model_run r "
             "where r.model_id = %s and r.status = 'active' order by r.prediction_date",
             (model.id,),
         )
+        rows = [tuple(r[:10]) + tuple(evals.get(r[10], none)) for r in cur.fetchall()]
+    with research.cursor() as cur:
         runs = [
             {
                 "runNo": r[0],
@@ -175,7 +202,7 @@ def report_inputs(conn: psycopg.Connection, model: Model) -> dict[str, Any]:
                 "labelled": r[13],
                 "decileSpread": r[14],
             }
-            for r in cur.fetchall()
+            for r in rows
         ]
         cur.execute(
             "select as_of::text, count(*) from ml_feature_snapshot where model_id = %s group by as_of order by as_of",

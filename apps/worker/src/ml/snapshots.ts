@@ -51,6 +51,8 @@ import type { FundamentalsLoader } from '../fundamentals';
 
 export interface SnapshotJobOptions {
   db: Database;
+  /** Where snapshots and labels live (ADR 0115: the Research Store); defaults to `db`. */
+  research?: Database;
   /** Daily bars, through the feeds of the user whose data the job uses (the sharing admin). */
   history: HistoricalDataProvider;
   /** Point-in-time company filings, through that user's company data feed. */
@@ -143,7 +145,7 @@ async function snapshotModel(
     todaySession ? Math.min(nowMs, Date.parse(todaySession.open)) : nowMs,
   );
   const dates = predictionDates(model.snapshotsFrom, lastDay);
-  const state = await snapshotState(db, model.id);
+  const state = await snapshotState(options.research ?? db, model.id);
   const toSnapshot = dates.filter((d) => !state.dates.has(d) && !state.frozen.has(d));
   // A label is due once its 21st trading day has closed. A date with fewer labels than
   // members is retried only for LABEL_RETRY_DAYS after that, so it can't block the job.
@@ -206,7 +208,7 @@ async function snapshotModel(
       db,
       model.id,
       featureAvailability(
-        await snapshotRaw(db, model.id),
+        await snapshotRaw(options.research ?? db, model.id),
         features.map((f) => f.name),
       ),
     );
@@ -303,10 +305,10 @@ async function snapshotChunk(
       raw: rows[i] as FeatureValues,
       features: z[i] as FeatureValues,
     }));
-    await saveSnapshots(options.db, model.id, date, snapshot);
+    await saveSnapshots(options.research ?? options.db, model.id, date, snapshot);
     written.push(date);
   }
-  await saveLabels(options.db, model.id, labels);
+  await saveLabels(options.research ?? options.db, model.id, labels);
   // Members with a price-based feature on the chunk's last snapshot date: 0 means no bars.
   const lastSnap = snapDates.at(-1);
   const priced = lastSnap ? [...(raw.get(lastSnap)?.values() ?? [])] : [];

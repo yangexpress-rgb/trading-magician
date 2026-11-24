@@ -23,6 +23,7 @@ import type { Database, Transaction } from './client';
 import { assertWithinLimit } from './entitlements';
 import { backtestRuns, backtestTrades, instruments, strategyVersions } from './schema';
 import { loadValidationContext, pinDraftVersion, StrategyError } from './strategies';
+import type { ResearchTx } from './research';
 
 /**
  * Back-test runs (Design v1.0 §7, §13.3, §14.2; ADR 0009).
@@ -293,11 +294,22 @@ export async function latestCompletedBacktest(
   return row ? toSummary(row) : null;
 }
 
+/**
+ * A run's trades. They live in the Research Store (ADR 0115): pass its
+ * tenant runner as `research`; without it they are read beside the run (the
+ * single-database setup and tests). The run itself is checked in Core first.
+ */
 export async function listBacktestTrades(
   tx: Transaction,
   runId: string,
+  research?: ResearchTx,
 ): Promise<BacktestTradeRow[]> {
   await getRunStatus(tx, runId);
+  const read = (t: Transaction) => readTrades(t, runId);
+  return research ? research(read) : read(tx);
+}
+
+async function readTrades(tx: Transaction, runId: string): Promise<BacktestTradeRow[]> {
   const rows = await tx
     .select({
       cycle: backtestTrades.cycle,
@@ -470,13 +482,17 @@ export async function renewLease(
   return row ?? null;
 }
 
-/** Stores the result and its trades. Returns the run's final status, or null if the lease was lost. */
+/**
+ * Stores the result, and its trades in the Research Store when `research` is
+ * given (ADR 0115). Returns the run's final status, or null if the lease was lost.
+ */
 export async function completeRun(
   tx: Transaction,
   userId: string,
   runId: string,
   worker: string,
   result: BacktestResult,
+  research?: ResearchTx,
 ): Promise<BacktestRunStatus | null> {
   const { trades, metrics, ...rest } = result;
   const [row] = await tx
@@ -494,6 +510,22 @@ export async function completeRun(
     .where(and(ownedBy(runId, worker), eq(backtestRuns.cancelRequested, false)))
     .returning({ id: backtestRuns.id });
   if (!row) return finishCanceled(tx, runId, worker);
+  const store = (t: Transaction) => storeTrades(t, userId, runId, trades);
+  // Research write before the run commits: if it fails the run isn't marked
+  // completed; a retry replaces any trades a half-finished attempt left.
+  if (research) await research(store);
+  else await store(tx);
+  return 'completed';
+}
+
+/** Replaces a run's stored trades (ADR 0115: they live in the Research Store). */
+async function storeTrades(
+  tx: Transaction,
+  userId: string,
+  runId: string,
+  trades: BacktestResult['trades'],
+): Promise<void> {
+  await tx.delete(backtestTrades).where(eq(backtestTrades.runId, runId));
   if (trades.length > 0) {
     await tx.insert(backtestTrades).values(
       trades.map((t) => ({
@@ -517,7 +549,6 @@ export async function completeRun(
       })),
     );
   }
-  return 'completed';
 }
 
 /** Ends a run this worker holds as canceled, if a cancel was requested. */

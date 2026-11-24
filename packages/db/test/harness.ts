@@ -4,6 +4,7 @@ import postgres from 'postgres';
 import { createDb, type DbHandle } from '../src/client';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { MIGRATIONS_FOLDER, runMigrations } from '../src/migrate';
+import { runResearchMigrations } from '../src/research';
 import { seedReferenceData } from '../src/seed';
 
 // The tests run on the invented demo instruments and demo feed (ADR 0039).
@@ -26,7 +27,18 @@ export interface TestDatabase {
   appSql: postgres.Sql;
   /** Connection string for the tenant-scoped login. */
   appUrl: string;
+  /** The Research Store's own database, when asked for (ADR 0115). */
+  research?: ResearchTestDatabase;
   drop: () => Promise<void>;
+}
+
+export interface ResearchTestDatabase {
+  owner: DbHandle;
+  app: DbHandle;
+  worker: DbHandle;
+  ownerSql: postgres.Sql;
+  /** Stops the Research database for good: connections are cut and it is dropped. */
+  stop: () => Promise<void>;
 }
 
 /** Advisory lock key, on the admin database, held while a test database migrates. */
@@ -38,6 +50,8 @@ export async function createTestDatabase(
     renumberFreshLibrary?: boolean;
     /** False migrates without seeding the library (the test seeds it as it needs). */
     seedLibrary?: boolean;
+    /** Also create a separate Research Store database (ADR 0115). */
+    research?: boolean;
   } = {},
 ): Promise<TestDatabase> {
   const adminUrl = process.env.TEST_DATABASE_URL;
@@ -91,6 +105,42 @@ export async function createTestDatabase(
   const ownerSql = postgres(url(), { max: 1, onnotice: () => undefined });
   const appSql = postgres(url(appLogin), { max: 1, onnotice: () => undefined });
 
+  let research: ResearchTestDatabase | undefined;
+  const researchName = `${dbName}_r`;
+  if (options.research) {
+    await admin.unsafe(`CREATE DATABASE ${researchName}`);
+    const rurl = (user?: string) => {
+      const u = new URL(url(user));
+      u.pathname = `/${researchName}`;
+      return u.toString();
+    };
+    const rOwner = createDb(rurl(), { max: 2 });
+    await admin`select pg_advisory_lock(${MIGRATION_LOCK})`;
+    try {
+      await runResearchMigrations(rOwner.db);
+    } finally {
+      await admin`select pg_advisory_unlock(${MIGRATION_LOCK})`;
+    }
+    const rApp = createDb(rurl(appLogin), { max: 4 });
+    const rWorker = createDb(rurl(workerLogin), { max: 2 });
+    const rOwnerSql = postgres(rurl(), { max: 2, onnotice: () => undefined });
+    let stopped = false;
+    const closeAll = () =>
+      Promise.all([rOwner.close(), rApp.close(), rWorker.close(), rOwnerSql.end()]);
+    research = {
+      owner: rOwner,
+      app: rApp,
+      worker: rWorker,
+      ownerSql: rOwnerSql,
+      stop: async () => {
+        if (stopped) return;
+        stopped = true;
+        await admin.unsafe(`DROP DATABASE IF EXISTS ${researchName} WITH (FORCE)`);
+        await closeAll().catch(() => undefined);
+      },
+    };
+  }
+
   return {
     owner,
     app,
@@ -99,7 +149,9 @@ export async function createTestDatabase(
     ownerSql,
     appSql,
     appUrl: url(appLogin),
+    ...(research ? { research } : {}),
     drop: async () => {
+      await research?.stop();
       await Promise.all([
         owner.close(),
         app.close(),

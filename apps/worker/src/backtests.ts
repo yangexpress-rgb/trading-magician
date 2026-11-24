@@ -24,6 +24,8 @@ import {
   loadRunWork,
   renewLease,
   withTenant,
+  researchTx,
+  type ResearchStore,
   type BacktestRunStatus,
   type Database,
   loadEventData,
@@ -53,6 +55,8 @@ import { NO_COMPANY_FEED, type FundamentalsLoader } from './fundamentals';
 
 export interface BacktestWorkerOptions {
   db: Database;
+  /** Where a run's trades are stored (ADR 0115: the Research Store); defaults to `db`. */
+  research?: ResearchStore;
   /**
    * Bars for a run: one provider, or one per tenant that resolves its routes
    * (ADR 0017). A 5-minute run asks for its bars as background work, paced
@@ -390,7 +394,12 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
         trades: result.trades.length,
       });
       done = trace.stage('save_result');
-      const status = await inTenant((tx) => completeRun(tx, userId, runId, workerId, result));
+      const toResearch = options.research?.separate
+        ? researchTx(options.research, { userId })
+        : undefined;
+      const status = await inTenant((tx) =>
+        completeRun(tx, userId, runId, workerId, result, toResearch),
+      );
       done({ status, trades: result.trades.length, resultBytes: jsonBytes(result) });
       logger.info({ runId, status, ms: Date.now() - started }, 'back test finished');
       return status ?? 'lost';

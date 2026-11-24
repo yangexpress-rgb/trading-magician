@@ -28,7 +28,9 @@
     "invites:release": "tsx scripts/invites.ts release",
     "load:seed": "tsx scripts/load-seed.ts",
     "users:grant-admin": "tsx scripts/admins.ts grant",
-    "users:revoke-admin": "tsx scripts/admins.ts revoke"
+    "users:revoke-admin": "tsx scripts/admins.ts revoke",
+    "research:move": "tsx scripts/research-move.ts move",
+    "research:clear-core": "tsx scripts/research-move.ts clear-core"
   },
   "dependencies": {
     "@tm/backtest": "workspace:*",

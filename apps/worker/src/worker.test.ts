@@ -34,6 +34,8 @@ describe('worker env', () => {
       BILLING_FAKE: false,
       SEC_FAKE: false,
       CUSTOM_REST_FAKE: false,
+      CORE_VOLUME_MB: 10000,
+      RESEARCH_VOLUME_MB: 10000,
       CBOE_FAKE: false,
       ALPACA_FAKE: false,
       CBOE_OPTIONS_FAKE: false,

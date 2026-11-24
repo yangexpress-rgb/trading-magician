@@ -3,9 +3,11 @@ import {
   recordAgentCall,
   resolveAgentCredential,
   touchAgentConnection,
+  researchTx,
   withTenant,
   type AgentCallOutcome,
   type Database,
+  type ResearchStore,
   type ResolvedAgentCredential,
 } from '@tm/db';
 import { knownError, toIssues } from '../api-errors';
@@ -32,6 +34,8 @@ const MAX_BODY_BYTES = 1_000_000;
 export interface McpDeps {
   /** The tm_app pool. */
   db: Database;
+  /** The Research Store (ADR 0115); without it research reads use `db`. */
+  research?: ResearchStore | undefined;
   appUrl: string;
   /** AGENT_API_ENABLED (brief §3d). */
   enabled: boolean;
@@ -200,6 +204,7 @@ export async function handleMcpRequest(request: Request, deps: McpDeps): Promise
   const ctx: ToolContext = {
     userId: cred.userId,
     tx: asUser,
+    ...(deps.research ? { research: researchTx(deps.research, { userId: cred.userId }) } : {}),
     appUrl: new URL(deps.appUrl).origin,
     now,
     sleep: deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),

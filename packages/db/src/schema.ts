@@ -1999,6 +1999,8 @@ export const NOTIFICATION_KINDS = [
   'share_received',
   'share_accepted',
   'share_declined',
+  // A database past 80% of its volume, to the platform admin (ADR 0115).
+  'storage_alert',
 ] as const;
 
 /** In-app notifications (§16.3). Email and push come with Phase 4 preferences. */
@@ -2029,7 +2031,7 @@ export const notifications = pgTable(
       .where(sql`${t.readAt} is null`),
     check(
       'notification_kind',
-      sql`${t.kind} in ('strategy_started', 'strategy_stopped', 'triggered', 'order_rejected', 'order_canceled', 'partial_fill', 'filled', 'disconnect', 'stale_data', 'risk_pause', 'reconciliation_mismatch', 'billing', 'share_received', 'share_accepted', 'share_declined')`,
+      sql`${t.kind} in ('strategy_started', 'strategy_stopped', 'triggered', 'order_rejected', 'order_canceled', 'partial_fill', 'filled', 'disconnect', 'stale_data', 'risk_pause', 'reconciliation_mismatch', 'billing', 'share_received', 'share_accepted', 'share_declined', 'storage_alert')`,
     ),
     check('notification_title_length', sql`char_length(${t.title}) <= 200`),
     check('notification_body_length', sql`char_length(${t.body}) <= 1000`),
@@ -3010,6 +3012,21 @@ export const mlLabels = pgTable(
     primaryKey({ columns: [t.modelId, t.instrumentId, t.asOf] }),
     check('ml_label_window', sql`${t.labelEnd} > ${t.asOf}`),
   ],
+);
+
+/**
+ * Dates whose predictions exist, kept beside the feature snapshots so the
+ * Research Store can freeze them without reading Core (ADR 0115). Written by
+ * the trainer with each run's predictions. Lives in the Research Store.
+ */
+export const mlFrozenAsOf = pgTable(
+  'ml_frozen_as_of',
+  {
+    modelId: uuid('model_id').notNull(),
+    asOf: date('as_of', { mode: 'string' }).notNull(),
+    recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: 'ml_frozen_as_of_pkey', columns: [t.modelId, t.asOf] })],
 );
 
 /** One row per (model run, member, date) (brief §4). Immutable: no update path. */

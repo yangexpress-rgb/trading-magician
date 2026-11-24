@@ -4,7 +4,7 @@ import { hostname } from 'node:os';
 import { FAKE_ALPACA_DATA_URL, FAKE_ALPACA_TRADING_URL, FakeAlpaca } from '@tm/alpaca/testing';
 import { FAKE_SEC_DATA_URL, FAKE_SEC_WWW_URL, FakeSec } from '@tm/sec/testing';
 import { StripeBilling } from '@tm/billing';
-import { createDb } from '@tm/db';
+import { createDb, researchStore } from '@tm/db';
 import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
 import { startMembershipSync } from './groups/membership-sync';
 import { resolveBuiltinUniverse, resolveStockSymbols } from './universes';
@@ -89,6 +89,7 @@ import { earningsFeedProvider } from './events/feed';
 import { startEventsLoop, type EventsLoop } from './events/loop';
 import { startMlSnapshotLoop, type MlSnapshotLoop } from './ml/loop';
 import { startPatternSnapshotLoop, type PatternSnapshotLoop } from './patterns/loop';
+import { startStorageLoop, type StorageLoop } from './storage';
 import { startPriceRangeLoop, type PriceRangeLoop } from './price-ranges';
 
 const env = loadWorkerEnv();
@@ -133,6 +134,8 @@ let billing: BillingLoop | undefined;
 let heartbeat: HeartbeatLoop | undefined;
 let fakeTicker: ReturnType<typeof setInterval> | undefined;
 let closeDb: (() => Promise<void>) | undefined;
+let closeResearchDb: (() => Promise<void>) | undefined;
+let storage: StorageLoop | undefined;
 const databaseUrl = env.DATABASE_WORKER_URL ?? env.DATABASE_APP_URL;
 if (databaseUrl) {
   if (!env.DATABASE_WORKER_URL) {
@@ -194,6 +197,14 @@ if (databaseUrl) {
   }
   const fundamentals: FundamentalsRegistry = { sec: secProvider(secOptions) };
   const db = handle.db;
+  // The Research Store (ADR 0115): its own database when configured. Only
+  // research jobs use it; the paper runtime and order flow never do (A1).
+  const researchHandle = env.RESEARCH_DATABASE_WORKER_URL
+    ? createDb(env.RESEARCH_DATABASE_WORKER_URL, { max: 4 })
+    : undefined;
+  closeResearchDb = researchHandle?.close;
+  const research = researchStore(db, researchHandle?.db);
+  logger.info({ separate: research.separate }, 'research store');
   const companyFilings = fundamentalsLoader({
     db,
     fundamentals,
@@ -202,6 +213,7 @@ if (databaseUrl) {
   });
   loop = startBacktestLoop({
     db,
+    research,
     provider: (userId, run) =>
       createMemberHistory({
         db,
@@ -394,6 +406,7 @@ if (databaseUrl) {
     if (env.OPTIONS_RECORDING === 'on') {
       optionsLoop = startOptionsLoop({
         db,
+        research: research.db,
         logger,
         historyDays: env.OPTIONS_HISTORY_DAYS,
         chains,
@@ -514,10 +527,26 @@ if (databaseUrl) {
       logger.info('event data recording started');
     }
   }
+  // Storage upkeep (ADR 0115): retention trims, the research sweep, and the
+  // 80% alert on each database's own volume (A3).
+  storage = startStorageLoop({
+    core: db,
+    research,
+    volumes: [
+      ...(env.CORE_VOLUME_MB > 0
+        ? [{ name: 'Core' as const, db, volumeMb: env.CORE_VOLUME_MB }]
+        : []),
+      ...(research.separate && env.RESEARCH_VOLUME_MB > 0
+        ? [{ name: 'Research' as const, db: research.db, volumeMb: env.RESEARCH_VOLUME_MB }]
+        : []),
+    ],
+    logger,
+  });
   if (env.ML_SNAPSHOTS === 'on') {
     // ML feature snapshots and labels (ADR 0086), through the sharing admin's feeds.
     mlSnapshots = startMlSnapshotLoop({
       db,
+      research: research.db,
       history: (userId) =>
         createMemberHistory({
           db,
@@ -552,6 +581,7 @@ if (databaseUrl) {
       .filter((g): g is BuiltinUniverse => isStockGroupId(g));
     patternSnapshots = startPatternSnapshotLoop({
       db,
+      research: research.db,
       history: (userId) =>
         createMemberHistory({
           db,
@@ -601,6 +631,7 @@ if (databaseUrl) {
   if (env.GROUP_MEMBERSHIP_SYNC === 'on') {
     membership = startMembershipSync({
       db,
+      research: research.db,
       logger,
       now: () => new Date(),
       barsFrom: env.PATTERN_SNAPSHOT_FROM,
@@ -742,9 +773,10 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         priceRanges?.stop(),
         billing?.stop(),
         heartbeat?.stop(),
+        storage?.stop(),
       ]);
       clearInterval(fakeTicker);
-      await Promise.all([closeDb?.(), reporter.flush()]);
+      await Promise.all([closeDb?.(), closeResearchDb?.(), reporter.flush()]);
       server.close(() => process.exit(0));
     })();
   });

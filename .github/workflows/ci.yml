@@ -78,6 +78,9 @@ jobs:
     env:
       DATABASE_URL: postgres://tm_owner:ci_only_password@localhost:5432/trading_magician
       ML_TEST_DATABASE_URL: postgres://tm_owner:ci_only_password@localhost:5432/trading_magician
+      # The Research Store (ADR 0115), its own database on the same server.
+      RESEARCH_DATABASE_URL: postgres://tm_owner:ci_only_password@localhost:5432/trading_magician_research
+      ML_TEST_RESEARCH_URL: postgres://tm_owner:ci_only_password@localhost:5432/trading_magician_research
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -91,6 +94,7 @@ jobs:
           cache: pip
           cache-dependency-path: apps/ml-trainer/requirements-dev.txt
       - run: pnpm install --frozen-lockfile
+      - run: psql "$DATABASE_URL" -c 'create database trading_magician_research'
       - run: pnpm --filter @tm/db db:migrate
       - run: pip install -r apps/ml-trainer/requirements-dev.txt
       - run: python -m pytest -q
@@ -181,6 +185,10 @@ jobs:
       DATABASE_APP_URL: postgres://tm_app_login:ci_only_app_password@localhost:5432/trading_magician
       DATABASE_AUTH_URL: postgres://tm_auth_login:ci_only_auth_password@localhost:5432/trading_magician
       DATABASE_WORKER_URL: postgres://tm_worker_login:ci_only_worker_password@localhost:5432/trading_magician
+      # The end-to-end run keeps research data in its own database (ADR 0115).
+      RESEARCH_DATABASE_URL: postgres://tm_owner:ci_only_password@localhost:5432/trading_magician_research
+      RESEARCH_DATABASE_APP_URL: postgres://tm_app_login:ci_only_app_password@localhost:5432/trading_magician_research
+      RESEARCH_DATABASE_WORKER_URL: postgres://tm_worker_login:ci_only_worker_password@localhost:5432/trading_magician_research
       BETTER_AUTH_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
     steps:
       - uses: actions/checkout@v4
@@ -190,6 +198,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: psql "$DATABASE_URL" -c 'create database trading_magician_research'
       - run: pnpm --filter @tm/db db:migrate
       # The end-to-end tests run on the demo instruments and demo feed (ADR 0039).
       - run: pnpm --filter @tm/db db:seed

@@ -192,4 +192,5 @@ export const NOTIFICATION_LABELS: Record<NotificationKindDto, { label: string; t
   share_received: { label: 'Shared with you', tone: 'info' },
   share_accepted: { label: 'Share accepted', tone: 'ok' },
   share_declined: { label: 'Share declined', tone: 'neutral' },
+  storage_alert: { label: 'Storage nearly full', tone: 'warn' },
 };

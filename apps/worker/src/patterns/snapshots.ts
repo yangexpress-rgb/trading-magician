@@ -46,6 +46,8 @@ import type { FundamentalsLoader } from '../fundamentals';
 
 export interface PatternSnapshotOptions {
   db: Database;
+  /** Where factor snapshots are written (ADR 0115: the Research Store); defaults to `db`. */
+  research?: Database;
   /** Daily and 5-minute bars, through the sharing admin's feeds. */
   history: HistoricalDataProvider;
   fundamentals: FundamentalsLoader;
@@ -100,7 +102,7 @@ export async function runPatternSnapshotPass(
   const lastDay = lastSnapshotDay(options.now());
   const members = [...new Set(await options.members())].sort();
   const sessionSet = new Set(await options.sessionMembers());
-  const latest = await latestSnapshotDates(db, members);
+  const latest = await latestSnapshotDates(options.research ?? db, members);
   const need = new Map<string, string>();
   for (const id of members) {
     const last = latest.get(id);
@@ -359,10 +361,18 @@ async function snapshotBatch(
     }
     // Write as we go so a long backfill doesn't hold every row in memory.
     if (rows.length >= 5000) {
-      written += await saveFactorSnapshots(options.db, rows.splice(0), FACTOR_CATALOGUE_VERSION);
+      written += await saveFactorSnapshots(
+        options.research ?? options.db,
+        rows.splice(0),
+        FACTOR_CATALOGUE_VERSION,
+      );
       await options.onProgress?.();
     }
   }
-  written += await saveFactorSnapshots(options.db, rows, FACTOR_CATALOGUE_VERSION);
+  written += await saveFactorSnapshots(
+    options.research ?? options.db,
+    rows,
+    FACTOR_CATALOGUE_VERSION,
+  );
   return { rows: written, warnings };
 }

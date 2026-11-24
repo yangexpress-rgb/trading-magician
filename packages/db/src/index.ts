@@ -124,3 +124,6 @@ export * from './watch-list';
 export * from './live-gate';
 export * from './short-interest';
 export * from './group-membership';
+export * from './research';
+export * from './storage';
+export * from './research-move';
