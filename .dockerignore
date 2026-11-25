@@ -10,3 +10,6 @@
 .env
 .env.*
 .git
+# The Local Companion runs on people's computers, never in the cloud images
+# (it bundles its own Postgres binaries).
+apps/companion
