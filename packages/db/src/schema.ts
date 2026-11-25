@@ -3178,7 +3178,8 @@ export const factorCoverage = pgTable(
 /** How an agent proves who it acts for: a pasted agent token, or an OAuth 2.1 sign-in. */
 export const agentAuthMethod = pgEnum('agent_auth_method', ['token', 'oauth']);
 /** What a connection's calls may do: read only, or read and the operate tools (brief §4). */
-export const agentScope = pgEnum('agent_scope', ['read', 'operate']);
+/** research_sync: a Local Companion's pairing (ADR 0116); it reaches only the companion API. */
+export const agentScope = pgEnum('agent_scope', ['read', 'operate', 'research_sync']);
 
 /**
  * OAuth clients that registered themselves (RFC 7591) to reach the MCP
@@ -3233,6 +3234,34 @@ export const agentConnections = pgTable(
     index('agent_connection_user_idx').on(t.userId, t.createdAt),
     check('agent_connection_profile', sql`${t.profileId} ~ '^[a-z0-9-]{1,40}$'`),
     check('agent_connection_name', sql`char_length(${t.name}) BETWEEN 1 AND 80`),
+  ],
+);
+
+/**
+ * A paired Local Companion (S2, ADR 0116): one row per research_sync
+ * connection, refreshed each time the companion says hello. The cloud reads it
+ * to say whether local research storage is connected; nothing waits on it.
+ */
+export const researchCompanions = pgTable(
+  'research_companion',
+  {
+    connectionId: uuid('connection_id')
+      .primaryKey()
+      .references(() => agentConnections.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    version: text('version').notNull(),
+    platform: text('platform').notNull(),
+    seenAt: timestamp('seen_at', { withTimezone: true }).notNull(),
+    lastPushAt: timestamp('last_push_at', { withTimezone: true }),
+    lastPushKind: text('last_push_kind'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('research_companion_user_idx').on(t.userId, t.seenAt),
+    check('research_companion_version', sql`char_length(${t.version}) BETWEEN 1 AND 40`),
+    check('research_companion_platform', sql`char_length(${t.platform}) BETWEEN 1 AND 40`),
   ],
 );
 

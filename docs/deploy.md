@@ -223,6 +223,13 @@ load test (`load/README.md`) and the real-provider checks (`docs/launch-checks.m
    `source: aws-kms`. Run `pnpm --filter @tm/db db:migrate` against production's `DATABASE_URL`
    once more and check it applies nothing.
 
+### Local research companion (ADR 0116)
+
+`RESEARCH_MODE` on web is `cloud` (the default): research runs in the cloud and nothing changes.
+Set it to `companion` only once the producing companion (the platform admin's) is paired in
+Settings › Local research storage and has caught up; research pages then say local research storage
+isn't connected whenever that companion has not said hello for 48 hours. Trading ignores it.
+
 ### Production must not contain
 
 `CREDENTIALS_PRIVATE_KEY`, `SIGNUP_PLAN`, `SIGNUP_MODE=open`, `PAPER_CLOCK_START`, `ALPACA_FAKE`,

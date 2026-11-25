@@ -5,6 +5,7 @@ import type { Metadata } from 'next';
 import { CoverageReport } from '@/components/patterns/coverage-report';
 import { NewScanForm } from '@/components/patterns/new-scan-form';
 import { ScanList } from '@/components/patterns/scan-list';
+import { CompanionPaused, researchStorage } from '@/components/research/companion-status';
 import { ResearchNav } from '@/components/research/research-nav';
 import { readResearch, ResearchUnavailable } from '@/components/research/research-unavailable';
 import { researchFor } from '@/lib/server/db';
@@ -35,6 +36,7 @@ export default async function PatternsPage() {
       </>
     );
   const [report, scans] = found;
+  const storage = await researchStorage(tenant);
   return (
     <>
       <PageHeader
@@ -42,6 +44,7 @@ export default async function PatternsPage() {
         description="Search point-in-time factors for combinations that were followed, unusually often, by a price move."
       />
       <ResearchNav />
+      <CompanionPaused status={storage} />
       <div className="space-y-6">
         <Card>
           <section aria-labelledby="new-scan-heading" className="space-y-4">
