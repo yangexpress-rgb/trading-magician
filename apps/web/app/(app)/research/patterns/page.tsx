@@ -1,5 +1,5 @@
 import { factorCoverageReport, listPatternScans } from '@tm/db';
-import { AVAILABLE_STOCK_GROUPS } from '@tm/domain';
+import { AVAILABLE_STOCK_GROUPS, groupMembersAsOf } from '@tm/domain';
 import { Card, PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
 import { CoverageReport } from '@/components/patterns/coverage-report';
@@ -11,6 +11,7 @@ import { readResearch, ResearchUnavailable } from '@/components/research/researc
 import { researchFor } from '@/lib/server/db';
 import { requireTenant } from '@/lib/server/session';
 import { startPatternScan } from './actions';
+import { membersAsOfText } from '@/lib/backtest-text';
 
 export const metadata: Metadata = { title: 'Patterns · Quantitative Research' };
 export const dynamic = 'force-dynamic';
@@ -59,7 +60,11 @@ export default async function PatternsPage() {
             </header>
             <NewScanForm
               action={startPatternScan}
-              groups={AVAILABLE_STOCK_GROUPS.map((g) => ({ id: g.id, label: g.label }))}
+              groups={AVAILABLE_STOCK_GROUPS.map((g) => ({
+                id: g.id,
+                label: g.label,
+                asOf: membersAsOfText(g.label, groupMembersAsOf(g.id)),
+              }))}
               shortCategories={['options', 'session']}
             />
           </section>

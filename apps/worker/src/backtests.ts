@@ -12,6 +12,8 @@ import {
   simulate,
   watchOnlyInstruments,
   type InstrumentRef,
+  type LoadedData,
+  type MembershipCoverage,
 } from '@tm/backtest';
 import {
   claimBacktestRun,
@@ -75,7 +77,13 @@ export interface BacktestWorkerOptions {
     group: BuiltinUniverse,
     /** The run's days: groups with a history resolve to their members over them (N324). */
     range?: { from: string; to: string },
-  ) => Promise<{ ids: string[]; warnings: string[]; spans?: Map<string, MembershipSpan[]> }>;
+  ) => Promise<{
+    ids: string[];
+    warnings: string[];
+    spans?: Map<string, MembershipSpan[]>;
+    /** The group's member count and data date, for the result's face (O208). */
+    coverage?: { label: string; asOf: string; pointInTime: boolean; members: number };
+  }>;
   /** Point-in-time company filings, for strategies with fundamental metrics (v1.2 item 6). */
   fundamentals?: FundamentalsLoader;
   /**
@@ -193,12 +201,17 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
         return (await inTenant((tx) => finishCanceled(tx, runId, workerId))) ?? 'lost';
 
       // A Selection group's universe: a list as stored, or a built-in stock group resolved now.
+      const trade = work.definition.trade;
       let members = listMembers(work.definition);
       /** Point-in-time members (N324): each one's spans in the group; absent for today's list. */
       let memberSpans: Map<string, MembershipSpan[]> | undefined;
+      /** Whose members a group run tests, before pricing (O208). */
+      let membership: Omit<MembershipCoverage, 'priceable'> | undefined =
+        trade.kind === 'group' && trade.universe.type === 'list'
+          ? { label: 'the list', asOf: null, pointInTime: false, members: members.length }
+          : undefined;
       const universeWarnings: string[] = [];
       const instruments = new Map<string, InstrumentRef>(work.instruments);
-      const trade = work.definition.trade;
       done = trace.stage('resolve_universe');
       if (trade.kind === 'group' && trade.universe.type === 'builtin') {
         if (!options.resolveUniverse)
@@ -209,6 +222,7 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
         });
         members = resolved.ids;
         memberSpans = resolved.spans;
+        if (resolved.coverage) membership = resolved.coverage;
         universeWarnings.push(...resolved.warnings);
         const refs = await inTenant((tx) => instrumentRefs(tx, members));
         for (const [id, ref] of refs) instruments.set(id, ref);
@@ -230,6 +244,7 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
             narrowed.warning ?? 'No picked instruments are in the group',
           );
         members = narrowed.members;
+        if (membership) membership = { ...membership, members: members.length };
         if (narrowed.warning) universeWarnings.push(narrowed.warning);
       }
       done({ members: members.length, warnings: universeWarnings.length });
@@ -387,6 +402,7 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
         members,
         ...(memberSpans ? { memberSpans } : {}),
       });
+      if (membership) result.membership = { ...membership, priceable: priced(members, data) };
       done({
         steps: result.equity.length,
         instruments: members.length || instruments.size,
@@ -410,6 +426,14 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
       return failed ? 'failed' : 'lost';
     }
   }
+}
+
+/** How many of the members the run loaded any price bars for (O208). */
+function priced(members: readonly string[], data: LoadedData): number {
+  const withBars = new Set<string>();
+  for (const [key, bars] of data.series)
+    if (bars.length > 0) withBars.add(key.slice(0, key.indexOf('|')));
+  return members.filter((id) => withBars.has(id)).length;
 }
 
 /** Size of a result as stored, or -1 when it can't be measured. */

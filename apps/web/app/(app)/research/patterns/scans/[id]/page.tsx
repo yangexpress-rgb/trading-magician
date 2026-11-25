@@ -1,5 +1,10 @@
 import { getPatternScan, listPatterns } from '@tm/db';
-import { FACTOR_CATEGORY_LABELS, outcomeWords, type FactorCategory } from '@tm/domain';
+import {
+  FACTOR_CATEGORY_LABELS,
+  outcomeWords,
+  type FactorCategory,
+  SP500_PERIODS_THROUGH,
+} from '@tm/domain';
 import { Alert, Card, DataValue, PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -116,8 +121,9 @@ export default async function PatternScanPage({ params }: { params: Promise<{ id
               <p className="text-sm text-ink-muted">
                 {n(scan.candidatesTested)} rules were tried, so some will look good by chance: only
                 Verified patterns passed the holdout test after correcting for that. The S&amp;P 500
-                follows its members on each day; other universes are today&rsquo;s members, so
-                earlier years leave out companies that have since left (survivorship bias).
+                follows its members on each day (membership data as of {SP500_PERIODS_THROUGH});
+                other universes are today&rsquo;s members, so earlier years leave out companies that
+                have since left (survivorship bias).
               </p>
             )}
           </section>

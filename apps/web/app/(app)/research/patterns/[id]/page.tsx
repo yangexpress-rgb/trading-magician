@@ -15,6 +15,7 @@ import {
   ruleWords,
   VERIFY,
   type PatternWindowStats,
+  SP500_PERIODS_THROUGH,
 } from '@tm/domain';
 import { Card, PageHeader, Table, Td, TdNumeric, Th } from '@tm/ui';
 import type { Metadata } from 'next';
@@ -293,8 +294,8 @@ export default async function PatternPage({ params }: { params: Promise<{ id: st
             </Table>
             <p className="text-sm text-ink-muted">
               Measured from each day&rsquo;s close with daily highs and lows. The S&amp;P 500
-              follows its members on each day; other universes are today&rsquo;s members
-              (survivorship bias).
+              follows its members on each day (membership data as of {SP500_PERIODS_THROUGH}); other
+              universes are today&rsquo;s members (survivorship bias).
             </p>
           </section>
         </Card>

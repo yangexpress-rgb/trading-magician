@@ -7,7 +7,7 @@ import {
   FACTOR_CATEGORY_LABELS,
 } from '@tm/domain';
 import { Alert, Button, SelectField, TextField } from '@tm/ui';
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import type { PatternActionState } from '@/app/(app)/research/patterns/actions';
 
 type Action = (prev: PatternActionState, form: FormData) => Promise<PatternActionState>;
@@ -19,15 +19,24 @@ export function NewScanForm({
   shortCategories,
 }: {
   action: Action;
-  groups: { id: string; label: string }[];
+  /** Each group with how current its members are (O207), shown under the Universe. */
+  groups: { id: string; label: string; asOf?: string }[];
   /** Categories whose coverage is short (options, session): unticked by default. */
   shortCategories: string[];
 }) {
   const [state, formAction, pending] = useActionState(action, { status: 'idle' });
+  const [universe, setUniverse] = useState('group:sp500');
+  const asOf = groups.find((g) => `group:${g.id}` === universe)?.asOf;
   return (
     <form action={formAction} className="space-y-4" aria-label="New scan">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SelectField label="Universe" name="universe" defaultValue="group:sp500">
+        <SelectField
+          label="Universe"
+          name="universe"
+          value={universe}
+          onChange={(e) => setUniverse(e.target.value)}
+          {...(asOf ? { hint: asOf } : {})}
+        >
           {groups.map((g) => (
             <option key={g.id} value={`group:${g.id}`}>
               {g.label}
