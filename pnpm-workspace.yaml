@@ -2,6 +2,11 @@ packages:
   - 'apps/*'
   - 'packages/*'
 onlyBuiltDependencies:
+  - '@embedded-postgres/darwin-arm64'
+  - '@embedded-postgres/darwin-x64'
+  - '@embedded-postgres/linux-arm64'
+  - '@embedded-postgres/linux-x64'
+  - '@embedded-postgres/windows-x64'
   - esbuild
 # Advisories the audit skips (CI `audit` job). Each one only until a patched
 # release exists; remove it then.

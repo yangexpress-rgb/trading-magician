@@ -230,6 +230,18 @@ Set it to `companion` only once the producing companion (the platform admin's) i
 Settings › Local research storage and has caught up; research pages then say local research storage
 isn't connected whenever that companion has not said hello for 48 hours. Trading ignores it.
 
+The companion runs on the admin's own computer (Node 22 and pnpm; not as root):
+
+```sh
+pnpm install
+pnpm --filter @tm/companion companion pair --api https://<site>   # paste the token from Settings
+pnpm --filter @tm/companion companion run                          # keeps running; Ctrl-C stops it
+pnpm --filter @tm/companion companion status
+```
+
+Its settings and local Research Store live in `~/Library/Application Support/Trading Magician
+Companion` on macOS (`TM_COMPANION_HOME` overrides). The cloud images never include it.
+
 ### Production must not contain
 
 `CREDENTIALS_PRIVATE_KEY`, `SIGNUP_PLAN`, `SIGNUP_MODE=open`, `PAPER_CLOCK_START`, `ALPACA_FAKE`,

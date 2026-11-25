@@ -41,6 +41,26 @@ local Postgres and the Python jobs are later steps; nothing here changes where r
   and confirmed by Yong on 2026-11-25 ("go with your picks"); per-member companions would change only whose
   timestamp the status reads.
 
+## Step 2: the companion core (N338, 2026-11-25)
+
+`apps/companion` is the companion itself, run on the person's computer (Node 22, `tsx`):
+
+- **Local Research Store.** An embedded Postgres 18 (`embedded-postgres` 18.6.0-beta.19, which
+  ships prebuilt PostgreSQL binaries for macOS arm64/x64, Linux and Windows) in the companion's
+  data folder, listening on 127.0.0.1 only, password made at pairing. It gets the cloud's Research
+  Store migrations unchanged (`@tm/db/research-migrate`), so the trainer and miner use the same
+  tables, plus a local `companion` schema: `instrument`, `membership_period` and `sync_state`.
+  Postgres will not run as root; nor does the companion.
+- **Settings.** `companion.json` (API base, token, local port and password) in the per-user data
+  folder (macOS `~/Library/Application Support/Trading Magician Companion`), folder 0700, file 0600. `TM_COMPANION_HOME` overrides the folder.
+- **Jobs.** Hello every 15 minutes; instruments and membership at every start and then daily,
+  replacing the local copy wholesale. Every job runs at start, which is the catch-up after time
+  offline (A4). A failed job is tried again after 5 minutes or the cloud's Retry-After; a revoked,
+  expired or closed pairing stops the companion with the cloud's message.
+- **Command line** until S3's setup flow wraps it: `pair --api <site>` (token from stdin),
+  `run`, `status`, `forget`.
+- The cloud images leave `apps/companion` out (`.dockerignore`); nothing on Railway changes.
+
 ## Consequences
 
 Pairing is safe to ship before any companion exists: with `RESEARCH_MODE` unset nothing changes for

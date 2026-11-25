@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./research-migrate": "./src/research-migrate.ts",
     "./testing": "./test/harness.ts"
   },
   "scripts": {
