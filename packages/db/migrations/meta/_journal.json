@@ -806,6 +806,13 @@
       "when": 1795646702192,
       "tag": "0114_companion_fetch",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1795648456551,
+      "tag": "0115_companion_fetch_patterns",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,13 @@
 import { UnsupportedBarRequestError } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
-import { decodeBars, encodeBars, FETCH_REQUESTS } from './companion-fetch';
+import {
+  decodeBars,
+  decodeEvents,
+  encodeBars,
+  encodeEvents,
+  FETCH_REQUESTS,
+} from './companion-fetch';
 
 describe('companion data answers (ADR 0118)', () => {
   it('carries bars exactly, and says which failures are unsupported requests', () => {
@@ -48,5 +54,43 @@ describe('companion data answers (ADR 0118)', () => {
       false,
     );
     expect(FETCH_REQUESTS.events.safeParse({ ids: ['not-a-uuid'] }).success).toBe(false);
+  });
+
+  it('carries every part of the events data, and which optional parts were left out (ADR 0119)', () => {
+    const full = {
+      earnings: new Map([['a', []]]),
+      calendar: new Map(),
+      deals: new Map([
+        [
+          'a',
+          [
+            {
+              dealId: 'd1',
+              announcedAt: '2026-01-02T12:00:00Z',
+              offerPrice: 10,
+              confidence: 'high' as const,
+              changes: [],
+            },
+          ],
+        ],
+      ]),
+      rates: [{ date: '2026-01-02', tbill3m: 0.04 }],
+      rateSeries: new Map([['rates.t10y', [{ date: '2026-01-02', value: 0.041 }]]]),
+      shortInterest: new Map(),
+      dealsFrom: '2025-01-02',
+    };
+    expect(decodeEvents(JSON.parse(JSON.stringify(encodeEvents(full as never))))).toEqual(full);
+    const bare = { earnings: new Map(), calendar: new Map(), deals: new Map(), rates: [] };
+    expect(decodeEvents(JSON.parse(JSON.stringify(encodeEvents(bare))))).toEqual({
+      ...bare,
+      dealsFrom: undefined,
+    });
+    expect(FETCH_REQUESTS.pattern_members.safeParse({}).success).toBe(true);
+    expect(
+      FETCH_REQUESTS.events.safeParse({
+        ids: ['00000000-0000-4000-8000-000000000001'],
+        metrics: ['DROP TABLE'],
+      }).success,
+    ).toBe(false);
   });
 });

@@ -79,6 +79,14 @@ const cloud = (async (input: string | URL | Request, init?: RequestInit) => {
     });
   }
   if (url.pathname.endsWith('/ml/state')) return Response.json({ models: [], runs: [] });
+  // The factor store asks for its members; there are none here.
+  if (url.pathname.endsWith('/fetches')) return Response.json({ fetchId: 'f1' }, { status: 202 });
+  if (url.pathname.endsWith('/fetches/f1')) {
+    return Response.json({
+      status: 'done',
+      answer: { members: [], sessionMembers: [], refs: [], from: '2025-01-02' },
+    });
+  }
   if (url.pathname.endsWith('/pushes')) return Response.json({ pushes: [] });
   return new Response('not found', { status: 404 });
 }) as typeof fetch;
@@ -119,8 +127,11 @@ describe.skipIf(isRoot)('Local Companion core (ADR 0116)', () => {
       'GET /api/companion/v1/instruments',
       `GET /api/companion/v1/instruments?after=${instruments[1]!.id}`,
       'GET /api/companion/v1/membership',
-      // The feature writer, then the trainer, each mirror the registry first (no models here).
+      // The feature writer mirrors the registry (no models here), the factor store asks for its
+      // members (none here), then the trainer mirrors the registry again.
       'GET /api/companion/v1/ml/state',
+      'POST /api/companion/v1/fetches',
+      'GET /api/companion/v1/fetches/f1',
       'GET /api/companion/v1/ml/state',
       'GET /api/companion/v1/pushes?open=1',
     ]);
@@ -148,12 +159,13 @@ describe.skipIf(isRoot)('Local Companion core (ADR 0116)', () => {
       ]);
       const states = await jobStates(store.sql);
       expect(states.map((s) => [s.job, s.error])).toEqual([
+        ['factors', null],
         ['features', null],
         ['hello', null],
         ['ml', null],
         ['reference', null],
       ]);
-      expect(states[3]!.detail).toEqual({ instruments: 3, periods: 2 });
+      expect(states[4]!.detail).toEqual({ instruments: 3, periods: 2 });
     } finally {
       await store.stop();
     }

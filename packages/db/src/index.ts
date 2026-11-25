@@ -131,3 +131,4 @@ export * from './research';
 export * from './storage';
 export * from './research-move';
 export * from './ml-snapshot-job';
+export * from './pattern-snapshot-job';

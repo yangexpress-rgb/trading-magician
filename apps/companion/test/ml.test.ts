@@ -86,6 +86,8 @@ const barsFor = (r: BarRequest) => {
   return { bars, dataVersion: 'stand-in@1', warnings: [] };
 };
 const fetchAnswers = new Map<string, unknown>();
+/** The factor store's first day here: a few weeks back, so a pass stays small. */
+const FACTORS_FROM = tradingDays('2026-01-02', new Date().toISOString().slice(0, 10)).at(-15)!;
 const fetchKinds: string[] = [];
 
 const cloud = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -136,7 +138,19 @@ const cloud = (async (input: string | URL | Request, init?: RequestInit) => {
           ? encodeBars((body.request.requests as BarRequest[]).map(barsFor))
           : body.kind === 'filings'
             ? { byId: [] }
-            : { earnings: [], calendar: [] };
+            : body.kind === 'pattern_members'
+              ? {
+                  members: IIDS,
+                  sessionMembers: [],
+                  refs: IIDS.map((iid, i) => [
+                    iid,
+                    { symbol: `CM${i}`, assetClass: 'stock', lotSize: '1' },
+                  ]),
+                  from: FACTORS_FROM,
+                }
+              : body.kind === 'option_signals'
+                ? { byId: [] }
+                : { earnings: [], calendar: [] };
     fetchAnswers.set(id, answer);
     return Response.json({ fetchId: id }, { status: 202 });
   }
@@ -301,5 +315,19 @@ describe.skipIf(isRoot)('ML on the Local Companion (ADR 0117)', () => {
         select availability from ml_model`;
       expect(m!.availability).not.toBeNull();
     });
+  });
+
+  it('writes the pattern factor store locally from data asked of the cloud (ADR 0119)', async () => {
+    await withStore(async (sql) => {
+      const rows = await sql<{ n: number; members: number; first: string }[]>`
+        select count(*)::int as n, count(distinct instrument_id)::int as members,
+               min(as_of)::text as first from factor_snapshot`;
+      expect(rows[0]!.members).toBe(2);
+      expect(rows[0]!.first).toBe(FACTORS_FROM);
+      const job = await sql<{ error: string | null }[]>`
+        select error from companion.sync_state where job = 'factors'`;
+      expect(job).toEqual([{ error: null }]);
+    });
+    expect(fetchKinds).toContain('pattern_members');
   });
 });

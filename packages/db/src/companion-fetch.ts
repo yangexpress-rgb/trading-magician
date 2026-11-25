@@ -5,10 +5,15 @@ import {
   SESSIONS,
   UnsupportedBarRequestError,
   type BarSeries,
+  type DealSignal,
   type EarningsSignal,
   type EventData,
   type FundamentalObservation,
+  type OptionSignal,
+  type RatePoint,
   type ScheduledEarnings,
+  type SeriesPoint,
+  type ShortInterestPoint,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { and, asc, eq, isNull, lt, or, sql } from 'drizzle-orm';
@@ -30,7 +35,14 @@ import { agentConnections, companionFetches } from './schema';
  * deleted once read.
  */
 
-export const COMPANION_FETCH_KINDS = ['members', 'bars', 'filings', 'events'] as const;
+export const COMPANION_FETCH_KINDS = [
+  'members',
+  'bars',
+  'filings',
+  'events',
+  'pattern_members',
+  'option_signals',
+] as const;
 export type CompanionFetchKind = (typeof COMPANION_FETCH_KINDS)[number];
 
 /** Open requests one companion may have at once. */
@@ -63,8 +75,27 @@ export const FETCH_REQUESTS = {
       .min(1)
       .max(COMPANION_FETCH_MAX_ITEMS),
   }),
-  /** Earnings only: the one events metric the ML feature set reads. */
-  events: z.object({ ids: z.array(uuid).min(1).max(COMPANION_FETCH_MAX_ITEMS) }),
+  /** The events metrics read for every id; earnings (all the ML feature set reads) by default. */
+  events: z.object({
+    ids: z.array(uuid).min(1).max(COMPANION_FETCH_MAX_ITEMS),
+    metrics: z
+      .array(
+        z
+          .string()
+          .regex(/^[a-z0-9_.]+$/)
+          .max(60),
+      )
+      .min(1)
+      .max(40)
+      .optional(),
+  }),
+  /** The factor store's members (ADR 0119): stock groups, former members and the options universe. */
+  pattern_members: z.object({}),
+  /** Daily options signals from a date on (ADR 0119). */
+  option_signals: z.object({
+    ids: z.array(uuid).min(1).max(COMPANION_FETCH_MAX_ITEMS),
+    from: day,
+  }),
 } as const;
 
 export type FetchRequest<K extends CompanionFetchKind> = z.infer<(typeof FETCH_REQUESTS)[K]>;
@@ -93,6 +124,24 @@ export interface FilingsAnswer {
 export interface EventsAnswer {
   earnings: [string, EarningsSignal[]][];
   calendar: [string, ScheduledEarnings[]][];
+  /** Absent in answers from before ADR 0119 (earnings only). */
+  deals?: [string, DealSignal[]][];
+  rates?: RatePoint[];
+  rateSeries?: [string, SeriesPoint[]][] | null;
+  shortInterest?: [string, ShortInterestPoint[]][] | null;
+  dealsFrom?: string | null;
+}
+
+export interface PatternMembersAnswer {
+  members: string[];
+  sessionMembers: string[];
+  refs: [string, InstrumentRef][];
+  /** The factor store's first day (PATTERN_SNAPSHOT_FROM in the cloud). */
+  from: string;
+}
+
+export interface OptionSignalsAnswer {
+  byId: [string, OptionSignal[]][];
 }
 
 export interface FetchAnswers {
@@ -100,6 +149,8 @@ export interface FetchAnswers {
   bars: BarsAnswer;
   filings: FilingsAnswer;
   events: EventsAnswer;
+  pattern_members: PatternMembersAnswer;
+  option_signals: OptionSignalsAnswer;
 }
 
 export function encodeBars(results: readonly (BarSeries | Error)[]): BarsAnswer {
@@ -146,20 +197,33 @@ export function decodeBars(answer: BarsAnswer): (BarSeries | Error)[] {
   );
 }
 
+const entries = <T>(m: ReadonlyMap<string, readonly T[]>): [string, T[]][] =>
+  [...m].map(([id, v]) => [id, [...v]]);
+
 export function encodeEvents(data: EventData): EventsAnswer {
   return {
-    earnings: [...data.earnings].map(([id, v]) => [id, [...v]]),
-    calendar: [...data.calendar].map(([id, v]) => [id, [...v]]),
+    earnings: entries(data.earnings),
+    calendar: entries(data.calendar),
+    deals: entries(data.deals),
+    rates: [...data.rates],
+    rateSeries: data.rateSeries ? entries(data.rateSeries) : null,
+    shortInterest: data.shortInterest ? entries(data.shortInterest) : null,
+    dealsFrom: data.dealsFrom ?? null,
   };
 }
 
+/** Back to what `loadEventData` returned, including which optional parts it left out. */
 export function decodeEvents(answer: EventsAnswer): EventData {
-  return {
+  const out: EventData = {
     earnings: new Map(answer.earnings),
     calendar: new Map(answer.calendar),
-    deals: new Map(),
-    rates: [],
+    deals: new Map(answer.deals ?? []),
+    rates: answer.rates ?? [],
   };
+  if (answer.rateSeries) out.rateSeries = new Map(answer.rateSeries);
+  if (answer.shortInterest) out.shortInterest = new Map(answer.shortInterest);
+  if (answer.dealsFrom !== undefined) out.dealsFrom = answer.dealsFrom ?? undefined;
+  return out;
 }
 
 /* ---------- The queue ---------- */

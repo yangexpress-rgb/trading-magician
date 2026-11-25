@@ -7,9 +7,17 @@ import {
   type EventsAnswer,
   type FilingsAnswer,
   type MembersAnswer,
+  type OptionSignalsAnswer,
+  type PatternMembersAnswer,
   type SnapshotFilings,
 } from '@tm/db';
-import type { BarRequest, BarSeries, EventData, HistoricalDataProvider } from '@tm/domain';
+import type {
+  BarRequest,
+  BarSeries,
+  EventData,
+  HistoricalDataProvider,
+  OptionSignal,
+} from '@tm/domain';
 import type { CompanionClient, FetchKind } from './api';
 
 /**
@@ -70,6 +78,26 @@ export class CloudData {
     return answer.ids;
   }
 
+  /** The factor store's members (ADR 0119); their instruments are kept for `instrumentRefs`. */
+  async patternMembers(): Promise<Omit<PatternMembersAnswer, 'refs'>> {
+    const answer = await this.ask<PatternMembersAnswer>('pattern_members', {});
+    for (const [id, ref] of answer.refs) this.refs.set(id, ref);
+    return { members: answer.members, sessionMembers: answer.sessionMembers, from: answer.from };
+  }
+
+  /** Daily options signals from a date on. */
+  async optionSignals(ids: readonly string[], from: string): Promise<Map<string, OptionSignal[]>> {
+    const out = new Map<string, OptionSignal[]>();
+    for (let i = 0; i < ids.length; i += COMPANION_FETCH_MAX_ITEMS) {
+      const answer = await this.ask<OptionSignalsAnswer>('option_signals', {
+        ids: ids.slice(i, i + COMPANION_FETCH_MAX_ITEMS),
+        from,
+      });
+      for (const [id, list] of answer.byId) out.set(id, list);
+    }
+    return out;
+  }
+
   /** The instruments of members already asked for (the members answer carries them). */
   async instrumentRefs(ids: readonly string[]): Promise<ReadonlyMap<string, InstrumentRef>> {
     const out = new Map<string, InstrumentRef>();
@@ -95,7 +123,7 @@ export class CloudData {
   history(): HistoricalDataProvider {
     return {
       id: 'cloud',
-      intervals: ['1d'],
+      intervals: ['5m', '1d'],
       getBars: async (request) => {
         const [answer] = await this.bars([request]);
         if (!answer || answer instanceof Error) throw answer ?? new CloudDataError('No answer');
@@ -117,17 +145,27 @@ export class CloudData {
     return { byId };
   };
 
-  /** Earnings from the cloud's events store (the only events metric the feature set reads). */
+  /** The events store's data for the metrics each instrument reads (the same for all, as both jobs ask). */
   async events(reads: ReadonlyMap<string, ReadonlySet<string>>): Promise<EventData> {
     const ids = [...reads.keys()];
-    const merged: EventsAnswer = { earnings: [], calendar: [] };
+    const metrics = [...new Set([...reads.values()].flatMap((m) => [...m]))].sort();
+    let merged: EventsAnswer | undefined;
     for (let i = 0; i < ids.length; i += COMPANION_FETCH_MAX_ITEMS) {
       const answer = await this.ask<EventsAnswer>('events', {
         ids: ids.slice(i, i + COMPANION_FETCH_MAX_ITEMS),
+        ...(metrics.length > 0 ? { metrics } : {}),
       });
+      if (!merged) {
+        merged = answer;
+        continue;
+      }
+      // Per-instrument parts add up; the market-wide ones are the same in every answer.
       merged.earnings.push(...answer.earnings);
       merged.calendar.push(...answer.calendar);
+      merged.deals = [...(merged.deals ?? []), ...(answer.deals ?? [])];
+      if (answer.shortInterest)
+        merged.shortInterest = [...(merged.shortInterest ?? []), ...answer.shortInterest];
     }
-    return decodeEvents(merged);
+    return decodeEvents(merged ?? { earnings: [], calendar: [] });
   }
 }

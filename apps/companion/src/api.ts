@@ -90,7 +90,8 @@ const PushesReply = z.object({ pushes: z.array(PushSummary) });
 
 export type PushKind = 'ml_run' | 'ml_evaluation' | 'ml_report';
 
-export type FetchKind = 'members' | 'bars' | 'filings' | 'events';
+export type FetchKind =
+  'members' | 'bars' | 'filings' | 'events' | 'pattern_members' | 'option_signals';
 const FetchReply = z.object({ fetchId: z.string() });
 export const FetchState = z.discriminatedUnion('status', [
   z.object({ status: z.literal('pending') }),

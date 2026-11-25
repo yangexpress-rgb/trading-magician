@@ -5,6 +5,7 @@ import {
   encodeEvents,
   instrumentRefs,
   loadEventData,
+  loadOptionSignals,
   type Database,
   type FetchAnswerer,
   type FetchAnswers,
@@ -28,6 +29,8 @@ export interface CompanionFetchDeps {
   fundamentals: FundamentalsLoader;
   /** A model universe's members today, as the ML snapshot job resolves them. */
   members: (universe: string) => Promise<string[]>;
+  /** The factor store's members, as the pattern snapshot job resolves them (ADR 0119). */
+  patternMembers: () => Promise<{ members: string[]; sessionMembers: string[]; from: string }>;
 }
 
 export function companionFetchAnswerer(deps: CompanionFetchDeps): FetchAnswerer {
@@ -61,12 +64,27 @@ export function companionFetchAnswerer(deps: CompanionFetchDeps): FetchAnswerer 
         return { byId: [...filings.byId] } satisfies FetchAnswers['filings'];
       }
       case 'events': {
-        const { ids } = request as { ids: string[] };
-        const data = await loadEventData(
-          deps.db,
-          new Map(ids.map((id) => [id, new Set(['earnings.sue_ts'])])),
-        );
+        const { ids, metrics } = request as { ids: string[]; metrics?: string[] };
+        const reads = new Set(metrics ?? ['earnings.sue_ts']);
+        const data = await loadEventData(deps.db, new Map(ids.map((id) => [id, reads])));
         return encodeEvents(data);
+      }
+      case 'pattern_members': {
+        const found = await deps.patternMembers();
+        const members = [...new Set(found.members)].sort();
+        const refs = await deps.db.transaction((tx) => instrumentRefs(tx, members));
+        return {
+          members,
+          sessionMembers: found.sessionMembers,
+          refs: [...refs],
+          from: found.from,
+        } satisfies FetchAnswers['pattern_members'];
+      }
+      case 'option_signals': {
+        const { ids, from } = request as { ids: string[]; from: string };
+        return {
+          byId: [...(await loadOptionSignals(deps.db, ids, from))],
+        } satisfies FetchAnswers['option_signals'];
       }
       default:
         throw new Error(`Unknown request kind ${kind}`);

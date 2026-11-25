@@ -1,4 +1,16 @@
-import { asc, factorCoverageReport, registerInstrument, schema } from '@tm/db';
+import {
+  asc,
+  decodeBars,
+  decodeEvents,
+  factorCoverageReport,
+  registerInstrument,
+  schema,
+  type BarsAnswer,
+  type EventsAnswer,
+  type FilingsAnswer,
+  type OptionSignalsAnswer,
+  type PatternMembersAnswer,
+} from '@tm/db';
 import { createTestDatabase, type TestDatabase } from '@tm/db/testing';
 import {
   regularSession,
@@ -9,6 +21,7 @@ import {
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { companionFetchAnswerer } from '../src/companion-fetch';
 import type { FundamentalsLoader } from '../src/fundamentals';
 import { lastSnapshotDay, runPatternSnapshotPass } from '../src/patterns/snapshots';
 
@@ -266,6 +279,75 @@ describe('pattern factor snapshots', () => {
       await other.drop();
     }
     // Builds a second test database, which alone takes seconds.
+  }, 60_000);
+
+  it('the Local Companion, asking the cloud for its data, writes identical rows (ADR 0119)', async () => {
+    const local = await createTestDatabase();
+    try {
+      // This test database keeps the factor store's link to instruments; the companion's has none.
+      const same = await t.owner.db.select().from(schema.instruments);
+      await local.owner.db
+        .insert(schema.instruments)
+        .values(same.filter((i) => ids.includes(i.id)))
+        .onConflictDoNothing();
+      const answer = companionFetchAnswerer({
+        db: t.worker.db,
+        history: () => provider(false),
+        fundamentals: fundamentals(false),
+        members: async () => [],
+        patternMembers: async () => ({
+          members: ids,
+          sessionMembers: [ids[0] as string],
+          from: FROM,
+        }),
+      });
+      // Each answer crosses the wire as JSON, as it does between the worker and the companion.
+      const ask = async <T>(kind: string, request: unknown) =>
+        JSON.parse(JSON.stringify(await answer(kind as never, request as never, 'u'))) as T;
+      const pm = await ask<PatternMembersAnswer>('pattern_members', {});
+      const refs = new Map(pm.refs);
+      const bars = async (requests: readonly unknown[]) =>
+        decodeBars(await ask<BarsAnswer>('bars', { requests }));
+      await runPatternSnapshotPass({
+        db: t.worker.db,
+        research: local.worker.db,
+        history: {
+          id: 'cloud',
+          intervals: ['5m', '1d'],
+          getBars: async (r) => {
+            const [a] = await bars([r]);
+            if (!a || a instanceof Error) throw a ?? new Error('no answer');
+            return a;
+          },
+          getBarsMany: bars,
+        },
+        fundamentals: async (_userId, instruments) => ({
+          byId: new Map((await ask<FilingsAnswer>('filings', { instruments })).byId),
+        }),
+        members: async () => pm.members,
+        sessionMembers: async () => pm.sessionMembers,
+        refs: async (want) =>
+          new Map(want.flatMap((id) => (refs.has(id) ? [[id, refs.get(id)!]] : []))),
+        events: async (reads) =>
+          decodeEvents(
+            await ask<EventsAnswer>('events', {
+              ids: [...reads.keys()],
+              metrics: [...new Set([...reads.values()].flatMap((m) => [...m]))],
+            }),
+          ),
+        optionSignals: async (want, from) =>
+          new Map((await ask<OptionSignalsAnswer>('option_signals', { ids: want, from })).byId),
+        userId: '',
+        now: () => NOW,
+        from: pm.from,
+        logger: quiet,
+        batchSize: 2,
+      });
+      const plain = (await rows(t.owner.db)).filter((r) => ids.includes(r.id));
+      expect(JSON.stringify(await rows(local.owner.db))).toBe(JSON.stringify(plain));
+    } finally {
+      await local.drop();
+    }
   }, 60_000);
 
   it('skips a member without bars until a new day closes', async () => {

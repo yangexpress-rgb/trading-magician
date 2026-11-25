@@ -100,6 +100,22 @@ describe('Local Companion data requests (ADR 0118)', () => {
     await asUser(alice, (tx) => takeCompanionFetch(tx, aliceConn, id));
   });
 
+  it('takes the factor store’s request kinds (ADR 0119)', async () => {
+    const { id } = await asUser(alice, (tx) =>
+      queueCompanionFetch(tx, who(), 'pattern_members', {}),
+    );
+    const { id: sig } = await asUser(alice, (tx) =>
+      queueCompanionFetch(tx, who(), 'option_signals', {
+        ids: ['00000000-0000-4000-8000-000000000001'],
+        from: '2025-01-02',
+      }),
+    );
+    const done = await answerCompanionFetches({ core: t.worker.db, answer });
+    expect(done.map((d) => d.id)).toEqual([id, sig]);
+    await asUser(alice, (tx) => takeCompanionFetch(tx, aliceConn, id));
+    await asUser(alice, (tx) => takeCompanionFetch(tx, aliceConn, sig));
+  });
+
   it('lets a companion have only a few requests open at once', async () => {
     for (let i = 0; i < COMPANION_FETCH_OPEN_LIMIT; i += 1) {
       await asUser(alice, (tx) => queueCompanionFetch(tx, who(), 'members', { universe: 'x' }));

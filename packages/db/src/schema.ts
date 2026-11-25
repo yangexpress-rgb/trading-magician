@@ -3326,7 +3326,7 @@ export const companionFetches = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    /** `members`, `bars`, `filings` or `events`. */
+    /** `members`, `bars`, `filings`, `events`, `pattern_members` or `option_signals`. */
     kind: text('kind').notNull(),
     request: jsonb('request').notNull(),
     requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
@@ -3341,7 +3341,10 @@ export const companionFetches = pgTable(
       .on(t.requestedAt)
       .where(sql`${t.answeredAt} is null and ${t.error} is null`),
     index('companion_fetch_connection_idx').on(t.connectionId, t.requestedAt),
-    check('companion_fetch_kind', sql`${t.kind} in ('members', 'bars', 'filings', 'events')`),
+    check(
+      'companion_fetch_kind',
+      sql`${t.kind} in ('members', 'bars', 'filings', 'events', 'pattern_members', 'option_signals')`,
+    ),
   ],
 );
 

@@ -5,7 +5,7 @@ import { runJobs, type Job, type SchedulerHooks, type StopReason } from './sched
 import { startLocalStore, type LocalStore } from './store';
 import { pullReference, recordJob } from './sync';
 import { CloudData, type CloudDataOptions } from './cloud-data';
-import { runFeaturePass } from './features';
+import { runFactorPass, runFeaturePass } from './features';
 import { pushMlOutputs, refusedPushes, syncMlMirror } from './ml';
 import { ensurePython, runTrainer, type RunResult } from './python';
 
@@ -20,6 +20,8 @@ export const REFERENCE_EVERY_MS = 24 * 3_600_000;
 export const ML_EVERY_MS = 24 * 3_600_000;
 /** The feature writer, like the cloud's snapshot loop: a chunk of dates every ten minutes. */
 export const FEATURES_EVERY_MS = 10 * 60_000;
+/** Pattern discovery's factor store, like the cloud's loop: a batch of members every ten minutes. */
+export const FACTORS_EVERY_MS = 10 * 60_000;
 
 export const platformName = () => `${platform()}-${arch()}`;
 
@@ -62,6 +64,22 @@ export function companionJobs(
           };
         } catch (error) {
           // Only the research producer's companion builds shared research data (O217).
+          if (error instanceof CompanionApiError && error.code === 'not_producer') {
+            return { skipped: 'not the research producer' };
+          }
+          throw error;
+        }
+      },
+    },
+    {
+      // Pattern discovery's factor store (ADR 0119), with data asked of the cloud.
+      name: 'factors',
+      everyMs: FACTORS_EVERY_MS,
+      run: async () => {
+        try {
+          const pass = await runFactorPass(store.sql, cloud);
+          return { rows: pass.rows, members: pass.members, pending: pass.pending };
+        } catch (error) {
           if (error instanceof CompanionApiError && error.code === 'not_producer') {
             return { skipped: 'not the research producer' };
           }
