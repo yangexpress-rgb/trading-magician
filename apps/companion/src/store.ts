@@ -97,6 +97,11 @@ const COMPANION_SCHEMA = [
      created_at timestamptz NOT NULL DEFAULT now(),
      CONSTRAINT ml_model_run_embargo CHECK (max_label_end < prediction_date)
    )`,
+  // The registry's other columns, so the shared snapshot job (ADR 0118) reads the mirror as it
+  // reads Core. Availability is the companion's own once its snapshots report it.
+  `ALTER TABLE ml_model ADD COLUMN IF NOT EXISTS theory_number text`,
+  `ALTER TABLE ml_model ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()`,
+  `ALTER TABLE ml_model ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()`,
   `CREATE UNIQUE INDEX IF NOT EXISTS ml_model_run_active_uq
      ON ml_model_run (model_id, prediction_date) WHERE status = 'active'`,
   `CREATE TABLE IF NOT EXISTS ml_prediction (

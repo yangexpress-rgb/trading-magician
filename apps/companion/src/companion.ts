@@ -4,6 +4,8 @@ import type { CompanionConfig } from './config';
 import { runJobs, type Job, type SchedulerHooks, type StopReason } from './scheduler';
 import { startLocalStore, type LocalStore } from './store';
 import { pullReference, recordJob } from './sync';
+import { CloudData, type CloudDataOptions } from './cloud-data';
+import { runFeaturePass } from './features';
 import { pushMlOutputs, refusedPushes, syncMlMirror } from './ml';
 import { ensurePython, runTrainer, type RunResult } from './python';
 
@@ -16,6 +18,8 @@ export const REFERENCE_EVERY_MS = 24 * 3_600_000;
 
 /** The trainer's catch-up: daily, like the cloud's cron (a no-op when nothing is due). */
 export const ML_EVERY_MS = 24 * 3_600_000;
+/** The feature writer, like the cloud's snapshot loop: a chunk of dates every ten minutes. */
+export const FEATURES_EVERY_MS = 10 * 60_000;
 
 export const platformName = () => `${platform()}-${arch()}`;
 
@@ -26,6 +30,7 @@ export function companionJobs(
   store: LocalStore,
   client: CompanionClient,
   trainer: TrainerRunner,
+  cloud: CloudData = new CloudData(client),
 ): Job[] {
   return [
     {
@@ -40,6 +45,29 @@ export function companionJobs(
       name: 'reference',
       everyMs: REFERENCE_EVERY_MS,
       run: () => pullReference(store.sql, client),
+    },
+    {
+      // ML feature snapshots and labels (ADR 0118), with data asked of the cloud.
+      name: 'features',
+      everyMs: FEATURES_EVERY_MS,
+      run: async () => {
+        await syncMlMirror(store.sql, client);
+        try {
+          const pass = await runFeaturePass(store.sql, cloud);
+          return {
+            snapshots: pass.snapshots.length,
+            labels: pass.labels,
+            pendingSnapshots: pass.pendingSnapshots,
+            pendingLabels: pass.pendingLabels,
+          };
+        } catch (error) {
+          // Only the research producer's companion builds shared research data (O217).
+          if (error instanceof CompanionApiError && error.code === 'not_producer') {
+            return { skipped: 'not the research producer' };
+          }
+          throw error;
+        }
+      },
     },
     {
       // ML (ADR 0117): mirror the cloud's runs, train locally, push what is new.
@@ -82,6 +110,8 @@ export interface RunOptions {
   hooks?: Omit<SchedulerHooks, 'log' | 'onResult'>;
   /** Stand-in for the Python trainer (tests). */
   trainer?: TrainerRunner;
+  /** How data requests to the cloud are polled (tests make it quick). */
+  cloud?: Omit<CloudDataOptions, 'signal'>;
 }
 
 /** Starts the local store and runs the jobs until stopped or unpaired. */
@@ -107,7 +137,8 @@ export async function runCompanion(options: RunOptions): Promise<StopReason> {
           log: options.log,
           signal: options.signal,
         }));
-    return await runJobs(companionJobs(store, client, trainer), options.signal, {
+    const cloud = new CloudData(client, { ...options.cloud, signal: options.signal });
+    return await runJobs(companionJobs(store, client, trainer, cloud), options.signal, {
       ...options.hooks,
       log: options.log,
       onResult: (job, outcome) => recordJob(store.sql, job, outcome),

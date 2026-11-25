@@ -3,6 +3,8 @@ import { pairCompanion, schema, withTenant, type Transaction } from '@tm/db';
 import { createTestDatabase, type TestDatabase } from '@tm/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  handleFetch,
+  handleFetchAnswer,
   handleMlState,
   handlePush,
   handlePushes,
@@ -125,6 +127,50 @@ describe('Companion pushes (ADR 0117)', () => {
       req('ml/runs/x/predictions', adminToken),
       { db: t.app.db },
       'x',
+    );
+    expect(bad.status).toBe(400);
+  });
+
+  it('queues a data request from the producer and hands its answer over once (ADR 0118)', async () => {
+    const sent = await handleFetch(
+      req('fetches', adminToken, { kind: 'members', request: { universe: 'sp500' } }),
+      { db: t.app.db },
+    );
+    expect(sent.status).toBe(202);
+    const { fetchId } = (await sent.json()) as { fetchId: string };
+    const pending = await handleFetchAnswer(
+      req(`fetches/${fetchId}`, adminToken),
+      { db: t.app.db },
+      fetchId,
+    );
+    expect(await pending.json()).toEqual({ status: 'pending' });
+    await t.owner.db
+      .update(schema.companionFetches)
+      .set({ answeredAt: new Date(), answer: { ids: [], refs: [] } });
+    const done = await handleFetchAnswer(
+      req(`fetches/${fetchId}`, adminToken),
+      { db: t.app.db },
+      fetchId,
+    );
+    expect(await done.json()).toEqual({ status: 'done', answer: { ids: [], refs: [] } });
+    const gone = await handleFetchAnswer(
+      req(`fetches/${fetchId}`, adminToken),
+      { db: t.app.db },
+      fetchId,
+    );
+    expect(gone.status).toBe(404);
+  });
+
+  it('refuses a member’s data request and a malformed one', async () => {
+    const member = await handleFetch(
+      req('fetches', memberToken, { kind: 'members', request: { universe: 'sp500' } }),
+      { db: t.app.db },
+    );
+    expect(member.status).toBe(403);
+    expect(await member.json()).toMatchObject({ error: { code: 'not_producer' } });
+    const bad = await handleFetch(
+      req('fetches', adminToken, { kind: 'bars', request: { requests: [] } }),
+      { db: t.app.db },
     );
     expect(bad.status).toBe(400);
   });

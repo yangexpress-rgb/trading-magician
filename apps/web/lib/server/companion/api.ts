@@ -4,7 +4,12 @@ import {
   companionMembership,
   companionMlState,
   companionRunPredictions,
+  COMPANION_FETCH_KINDS,
   COMPANION_PUSH_KINDS,
+  FETCH_REQUESTS,
+  FetchRefused,
+  queueCompanionFetch,
+  takeCompanionFetch,
   listCompanionPushes,
   PUSH_SCHEMAS,
   queueCompanionPush,
@@ -231,5 +236,72 @@ export function handlePushes(request: Request, deps: CompanionDeps): Promise<Res
       listCompanionPushes(tx, cred.connectionId, { pendingOrFailed: open, limit: 200 }),
     );
     return json({ pushes });
+  });
+}
+
+/** Largest data request accepted (200 bar series with their symbols). */
+export const COMPANION_FETCH_MAX_BYTES = 200_000;
+
+const FetchBody = z.object({ kind: z.enum(COMPANION_FETCH_KINDS), request: z.unknown() });
+
+const NOT_PRODUCER =
+  "Only the platform admin's companion builds shared research data for now (O217)";
+
+/**
+ * POST /api/companion/v1/fetches: ask for members, bars, filings or earnings
+ * (ADR 0118). The worker answers through the person's feeds; poll
+ * `GET …/fetches/<id>` for the answer.
+ */
+export function handleFetch(request: Request, deps: CompanionDeps): Promise<Response> {
+  return withCompanion(request, deps, async ({ cred, asUser }) => {
+    const length = Number(request.headers.get('content-length') ?? '0');
+    if (length > COMPANION_FETCH_MAX_BYTES) {
+      return refuse(413, 'too_large', 'The request is too large');
+    }
+    let body: unknown;
+    try {
+      const text = await request.text();
+      if (text.length > COMPANION_FETCH_MAX_BYTES) {
+        return refuse(413, 'too_large', 'The request is too large');
+      }
+      body = JSON.parse(text);
+    } catch {
+      return refuse(400, 'bad_request', 'The body must be JSON');
+    }
+    const parsed = FetchBody.safeParse(body);
+    if (!parsed.success) return refuse(400, 'bad_request', 'Send kind and request');
+    const { kind } = parsed.data;
+    const input = FETCH_REQUESTS[kind].safeParse(parsed.data.request);
+    if (!input.success) return refuse(400, 'bad_request', `The ${kind} request is malformed`);
+    try {
+      const queued = await asUser(async (tx) => {
+        if ((await sharedFeedOwner(tx)) !== cred.userId) return null;
+        return queueCompanionFetch(
+          tx,
+          { connectionId: cred.connectionId, userId: cred.userId },
+          kind,
+          input.data as never,
+        );
+      });
+      if (!queued) return refuse(403, 'not_producer', NOT_PRODUCER);
+      return json({ fetchId: queued.id }, 202);
+    } catch (error) {
+      if (error instanceof FetchRefused) return refuse(429, 'too_many_open', error.message);
+      throw error;
+    }
+  });
+}
+
+/** GET /api/companion/v1/fetches/<id>: pending, or the answer (handed over once). */
+export function handleFetchAnswer(
+  request: Request,
+  deps: CompanionDeps,
+  fetchId: string,
+): Promise<Response> {
+  return withCompanion(request, deps, async ({ cred, asUser }) => {
+    if (!z.uuid().safeParse(fetchId).success) return refuse(400, 'bad_request', 'Not a request id');
+    const state = await asUser((tx) => takeCompanionFetch(tx, cred.connectionId, fetchId));
+    if (!state) return refuse(404, 'not_found', 'No such request (answers are handed over once)');
+    return json(state);
   });
 }

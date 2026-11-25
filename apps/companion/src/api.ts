@@ -89,6 +89,15 @@ export type PushSummary = z.infer<typeof PushSummary>;
 const PushesReply = z.object({ pushes: z.array(PushSummary) });
 
 export type PushKind = 'ml_run' | 'ml_evaluation' | 'ml_report';
+
+export type FetchKind = 'members' | 'bars' | 'filings' | 'events';
+const FetchReply = z.object({ fetchId: z.string() });
+export const FetchState = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('pending') }),
+  z.object({ status: z.literal('done'), answer: z.unknown() }),
+  z.object({ status: z.literal('failed'), error: z.string() }),
+]);
+export type FetchState = z.infer<typeof FetchState>;
 const ErrorReply = z.object({ error: z.object({ code: z.string(), message: z.string() }) });
 
 /** Cloud codes that mean this pairing will never work again. */
@@ -176,6 +185,16 @@ export class CompanionClient {
   /** Queues one Frozen Output in the cloud; a repeated client key is the same push. */
   push(kind: PushKind, clientKey: string, payload: unknown): Promise<z.infer<typeof PushReply>> {
     return this.call('POST', '/pushes', PushReply, { kind, clientKey, payload });
+  }
+
+  /** Asks the cloud for data (ADR 0118); the answer comes later from `fetchState`. */
+  async fetch(kind: FetchKind, request: unknown): Promise<string> {
+    return (await this.call('POST', '/fetches', FetchReply, { kind, request })).fetchId;
+  }
+
+  /** A data request's state; a final answer is handed over once. */
+  fetchState(fetchId: string): Promise<FetchState> {
+    return this.call('GET', `/fetches/${encodeURIComponent(fetchId)}`, FetchState);
   }
 
   /** Pushes not applied yet, or refused. */

@@ -799,6 +799,13 @@
       "when": 1795625295017,
       "tag": "0113_companion_inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1795646702192,
+      "tag": "0114_companion_fetch",
+      "breakpoints": true
     }
   ]
 }

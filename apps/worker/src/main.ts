@@ -89,6 +89,7 @@ import { earningsFeedProvider } from './events/feed';
 import { startEventsLoop, type EventsLoop } from './events/loop';
 import { startMlSnapshotLoop, type MlSnapshotLoop } from './ml/loop';
 import { startCompanionInboxLoop, type CompanionInboxLoop } from './companion-inbox';
+import { startCompanionFetchLoop, type CompanionFetchLoop } from './companion-fetch';
 import { startPatternSnapshotLoop, type PatternSnapshotLoop } from './patterns/loop';
 import { startStorageLoop, type StorageLoop } from './storage';
 import { startPriceRangeLoop, type PriceRangeLoop } from './price-ranges';
@@ -130,6 +131,7 @@ let shortInterest: ShortInterestLoop | undefined;
 let membership: ReturnType<typeof startMembershipSync> | undefined;
 let mlSnapshots: MlSnapshotLoop | undefined;
 let companionInbox: CompanionInboxLoop | undefined;
+let companionFetch: CompanionFetchLoop | undefined;
 let patternSnapshots: PatternSnapshotLoop | undefined;
 let priceRanges: PriceRangeLoop | undefined;
 let billing: BillingLoop | undefined;
@@ -546,33 +548,45 @@ if (databaseUrl) {
   });
   // The Local Companion's pushes (ADR 0117): nothing to do until one is paired.
   companionInbox = startCompanionInboxLoop({ core: db, research: research.db, logger });
+  // Research jobs read bars patiently, on the feed's background budget.
+  const researchHistory = (userId: string) =>
+    createMemberHistory({
+      db,
+      userId,
+      now: () => new Date(),
+      providers,
+      privateKey: credentialKey,
+      patient: true,
+      background: true,
+    });
+  // A model universe's members today, through the sharing admin's feeds.
+  const mlMembers = async (universe: string) =>
+    (
+      await resolveBuiltinUniverse({
+        db,
+        userId: (await db.transaction((tx) => sharedFeedOwner(tx))) ?? '',
+        group: universe as BuiltinUniverse,
+        providers,
+        privateKey: credentialKey,
+        now: () => new Date(),
+      })
+    ).ids;
+  // The Local Companion's data requests (ADR 0118): nothing to do until one asks.
+  companionFetch = startCompanionFetchLoop({
+    db,
+    history: researchHistory,
+    fundamentals: companyFilings,
+    members: mlMembers,
+    logger,
+  });
   if (env.ML_SNAPSHOTS === 'on') {
     // ML feature snapshots and labels (ADR 0086), through the sharing admin's feeds.
     mlSnapshots = startMlSnapshotLoop({
       db,
       research: research.db,
-      history: (userId) =>
-        createMemberHistory({
-          db,
-          userId,
-          now: () => new Date(),
-          providers,
-          privateKey: credentialKey,
-          patient: true,
-          background: true,
-        }),
+      history: researchHistory,
       fundamentals: companyFilings,
-      members: async (universe) =>
-        (
-          await resolveBuiltinUniverse({
-            db,
-            userId: (await db.transaction((tx) => sharedFeedOwner(tx))) ?? '',
-            group: universe as BuiltinUniverse,
-            providers,
-            privateKey: credentialKey,
-            now: () => new Date(),
-          })
-        ).ids,
+      members: mlMembers,
       logger,
       pollMs: env.ML_SNAPSHOT_POLL_MS,
     });
@@ -774,6 +788,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         membership?.stop(),
         mlSnapshots?.stop(),
         companionInbox?.stop(),
+        companionFetch?.stop(),
         patternSnapshots?.stop(),
         priceRanges?.stop(),
         billing?.stop(),

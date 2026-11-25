@@ -15,13 +15,16 @@
     "test:integration": "vitest run test/"
   },
   "dependencies": {
+    "@tm/backtest": "workspace:*",
     "@tm/db": "workspace:*",
+    "@tm/domain": "workspace:*",
     "drizzle-orm": "^0.45.3",
     "embedded-postgres": "18.6.0-beta.19",
     "postgres": "^3.4.9",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "decimal.js": "^10.6.0",
     "tsx": "^4.23.15"
   }
 }

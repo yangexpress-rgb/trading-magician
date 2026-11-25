@@ -3311,6 +3311,41 @@ export const companionPushes = pgTable(
 );
 
 /**
+ * Data the Local Companion asks the cloud for (ADR 0118): a model universe's
+ * members, daily bars, filings or earnings, answered by the worker through the
+ * person's feeds (or the sharing admin's) with the code the cloud's own jobs
+ * use. An answer is read once and then deleted; nothing here is kept.
+ */
+export const companionFetches = pgTable(
+  'companion_fetch',
+  {
+    id: id(),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => agentConnections.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** `members`, `bars`, `filings` or `events`. */
+    kind: text('kind').notNull(),
+    request: jsonb('request').notNull(),
+    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+    /** While the worker is answering it; a lapsed claim is taken again. */
+    claimedUntil: timestamp('claimed_until', { withTimezone: true }),
+    answeredAt: timestamp('answered_at', { withTimezone: true }),
+    answer: jsonb('answer'),
+    error: text('error'),
+  },
+  (t) => [
+    index('companion_fetch_pending_idx')
+      .on(t.requestedAt)
+      .where(sql`${t.answeredAt} is null and ${t.error} is null`),
+    index('companion_fetch_connection_idx').on(t.connectionId, t.requestedAt),
+    check('companion_fetch_kind', sql`${t.kind} in ('members', 'bars', 'filings', 'events')`),
+  ],
+);
+
+/**
  * The secrets a connection accepts, by SHA-256 only: an agent token, or an
  * OAuth access or refresh token. The secrets themselves are never stored.
  */
