@@ -6,6 +6,7 @@ import { startLocalStore, type LocalStore } from './store';
 import { pullReference, recordJob } from './sync';
 import { CloudData, type CloudDataOptions } from './cloud-data';
 import { runFactorPass, runFeaturePass } from './features';
+import { mineOnce, type MinerRunner } from './mining';
 import { pushMlOutputs, refusedPushes, syncMlMirror } from './ml';
 import { ensurePython, runTrainer, type RunResult } from './python';
 
@@ -22,6 +23,8 @@ export const ML_EVERY_MS = 24 * 3_600_000;
 export const FEATURES_EVERY_MS = 10 * 60_000;
 /** Pattern discovery's factor store, like the cloud's loop: a batch of members every ten minutes. */
 export const FACTORS_EVERY_MS = 10 * 60_000;
+/** Queued pattern scans, like the cloud's miner: looked for every five minutes. */
+export const MINING_EVERY_MS = 5 * 60_000;
 
 export const platformName = () => `${platform()}-${arch()}`;
 
@@ -33,6 +36,7 @@ export function companionJobs(
   client: CompanionClient,
   trainer: TrainerRunner,
   cloud: CloudData = new CloudData(client),
+  miner?: MinerRunner,
 ): Job[] {
   return [
     {
@@ -87,6 +91,25 @@ export function companionJobs(
         }
       },
     },
+    ...(miner
+      ? [
+          {
+            // Pattern mining (ADR 0120): a queued scan from the cloud, mined on the local store.
+            name: 'mining',
+            everyMs: MINING_EVERY_MS,
+            run: async () => {
+              try {
+                return { ...(await mineOnce(store.sql, store.url, client, cloud, miner)) };
+              } catch (error) {
+                if (error instanceof CompanionApiError && error.code === 'not_producer') {
+                  return { skipped: 'not the research producer' };
+                }
+                throw error;
+              }
+            },
+          },
+        ]
+      : []),
     {
       // ML (ADR 0117): mirror the cloud's runs, train locally, push what is new.
       name: 'ml',
@@ -128,6 +151,8 @@ export interface RunOptions {
   hooks?: Omit<SchedulerHooks, 'log' | 'onResult'>;
   /** Stand-in for the Python trainer (tests). */
   trainer?: TrainerRunner;
+  /** Stand-in for the Python pattern miner (tests); without either, the real one runs. */
+  miner?: MinerRunner;
   /** How data requests to the cloud are polled (tests make it quick). */
   cloud?: Omit<CloudDataOptions, 'signal'>;
 }
@@ -156,7 +181,20 @@ export async function runCompanion(options: RunOptions): Promise<StopReason> {
           signal: options.signal,
         }));
     const cloud = new CloudData(client, { ...options.cloud, signal: options.signal });
-    return await runJobs(companionJobs(store, client, trainer, cloud), options.signal, {
+    // The real miner runs only alongside the real trainer; a test passes its own or none.
+    const miner: MinerRunner | undefined =
+      options.miner ??
+      (options.trainer
+        ? undefined
+        : async (storeUrl) =>
+            runTrainer({
+              python: await ensurePython(options.home, options.log),
+              storeUrl,
+              log: options.log,
+              signal: options.signal,
+              mode: 'miner',
+            }));
+    return await runJobs(companionJobs(store, client, trainer, cloud, miner), options.signal, {
       ...options.hooks,
       log: options.log,
       onResult: (job, outcome) => recordJob(store.sql, job, outcome),

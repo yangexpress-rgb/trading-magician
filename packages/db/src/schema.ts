@@ -3288,7 +3288,7 @@ export const companionPushes = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    /** What the payload is: `ml_run`, `ml_evaluation` or `ml_report`. */
+    /** What the payload is: `ml_run`, `ml_evaluation`, `ml_report` or `pattern_scan_result`. */
     kind: text('kind').notNull(),
     /** The companion's own id for the item, so a repeated push is a no-op. */
     clientKey: text('client_key').notNull(),
@@ -3305,7 +3305,10 @@ export const companionPushes = pgTable(
       .on(t.receivedAt)
       .where(sql`${t.appliedAt} is null and ${t.error} is null`),
     index('companion_push_user_idx').on(t.userId, t.receivedAt),
-    check('companion_push_kind', sql`${t.kind} in ('ml_run', 'ml_evaluation', 'ml_report')`),
+    check(
+      'companion_push_kind',
+      sql`${t.kind} in ('ml_run', 'ml_evaluation', 'ml_report', 'pattern_scan_result')`,
+    ),
     check('companion_push_key', sql`char_length(${t.clientKey}) BETWEEN 1 AND 120`),
   ],
 );
@@ -3326,7 +3329,7 @@ export const companionFetches = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    /** `members`, `bars`, `filings`, `events`, `pattern_members` or `option_signals`. */
+    /** `members`, `bars`, `filings`, `events`, `pattern_members`, `option_signals` or `pattern_scan`. */
     kind: text('kind').notNull(),
     request: jsonb('request').notNull(),
     requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
@@ -3343,7 +3346,7 @@ export const companionFetches = pgTable(
     index('companion_fetch_connection_idx').on(t.connectionId, t.requestedAt),
     check(
       'companion_fetch_kind',
-      sql`${t.kind} in ('members', 'bars', 'filings', 'events', 'pattern_members', 'option_signals')`,
+      sql`${t.kind} in ('members', 'bars', 'filings', 'events', 'pattern_members', 'option_signals', 'pattern_scan')`,
     ),
   ],
 );

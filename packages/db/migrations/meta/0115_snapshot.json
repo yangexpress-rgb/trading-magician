@@ -1,5 +1,5 @@
 {
-  "id": "6b7d9803-f134-43a0-907d-cb1ddb8a78aa",
+  "id": "b098222b-72c1-4e49-8fa6-b508db5631c9",
   "prevId": "d7f7d773-1206-4298-b60c-07d088cad587",
   "version": "7",
   "dialect": "postgresql",
@@ -2269,7 +2269,7 @@
       "checkConstraints": {
         "companion_fetch_kind": {
           "name": "companion_fetch_kind",
-          "value": "\"companion_fetch\".\"kind\" in ('members', 'bars', 'filings', 'events', 'pattern_members', 'option_signals')"
+          "value": "\"companion_fetch\".\"kind\" in ('members', 'bars', 'filings', 'events', 'pattern_members', 'option_signals', 'pattern_scan')"
         }
       },
       "isRLSEnabled": false
@@ -2412,7 +2412,7 @@
       "checkConstraints": {
         "companion_push_kind": {
           "name": "companion_push_kind",
-          "value": "\"companion_push\".\"kind\" in ('ml_run', 'ml_evaluation', 'ml_report')"
+          "value": "\"companion_push\".\"kind\" in ('ml_run', 'ml_evaluation', 'ml_report', 'pattern_scan_result')"
         },
         "companion_push_key": {
           "name": "companion_push_key",

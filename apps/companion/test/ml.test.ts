@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { MlRun } from '../src/api';
 import { runCompanion, type TrainerRunner } from '../src/companion';
 import { newConfig, type CompanionConfig } from '../src/config';
+import type { MinerRunner } from '../src/mining';
 import { startLocalStore } from '../src/store';
 
 /**
@@ -89,6 +90,14 @@ const fetchAnswers = new Map<string, unknown>();
 /** The factor store's first day here: a few weeks back, so a pass stays small. */
 const FACTORS_FROM = tradingDays('2026-01-02', new Date().toISOString().slice(0, 10)).at(-15)!;
 const fetchKinds: string[] = [];
+/** Scans waiting in the stand-in cloud's queue. */
+const queuedScans: {
+  id: string;
+  userId: string;
+  config: unknown;
+  summary: string;
+  createdAt: string;
+}[] = [];
 
 const cloud = (async (input: string | URL | Request, init?: RequestInit) => {
   const url = new URL(String(input));
@@ -150,7 +159,9 @@ const cloud = (async (input: string | URL | Request, init?: RequestInit) => {
                 }
               : body.kind === 'option_signals'
                 ? { byId: [] }
-                : { earnings: [], calendar: [] };
+                : body.kind === 'pattern_scan'
+                  ? { scan: queuedScans.shift() ?? null }
+                  : { earnings: [], calendar: [] };
     fetchAnswers.set(id, answer);
     return Response.json({ fetchId: id }, { status: 202 });
   }
@@ -199,7 +210,7 @@ const trainerWriting =
     return { code: 0, tail: [] };
   };
 
-const round = (trainer: TrainerRunner) => {
+const round = (trainer: TrainerRunner, miner?: MinerRunner) => {
   const controller = new AbortController();
   return runCompanion({
     home,
@@ -208,6 +219,7 @@ const round = (trainer: TrainerRunner) => {
     log: () => undefined,
     fetch: cloud,
     trainer,
+    ...(miner ? { miner } : {}),
     cloud: { pollMs: 1 },
     hooks: { sleep: async () => controller.abort() },
   });
@@ -329,5 +341,55 @@ describe.skipIf(isRoot)('ML on the Local Companion (ADR 0117)', () => {
       expect(job).toEqual([{ error: null }]);
     });
     expect(fetchKinds).toContain('pattern_members');
+  });
+
+  it('mines a queued scan from the cloud on the local store and sends its result once (ADR 0120)', async () => {
+    const scanId = randomUUID();
+    const userId = randomUUID();
+    queuedScans.push({
+      id: scanId,
+      userId,
+      config: { direction: 'spike' },
+      summary: 'Spikes',
+      createdAt: new Date().toISOString(),
+    });
+    /** What the Python miner does with a queued scan. */
+    const miner: MinerRunner = async (storeUrl) => {
+      const { default: postgresJs } = await import('postgres');
+      const sql = postgresJs(storeUrl, { max: 1, onnotice: () => undefined });
+      try {
+        const [scan] = await sql<{ id: string; user_id: string }[]>`
+          update pattern_scan set status = 'running', started_at = now()
+          where status = 'queued' returning id::text, user_id::text`;
+        if (!scan) return { code: 0, tail: [] };
+        const [p] = await sql<{ id: string }[]>`
+          insert into pattern (scan_id, user_id, rank, rule, stats, status)
+          values (${scan.id}, ${scan.user_id}, 1, '[{"factor":"rsi_14"}]', '{"holdout":{"n":20}}', 'verified')
+          returning id::text`;
+        for (const [i, w] of ['discovery', 'holdout', 'fresh'].entries())
+          await sql`insert into pattern_occurrence (pattern_id, user_id, instrument_id, as_of, "window", hit,
+                      max_runup, max_drawdown, forward_return)
+                    values (${p!.id}, ${scan.user_id}, ${IIDS[0]!}, ${`2021-0${i + 1}-04`}, ${w}, true, 0.1, -0.02, 0.05)`;
+        await sql`update pattern_scan set status = 'done', candidates_tested = 50, finalists = 1, verified = 1,
+                    effective = '{"from":"2020-01-02"}', code_version = 'companion', seconds = 1.5,
+                    finished_at = now() where id = ${scan.id}`;
+      } finally {
+        await sql.end();
+      }
+      return { code: 0, tail: [] };
+    };
+    await round(trainerWriting(null), miner);
+    const sent = pushes.filter((p) => p.kind === 'pattern_scan_result');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.clientKey).toBe(`scan:${scanId}`);
+    expect(sent[0]!.payload).toMatchObject({
+      scan: { id: scanId, status: 'done', verified: 1, seconds: 1.5 },
+      patterns: [{ rank: 1, status: 'verified' }],
+    });
+    // The scan's own evidence only; the live occurrence stays here.
+    const [pattern] = (sent[0]!.payload as { patterns: { occurrences: unknown[][] }[] }).patterns;
+    expect(pattern!.occurrences.map((o) => o[2])).toEqual(['discovery', 'holdout']);
+    await round(trainerWriting(null), miner);
+    expect(pushes.filter((p) => p.kind === 'pattern_scan_result')).toHaveLength(1);
   });
 });

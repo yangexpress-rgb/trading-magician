@@ -94,13 +94,19 @@ export async function ensurePython(home: string, log: (line: string) => void): P
   return python;
 }
 
-/** Runs the ML trainer against the local store (the same command the cloud's cron runs). */
+/**
+ * Runs the ML trainer, or the pattern miner (ADR 0120), against the local
+ * store: the same command the cloud's cron runs, with one of the two on.
+ */
 export async function runTrainer(options: {
   python: string;
   storeUrl: string;
   log: (line: string) => void;
   signal?: AbortSignal;
+  /** The ML trainer (default) or the pattern miner. */
+  mode?: 'ml' | 'miner';
 }): Promise<RunResult> {
+  const miner = options.mode === 'miner';
   return runProcess(options.python, ['-m', 'trainer'], {
     cwd: TRAINER_DIR,
     env: {
@@ -108,8 +114,8 @@ export async function runTrainer(options: {
       HOME: process.env.HOME,
       // Core and the Research Store are the same local database here.
       DATABASE_WORKER_URL: options.storeUrl,
-      ML_TRAINER_ENABLED: 'on',
-      PATTERN_MINER_ENABLED: 'off',
+      ML_TRAINER_ENABLED: miner ? 'off' : 'on',
+      PATTERN_MINER_ENABLED: miner ? 'on' : 'off',
       GIT_SHA: 'companion',
     },
     log: options.log,

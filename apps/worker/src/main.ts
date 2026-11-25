@@ -606,6 +606,7 @@ if (databaseUrl) {
   // The Local Companion's data requests (ADR 0118, 0119): nothing to do until one asks.
   companionFetch = startCompanionFetchLoop({
     db,
+    research: research.db,
     history: researchHistory,
     fundamentals: companyFilings,
     members: mlMembers,

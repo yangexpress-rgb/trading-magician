@@ -42,6 +42,7 @@ export const COMPANION_FETCH_KINDS = [
   'events',
   'pattern_members',
   'option_signals',
+  'pattern_scan',
 ] as const;
 export type CompanionFetchKind = (typeof COMPANION_FETCH_KINDS)[number];
 
@@ -96,6 +97,8 @@ export const FETCH_REQUESTS = {
     ids: z.array(uuid).min(1).max(COMPANION_FETCH_MAX_ITEMS),
     from: day,
   }),
+  /** Claim the oldest queued pattern scan to run on the companion (ADR 0120). */
+  pattern_scan: z.object({}),
 } as const;
 
 export type FetchRequest<K extends CompanionFetchKind> = z.infer<(typeof FETCH_REQUESTS)[K]>;
@@ -144,6 +147,16 @@ export interface OptionSignalsAnswer {
   byId: [string, OptionSignal[]][];
 }
 
+export interface PatternScanAnswer {
+  scan: {
+    id: string;
+    userId: string;
+    config: unknown;
+    summary: string;
+    createdAt: string;
+  } | null;
+}
+
 export interface FetchAnswers {
   members: MembersAnswer;
   bars: BarsAnswer;
@@ -151,6 +164,7 @@ export interface FetchAnswers {
   events: EventsAnswer;
   pattern_members: PatternMembersAnswer;
   option_signals: OptionSignalsAnswer;
+  pattern_scan: PatternScanAnswer;
 }
 
 export function encodeBars(results: readonly (BarSeries | Error)[]): BarsAnswer {
@@ -382,4 +396,34 @@ export async function clearStaleCompanionFetches(core: Database): Promise<number
     )
     .returning({ id: companionFetches.id });
   return gone.length;
+}
+
+/**
+ * Claims the oldest queued pattern scan in the cloud's Research Store for the
+ * companion (ADR 0120), the way the cloud's miner claims one: it is `running`
+ * from now until the companion pushes its result.
+ */
+export async function claimPatternScan(research: Database): Promise<PatternScanAnswer> {
+  const [row] = await research.execute<{
+    id: string;
+    user_id: string;
+    config: unknown;
+    summary: string;
+    created_at: string;
+  }>(sql`
+    update pattern_scan set status = 'running', started_at = now()
+    where id = (select id from pattern_scan where status = 'queued'
+                order by created_at limit 1 for update skip locked)
+    returning id::text, user_id::text, config, summary, created_at::text`);
+  return {
+    scan: row
+      ? {
+          id: row.id,
+          userId: row.user_id,
+          config: row.config,
+          summary: row.summary,
+          createdAt: row.created_at,
+        }
+      : null,
+  };
 }

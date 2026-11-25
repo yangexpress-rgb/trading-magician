@@ -1,5 +1,6 @@
 import {
   answerCompanionFetches,
+  claimPatternScan,
   clearStaleCompanionFetches,
   encodeBars,
   encodeEvents,
@@ -24,6 +25,8 @@ import type { FundamentalsLoader } from './fundamentals';
 
 export interface CompanionFetchDeps {
   db: Database;
+  /** The Research Store, where pattern scans queue (ADR 0120); defaults to `db`. */
+  research?: Database;
   /** Bars for a user, through their routes (createMemberHistory, patient and in the background). */
   history: (userId: string) => HistoricalDataProvider;
   fundamentals: FundamentalsLoader;
@@ -86,6 +89,8 @@ export function companionFetchAnswerer(deps: CompanionFetchDeps): FetchAnswerer 
           byId: [...(await loadOptionSignals(deps.db, ids, from))],
         } satisfies FetchAnswers['option_signals'];
       }
+      case 'pattern_scan':
+        return claimPatternScan(deps.research ?? deps.db);
       default:
         throw new Error(`Unknown request kind ${kind}`);
     }
