@@ -242,6 +242,11 @@ pnpm --filter @tm/companion companion status
 Its settings and local Research Store live in `~/Library/Application Support/Trading Magician
 Companion` on macOS (`TM_COMPANION_HOME` overrides). The cloud images never include it.
 
+It trains the ML models locally (ADR 0117), so it needs Python 3.12 or later on the computer
+(`TM_COMPANION_PYTHON` names a particular one); on first run it makes its own environment in the
+data folder and installs `apps/ml-trainer/requirements.txt`. Its pushes are applied by the worker,
+and only the platform admin's companion may publish.
+
 ### Production must not contain
 
 `CREDENTIALS_PRIVATE_KEY`, `SIGNUP_PLAN`, `SIGNUP_MODE=open`, `PAPER_CLOCK_START`, `ALPACA_FAKE`,

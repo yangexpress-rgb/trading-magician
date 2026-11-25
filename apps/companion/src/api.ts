@@ -39,6 +39,56 @@ const InstrumentsReply = z.object({
   next: z.string().nullable(),
 });
 const MembershipReply = z.object({ periods: z.array(MembershipPeriod) });
+
+export const MlModel = z.object({
+  id: z.string(),
+  modelKey: z.string(),
+  name: z.string(),
+  universe: z.string(),
+  featureSet: z.unknown(),
+  featureSetVersion: z.number(),
+  label: z.unknown(),
+  algorithm: z.string(),
+  status: z.string(),
+  snapshotsFrom: z.string(),
+  availability: z.unknown(),
+});
+export type MlModel = z.infer<typeof MlModel>;
+
+export const MlRun = z.object({
+  id: z.string(),
+  modelId: z.string(),
+  runNo: z.number(),
+  predictionDate: z.string(),
+  trainingStart: z.string(),
+  trainingEnd: z.string(),
+  maxLabelEnd: z.string(),
+  rowsTrained: z.number(),
+  crossSections: z.number(),
+  hyperparams: z.unknown(),
+  coefficients: z.unknown(),
+  codeVersion: z.string(),
+  source: z.string(),
+  createdAt: z.string(),
+});
+export type MlRun = z.infer<typeof MlRun>;
+
+const MlStateReply = z.object({ models: z.array(MlModel), runs: z.array(MlRun) });
+const PredictionsReply = z.object({ predictions: z.array(z.tuple([z.string(), z.number()])) });
+const PushReply = z.object({ pushId: z.string(), duplicate: z.boolean() });
+export const PushSummary = z.object({
+  id: z.string(),
+  kind: z.string(),
+  clientKey: z.string(),
+  receivedAt: z.string(),
+  appliedAt: z.string().nullable(),
+  result: z.unknown(),
+  error: z.string().nullable(),
+});
+export type PushSummary = z.infer<typeof PushSummary>;
+const PushesReply = z.object({ pushes: z.array(PushSummary) });
+
+export type PushKind = 'ml_run' | 'ml_evaluation' | 'ml_report';
 const ErrorReply = z.object({ error: z.object({ code: z.string(), message: z.string() }) });
 
 /** Cloud codes that mean this pairing will never work again. */
@@ -108,6 +158,29 @@ export class CompanionClient {
 
   async membership(): Promise<MembershipPeriod[]> {
     return (await this.call('GET', '/membership', MembershipReply)).periods;
+  }
+
+  mlState(): Promise<z.infer<typeof MlStateReply>> {
+    return this.call('GET', '/ml/state', MlStateReply);
+  }
+
+  async runPredictions(runId: string): Promise<[string, number][]> {
+    const reply = await this.call(
+      'GET',
+      `/ml/runs/${encodeURIComponent(runId)}/predictions`,
+      PredictionsReply,
+    );
+    return reply.predictions;
+  }
+
+  /** Queues one Frozen Output in the cloud; a repeated client key is the same push. */
+  push(kind: PushKind, clientKey: string, payload: unknown): Promise<z.infer<typeof PushReply>> {
+    return this.call('POST', '/pushes', PushReply, { kind, clientKey, payload });
+  }
+
+  /** Pushes not applied yet, or refused. */
+  async openPushes(): Promise<PushSummary[]> {
+    return (await this.call('GET', '/pushes?open=1', PushesReply)).pushes;
   }
 
   private async call<T>(

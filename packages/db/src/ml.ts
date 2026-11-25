@@ -73,6 +73,9 @@ export interface MlModelChoice {
   latestTrainingEnd: string | null;
   /** The latest prediction date with an active run, or null. */
   latestPrediction: string | null;
+  /** When that latest run was made, and where (A5, ADR 0117): the cloud or a Local Companion. */
+  latestMadeAt: string | null;
+  latestSource: string | null;
 }
 
 export async function listMlModels(db: Db): Promise<MlModelChoice[]> {
@@ -88,13 +91,33 @@ export async function listMlModels(db: Db): Promise<MlModelChoice[]> {
     .where(eq(mlModelRuns.status, 'active'))
     .groupBy(mlModelRuns.modelId);
   const byModel = new Map(latest.map((r) => [r.modelId, r]));
-  return models.map((m) => ({
-    modelKey: m.modelKey,
-    name: m.name,
-    status: m.status,
-    latestTrainingEnd: byModel.get(m.id)?.trainingEnd ?? null,
-    latestPrediction: byModel.get(m.id)?.prediction ?? null,
-  }));
+  const newest = await db
+    .selectDistinctOn([mlModelRuns.modelId], {
+      modelId: mlModelRuns.modelId,
+      createdAt: mlModelRuns.createdAt,
+      source: mlModelRuns.source,
+      sourceDetail: mlModelRuns.sourceDetail,
+    })
+    .from(mlModelRuns)
+    .where(eq(mlModelRuns.status, 'active'))
+    .orderBy(mlModelRuns.modelId, desc(mlModelRuns.predictionDate));
+  const made = new Map(newest.map((r) => [r.modelId, r]));
+  return models.map((m) => {
+    const run = made.get(m.id);
+    return {
+      modelKey: m.modelKey,
+      name: m.name,
+      status: m.status,
+      latestTrainingEnd: byModel.get(m.id)?.trainingEnd ?? null,
+      latestPrediction: byModel.get(m.id)?.prediction ?? null,
+      latestMadeAt: run?.createdAt.toISOString() ?? null,
+      latestSource: run
+        ? run.source === 'companion'
+          ? (run.sourceDetail ?? 'Local companion')
+          : 'Cloud'
+        : null,
+    };
+  });
 }
 
 /**

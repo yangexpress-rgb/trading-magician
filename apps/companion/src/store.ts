@@ -63,6 +63,56 @@ const COMPANION_SCHEMA = [
      error text,
      detail jsonb NOT NULL DEFAULT '{}'::jsonb
    )`,
+  // A local mirror of the cloud's model registry, runs and predictions (ADR
+  // 0117): the trainer reads and writes them exactly as it does Core, so it
+  // runs here unchanged. The cloud's own rows come down; the companion's go up.
+  `CREATE TABLE IF NOT EXISTS ml_model (
+     id uuid PRIMARY KEY,
+     model_key text NOT NULL UNIQUE,
+     name text NOT NULL,
+     universe text NOT NULL,
+     feature_set jsonb NOT NULL,
+     feature_set_version integer NOT NULL,
+     label jsonb NOT NULL,
+     algorithm text NOT NULL,
+     status text NOT NULL,
+     snapshots_from date NOT NULL,
+     availability jsonb
+   )`,
+  `CREATE TABLE IF NOT EXISTS ml_model_run (
+     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+     model_id uuid NOT NULL REFERENCES ml_model (id),
+     run_no integer NOT NULL,
+     prediction_date date NOT NULL,
+     training_start date NOT NULL,
+     training_end date NOT NULL,
+     max_label_end date NOT NULL,
+     rows_trained integer NOT NULL,
+     cross_sections integer NOT NULL,
+     hyperparams jsonb NOT NULL,
+     coefficients jsonb NOT NULL,
+     code_version text NOT NULL,
+     status text NOT NULL DEFAULT 'active',
+     source text NOT NULL DEFAULT 'companion',
+     created_at timestamptz NOT NULL DEFAULT now(),
+     CONSTRAINT ml_model_run_embargo CHECK (max_label_end < prediction_date)
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS ml_model_run_active_uq
+     ON ml_model_run (model_id, prediction_date) WHERE status = 'active'`,
+  `CREATE TABLE IF NOT EXISTS ml_prediction (
+     model_run_id uuid NOT NULL REFERENCES ml_model_run (id) ON DELETE CASCADE,
+     instrument_id uuid NOT NULL,
+     as_of date NOT NULL,
+     score double precision NOT NULL,
+     PRIMARY KEY (model_run_id, instrument_id)
+   )`,
+  // What has been sent up, so nothing is sent twice.
+  `CREATE TABLE IF NOT EXISTS companion.pushed (
+     client_key text PRIMARY KEY,
+     kind text NOT NULL,
+     push_id uuid NOT NULL,
+     pushed_at timestamptz NOT NULL DEFAULT now()
+   )`,
 ];
 
 /** Starts (creating on first run) the local Research Store and brings its tables up to date. */

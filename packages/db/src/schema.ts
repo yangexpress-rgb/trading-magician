@@ -2952,6 +2952,10 @@ export const mlModelRuns = pgTable(
     /** The learned coefficient per feature, so a wrong-way feature is visible (§6). */
     coefficients: jsonb('coefficients').notNull(),
     codeVersion: text('code_version').notNull(),
+    /** Where the run was made (ADR 0117): the cloud trainer or a paired Local Companion. */
+    source: text('source').notNull().default('cloud'),
+    /** For a companion run: which companion, e.g. "Local companion 0.2.0 (darwin-arm64)". */
+    sourceDetail: text('source_detail'),
     status: text('status').notNull().default('active'),
     supersededAt: timestamp('superseded_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -2963,6 +2967,7 @@ export const mlModelRuns = pgTable(
       .where(sql`${t.status} = 'active'`),
     check('ml_model_run_status', sql`${t.status} in ('active', 'superseded')`),
     check('ml_model_run_embargo', sql`${t.maxLabelEnd} < ${t.predictionDate}`),
+    check('ml_model_run_source', sql`${t.source} in ('cloud', 'companion')`),
     check('ml_model_run_window', sql`${t.trainingStart} <= ${t.trainingEnd}`),
   ],
 );
@@ -3262,6 +3267,46 @@ export const researchCompanions = pgTable(
     index('research_companion_user_idx').on(t.userId, t.seenAt),
     check('research_companion_version', sql`char_length(${t.version}) BETWEEN 1 AND 40`),
     check('research_companion_platform', sql`char_length(${t.platform}) BETWEEN 1 AND 40`),
+  ],
+);
+
+/**
+ * The Local Companion's inbox (ADR 0117): each Frozen Output a companion
+ * pushes (an ML run with its predictions, an evaluation, a report) lands here
+ * first, written by the web app as the person who paired it. The worker
+ * applies it to Core and the Research Store with its own login, after checking
+ * the pairing still stands and belongs to the producer (O216). The web app
+ * itself never writes model runs or predictions.
+ */
+export const companionPushes = pgTable(
+  'companion_push',
+  {
+    id: id(),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => agentConnections.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** What the payload is: `ml_run`, `ml_evaluation` or `ml_report`. */
+    kind: text('kind').notNull(),
+    /** The companion's own id for the item, so a repeated push is a no-op. */
+    clientKey: text('client_key').notNull(),
+    payload: jsonb('payload').notNull(),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    appliedAt: timestamp('applied_at', { withTimezone: true }),
+    /** What applying did, e.g. `{"runNo": 12}` or `{"skipped": "already served"}`. */
+    result: jsonb('result'),
+    error: text('error'),
+  },
+  (t) => [
+    unique('companion_push_key_uq').on(t.connectionId, t.clientKey),
+    index('companion_push_pending_idx')
+      .on(t.receivedAt)
+      .where(sql`${t.appliedAt} is null and ${t.error} is null`),
+    index('companion_push_user_idx').on(t.userId, t.receivedAt),
+    check('companion_push_kind', sql`${t.kind} in ('ml_run', 'ml_evaluation', 'ml_report')`),
+    check('companion_push_key', sql`char_length(${t.clientKey}) BETWEEN 1 AND 120`),
   ],
 );
 

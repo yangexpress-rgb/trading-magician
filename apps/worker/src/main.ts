@@ -88,6 +88,7 @@ import { adminCredentialField } from './events/keys';
 import { earningsFeedProvider } from './events/feed';
 import { startEventsLoop, type EventsLoop } from './events/loop';
 import { startMlSnapshotLoop, type MlSnapshotLoop } from './ml/loop';
+import { startCompanionInboxLoop, type CompanionInboxLoop } from './companion-inbox';
 import { startPatternSnapshotLoop, type PatternSnapshotLoop } from './patterns/loop';
 import { startStorageLoop, type StorageLoop } from './storage';
 import { startPriceRangeLoop, type PriceRangeLoop } from './price-ranges';
@@ -128,6 +129,7 @@ let eventsLoop: EventsLoop | undefined;
 let shortInterest: ShortInterestLoop | undefined;
 let membership: ReturnType<typeof startMembershipSync> | undefined;
 let mlSnapshots: MlSnapshotLoop | undefined;
+let companionInbox: CompanionInboxLoop | undefined;
 let patternSnapshots: PatternSnapshotLoop | undefined;
 let priceRanges: PriceRangeLoop | undefined;
 let billing: BillingLoop | undefined;
@@ -542,6 +544,8 @@ if (databaseUrl) {
     ],
     logger,
   });
+  // The Local Companion's pushes (ADR 0117): nothing to do until one is paired.
+  companionInbox = startCompanionInboxLoop({ core: db, research: research.db, logger });
   if (env.ML_SNAPSHOTS === 'on') {
     // ML feature snapshots and labels (ADR 0086), through the sharing admin's feeds.
     mlSnapshots = startMlSnapshotLoop({
@@ -769,6 +773,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         shortInterest?.stop(),
         membership?.stop(),
         mlSnapshots?.stop(),
+        companionInbox?.stop(),
         patternSnapshots?.stop(),
         priceRanges?.stop(),
         billing?.stop(),

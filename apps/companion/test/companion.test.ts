@@ -78,6 +78,8 @@ const cloud = (async (input: string | URL | Request, init?: RequestInit) => {
       ],
     });
   }
+  if (url.pathname.endsWith('/ml/state')) return Response.json({ models: [], runs: [] });
+  if (url.pathname.endsWith('/pushes')) return Response.json({ pushes: [] });
   return new Response('not found', { status: 404 });
 }) as typeof fetch;
 
@@ -90,6 +92,7 @@ const oneRound = (log: string[] = []) => {
     signal: controller.signal,
     log: (l) => log.push(l),
     fetch: cloud,
+    trainer: async () => ({ code: 0, tail: [] }),
     hooks: { sleep: async () => controller.abort() },
   });
 };
@@ -116,6 +119,8 @@ describe.skipIf(isRoot)('Local Companion core (ADR 0116)', () => {
       'GET /api/companion/v1/instruments',
       `GET /api/companion/v1/instruments?after=${instruments[1]!.id}`,
       'GET /api/companion/v1/membership',
+      'GET /api/companion/v1/ml/state',
+      'GET /api/companion/v1/pushes?open=1',
     ]);
     const store = await startLocalStore({ home, port, password: config.pgPassword });
     try {
@@ -142,9 +147,10 @@ describe.skipIf(isRoot)('Local Companion core (ADR 0116)', () => {
       const states = await jobStates(store.sql);
       expect(states.map((s) => [s.job, s.error])).toEqual([
         ['hello', null],
+        ['ml', null],
         ['reference', null],
       ]);
-      expect(states[1]!.detail).toEqual({ instruments: 3, periods: 2 });
+      expect(states[2]!.detail).toEqual({ instruments: 3, periods: 2 });
     } finally {
       await store.stop();
     }
