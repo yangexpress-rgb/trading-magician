@@ -28,6 +28,9 @@ export interface MlModelOption {
   latestTrainingEnd: string | null;
   /** The latest prediction date, or null. */
   latestPrediction: string | null;
+  /** When the latest run was made and where: "Cloud" or the Local Companion (A5, ADR 0117). */
+  latestMadeAt?: string | null;
+  latestSource?: string | null;
 }
 
 export interface AccountOption {

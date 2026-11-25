@@ -1024,7 +1024,11 @@ export function MetricRefFields({
               </MiniSelect>
               <p className="col-span-full text-xs text-ink-muted">
                 {chosen?.latestPrediction
-                  ? `Latest scores: ${chosen.latestPrediction} (monthly; a score over 45 days old reads unknown).`
+                  ? `Latest scores: ${chosen.latestPrediction}${
+                      chosen.latestMadeAt && chosen.latestSource
+                        ? `, made ${chosen.latestMadeAt.slice(0, 16).replace('T', ' ')} UTC by ${chosen.latestSource}`
+                        : ''
+                    } (monthly; a score over 45 days old reads unknown).`
                   : 'No scores stored for this model yet.'}
               </p>
             </Fragment>

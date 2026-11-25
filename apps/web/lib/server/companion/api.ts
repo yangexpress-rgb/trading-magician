@@ -2,6 +2,13 @@ import {
   companionHello,
   companionInstruments,
   companionMembership,
+  companionMlState,
+  companionRunPredictions,
+  COMPANION_PUSH_KINDS,
+  listCompanionPushes,
+  PUSH_SCHEMAS,
+  queueCompanionPush,
+  sharedFeedOwner,
   rateLimitHit,
   resolveAgentCredential,
   touchAgentConnection,
@@ -134,4 +141,95 @@ export function handleMembership(request: Request, deps: CompanionDeps): Promise
   return withCompanion(request, deps, async ({ asUser }) =>
     json({ periods: await asUser((tx) => companionMembership(tx)) }),
   );
+}
+
+/** GET /api/companion/v1/ml/state: the model registry and every active run, for the local mirror. */
+export function handleMlState(request: Request, deps: CompanionDeps): Promise<Response> {
+  return withCompanion(request, deps, async ({ asUser }) =>
+    json(await asUser((tx) => companionMlState(tx))),
+  );
+}
+
+/** GET /api/companion/v1/ml/runs/<id>/predictions: one run's scores. */
+export function handleRunPredictions(
+  request: Request,
+  deps: CompanionDeps,
+  runId: string,
+): Promise<Response> {
+  return withCompanion(request, deps, async ({ asUser }) => {
+    if (!z.uuid().safeParse(runId).success) return refuse(400, 'bad_request', 'Not a run id');
+    return json({ predictions: await asUser((tx) => companionRunPredictions(tx, runId)) });
+  });
+}
+
+/** Largest push body accepted (a run's predictions or a report). */
+export const COMPANION_PUSH_MAX_BYTES = 4_000_000;
+
+const PushBody = z.object({
+  kind: z.enum(COMPANION_PUSH_KINDS),
+  clientKey: z.string().min(1).max(120),
+  payload: z.unknown(),
+});
+
+/**
+ * POST /api/companion/v1/pushes: queue one Frozen Output (ADR 0117). Only the
+ * research producer's companion (O216) may publish; the worker applies it.
+ */
+export function handlePush(request: Request, deps: CompanionDeps): Promise<Response> {
+  return withCompanion(request, deps, async ({ cred, asUser }) => {
+    const length = Number(request.headers.get('content-length') ?? '0');
+    if (length > COMPANION_PUSH_MAX_BYTES) {
+      return refuse(413, 'too_large', 'The push is too large');
+    }
+    let text: string;
+    try {
+      text = await request.text();
+    } catch {
+      return refuse(400, 'bad_request', 'The body could not be read');
+    }
+    if (text.length > COMPANION_PUSH_MAX_BYTES)
+      return refuse(413, 'too_large', 'The push is too large');
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return refuse(400, 'bad_request', 'The body must be JSON');
+    }
+    const parsed = PushBody.safeParse(body);
+    if (!parsed.success) return refuse(400, 'bad_request', 'Send kind, clientKey and payload');
+    const payload = PUSH_SCHEMAS[parsed.data.kind].safeParse(parsed.data.payload);
+    if (!payload.success) {
+      return refuse(400, 'bad_payload', `The ${parsed.data.kind} payload is malformed`);
+    }
+    const outcome = await asUser(async (tx) => {
+      if ((await sharedFeedOwner(tx)) !== cred.userId) return null;
+      return queueCompanionPush(
+        tx,
+        { connectionId: cred.connectionId, userId: cred.userId },
+        { kind: parsed.data.kind, clientKey: parsed.data.clientKey, payload: payload.data },
+      );
+    });
+    if (!outcome) {
+      return refuse(
+        403,
+        'not_producer',
+        "Only the platform admin's companion publishes shared research (O216)",
+      );
+    }
+    return json(
+      { pushId: outcome.id, duplicate: outcome.duplicate },
+      outcome.duplicate ? 200 : 202,
+    );
+  });
+}
+
+/** GET /api/companion/v1/pushes[?open=1]: this companion's pushes and how applying went. */
+export function handlePushes(request: Request, deps: CompanionDeps): Promise<Response> {
+  return withCompanion(request, deps, async ({ cred, asUser }) => {
+    const open = new URL(request.url).searchParams.get('open') === '1';
+    const pushes = await asUser((tx) =>
+      listCompanionPushes(tx, cred.connectionId, { pendingOrFailed: open, limit: 200 }),
+    );
+    return json({ pushes });
+  });
 }
