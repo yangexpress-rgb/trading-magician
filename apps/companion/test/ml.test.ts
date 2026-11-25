@@ -170,7 +170,10 @@ describe.skipIf(isRoot)('ML on the Local Companion (ADR 0117)', () => {
     const [runPush, evalPush] = pushes;
     expect(runPush!.payload).toMatchObject({
       run: { modelKey: 'mf-ranker-ridge', predictionDate: '2021-01-29', maxLabelEnd: '2021-01-04' },
-      predictions: IIDS.map((id, i) => [id, i / 2]),
+      // Sent in instrument-id order.
+      predictions: IIDS.map((id, i) => [id, i / 2]).sort((a, b) =>
+        String(a[0]).localeCompare(String(b[0])),
+      ),
     });
     expect(evalPush!.payload).toMatchObject({ modelRunId: cloudRuns[0]!.id, asOf: '2020-12-31' });
     await withStore(async (sql) => {
