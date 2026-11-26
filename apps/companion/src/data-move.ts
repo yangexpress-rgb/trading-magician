@@ -145,5 +145,90 @@ export async function moveResearchData(
   const copy = await copyResearchTables(sql, cloud, { log });
   log('Checking the copy: a second pass should copy nothing…');
   const verify = await copyResearchTables(sql, cloud, { log });
-  return { copy, verify, verified: copyVerified(verify) };
+  const verified = copyVerified(verify);
+  if (verified) await markCloudCopies(sql, cloud, log);
+  return { copy, verify, verified };
+}
+
+/** The id of everything marked as sent because it came from the cloud (never a real push id). */
+export const FROM_CLOUD_PUSH_ID = '00000000-0000-0000-0000-000000000000';
+
+/**
+ * Marks the outputs the move copied from the cloud as already sent, so the
+ * companion never pushes them back as its own (ADR 0122): finished scans,
+ * the decay scores of their patterns, ML evaluations and reports. Only rows
+ * the cloud holds are marked; anything made here and not sent stays unsent.
+ * Reads the four small tables again through the same export, so it can run
+ * on its own on a store moved before this existed.
+ */
+export async function markCloudCopies(
+  sql: postgres.Sql,
+  cloud: CloudData,
+  log: (line: string) => void = () => undefined,
+): Promise<Record<string, number>> {
+  const rowsOf = async (table: ResearchExportTable): Promise<Record<string, unknown>[]> => {
+    const out: Record<string, unknown>[] = [];
+    let fromPage = 0;
+    let pages = 0;
+    do {
+      const answer = await cloud.ask<ResearchExportAnswer>('research_export', { table, fromPage });
+      out.push(...(JSON.parse(answer.rows) as Record<string, unknown>[]));
+      pages = answer.pages;
+      fromPage = answer.toPage;
+    } while (fromPage <= pages);
+    return out;
+  };
+  // The cloud's own values decide, not the local copy's: a scan or score made here since stays unsent.
+  const scans = await rowsOf('pattern_scan');
+  const patterns = (await rowsOf('pattern')).filter((p) => p.status === 'verified');
+  const evaluations = await rowsOf('ml_evaluation');
+  const reports = await rowsOf('ml_report');
+  const mark = async (kind: string, keys: string[]) => {
+    if (keys.length === 0) return 0;
+    const rows = await sql`
+      insert into companion.pushed (client_key, kind, push_id)
+      select k, ${kind}, ${FROM_CLOUD_PUSH_ID}::uuid from unnest(${keys}::text[]) as k
+      on conflict do nothing`;
+    return rows.count;
+  };
+  const scored = patterns.filter(
+    (p) => p.decay_state != null && p.last_scored != null && p.decay_stats != null,
+  );
+  // The same key the decay push uses, with the hash taken over Postgres's own jsonb text.
+  const decayKeys = scored.length
+    ? (
+        await sql<{ key: string }[]>`
+          select 'decay:' || s.id || ':' || s.last_scored || ':' || md5(s.stats::jsonb::text) as key
+          from jsonb_to_recordset(${JSON.stringify(
+            scored.map((p) => ({ id: p.id, last_scored: p.last_scored, stats: p.decay_stats })),
+          )}::jsonb) as s(id text, last_scored text, stats jsonb)`
+      ).map((r) => r.key)
+    : [];
+  // The cloud's last score of each pattern, so a later score sends only newer evidence.
+  if (patterns.length)
+    await sql`
+      insert into companion.decay_pulled (pattern_id, last_scored)
+      select s.id, s.last_scored from jsonb_to_recordset(${JSON.stringify(
+        patterns.map((p) => ({ id: p.id, last_scored: p.last_scored ?? null })),
+      )}::jsonb) as s(id uuid, last_scored date)
+      on conflict (pattern_id) do nothing`;
+  const marked = {
+    scans: await mark(
+      'pattern_scan_result',
+      scans
+        .filter((r) => r.status === 'done' || r.status === 'failed')
+        .map((r) => `scan:${String(r.id)}`),
+    ),
+    decayScores: await mark('pattern_decay', decayKeys),
+    evaluations: await mark(
+      'ml_evaluation',
+      evaluations.map((r) => `eval:${String(r.model_run_id)}`),
+    ),
+    reports: await mark(
+      'ml_report',
+      reports.map((r) => `report:${String(r.id)}`),
+    ),
+  };
+  log(`Marked as already in the cloud: ${JSON.stringify(marked)}`);
+  return marked;
 }
