@@ -119,6 +119,8 @@ describe.skipIf(isRoot)('Local Companion core (ADR 0116)', () => {
       'GET /api/companion/v1/instruments',
       `GET /api/companion/v1/instruments?after=${instruments[1]!.id}`,
       'GET /api/companion/v1/membership',
+      // The feature writer, then the trainer, each mirror the registry first (no models here).
+      'GET /api/companion/v1/ml/state',
       'GET /api/companion/v1/ml/state',
       'GET /api/companion/v1/pushes?open=1',
     ]);
@@ -146,11 +148,12 @@ describe.skipIf(isRoot)('Local Companion core (ADR 0116)', () => {
       ]);
       const states = await jobStates(store.sql);
       expect(states.map((s) => [s.job, s.error])).toEqual([
+        ['features', null],
         ['hello', null],
         ['ml', null],
         ['reference', null],
       ]);
-      expect(states[2]!.detail).toEqual({ instruments: 3, periods: 2 });
+      expect(states[3]!.detail).toEqual({ instruments: 3, periods: 2 });
     } finally {
       await store.stop();
     }

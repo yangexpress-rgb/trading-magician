@@ -1,4 +1,16 @@
-import { and, asc, eq, registerInstrument, schema } from '@tm/db';
+import {
+  and,
+  asc,
+  decodeBars,
+  decodeEvents,
+  eq,
+  registerInstrument,
+  schema,
+  type BarsAnswer,
+  type EventsAnswer,
+  type FilingsAnswer,
+  type MembersAnswer,
+} from '@tm/db';
 import { createTestDatabase, type TestDatabase } from '@tm/db/testing';
 import {
   FEATURE_SET_V1,
@@ -14,6 +26,8 @@ import {
 import { MarketView, loadData, planExprs } from '@tm/backtest';
 import Decimal from 'decimal.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { InstrumentRef } from '@tm/backtest';
+import { companionFetchAnswerer } from '../src/companion-fetch';
 import type { FundamentalsLoader } from '../src/fundamentals';
 import { featureSeries, runSnapshotPass } from '../src/ml/snapshots';
 
@@ -298,6 +312,73 @@ describe('ML feature snapshots (brief §5)', () => {
         ),
       );
     expect(rows).toHaveLength(members.length);
+  });
+
+  it('the Local Companion, asking the cloud for its data, writes byte-identical rows (ADR 0118)', async () => {
+    const viaId = await newModel('snap-companion');
+    const answer = companionFetchAnswerer({
+      db: t.worker.db,
+      history: () => provider(false),
+      fundamentals: fundamentals(false),
+      members: async () => members,
+    });
+    const asked: string[] = [];
+    // Each answer crosses the wire as JSON, as it does between the worker and the companion.
+    const ask = async <T>(kind: 'members' | 'bars' | 'filings' | 'events', request: unknown) => {
+      asked.push(kind);
+      return JSON.parse(JSON.stringify(await answer(kind, request as never, 'u'))) as T;
+    };
+    let refs = new Map<string, InstrumentRef>();
+    const bars = async (requests: readonly unknown[]) =>
+      decodeBars(await ask<BarsAnswer>('bars', { requests }));
+    await runSnapshotPass({
+      db: t.worker.db,
+      history: {
+        id: 'cloud',
+        intervals: ['1d'],
+        getBars: async (r) => {
+          const [a] = await bars([r]);
+          if (!a || a instanceof Error) throw a ?? new Error('no answer');
+          return a;
+        },
+        getBarsMany: bars,
+      },
+      fundamentals: async (_userId, instruments) => ({
+        byId: new Map((await ask<FilingsAnswer>('filings', { instruments })).byId),
+      }),
+      members: async (universe) => {
+        const a = await ask<MembersAnswer>('members', { universe });
+        refs = new Map(a.refs);
+        return a.ids;
+      },
+      refs: async () => refs,
+      events: async (reads) =>
+        decodeEvents(await ask<EventsAnswer>('events', { ids: [...reads.keys()] })),
+      prefetchBars: true,
+      userId: '',
+      now: () => NOW,
+      logger: quiet,
+      modelKeys: ['snap-companion'],
+      features: FEATURES,
+      chunkDates: 4,
+      batchSize: 4,
+    });
+    const via = await rowsOf(viaId);
+    expect(JSON.stringify(via)).toBe(JSON.stringify(clean));
+    // One bars request per batch of members, not one per series.
+    expect(asked.filter((k) => k === 'members')).toHaveLength(1);
+    const chunks = Math.ceil(predictionDates('2025-06-01', '2026-03-13').length / 4);
+    expect(asked.filter((k) => k === 'bars').length).toBeLessThanOrEqual(
+      chunks * Math.ceil(members.length / 4),
+    );
+    const [m] = await t.owner.db
+      .select()
+      .from(schema.mlModels)
+      .where(eq(schema.mlModels.id, viaId));
+    expect(m?.availability).toEqual(
+      (await t.owner.db.select().from(schema.mlModels).where(eq(schema.mlModels.id, modelId)))[0]
+        ?.availability,
+    );
   });
 
   it('dates before the feed has bars do not hold up later dates (staging 2026-11-12)', async () => {

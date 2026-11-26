@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { chmod, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { encodeBars } from '@tm/db';
+import { regularSession, tradingDays, type Bar, type BarRequest } from '@tm/domain';
+import Decimal from 'decimal.js';
 import type postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { MlRun } from '../src/api';
@@ -61,6 +64,30 @@ const pushes: { kind: string; clientKey: string; payload: Record<string, unknown
 /** When set, the cloud "already serves" this date with its own run instead of applying the push. */
 let serveFirst: { date: string; id: string } | null = null;
 
+/** Daily bars the stand-in cloud serves: a steady climb, the same for every request. */
+const barsFor = (r: BarRequest) => {
+  const bars: Bar[] = [];
+  let price = 50 + IIDS.findIndex((id) => id === r.instrumentId) * 10;
+  for (const d of tradingDays('2014-01-02', r.to)) {
+    price *= 1.0005;
+    const session = regularSession(d);
+    if (d < r.from || !session) continue;
+    const v = new Decimal(price).toDecimalPlaces(4);
+    bars.push({
+      start: session.open,
+      end: session.close,
+      open: v,
+      high: v,
+      low: v,
+      close: v,
+      volume: v,
+    });
+  }
+  return { bars, dataVersion: 'stand-in@1', warnings: [] };
+};
+const fetchAnswers = new Map<string, unknown>();
+const fetchKinds: string[] = [];
+
 const cloud = (async (input: string | URL | Request, init?: RequestInit) => {
   const url = new URL(String(input));
   const path = url.pathname.replace('/api/companion/v1', '');
@@ -89,6 +116,38 @@ const cloud = (async (input: string | URL | Request, init?: RequestInit) => {
     return Response.json({ pushId: randomUUID(), duplicate: false }, { status: 202 });
   }
   if (path === '/pushes') return Response.json({ pushes: [] });
+  if (path === '/fetches' && init?.method === 'POST') {
+    const body = JSON.parse(String(init.body)) as {
+      kind: string;
+      request: Record<string, unknown>;
+    };
+    fetchKinds.push(body.kind);
+    const id = randomUUID();
+    const answer =
+      body.kind === 'members'
+        ? {
+            ids: IIDS,
+            refs: IIDS.map((iid, i) => [
+              iid,
+              { symbol: `CM${i}`, assetClass: 'stock', lotSize: '1' },
+            ]),
+          }
+        : body.kind === 'bars'
+          ? encodeBars((body.request.requests as BarRequest[]).map(barsFor))
+          : body.kind === 'filings'
+            ? { byId: [] }
+            : { earnings: [], calendar: [] };
+    fetchAnswers.set(id, answer);
+    return Response.json({ fetchId: id }, { status: 202 });
+  }
+  const fetched = /^\/fetches\/([^/]+)$/.exec(path);
+  if (fetched) {
+    const answer = fetchAnswers.get(fetched[1]!);
+    fetchAnswers.delete(fetched[1]!);
+    return answer === undefined
+      ? Response.json({ error: { code: 'not_found', message: 'gone' } }, { status: 404 })
+      : Response.json({ status: 'done', answer });
+  }
   return new Response('not found', { status: 404 });
 }) as typeof fetch;
 
@@ -135,6 +194,7 @@ const round = (trainer: TrainerRunner) => {
     log: () => undefined,
     fetch: cloud,
     trainer,
+    cloud: { pollMs: 1 },
     hooks: { sleep: async () => controller.abort() },
   });
 };
@@ -209,5 +269,37 @@ describe.skipIf(isRoot)('ML on the Local Companion (ADR 0117)', () => {
       expect(runs).toEqual([{ id: cloudId }]);
     });
     expect(pushes.filter((p) => p.kind === 'ml_run')).toHaveLength(2);
+  });
+
+  it('writes feature snapshots and labels locally from data asked of the cloud (ADR 0118)', async () => {
+    await withStore(async (sql) => {
+      const snaps = await sql<{ as_of: string; n: number }[]>`
+        select as_of::text, count(*)::int as n from ml_feature_snapshot group by as_of order by as_of`;
+      // One chunk of month ends from the model's first date, two members each.
+      expect(snaps[0]).toEqual({ as_of: '2015-01-30', n: 2 });
+      expect(snaps.length).toBeGreaterThan(1);
+      expect(snaps.every((r) => r.n === 2)).toBe(true);
+      // The date the cloud served is frozen here and never written.
+      expect(snaps.some((r) => r.as_of === '2020-12-31')).toBe(false);
+      const [labels] = await sql<{ n: number }[]>`select count(*)::int as n from ml_label`;
+      expect(labels!.n).toBeGreaterThan(0);
+      const [m] = await sql<{ availability: Record<string, string | null> | null }[]>`
+        select availability from ml_model`;
+      expect(m!.availability).toMatchObject({ rev_1m: '2015-01-30' });
+      const job = await sql<{ error: string | null }[]>`
+        select error from companion.sync_state where job = 'features'`;
+      expect(job).toEqual([{ error: null }]);
+    });
+    expect(fetchKinds[0]).toBe('members');
+    expect(fetchKinds).toContain('bars');
+  });
+
+  it('keeps its own availability report when the cloud mirror comes down again', async () => {
+    await round(trainerWriting(null));
+    await withStore(async (sql) => {
+      const [m] = await sql<{ availability: Record<string, string | null> | null }[]>`
+        select availability from ml_model`;
+      expect(m!.availability).not.toBeNull();
+    });
   });
 });

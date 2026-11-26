@@ -37,7 +37,11 @@ export async function syncMlMirror(
           model_key = excluded.model_key, name = excluded.name, universe = excluded.universe,
           feature_set = excluded.feature_set, feature_set_version = excluded.feature_set_version,
           label = excluded.label, algorithm = excluded.algorithm, status = excluded.status,
-          snapshots_from = excluded.snapshots_from, availability = excluded.availability`;
+          snapshots_from = excluded.snapshots_from,
+          -- The companion's own report wins once its snapshots made one (ADR 0118): the
+          -- snapshot job's saveAvailability moves updated_at; this mirror never does.
+          availability = case when ml_model.updated_at > ml_model.created_at
+                              then ml_model.availability else excluded.availability end`;
     }
   });
   let runsAdded = 0;
