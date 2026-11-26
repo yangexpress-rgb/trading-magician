@@ -1,0 +1,2 @@
+ALTER TABLE "companion_fetch" DROP CONSTRAINT "companion_fetch_kind";--> statement-breakpoint
+ALTER TABLE "companion_fetch" ADD CONSTRAINT "companion_fetch_kind" CHECK ("companion_fetch"."kind" in ('members', 'bars', 'filings', 'events', 'pattern_members', 'option_signals', 'pattern_scan', 'pattern_decay_due', 'research_export'));

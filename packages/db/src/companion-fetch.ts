@@ -20,6 +20,7 @@ import { and, asc, eq, isNull, lt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database, Transaction } from './client';
 import { COMPANION_OFFLINE_AFTER_MS } from './companion';
+import { RESEARCH_TABLES, type ResearchTable } from './research';
 import { agentConnections, companionFetches } from './schema';
 
 /**
@@ -45,6 +46,7 @@ export const COMPANION_FETCH_KINDS = [
   'option_signals',
   'pattern_scan',
   'pattern_decay_due',
+  'research_export',
 ] as const;
 export type CompanionFetchKind = (typeof COMPANION_FETCH_KINDS)[number];
 
@@ -57,6 +59,17 @@ export const COMPANION_FETCH_KEEP_MS = 3_600_000;
 
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const uuid = z.uuid();
+
+/**
+ * The research tables the data move copies to the companion, parents first
+ * (ADR 0122). Back test trades stay in the cloud (S2 plan, Yong 2026-11-25).
+ */
+export const RESEARCH_EXPORT_TABLES = RESEARCH_TABLES.filter(
+  (t): t is Exclude<ResearchTable, 'backtest_trade'> => t !== 'backtest_trade',
+) as [Exclude<ResearchTable, 'backtest_trade'>, ...Exclude<ResearchTable, 'backtest_trade'>[]];
+export type ResearchExportTable = (typeof RESEARCH_EXPORT_TABLES)[number];
+/** Heap pages in one slice: 2 MB, so an answer stays a few MB of JSON. */
+export const RESEARCH_EXPORT_PAGES = 256;
 
 const BarRequestSchema = z.object({
   instrumentId: uuid,
@@ -103,6 +116,13 @@ export const FETCH_REQUESTS = {
   pattern_scan: z.object({}),
   /** The Verified patterns due a decay score, to score on the companion (ADR 0121). */
   pattern_decay_due: z.object({ today: day }),
+  /** One slice of a cloud research table, for the data move to the companion (ADR 0122). */
+  research_export: z.object({
+    table: z.enum(RESEARCH_EXPORT_TABLES),
+    fromPage: z.number().int().min(0),
+    /** Count the table's rows too (the first slice of each pass). */
+    count: z.boolean().optional(),
+  }),
 } as const;
 
 export type FetchRequest<K extends CompanionFetchKind> = z.infer<(typeof FETCH_REQUESTS)[K]>;
@@ -185,6 +205,22 @@ export interface PatternDecayDueAnswer {
   patterns: DecayDuePattern[];
 }
 
+/** One slice of a research table (ADR 0122). */
+export interface ResearchExportAnswer {
+  table: string;
+  /** The table's columns in order; the companion's must match. */
+  columns: string[];
+  /** The table's size in pages when read; slices run from 0 to here. */
+  pages: number;
+  fromPage: number;
+  toPage: number;
+  /** Rows in this slice, and the rows as a JSON array (text). */
+  n: number;
+  rows: string;
+  /** The table's row count, when asked for. */
+  rowCount?: number;
+}
+
 export interface FetchAnswers {
   members: MembersAnswer;
   bars: BarsAnswer;
@@ -194,6 +230,7 @@ export interface FetchAnswers {
   option_signals: OptionSignalsAnswer;
   pattern_scan: PatternScanAnswer;
   pattern_decay_due: PatternDecayDueAnswer;
+  research_export: ResearchExportAnswer;
 }
 
 export function encodeBars(results: readonly (BarSeries | Error)[]): BarsAnswer {
@@ -536,4 +573,53 @@ export async function releaseStalledPatternScans(
       and (started_at is null or started_at < now() - make_interval(secs => ${olderThanMs / 1000}))
     returning id::text`);
   return rows.map((r) => r.id);
+}
+
+const quoteIdent = (t: string) => `"${t.replace(/"/g, '""')}"`;
+
+/**
+ * One slice of a research table by physical pages (TID range), as JSON text,
+ * the same way the S1 move reads (ADR 0115). Read with the worker's login,
+ * which sees every person's rows.
+ */
+export async function exportResearchSlice(
+  research: Database,
+  request: { table: ResearchExportTable; fromPage: number; count?: boolean | undefined },
+  pagesPerSlice = RESEARCH_EXPORT_PAGES,
+): Promise<ResearchExportAnswer> {
+  const { table, fromPage } = request;
+  if (!(RESEARCH_EXPORT_TABLES as readonly string[]).includes(table))
+    throw new Error(`${table} is not exported`);
+  const cols = await research.execute<{ name: string }>(sql`
+    select attname as name from pg_attribute
+    where attrelid = ${table}::regclass and attnum > 0 and not attisdropped order by attnum`);
+  const columns = cols.map((c) => c.name);
+  const [size] = await research.execute<{ pages: string }>(sql`
+    select (pg_relation_size(${table}::regclass) / current_setting('block_size')::int)::text as pages`);
+  const pages = Number(size?.pages ?? 0);
+  const toPage = fromPage + pagesPerSlice;
+  const list = columns.map(quoteIdent).join(', ');
+  const [slice] = await research.execute<{ n: string; rows: string }>(
+    sql.raw(
+      `select count(*)::text as n, coalesce(json_agg(s), '[]')::text as rows
+         from (select ${list} from ${quoteIdent(table)}
+               where ctid >= '(${fromPage},0)'::tid and ctid < '(${toPage},0)'::tid) s`,
+    ),
+  );
+  const out: ResearchExportAnswer = {
+    table,
+    columns,
+    pages,
+    fromPage,
+    toPage,
+    n: Number(slice?.n ?? 0),
+    rows: slice?.rows ?? '[]',
+  };
+  if (request.count) {
+    const [c] = await research.execute<{ n: string }>(
+      sql.raw(`select count(*)::text as n from ${quoteIdent(table)}`),
+    );
+    out.rowCount = Number(c?.n ?? 0);
+  }
+  return out;
 }

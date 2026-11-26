@@ -99,7 +99,8 @@ export type FetchKind =
   | 'pattern_members'
   | 'option_signals'
   | 'pattern_scan'
-  | 'pattern_decay_due';
+  | 'pattern_decay_due'
+  | 'research_export';
 const FetchReply = z.object({ fetchId: z.string() });
 export const FetchState = z.discriminatedUnion('status', [
   z.object({ status: z.literal('pending') }),

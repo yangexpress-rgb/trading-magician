@@ -14,6 +14,7 @@ import { jobStates } from './sync';
  *   tm-companion run                                     (runs until stopped)
  *   tm-companion status
  *   tm-companion forget                                  (removes the local pairing only)
+ *   tm-companion move-data                               (copies the cloud's research data here, then checks it)
  */
 
 const out = (line: string) => process.stdout.write(`${line}\n`);
@@ -107,6 +108,32 @@ async function status(home: string): Promise<number> {
   return 0;
 }
 
+async function moveData(home: string): Promise<number> {
+  const config = await readConfig(home);
+  if (!config) {
+    err('Not paired yet. Run: tm-companion pair --api https://your-trading-magician-site');
+    return 2;
+  }
+  const { CloudData } = await import('./cloud-data');
+  const { moveResearchData } = await import('./data-move');
+  const { writeFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const local = { home, port: config.pgPort, password: config.pgPassword };
+  const store = (await connectRunningStore(local)) ?? (await startLocalStore(local));
+  try {
+    const client = new CompanionClient({ apiBase: config.apiBase, token: config.token });
+    const result = await moveResearchData(store.sql, new CloudData(client), stamp);
+    const report = join(home, `data-move-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+    await writeFile(report, JSON.stringify(result, null, 2));
+    for (const c of result.verify) out(`  ${c.table}: cloud ${c.cloudRows}, here ${c.localAfter}`);
+    out(result.verified ? 'VERIFIED' : 'NOT VERIFIED: run move-data again');
+    out(`Report: ${report}`);
+    return result.verified ? 0 : 1;
+  } finally {
+    await store.stop();
+  }
+}
+
 async function forget(home: string): Promise<number> {
   const { rm } = await import('node:fs/promises');
   const { configPath } = await import('./paths');
@@ -128,8 +155,10 @@ async function main(argv: string[]): Promise<number> {
       return status(home);
     case 'forget':
       return forget(home);
+    case 'move-data':
+      return moveData(home);
     default:
-      err('Usage: tm-companion <pair|run|status|forget>');
+      err('Usage: tm-companion <pair|run|status|forget|move-data>');
       return 2;
   }
 }
