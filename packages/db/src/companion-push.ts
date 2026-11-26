@@ -30,6 +30,7 @@ export const COMPANION_PUSH_KINDS = [
   'ml_evaluation',
   'ml_report',
   'pattern_scan_result',
+  'pattern_decay',
 ] as const;
 export type CompanionPushKind = (typeof COMPANION_PUSH_KINDS)[number];
 
@@ -120,11 +121,34 @@ export const PatternScanResultPush = z.object({
 });
 export type PatternScanResultPush = z.infer<typeof PatternScanResultPush>;
 
+/**
+ * A Verified pattern re-scored on the companion (ADR 0121): its live
+ * ("fresh") occurrences since the cloud's last score, and, on the last part,
+ * its new decay state. A pattern with many new occurrences is sent in parts.
+ */
+export const PatternDecayPush = z.object({
+  patternId: uuid,
+  /** [instrumentId, asOf, hit, maxRunup, maxDrawdown, forwardReturn] */
+  occurrences: z
+    .array(z.tuple([uuid, day, z.boolean(), z.number(), z.number(), z.number()]))
+    .max(20_000),
+  /** Present on the last part only. */
+  state: z
+    .object({
+      decayState: z.enum(['holding', 'weakening', 'broken']),
+      decayStats: z.record(z.string(), z.unknown()),
+      lastScored: day,
+    })
+    .optional(),
+});
+export type PatternDecayPush = z.infer<typeof PatternDecayPush>;
+
 export const PUSH_SCHEMAS = {
   ml_run: MlRunPush,
   ml_evaluation: MlEvaluationPush,
   ml_report: MlReportPush,
   pattern_scan_result: PatternScanResultPush,
+  pattern_decay: PatternDecayPush,
 } as const;
 
 export interface PushSummary {
@@ -437,7 +461,9 @@ async function applyPatternScan(
     const [row] = await rtx.execute<{ user_id: string; status: string }>(sql`
       select user_id::text, status from pattern_scan where id = ${scan.id} for update`);
     if (!row) throw new PushRefused('No such pattern scan');
-    if (row.status !== 'running') return { skipped: `scan already ${row.status}` };
+    // A scan released back to the queue while its companion was away (ADR 0121) still takes the result.
+    if (row.status !== 'running' && row.status !== 'queued')
+      return { skipped: `scan already ${row.status}` };
     for (const p of patterns) {
       await rtx.execute(sql`
         insert into pattern (id, scan_id, user_id, rank, rule, stats, status)
@@ -473,6 +499,64 @@ async function applyPatternScan(
         code_version = ${scan.codeVersion}, seconds = ${scan.seconds}, finished_at = now()
       where id = ${scan.id}`);
     return { scan: scan.id, status: scan.status, patterns: patterns.length };
+  });
+}
+
+async function applyPatternDecay(
+  research: Database,
+  payload: PatternDecayPush,
+): Promise<Record<string, unknown>> {
+  const { patternId, occurrences, state } = payload;
+  return research.transaction(async (rtx) => {
+    const [row] = await rtx.execute<{
+      user_id: string;
+      status: string;
+      last_scored: string | null;
+      decay_stats: Record<string, unknown> | null;
+    }>(sql`
+      select user_id::text, status, last_scored::text, decay_stats
+      from pattern where id = ${patternId} for update`);
+    if (!row) throw new PushRefused('No such pattern');
+    if (row.status !== 'verified') return { skipped: 'pattern is not verified' };
+    if (occurrences.length > 0) {
+      await rtx.execute(sql`
+        insert into pattern_occurrence (pattern_id, user_id, instrument_id, as_of, "window", hit,
+                                        max_runup, max_drawdown, forward_return)
+        select ${patternId}::uuid, ${row.user_id}::uuid, o.instrument_id, o.as_of, 'fresh', o.hit,
+               o.max_runup, o.max_drawdown, o.forward_return
+        from jsonb_to_recordset(${JSON.stringify(
+          occurrences.map(([instrumentId, asOf, hit, runup, drawdown, forward]) => ({
+            instrument_id: instrumentId,
+            as_of: asOf,
+            hit,
+            max_runup: runup,
+            max_drawdown: drawdown,
+            forward_return: forward,
+          })),
+        )}::jsonb) as o(instrument_id uuid, as_of date, hit boolean, max_runup double precision,
+                        max_drawdown double precision, forward_return double precision)
+        on conflict do nothing`);
+    }
+    if (!state) return { pattern: patternId, occurrences: occurrences.length };
+    // An older score never replaces a newer one.
+    if (row.last_scored !== null && row.last_scored > state.lastScored)
+      return { pattern: patternId, occurrences: occurrences.length, skipped: 'scored since' };
+    // A re-verify asked for in the cloud after the companion read the pattern stays asked for.
+    const stats: Record<string, unknown> = { ...state.decayStats };
+    const asked = row.decay_stats?.reverifyRequestedAt;
+    const answered = (stats.reverify as { requestedAt?: unknown } | undefined)?.requestedAt;
+    if (asked !== undefined && asked !== answered) stats.reverifyRequestedAt = asked;
+    else delete stats.reverifyRequestedAt;
+    await rtx.execute(sql`
+      update pattern set decay_state = ${state.decayState}, decay_stats = ${JSON.stringify(stats)}::jsonb,
+        last_scored = ${state.lastScored}
+      where id = ${patternId}`);
+    return {
+      pattern: patternId,
+      occurrences: occurrences.length,
+      state: state.decayState,
+      lastScored: state.lastScored,
+    };
   });
 }
 
@@ -543,6 +627,11 @@ export async function applyCompanionPushes(options: {
             applied = await applyPatternScan(
               options.research,
               PatternScanResultPush.parse(push.payload),
+            );
+          } else if (push.kind === 'pattern_decay') {
+            applied = await applyPatternDecay(
+              options.research,
+              PatternDecayPush.parse(push.payload),
             );
           } else {
             throw new PushRefused(`Unknown push kind ${push.kind}`);

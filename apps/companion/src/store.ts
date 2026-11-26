@@ -118,6 +118,11 @@ const COMPANION_SCHEMA = [
      push_id uuid NOT NULL,
      pushed_at timestamptz NOT NULL DEFAULT now()
    )`,
+  // The cloud's last decay score of each pattern pulled to score here (ADR 0121).
+  `CREATE TABLE IF NOT EXISTS companion.decay_pulled (
+     pattern_id uuid PRIMARY KEY,
+     last_scored date
+   )`,
 ];
 
 /** Starts (creating on first run) the local Research Store and brings its tables up to date. */

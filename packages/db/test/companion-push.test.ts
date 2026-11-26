@@ -2,8 +2,18 @@ import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Transaction } from '../src/client';
-import { companionHello, pairCompanion, unpairCompanion } from '../src/companion';
-import { claimPatternScan } from '../src/companion-fetch';
+import {
+  COMPANION_OFFLINE_AFTER_MS,
+  companionHello,
+  pairCompanion,
+  researchStorageStatus,
+  unpairCompanion,
+} from '../src/companion';
+import {
+  claimPatternScan,
+  patternsDueForDecay,
+  releaseStalledPatternScans,
+} from '../src/companion-fetch';
 import {
   applyCompanionPushes,
   companionMlState,
@@ -12,7 +22,7 @@ import {
   queueCompanionPush,
   type MlRunPush,
 } from '../src/companion-push';
-import { listMlModels } from '../src/ml';
+import { listMlModels, loadMlPredictions } from '../src/ml';
 import { instruments, mlModelRuns, users } from '../src/schema';
 import { withTenant } from '../src/tenant';
 import { createTestDatabase, type TestDatabase } from './harness';
@@ -270,6 +280,172 @@ describe('Local Companion inbox (ADR 0117)', () => {
       { user_id: member, window: 'discovery' },
       { user_id: member, window: 'holdout' },
     ]);
+  });
+
+  it('puts a scan left running two days back in the queue, and still takes its result (ADR 0121)', async () => {
+    const who = { connectionId: adminConn, userId: admin };
+    const r = t.research!.owner.db;
+    const stalled = randomUUID();
+    const fresh = randomUUID();
+    await r.execute(sql`
+      insert into pattern_scan (id, user_id, config, summary, status, started_at) values
+        (${stalled}, ${member}, '{}'::jsonb, 'Away', 'running', now() - interval '49 hours'),
+        (${fresh}, ${member}, '{}'::jsonb, 'Busy', 'running', now() - interval '47 hours')`);
+    expect(await releaseStalledPatternScans(t.research!.worker.db)).toEqual([stalled]);
+    const rows = await r.execute<{ id: string; status: string }>(
+      sql`select id::text, status from pattern_scan where id in (${stalled}, ${fresh}) order by summary`,
+    );
+    expect(Object.fromEntries(rows.map((x) => [x.id, x.status]))).toEqual({
+      [stalled]: 'queued',
+      [fresh]: 'running',
+    });
+    // The companion comes back with the result after all: it is taken.
+    await asUser(admin, (tx) =>
+      queueCompanionPush(tx, who, {
+        kind: 'pattern_scan_result',
+        clientKey: `scan:${stalled}`,
+        payload: {
+          scan: {
+            id: stalled,
+            status: 'done',
+            error: null,
+            candidatesTested: 10,
+            finalists: 0,
+            verified: 0,
+            effective: null,
+            codeVersion: 'companion',
+            seconds: 1,
+          },
+          patterns: [],
+        },
+      }),
+    );
+    expect((await apply()).map((a) => a.result)).toEqual([
+      { scan: stalled, status: 'done', patterns: 0 },
+    ]);
+    await r.execute(sql`update pattern_scan set status = 'done' where id = ${fresh}`);
+  });
+
+  it('lists Verified patterns due a decay score and applies the companion’s score (ADR 0121)', async () => {
+    const who = { connectionId: adminConn, userId: admin };
+    const r = t.research!.owner.db;
+    const scanId = randomUUID();
+    const due = randomUUID();
+    const recent = randomUUID();
+    await r.execute(sql`
+      insert into pattern_scan (id, user_id, config, summary, status, effective) values
+        (${scanId}, ${member}, '{"horizon": 5}'::jsonb, 'Decay scan', 'done',
+         '{"to": "2026-06-30", "discoveryEnd": "2025-12-31"}'::jsonb)`);
+    await r.execute(sql`
+      insert into pattern (id, scan_id, user_id, rank, rule, stats, status, decay_state, decay_stats, last_scored) values
+        (${due}, ${scanId}, ${member}, 1, '[]'::jsonb, '{}'::jsonb, 'verified', 'holding',
+         '{"reverifyRequestedAt": "2026-11-20T10:00:00Z"}'::jsonb, '2026-11-01'),
+        (${recent}, ${scanId}, ${member}, 2, '[]'::jsonb, '{}'::jsonb, 'verified', 'holding', '{}'::jsonb, '2026-11-24')`);
+    const answer = await patternsDueForDecay(t.research!.worker.db, '2026-11-26');
+    const mine = answer.patterns.filter((p) => p.scan.id === scanId);
+    expect(mine.map((p) => p.id)).toEqual([due]);
+    expect(mine[0]).toMatchObject({
+      userId: member,
+      lastScored: '2026-11-01',
+      scan: { effective: { to: '2026-06-30' }, config: { horizon: 5 } },
+    });
+    // The score arrives in two parts; a re-verify asked for again since stays asked for.
+    await r.execute(sql`
+      update pattern set decay_stats = '{"reverifyRequestedAt": "2026-11-25T09:00:00Z"}'::jsonb where id = ${due}`);
+    const occ = (asOf: string) => [iids[0]!, asOf, true, 0.05, -0.01, 0.03] as const;
+    await asUser(admin, (tx) =>
+      queueCompanionPush(tx, who, {
+        kind: 'pattern_decay',
+        clientKey: `decay:${due}:p0`,
+        payload: { patternId: due, occurrences: [occ('2026-11-10')] },
+      }),
+    );
+    await asUser(admin, (tx) =>
+      queueCompanionPush(tx, who, {
+        kind: 'pattern_decay',
+        clientKey: `decay:${due}`,
+        payload: {
+          patternId: due,
+          occurrences: [occ('2026-11-10'), occ('2026-11-17')],
+          state: {
+            decayState: 'weakening',
+            decayStats: {
+              fresh: { n: 2 },
+              reverify: { verified: true, requestedAt: '2026-11-20T10:00:00Z' },
+            },
+            lastScored: '2026-11-25',
+          },
+        },
+      }),
+    );
+    const twoParts = await apply();
+    expect(twoParts.map((a) => a.error)).toEqual([undefined, undefined]);
+    expect(twoParts.map((a) => a.result)).toEqual([
+      { pattern: due, occurrences: 1 },
+      { pattern: due, occurrences: 2, state: 'weakening', lastScored: '2026-11-25' },
+    ]);
+    const [row] = await r.execute<{
+      decay_state: string;
+      decay_stats: Record<string, unknown>;
+      last_scored: string;
+    }>(sql`select decay_state, decay_stats, last_scored::text from pattern where id = ${due}`);
+    expect(row).toEqual({
+      decay_state: 'weakening',
+      decay_stats: {
+        fresh: { n: 2 },
+        reverify: { verified: true, requestedAt: '2026-11-20T10:00:00Z' },
+        reverifyRequestedAt: '2026-11-25T09:00:00Z',
+      },
+      last_scored: '2026-11-25',
+    });
+    const fresh = await r.execute<{ as_of: string; user_id: string }>(
+      sql`select as_of::text, user_id::text from pattern_occurrence where pattern_id = ${due} and "window" = 'fresh' order by as_of`,
+    );
+    expect(fresh).toEqual([
+      { as_of: '2026-11-10', user_id: member },
+      { as_of: '2026-11-17', user_id: member },
+    ]);
+    // An older score never replaces a newer one.
+    await asUser(admin, (tx) =>
+      queueCompanionPush(tx, who, {
+        kind: 'pattern_decay',
+        clientKey: `decay:${due}:old`,
+        payload: {
+          patternId: due,
+          occurrences: [],
+          state: { decayState: 'holding', decayStats: {}, lastScored: '2026-11-18' },
+        },
+      }),
+    );
+    expect((await apply()).map((a) => a.result)).toEqual([
+      { pattern: due, occurrences: 0, skipped: 'scored since' },
+    ]);
+  });
+
+  it('A4: with the companion away 48 hours, research says paused and trading still reads what was delivered', async () => {
+    const r = t.research!.owner.db;
+    const reads = new Map([['mf-ranker-ridge', new Set(iids)]]);
+    const before = await loadMlPredictions(t.worker.db, reads);
+    expect(before.get('mf-ranker-ridge')!.size).toBeGreaterThan(0);
+    const stalled = randomUUID();
+    await r.execute(sql`
+      insert into pattern_scan (id, user_id, config, summary, status, started_at) values
+        (${stalled}, ${member}, '{}'::jsonb, 'Taken, then away', 'running', now() - interval '1 hour')`);
+    // Two days and a minute later, with no hello and no push in between.
+    const later = new Date(Date.now() + COMPANION_OFFLINE_AFTER_MS + 60_000);
+    const status = await asUser(member, (tx) =>
+      researchStorageStatus(tx, { mode: 'companion', producerUserId: admin, now: later }),
+    );
+    expect(status).toMatchObject({ mode: 'companion', connected: false });
+    // The scores the paper runtime and back tests read are the last ones delivered, unchanged.
+    expect(await loadMlPredictions(t.worker.db, reads)).toEqual(before);
+    // The scan it took goes back in the queue once it has been gone that long.
+    expect(await releaseStalledPatternScans(t.research!.worker.db)).not.toContain(stalled);
+    await r.execute(
+      sql`update pattern_scan set started_at = now() - interval '48 hours 1 minute' where id = ${stalled}`,
+    );
+    expect(await releaseStalledPatternScans(t.research!.worker.db)).toEqual([stalled]);
+    await r.execute(sql`update pattern_scan set status = 'failed' where id = ${stalled}`);
   });
 
   it('refuses pushes from anyone but the producer, and from an unpaired companion', async () => {

@@ -19,6 +19,7 @@ import Decimal from 'decimal.js';
 import { and, asc, eq, isNull, lt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database, Transaction } from './client';
+import { COMPANION_OFFLINE_AFTER_MS } from './companion';
 import { agentConnections, companionFetches } from './schema';
 
 /**
@@ -43,6 +44,7 @@ export const COMPANION_FETCH_KINDS = [
   'pattern_members',
   'option_signals',
   'pattern_scan',
+  'pattern_decay_due',
 ] as const;
 export type CompanionFetchKind = (typeof COMPANION_FETCH_KINDS)[number];
 
@@ -99,6 +101,8 @@ export const FETCH_REQUESTS = {
   }),
   /** Claim the oldest queued pattern scan to run on the companion (ADR 0120). */
   pattern_scan: z.object({}),
+  /** The Verified patterns due a decay score, to score on the companion (ADR 0121). */
+  pattern_decay_due: z.object({ today: day }),
 } as const;
 
 export type FetchRequest<K extends CompanionFetchKind> = z.infer<(typeof FETCH_REQUESTS)[K]>;
@@ -157,6 +161,30 @@ export interface PatternScanAnswer {
   } | null;
 }
 
+/** A Verified pattern due a decay score, with what the miner's decay job reads (ADR 0121). */
+export interface DecayDuePattern {
+  id: string;
+  userId: string;
+  rank: number;
+  rule: unknown;
+  stats: Record<string, unknown>;
+  decayState: string | null;
+  decayStats: Record<string, unknown> | null;
+  lastScored: string | null;
+  scan: {
+    id: string;
+    userId: string;
+    config: unknown;
+    summary: string;
+    effective: Record<string, unknown> | null;
+    createdAt: string;
+  };
+}
+
+export interface PatternDecayDueAnswer {
+  patterns: DecayDuePattern[];
+}
+
 export interface FetchAnswers {
   members: MembersAnswer;
   bars: BarsAnswer;
@@ -165,6 +193,7 @@ export interface FetchAnswers {
   pattern_members: PatternMembersAnswer;
   option_signals: OptionSignalsAnswer;
   pattern_scan: PatternScanAnswer;
+  pattern_decay_due: PatternDecayDueAnswer;
 }
 
 export function encodeBars(results: readonly (BarSeries | Error)[]): BarsAnswer {
@@ -426,4 +455,85 @@ export async function claimPatternScan(research: Database): Promise<PatternScanA
         }
       : null,
   };
+}
+
+/** Days between decay scores of a Verified pattern (the miner's DECAY_EVERY_DAYS, pattern brief §10). */
+export const DECAY_EVERY_DAYS = 7;
+
+/**
+ * The Verified patterns of finished scans due a decay score on `today`: not
+ * scored in the last week, or with a re-verify asked for. The same rule as
+ * the miner's own (`_due_patterns`), so the companion scores what the cloud
+ * would have (ADR 0121).
+ */
+export async function patternsDueForDecay(
+  research: Database,
+  today: string,
+): Promise<PatternDecayDueAnswer> {
+  const rows = await research.execute<{
+    id: string;
+    user_id: string;
+    rank: number;
+    rule: unknown;
+    stats: Record<string, unknown>;
+    decay_state: string | null;
+    decay_stats: Record<string, unknown> | null;
+    last_scored: string | null;
+    scan_id: string;
+    scan_user_id: string;
+    config: unknown;
+    summary: string;
+    effective: Record<string, unknown> | null;
+    created_at: string;
+  }>(sql`
+    select p.id::text, p.user_id::text, p.rank, p.rule, p.stats, p.decay_state, p.decay_stats,
+           p.last_scored::text, s.id::text as scan_id, s.user_id::text as scan_user_id, s.config,
+           s.summary, s.effective, s.created_at::text
+    from pattern p join pattern_scan s on s.id = p.scan_id
+    where p.status = 'verified' and s.status = 'done' and (
+      p.last_scored is null or p.last_scored <= ${today}::date - ${DECAY_EVERY_DAYS}::int
+      or p.decay_stats ? 'reverifyRequestedAt')
+    order by p.scan_id, p.rank
+    limit 200`);
+  return {
+    patterns: rows.map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      rank: r.rank,
+      rule: r.rule,
+      stats: r.stats,
+      decayState: r.decay_state,
+      decayStats: r.decay_stats,
+      lastScored: r.last_scored,
+      scan: {
+        id: r.scan_id,
+        userId: r.scan_user_id,
+        config: r.config,
+        summary: r.summary,
+        effective: r.effective,
+        createdAt: r.created_at,
+      },
+    })),
+  };
+}
+
+/**
+ * How long a claimed scan may stay running before it goes back in the queue
+ * (ADR 0121, O218): the companion that took it has been away two days, the
+ * offline span the hand-over is tested over (A4). Its result, if it comes
+ * later, is still taken.
+ */
+export const PATTERN_SCAN_RELEASE_MS = COMPANION_OFFLINE_AFTER_MS;
+
+/** Puts scans left running too long back in the queue; returns their ids. */
+export async function releaseStalledPatternScans(
+  research: Database,
+  olderThanMs = PATTERN_SCAN_RELEASE_MS,
+): Promise<string[]> {
+  const rows = await research.execute<{ id: string }>(sql`
+    update pattern_scan set status = 'queued', started_at = null
+    where status = 'running'
+      and (started_at is null or started_at < now() - make_interval(secs => ${olderThanMs / 1000}))
+    returning id::text`);
+  return rows.map((r) => r.id);
 }

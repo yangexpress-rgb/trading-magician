@@ -610,6 +610,7 @@ if (databaseUrl) {
     history: researchHistory,
     fundamentals: companyFilings,
     members: mlMembers,
+    releaseStalledScans: env.RESEARCH_MODE === 'companion',
     patternMembers: async () => {
       const owner = (await db.transaction((tx) => sharedFeedOwner(tx))) ?? '';
       return {
@@ -620,7 +621,12 @@ if (databaseUrl) {
     },
     logger,
   });
-  if (env.ML_SNAPSHOTS === 'on') {
+  const companionResearch = env.RESEARCH_MODE === 'companion';
+  if (companionResearch)
+    logger.info(
+      'research runs on the Local Companion (RESEARCH_MODE=companion): ML and pattern snapshot jobs off',
+    );
+  if (env.ML_SNAPSHOTS === 'on' && !companionResearch) {
     // ML feature snapshots and labels (ADR 0086), through the sharing admin's feeds.
     mlSnapshots = startMlSnapshotLoop({
       db,
@@ -633,7 +639,7 @@ if (databaseUrl) {
     });
     logger.info('ml snapshot job started');
   }
-  if (patternSnapshotsOn(env)) {
+  if (patternSnapshotsOn(env) && !companionResearch) {
     // Pattern discovery's factor store (ADR 0091), through the sharing admin's feeds.
     patternSnapshots = startPatternSnapshotLoop({
       db,

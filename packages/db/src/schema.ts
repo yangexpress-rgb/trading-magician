@@ -3288,7 +3288,7 @@ export const companionPushes = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    /** What the payload is: `ml_run`, `ml_evaluation`, `ml_report` or `pattern_scan_result`. */
+    /** What the payload is: `ml_run`, `ml_evaluation`, `ml_report`, `pattern_scan_result` or `pattern_decay`. */
     kind: text('kind').notNull(),
     /** The companion's own id for the item, so a repeated push is a no-op. */
     clientKey: text('client_key').notNull(),
@@ -3307,7 +3307,7 @@ export const companionPushes = pgTable(
     index('companion_push_user_idx').on(t.userId, t.receivedAt),
     check(
       'companion_push_kind',
-      sql`${t.kind} in ('ml_run', 'ml_evaluation', 'ml_report', 'pattern_scan_result')`,
+      sql`${t.kind} in ('ml_run', 'ml_evaluation', 'ml_report', 'pattern_scan_result', 'pattern_decay')`,
     ),
     check('companion_push_key', sql`char_length(${t.clientKey}) BETWEEN 1 AND 120`),
   ],
@@ -3329,7 +3329,7 @@ export const companionFetches = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    /** `members`, `bars`, `filings`, `events`, `pattern_members`, `option_signals` or `pattern_scan`. */
+    /** `members`, `bars`, `filings`, `events`, `pattern_members`, `option_signals`, `pattern_scan` or `pattern_decay_due`. */
     kind: text('kind').notNull(),
     request: jsonb('request').notNull(),
     requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
@@ -3346,7 +3346,7 @@ export const companionFetches = pgTable(
     index('companion_fetch_connection_idx').on(t.connectionId, t.requestedAt),
     check(
       'companion_fetch_kind',
-      sql`${t.kind} in ('members', 'bars', 'filings', 'events', 'pattern_members', 'option_signals', 'pattern_scan')`,
+      sql`${t.kind} in ('members', 'bars', 'filings', 'events', 'pattern_members', 'option_signals', 'pattern_scan', 'pattern_decay_due')`,
     ),
   ],
 );
