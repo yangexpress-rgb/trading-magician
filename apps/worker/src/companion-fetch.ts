@@ -2,6 +2,7 @@ import {
   answerCompanionFetches,
   claimPatternScan,
   clearStaleCompanionFetches,
+  exportResearchSlice,
   patternsDueForDecay,
   releaseStalledPatternScans,
   encodeBars,
@@ -99,6 +100,11 @@ export function companionFetchAnswerer(deps: CompanionFetchDeps): FetchAnswerer 
         const { today } = request as { today: string };
         return patternsDueForDecay(deps.research ?? deps.db, today);
       }
+      case 'research_export':
+        return exportResearchSlice(
+          deps.research ?? deps.db,
+          request as Parameters<typeof exportResearchSlice>[1],
+        );
       default:
         throw new Error(`Unknown request kind ${kind}`);
     }
