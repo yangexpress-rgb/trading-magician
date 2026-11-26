@@ -571,12 +571,53 @@ if (databaseUrl) {
         now: () => new Date(),
       })
     ).ids;
-  // The Local Companion's data requests (ADR 0118): nothing to do until one asks.
+  // The factor store's members (ADR 0091): the snapshot groups' members today, everyone who was
+  // an S&P 500 member since the store's first day (N324), and the options universe.
+  const patternGroups = env.PATTERN_SNAPSHOT_GROUPS.split(',')
+    .map((g) => g.trim())
+    .filter((g): g is BuiltinUniverse => isStockGroupId(g));
+  const patternMembers = async (userId: string) => {
+    const ids = new Set<string>();
+    for (const group of patternGroups)
+      for (const id of (
+        await resolveBuiltinUniverse({
+          db,
+          userId,
+          group,
+          providers,
+          privateKey: credentialKey,
+          now: () => new Date(),
+        })
+      ).ids)
+        ids.add(id);
+    if (patternGroups.includes('sp500'))
+      for (const p of await membershipPeriodsBetween(
+        db,
+        'sp500',
+        env.PATTERN_SNAPSHOT_FROM,
+        nyDate(new Date()),
+      ))
+        if (p.instrumentId) ids.add(p.instrumentId);
+    for (const u of await listOptionUniverse(db)) ids.add(u.underlyingId);
+    return [...ids];
+  };
+  const patternSessionMembers = async () =>
+    (await listOptionUniverse(db)).map((u) => u.underlyingId);
+  // The Local Companion's data requests (ADR 0118, 0119): nothing to do until one asks.
   companionFetch = startCompanionFetchLoop({
     db,
+    research: research.db,
     history: researchHistory,
     fundamentals: companyFilings,
     members: mlMembers,
+    patternMembers: async () => {
+      const owner = (await db.transaction((tx) => sharedFeedOwner(tx))) ?? '';
+      return {
+        members: await patternMembers(owner),
+        sessionMembers: await patternSessionMembers(),
+        from: env.PATTERN_SNAPSHOT_FROM,
+      };
+    },
     logger,
   });
   if (env.ML_SNAPSHOTS === 'on') {
@@ -594,55 +635,18 @@ if (databaseUrl) {
   }
   if (patternSnapshotsOn(env)) {
     // Pattern discovery's factor store (ADR 0091), through the sharing admin's feeds.
-    const groups = env.PATTERN_SNAPSHOT_GROUPS.split(',')
-      .map((g) => g.trim())
-      .filter((g): g is BuiltinUniverse => isStockGroupId(g));
     patternSnapshots = startPatternSnapshotLoop({
       db,
       research: research.db,
-      history: (userId) =>
-        createMemberHistory({
-          db,
-          userId,
-          now: () => new Date(),
-          providers,
-          privateKey: credentialKey,
-          patient: true,
-          background: true,
-        }),
+      history: researchHistory,
       fundamentals: companyFilings,
-      members: async (userId) => {
-        const ids = new Set<string>();
-        for (const group of groups)
-          for (const id of (
-            await resolveBuiltinUniverse({
-              db,
-              userId,
-              group,
-              providers,
-              privateKey: credentialKey,
-              now: () => new Date(),
-            })
-          ).ids)
-            ids.add(id);
-        // Everyone who was an S&P 500 member since the store's first day, not only today's (N324).
-        if (groups.includes('sp500'))
-          for (const p of await membershipPeriodsBetween(
-            db,
-            'sp500',
-            env.PATTERN_SNAPSHOT_FROM,
-            nyDate(new Date()),
-          ))
-            if (p.instrumentId) ids.add(p.instrumentId);
-        for (const u of await listOptionUniverse(db)) ids.add(u.underlyingId);
-        return [...ids];
-      },
-      sessionMembers: async () => (await listOptionUniverse(db)).map((u) => u.underlyingId),
+      members: patternMembers,
+      sessionMembers: patternSessionMembers,
       from: env.PATTERN_SNAPSHOT_FROM,
       logger,
       pollMs: env.PATTERN_SNAPSHOT_POLL_MS,
     });
-    logger.info({ groups }, 'pattern snapshot job started');
+    logger.info({ groups: patternGroups }, 'pattern snapshot job started');
   }
   // Point-in-time S&P 500 membership (data inputs part 2, item C, N324): the imported file,
   // stored and resolved through the sharing admin's feeds; back tests read members as of each day.

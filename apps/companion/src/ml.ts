@@ -1,5 +1,5 @@
 import type postgres from 'postgres';
-import type { CompanionClient, MlRun } from './api';
+import type { CompanionClient, MlRun, PushKind } from './api';
 
 /**
  * ML on the companion (ADR 0117, S2 step 3a). One pass:
@@ -104,10 +104,11 @@ export interface PushResult {
   reports: number;
 }
 
-async function pushOnce(
+/** Pushes one item and remembers it, so it is never sent twice. */
+export async function pushOnce(
   sql: postgres.Sql,
   client: CompanionClient,
-  kind: 'ml_run' | 'ml_evaluation' | 'ml_report',
+  kind: PushKind,
   clientKey: string,
   payload: unknown,
 ): Promise<void> {

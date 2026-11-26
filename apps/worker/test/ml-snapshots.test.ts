@@ -321,6 +321,7 @@ describe('ML feature snapshots (brief §5)', () => {
       history: () => provider(false),
       fundamentals: fundamentals(false),
       members: async () => members,
+      patternMembers: async () => ({ members, sessionMembers: [], from: '2025-06-01' }),
     });
     const asked: string[] = [];
     // Each answer crosses the wire as JSON, as it does between the worker and the companion.

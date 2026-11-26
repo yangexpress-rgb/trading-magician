@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Transaction } from '../src/client';
 import { companionHello, pairCompanion, unpairCompanion } from '../src/companion';
+import { claimPatternScan } from '../src/companion-fetch';
 import {
   applyCompanionPushes,
   companionMlState,
@@ -206,6 +207,69 @@ describe('Local Companion inbox (ADR 0117)', () => {
     );
     expect(listed).toMatchObject({ clientKey: `run:${bad.run.id}`, appliedAt: null });
     expect(listed!.error).toMatch(/Refused/);
+  });
+
+  it('writes a pattern scan the companion ran into the cloud, once (ADR 0120)', async () => {
+    const who = { connectionId: adminConn, userId: admin };
+    const scanId = randomUUID();
+    await t.research!.owner.db.execute(sql`
+      insert into pattern_scan (id, user_id, config, summary) values
+        (${scanId}, ${member}, '{}'::jsonb, 'Spikes after gaps')`);
+    const claimed = await claimPatternScan(t.research!.worker.db);
+    expect(claimed.scan).toMatchObject({
+      id: scanId,
+      userId: member,
+      summary: 'Spikes after gaps',
+    });
+    expect((await claimPatternScan(t.research!.worker.db)).scan).toBeNull();
+    const patternId = randomUUID();
+    const payload = {
+      scan: {
+        id: scanId,
+        status: 'done' as const,
+        error: null,
+        candidatesTested: 120,
+        finalists: 1,
+        verified: 1,
+        effective: { from: '2020-01-02' },
+        codeVersion: 'companion',
+        seconds: 4.5,
+      },
+      patterns: [
+        {
+          id: patternId,
+          rank: 1,
+          rule: [{ factor: 'rsi_14', op: '<', value: 30 }],
+          stats: { holdout: { n: 20 } },
+          status: 'verified' as const,
+          occurrences: [
+            [iids[0]!, '2021-03-01', 'discovery', true, 0.08, -0.01, 0.05],
+            [iids[1]!, '2023-05-01', 'holdout', false, 0.01, -0.04, -0.02],
+          ] as [string, string, 'discovery' | 'holdout', boolean, number, number, number][],
+        },
+      ],
+    };
+    for (const key of ['scan:a', 'scan:b'])
+      await asUser(admin, (tx) =>
+        queueCompanionPush(tx, who, { kind: 'pattern_scan_result', clientKey: key, payload }),
+      );
+    const applied = await apply();
+    expect(applied.map((a) => a.result)).toEqual([
+      { scan: scanId, status: 'done', patterns: 1 },
+      { skipped: 'scan already done' },
+    ]);
+    const [scan] = await t.research!.owner.db.execute<{ status: string; verified: number }>(
+      sql`select status, verified from pattern_scan where id = ${scanId}`,
+    );
+    expect(scan).toEqual({ status: 'done', verified: 1 });
+    // The patterns and occurrences belong to whoever queued the scan, not the producer.
+    const occ = await t.research!.owner.db.execute<{ user_id: string; window: string }>(
+      sql`select user_id::text, "window" from pattern_occurrence where pattern_id = ${patternId} order by as_of`,
+    );
+    expect(occ).toEqual([
+      { user_id: member, window: 'discovery' },
+      { user_id: member, window: 'holdout' },
+    ]);
   });
 
   it('refuses pushes from anyone but the producer, and from an unpaired companion', async () => {

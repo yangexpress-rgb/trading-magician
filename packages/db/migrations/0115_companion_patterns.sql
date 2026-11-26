@@ -1,0 +1,4 @@
+ALTER TABLE "companion_fetch" DROP CONSTRAINT "companion_fetch_kind";--> statement-breakpoint
+ALTER TABLE "companion_push" DROP CONSTRAINT "companion_push_kind";--> statement-breakpoint
+ALTER TABLE "companion_fetch" ADD CONSTRAINT "companion_fetch_kind" CHECK ("companion_fetch"."kind" in ('members', 'bars', 'filings', 'events', 'pattern_members', 'option_signals', 'pattern_scan'));--> statement-breakpoint
+ALTER TABLE "companion_push" ADD CONSTRAINT "companion_push_kind" CHECK ("companion_push"."kind" in ('ml_run', 'ml_evaluation', 'ml_report', 'pattern_scan_result'));

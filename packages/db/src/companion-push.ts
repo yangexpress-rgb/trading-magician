@@ -25,7 +25,12 @@ import {
  * already has an active run is never rewritten.
  */
 
-export const COMPANION_PUSH_KINDS = ['ml_run', 'ml_evaluation', 'ml_report'] as const;
+export const COMPANION_PUSH_KINDS = [
+  'ml_run',
+  'ml_evaluation',
+  'ml_report',
+  'pattern_scan_result',
+] as const;
 export type CompanionPushKind = (typeof COMPANION_PUSH_KINDS)[number];
 
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -70,10 +75,56 @@ export const MlReportPush = z.object({
 });
 export type MlReportPush = z.infer<typeof MlReportPush>;
 
+/**
+ * A pattern scan the companion ran (ADR 0120): the scan's outcome and its
+ * finalists with their discovery and holdout occurrences, as the miner wrote
+ * them into the companion's store.
+ */
+export const PatternScanResultPush = z.object({
+  scan: z.object({
+    id: uuid,
+    status: z.enum(['done', 'failed']),
+    error: z.string().max(500).nullable(),
+    candidatesTested: z.number().int().min(0).nullable(),
+    finalists: z.number().int().min(0).nullable(),
+    verified: z.number().int().min(0).nullable(),
+    effective: z.record(z.string(), z.unknown()).nullable(),
+    codeVersion: z.string().max(120).nullable(),
+    seconds: z.number().min(0).nullable(),
+  }),
+  patterns: z
+    .array(
+      z.object({
+        id: uuid,
+        rank: z.number().int().min(1),
+        rule: z.array(z.unknown()),
+        stats: z.record(z.string(), z.unknown()),
+        status: z.enum(['candidate', 'verified']),
+        /** [instrumentId, asOf, window, hit, maxRunup, maxDrawdown, forwardReturn] */
+        occurrences: z
+          .array(
+            z.tuple([
+              uuid,
+              day,
+              z.enum(['discovery', 'holdout']),
+              z.boolean(),
+              z.number(),
+              z.number(),
+              z.number(),
+            ]),
+          )
+          .max(50_000),
+      }),
+    )
+    .max(200),
+});
+export type PatternScanResultPush = z.infer<typeof PatternScanResultPush>;
+
 export const PUSH_SCHEMAS = {
   ml_run: MlRunPush,
   ml_evaluation: MlEvaluationPush,
   ml_report: MlReportPush,
+  pattern_scan_result: PatternScanResultPush,
 } as const;
 
 export interface PushSummary {
@@ -373,6 +424,59 @@ async function applyReport(
 }
 
 /**
+ * Writes a scan the companion ran into the cloud's Research Store, once: only
+ * a scan the companion claimed (still `running`) takes a result, so a repeat,
+ * or a scan the cloud's own miner finished, is skipped.
+ */
+async function applyPatternScan(
+  research: Database,
+  payload: PatternScanResultPush,
+): Promise<Record<string, unknown>> {
+  const { scan, patterns } = payload;
+  return research.transaction(async (rtx) => {
+    const [row] = await rtx.execute<{ user_id: string; status: string }>(sql`
+      select user_id::text, status from pattern_scan where id = ${scan.id} for update`);
+    if (!row) throw new PushRefused('No such pattern scan');
+    if (row.status !== 'running') return { skipped: `scan already ${row.status}` };
+    for (const p of patterns) {
+      await rtx.execute(sql`
+        insert into pattern (id, scan_id, user_id, rank, rule, stats, status)
+        values (${p.id}, ${scan.id}, ${row.user_id}, ${p.rank}, ${JSON.stringify(p.rule)}::jsonb,
+                ${JSON.stringify(p.stats)}::jsonb, ${p.status})`);
+      for (let i = 0; i < p.occurrences.length; i += 1000) {
+        const chunk = p.occurrences.slice(i, i + 1000);
+        await rtx.execute(sql`
+          insert into pattern_occurrence (pattern_id, user_id, instrument_id, as_of, "window", hit,
+                                          max_runup, max_drawdown, forward_return)
+          select ${p.id}::uuid, ${row.user_id}::uuid, o.instrument_id, o.as_of, o.window, o.hit,
+                 o.max_runup, o.max_drawdown, o.forward_return
+          from jsonb_to_recordset(${JSON.stringify(
+            chunk.map(([instrumentId, asOf, window, hit, runup, drawdown, forward]) => ({
+              instrument_id: instrumentId,
+              as_of: asOf,
+              window,
+              hit,
+              max_runup: runup,
+              max_drawdown: drawdown,
+              forward_return: forward,
+            })),
+          )}::jsonb) as o(instrument_id uuid, as_of date, "window" text, hit boolean,
+                          max_runup double precision, max_drawdown double precision,
+                          forward_return double precision)`);
+      }
+    }
+    await rtx.execute(sql`
+      update pattern_scan set status = ${scan.status}, error = ${scan.error},
+        candidates_tested = ${scan.candidatesTested}, finalists = ${scan.finalists},
+        verified = ${scan.verified},
+        effective = ${scan.effective === null ? null : JSON.stringify(scan.effective)}::jsonb,
+        code_version = ${scan.codeVersion}, seconds = ${scan.seconds}, finished_at = now()
+      where id = ${scan.id}`);
+    return { scan: scan.id, status: scan.status, patterns: patterns.length };
+  });
+}
+
+/**
  * Applies waiting pushes, oldest first, each in its own Core transaction.
  * Returns what happened to each. A refused push records why and is not
  * retried; an unexpected error is left for the next pass.
@@ -435,6 +539,11 @@ export async function applyCompanionPushes(options: {
             );
           } else if (push.kind === 'ml_report') {
             applied = await applyReport(sp, options.research, MlReportPush.parse(push.payload));
+          } else if (push.kind === 'pattern_scan_result') {
+            applied = await applyPatternScan(
+              options.research,
+              PatternScanResultPush.parse(push.payload),
+            );
           } else {
             throw new PushRefused(`Unknown push kind ${push.kind}`);
           }

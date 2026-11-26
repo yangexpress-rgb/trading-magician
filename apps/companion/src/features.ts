@@ -1,4 +1,11 @@
-import { runSnapshotPass, schema, type Database, type SnapshotPassResult } from '@tm/db';
+import {
+  runPatternSnapshotPass,
+  runSnapshotPass,
+  schema,
+  type Database,
+  type PatternSnapshotResult,
+  type SnapshotPassResult,
+} from '@tm/db';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import type postgres from 'postgres';
 import type { CloudData } from './cloud-data';
@@ -43,6 +50,42 @@ export async function runFeaturePass(
     userId: '',
     now: options.now ?? (() => new Date()),
     maxChunks: options.maxChunks ?? 1,
+    logger: {
+      info: (obj, msg) => log(`${msg} ${JSON.stringify(obj)}`),
+      warn: (obj, msg) => log(`${msg} ${JSON.stringify(obj)}`),
+    },
+  });
+}
+
+/**
+ * Pattern discovery's factor store on the companion (ADR 0119): the cloud's
+ * own factor snapshot job against the local store, with members, instruments,
+ * events, options signals, bars and filings asked of the cloud. Batches are
+ * smaller than the cloud's: every bar comes down over the network.
+ */
+export async function runFactorPass(
+  sql: postgres.Sql,
+  cloud: CloudData,
+  options: FeaturePassOptions & { batchSize?: number; maxBatches?: number } = {},
+): Promise<PatternSnapshotResult> {
+  const db = localDatabase(sql);
+  const log = options.log ?? (() => undefined);
+  const found = await cloud.patternMembers();
+  return runPatternSnapshotPass({
+    db,
+    research: db,
+    history: cloud.history(),
+    fundamentals: cloud.filings,
+    members: async () => found.members,
+    sessionMembers: async () => found.sessionMembers,
+    refs: (ids) => cloud.instrumentRefs(ids),
+    events: (reads) => cloud.events(reads),
+    optionSignals: (ids, from) => cloud.optionSignals(ids, from),
+    userId: '',
+    now: options.now ?? (() => new Date()),
+    from: found.from,
+    batchSize: options.batchSize ?? 10,
+    maxBatches: options.maxBatches ?? 1,
     logger: {
       info: (obj, msg) => log(`${msg} ${JSON.stringify(obj)}`),
       warn: (obj, msg) => log(`${msg} ${JSON.stringify(obj)}`),
