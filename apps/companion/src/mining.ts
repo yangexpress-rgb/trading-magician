@@ -199,18 +199,18 @@ export async function pullDecayDue(
   for (const p of patterns) {
     await sql`
       insert into pattern_scan (id, user_id, config, summary, status, effective, created_at)
-      values (${p.scan.id}, ${p.scan.userId}, ${JSON.stringify(p.scan.config)}::jsonb,
+      values (${p.scan.id}, ${p.scan.userId}, ${JSON.stringify(p.scan.config)}::text::jsonb,
               ${p.scan.summary}, 'done',
-              ${p.scan.effective === null ? null : JSON.stringify(p.scan.effective)}::jsonb,
+              ${p.scan.effective === null ? null : JSON.stringify(p.scan.effective)}::text::jsonb,
               ${p.scan.createdAt})
       on conflict (id) do update set status = 'done', effective = excluded.effective`;
     // The cloud's score wins unless this computer scored it since (that score is on its way up).
     await sql`
       insert into pattern (id, scan_id, user_id, rank, rule, stats, status, decay_state,
                            decay_stats, last_scored)
-      values (${p.id}, ${p.scan.id}, ${p.userId}, ${p.rank}, ${JSON.stringify(p.rule)}::jsonb,
-              ${JSON.stringify(p.stats)}::jsonb, 'verified', ${p.decayState},
-              ${p.decayStats === null ? null : JSON.stringify(p.decayStats)}::jsonb, ${p.lastScored})
+      values (${p.id}, ${p.scan.id}, ${p.userId}, ${p.rank}, ${JSON.stringify(p.rule)}::text::jsonb,
+              ${JSON.stringify(p.stats)}::text::jsonb, 'verified', ${p.decayState},
+              ${p.decayStats === null ? null : JSON.stringify(p.decayStats)}::text::jsonb, ${p.lastScored})
       on conflict (id) do update set decay_state = excluded.decay_state,
         decay_stats = excluded.decay_stats, last_scored = excluded.last_scored
       where pattern.last_scored is null
@@ -322,7 +322,7 @@ export async function mineOnce(
       } else {
         await sql`
           insert into pattern_scan (id, user_id, config, summary, status, created_at)
-          values (${scan.id}, ${scan.userId}, ${JSON.stringify(scan.config)}::jsonb, ${scan.summary},
+          values (${scan.id}, ${scan.userId}, ${JSON.stringify(scan.config)}::text::jsonb, ${scan.summary},
                   'queued', ${scan.createdAt})
           on conflict (id) do nothing`;
         claimed = scan.id;

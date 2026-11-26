@@ -201,7 +201,7 @@ export async function markCloudCopies(
           select 'decay:' || s.id || ':' || s.last_scored || ':' || md5(s.stats::jsonb::text) as key
           from jsonb_to_recordset(${JSON.stringify(
             scored.map((p) => ({ id: p.id, last_scored: p.last_scored, stats: p.decay_stats })),
-          )}::jsonb) as s(id text, last_scored text, stats jsonb)`
+          )}::text::jsonb) as s(id text, last_scored text, stats jsonb)`
       ).map((r) => r.key)
     : [];
   // The cloud's last score of each pattern, so a later score sends only newer evidence.
@@ -210,7 +210,7 @@ export async function markCloudCopies(
       insert into companion.decay_pulled (pattern_id, last_scored)
       select s.id, s.last_scored from jsonb_to_recordset(${JSON.stringify(
         patterns.map((p) => ({ id: p.id, last_scored: p.last_scored ?? null })),
-      )}::jsonb) as s(id uuid, last_scored date)
+      )}::text::jsonb) as s(id uuid, last_scored date)
       on conflict (pattern_id) do nothing`;
   const marked = {
     scans: await mark(
