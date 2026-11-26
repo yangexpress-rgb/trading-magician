@@ -15,6 +15,7 @@ import { jobStates } from './sync';
  *   tm-companion status
  *   tm-companion forget                                  (removes the local pairing only)
  *   tm-companion move-data                               (copies the cloud's research data here, then checks it)
+ *   tm-companion mark-cloud-copies                       (marks copied cloud outputs as already sent)
  */
 
 const out = (line: string) => process.stdout.write(`${line}\n`);
@@ -134,6 +135,25 @@ async function moveData(home: string): Promise<number> {
   }
 }
 
+async function markCopies(home: string): Promise<number> {
+  const config = await readConfig(home);
+  if (!config) {
+    err('Not paired yet. Run: tm-companion pair --api https://your-trading-magician-site');
+    return 2;
+  }
+  const { CloudData } = await import('./cloud-data');
+  const { markCloudCopies } = await import('./data-move');
+  const local = { home, port: config.pgPort, password: config.pgPassword };
+  const store = (await connectRunningStore(local)) ?? (await startLocalStore(local));
+  try {
+    const client = new CompanionClient({ apiBase: config.apiBase, token: config.token });
+    await markCloudCopies(store.sql, new CloudData(client), stamp);
+    return 0;
+  } finally {
+    await store.stop();
+  }
+}
+
 async function forget(home: string): Promise<number> {
   const { rm } = await import('node:fs/promises');
   const { configPath } = await import('./paths');
@@ -157,8 +177,10 @@ async function main(argv: string[]): Promise<number> {
       return forget(home);
     case 'move-data':
       return moveData(home);
+    case 'mark-cloud-copies':
+      return markCopies(home);
     default:
-      err('Usage: tm-companion <pair|run|status|forget|move-data>');
+      err('Usage: tm-companion <pair|run|status|forget|move-data|mark-cloud-copies>');
       return 2;
   }
 }

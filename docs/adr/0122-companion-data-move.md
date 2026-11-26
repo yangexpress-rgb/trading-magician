@@ -39,3 +39,20 @@ Research database has no public port, and the brief keeps the companion's creden
   repeat run is safe.
 - Each slice is held briefly in Core's request queue and deleted once read.
 - The answer for a large table holds a few MB of JSON in memory on the worker and the companion.
+
+## Amendment (2026-11-26, N350)
+
+The first live move on staging copied 16 finished scans, one ML evaluation and one report. The
+companion then tried to push them back as its own, and the largest scan (about 492,000
+occurrences) hit the inbox's 4 MB limit. Two changes follow:
+
+- **What came from the cloud is marked as sent.** After a verified move, and on demand with
+  `tm-companion mark-cloud-copies`, the companion reads the cloud's scans, patterns, evaluations
+  and reports again and marks them in `companion.pushed`: finished scans, the decay score each
+  Verified pattern holds in the cloud, each evaluation and each report. The cloud's own values
+  decide, so a scan or score made on the companion since still goes up. The cloud's last score of
+  each pattern is recorded in `companion.decay_pulled`.
+- **A big scan result goes up in parts.** The companion sends at most 15,000 occurrences per
+  push. Every part but the last carries `partial: true`: its patterns and occurrences go in (with
+  ON CONFLICT DO NOTHING), and the scan stays as it is. The last part, under the scan's own key,
+  sets the scan's outcome.

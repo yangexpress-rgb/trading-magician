@@ -118,6 +118,11 @@ export const PatternScanResultPush = z.object({
       }),
     )
     .max(200),
+  /**
+   * One part of a scan too large for one push (N350): its patterns and occurrences go in, and
+   * the scan stays as it is until the last part (no `partial`) sets its outcome.
+   */
+  partial: z.boolean().optional(),
 });
 export type PatternScanResultPush = z.infer<typeof PatternScanResultPush>;
 
@@ -456,7 +461,7 @@ async function applyPatternScan(
   research: Database,
   payload: PatternScanResultPush,
 ): Promise<Record<string, unknown>> {
-  const { scan, patterns } = payload;
+  const { scan, patterns, partial } = payload;
   return research.transaction(async (rtx) => {
     const [row] = await rtx.execute<{ user_id: string; status: string }>(sql`
       select user_id::text, status from pattern_scan where id = ${scan.id} for update`);
@@ -468,7 +473,8 @@ async function applyPatternScan(
       await rtx.execute(sql`
         insert into pattern (id, scan_id, user_id, rank, rule, stats, status)
         values (${p.id}, ${scan.id}, ${row.user_id}, ${p.rank}, ${JSON.stringify(p.rule)}::jsonb,
-                ${JSON.stringify(p.stats)}::jsonb, ${p.status})`);
+                ${JSON.stringify(p.stats)}::jsonb, ${p.status})
+        on conflict (id) do nothing`);
       for (let i = 0; i < p.occurrences.length; i += 1000) {
         const chunk = p.occurrences.slice(i, i + 1000);
         await rtx.execute(sql`
@@ -488,9 +494,11 @@ async function applyPatternScan(
             })),
           )}::jsonb) as o(instrument_id uuid, as_of date, "window" text, hit boolean,
                           max_runup double precision, max_drawdown double precision,
-                          forward_return double precision)`);
+                          forward_return double precision)
+          on conflict do nothing`);
       }
     }
+    if (partial) return { scan: scan.id, part: true, patterns: patterns.length };
     await rtx.execute(sql`
       update pattern_scan set status = ${scan.status}, error = ${scan.error},
         candidates_tested = ${scan.candidatesTested}, finalists = ${scan.finalists},

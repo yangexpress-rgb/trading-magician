@@ -326,6 +326,85 @@ describe('Local Companion inbox (ADR 0117)', () => {
     await r.execute(sql`update pattern_scan set status = 'done' where id = ${fresh}`);
   });
 
+  it('takes a big scan in parts, and sets its outcome only with the last part (N350)', async () => {
+    const who = { connectionId: adminConn, userId: admin };
+    const r = t.research!.owner.db;
+    const scanId = randomUUID();
+    await r.execute(sql`
+      insert into pattern_scan (id, user_id, config, summary, status, started_at) values
+        (${scanId}, ${member}, '{}'::jsonb, 'Big one', 'running', now())`);
+    const patternId = randomUUID();
+    const summary = {
+      id: scanId,
+      status: 'done' as const,
+      error: null,
+      candidatesTested: 50,
+      finalists: 1,
+      verified: 1,
+      effective: null,
+      codeVersion: 'companion',
+      seconds: 2,
+    };
+    const pattern = (occ: [string, string][]) => ({
+      id: patternId,
+      rank: 1,
+      rule: [{ factor: 'rsi_14', op: '<', value: 30 }],
+      stats: { holdout: { n: 2 } },
+      status: 'verified' as const,
+      occurrences: occ.map(
+        ([iid, day]) =>
+          [iid, day, 'discovery', true, 0.05, -0.01, 0.02] as [
+            string,
+            string,
+            'discovery' | 'holdout',
+            boolean,
+            number,
+            number,
+            number,
+          ],
+      ),
+    });
+    const parts = [
+      {
+        key: `scan:${scanId}:p0`,
+        payload: { scan: summary, patterns: [pattern([[iids[0]!, '2021-01-04']])], partial: true },
+      },
+      // The same part again (a retry) changes nothing.
+      {
+        key: `scan:${scanId}:p0:retry`,
+        payload: { scan: summary, patterns: [pattern([[iids[0]!, '2021-01-04']])], partial: true },
+      },
+      {
+        key: `scan:${scanId}`,
+        payload: { scan: summary, patterns: [pattern([[iids[1]!, '2021-01-05']])] },
+      },
+    ];
+    for (const part of parts) {
+      await asUser(admin, (tx) =>
+        queueCompanionPush(tx, who, {
+          kind: 'pattern_scan_result',
+          clientKey: part.key,
+          payload: part.payload,
+        }),
+      );
+      const [applied] = await apply();
+      const [scan] = await r.execute<{ status: string }>(
+        sql`select status from pattern_scan where id = ${scanId}`,
+      );
+      if (part.payload.partial) {
+        expect(applied!.result).toEqual({ scan: scanId, part: true, patterns: 1 });
+        expect(scan!.status).toBe('running');
+      } else {
+        expect(applied!.result).toEqual({ scan: scanId, status: 'done', patterns: 1 });
+        expect(scan!.status).toBe('done');
+      }
+    }
+    const occ = await r.execute<{ n: number }>(
+      sql`select count(*)::int as n from pattern_occurrence where pattern_id = ${patternId}`,
+    );
+    expect(occ[0]!.n).toBe(2);
+  });
+
   it('lists Verified patterns due a decay score and applies the companion’s score (ADR 0121)', async () => {
     const who = { connectionId: adminConn, userId: admin };
     const r = t.research!.owner.db;

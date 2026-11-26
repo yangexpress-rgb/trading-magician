@@ -35,6 +35,40 @@ export interface MiningResult {
 
 /** Fresh occurrences in one decay push. */
 export const DECAY_PART_SIZE = 20_000;
+/** Occurrences per scan-result push (N350): about 2.5 MB of JSON, under the cloud's 4 MB limit. */
+export const SCAN_PART_SIZE = 15_000;
+
+/**
+ * Splits a scan's patterns into parts of at most `size` occurrences. Every pattern goes in the
+ * first part it has occurrences in (or the first part, if it has none), and again with each
+ * later slice of its occurrences.
+ */
+export function scanParts<P extends { occurrences: readonly unknown[] }>(
+  patterns: readonly P[],
+  size: number,
+): P[][] {
+  let current: P[] = [];
+  const parts: P[][] = [current];
+  let room = size;
+  for (const p of patterns) {
+    if (p.occurrences.length === 0) {
+      current.push(p);
+      continue;
+    }
+    for (let i = 0; i < p.occurrences.length;) {
+      if (room === 0) {
+        current = [];
+        parts.push(current);
+        room = size;
+      }
+      const take = Math.min(room, p.occurrences.length - i);
+      current.push({ ...p, occurrences: p.occurrences.slice(i, i + take) });
+      i += take;
+      room -= take;
+    }
+  }
+  return parts;
+}
 /**
  * Fresh occurrences resent from this many days before the cloud's last score:
  * one dated earlier becomes known only once its horizon has passed. The cloud
@@ -131,20 +165,27 @@ async function pushScan(
         ),
       });
     }
-    await pushOnce(sql, client, 'pattern_scan_result', clientKey, {
-      scan: {
-        id: scan.id,
-        status: scan.status,
-        error: scan.error,
-        candidatesTested: scan.candidates_tested,
-        finalists: scan.finalists,
-        verified: scan.verified,
-        effective: scan.effective,
-        codeVersion: scan.code_version,
-        seconds: scan.seconds === null ? null : Number(scan.seconds),
-      },
-      patterns: withOccurrences,
-    });
+    const summary = {
+      id: scan.id,
+      status: scan.status,
+      error: scan.error,
+      candidatesTested: scan.candidates_tested,
+      finalists: scan.finalists,
+      verified: scan.verified,
+      effective: scan.effective,
+      codeVersion: scan.code_version,
+      seconds: scan.seconds === null ? null : Number(scan.seconds),
+    };
+    // A big scan goes up in parts (N350); the last part, under the scan's own key, sets its outcome.
+    const parts = scanParts(withOccurrences, SCAN_PART_SIZE);
+    for (let i = 0; i < parts.length; i += 1) {
+      const last = i === parts.length - 1;
+      await pushOnce(sql, client, 'pattern_scan_result', last ? clientKey : `${clientKey}:p${i}`, {
+        scan: summary,
+        patterns: parts[i],
+        ...(last ? {} : { partial: true }),
+      });
+    }
   }
 }
 
