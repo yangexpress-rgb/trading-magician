@@ -128,3 +128,14 @@ def test_switched_off_by_default(monkeypatch, capsys):
     monkeypatch.delenv("ML_TRAINER_ENABLED", raising=False)
     assert cli.main([]) == 0
     assert "switched off" in capsys.readouterr().out
+
+
+def test_nothing_done_when_research_runs_on_the_companion(monkeypatch, capsys):
+    # ADR 0121: the companion trains, mines and scores decay; the cloud's cron does nothing.
+    monkeypatch.setenv("ML_TRAINER_ENABLED", "on")
+    monkeypatch.setenv("PATTERN_MINER_ENABLED", "on")
+    monkeypatch.setenv("RESEARCH_MODE", "companion")
+    monkeypatch.delenv("DATABASE_WORKER_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert cli.main([]) == 0
+    assert "Local Companion" in capsys.readouterr().out

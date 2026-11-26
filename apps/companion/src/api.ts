@@ -88,10 +88,18 @@ export const PushSummary = z.object({
 export type PushSummary = z.infer<typeof PushSummary>;
 const PushesReply = z.object({ pushes: z.array(PushSummary) });
 
-export type PushKind = 'ml_run' | 'ml_evaluation' | 'ml_report' | 'pattern_scan_result';
+export type PushKind =
+  'ml_run' | 'ml_evaluation' | 'ml_report' | 'pattern_scan_result' | 'pattern_decay';
 
 export type FetchKind =
-  'members' | 'bars' | 'filings' | 'events' | 'pattern_members' | 'option_signals' | 'pattern_scan';
+  | 'members'
+  | 'bars'
+  | 'filings'
+  | 'events'
+  | 'pattern_members'
+  | 'option_signals'
+  | 'pattern_scan'
+  | 'pattern_decay_due';
 const FetchReply = z.object({ fetchId: z.string() });
 export const FetchState = z.discriminatedUnion('status', [
   z.object({ status: z.literal('pending') }),

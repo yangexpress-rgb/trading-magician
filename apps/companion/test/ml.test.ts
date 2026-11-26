@@ -98,6 +98,8 @@ const queuedScans: {
   summary: string;
   createdAt: string;
 }[] = [];
+/** Verified patterns the stand-in cloud says are due a decay score (ADR 0121). */
+const decayDue: unknown[] = [];
 
 const cloud = (async (input: string | URL | Request, init?: RequestInit) => {
   const url = new URL(String(input));
@@ -161,7 +163,9 @@ const cloud = (async (input: string | URL | Request, init?: RequestInit) => {
                 ? { byId: [] }
                 : body.kind === 'pattern_scan'
                   ? { scan: queuedScans.shift() ?? null }
-                  : { earnings: [], calendar: [] };
+                  : body.kind === 'pattern_decay_due'
+                    ? { patterns: decayDue.splice(0) }
+                    : { earnings: [], calendar: [] };
     fetchAnswers.set(id, answer);
     return Response.json({ fetchId: id }, { status: 202 });
   }
@@ -391,5 +395,85 @@ describe.skipIf(isRoot)('ML on the Local Companion (ADR 0117)', () => {
     expect(pattern!.occurrences.map((o) => o[2])).toEqual(['discovery', 'holdout']);
     await round(trainerWriting(null), miner);
     expect(pushes.filter((p) => p.kind === 'pattern_scan_result')).toHaveLength(1);
+  });
+  it('scores the cloud’s due patterns on the local store and sends each score once (ADR 0121)', async () => {
+    const scanId = randomUUID();
+    const patternId = randomUUID();
+    const userId = randomUUID();
+    decayDue.push({
+      id: patternId,
+      userId,
+      rank: 1,
+      rule: [{ factor: 'rsi_14', mode: 'le', bucket: 1 }],
+      stats: { holdout: { n: 30 } },
+      decayState: 'holding',
+      decayStats: { reverifyRequestedAt: '2026-11-20T10:00:00Z' },
+      lastScored: '2026-10-01',
+      scan: {
+        id: scanId,
+        userId,
+        config: { horizon: 5 },
+        summary: 'Older scan',
+        effective: { to: '2026-06-30', discoveryEnd: '2025-12-31' },
+        createdAt: '2026-07-01T00:00:00Z',
+      },
+    });
+    /** What the miner's decay job does with a due pattern. */
+    let scored = 0;
+    const miner: MinerRunner = async (storeUrl) => {
+      const { default: postgresJs } = await import('postgres');
+      const sql = postgresJs(storeUrl, { max: 1, onnotice: () => undefined });
+      try {
+        const due = await sql<
+          { id: string; user_id: string; decay_stats: Record<string, unknown> }[]
+        >`
+          select id::text, user_id::text, decay_stats from pattern
+          where status = 'verified' and (last_scored < '2026-11-20' or decay_stats ? 'reverifyRequestedAt')`;
+        for (const p of due) {
+          scored += 1;
+          // One from long before the cloud's last score (not resent), one just before it, one after.
+          for (const asOf of ['2026-01-05', '2026-09-28', '2026-11-16'])
+            await sql`insert into pattern_occurrence (pattern_id, user_id, instrument_id, as_of, "window", hit,
+                        max_runup, max_drawdown, forward_return)
+                      values (${p.id}, ${p.user_id}, ${IIDS[0]!}, ${asOf}, 'fresh', true, 0.1, -0.02, 0.05)
+                      on conflict do nothing`;
+          await sql`update pattern set decay_state = 'weakening', last_scored = '2026-11-25',
+                      decay_stats = ${JSON.stringify({
+                        fresh: { n: 3 },
+                        reverify: {
+                          verified: true,
+                          requestedAt: p.decay_stats.reverifyRequestedAt,
+                        },
+                      })}::text::jsonb
+                    where id = ${p.id}`;
+        }
+      } finally {
+        await sql.end();
+      }
+      return { code: 0, tail: [] };
+    };
+    await round(trainerWriting(null), miner);
+    expect(scored).toBe(1);
+    const sent = pushes.filter((p) => p.kind === 'pattern_decay');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.payload).toEqual({
+      patternId,
+      occurrences: [
+        [IIDS[0]!, '2026-09-28', true, 0.1, -0.02, 0.05],
+        [IIDS[0]!, '2026-11-16', true, 0.1, -0.02, 0.05],
+      ],
+      state: {
+        decayState: 'weakening',
+        decayStats: {
+          fresh: { n: 3 },
+          reverify: { verified: true, requestedAt: '2026-11-20T10:00:00Z' },
+        },
+        lastScored: '2026-11-25',
+      },
+    });
+    // Nothing new to score or send on the next pass.
+    await round(trainerWriting(null), miner);
+    expect(scored).toBe(1);
+    expect(pushes.filter((p) => p.kind === 'pattern_decay')).toHaveLength(1);
   });
 });

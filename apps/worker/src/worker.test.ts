@@ -44,6 +44,7 @@ describe('worker env', () => {
       EVENTS_RECORDING: 'on',
       EVENTS_FAKE: false,
       ML_SNAPSHOTS: 'on',
+      RESEARCH_MODE: 'cloud',
       ML_SNAPSHOT_POLL_MS: 600000,
       GROUP_MEMBERSHIP_SYNC: 'on',
       PATTERN_SNAPSHOT_FROM: '2016-01-04',

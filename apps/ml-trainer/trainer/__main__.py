@@ -120,6 +120,10 @@ def main(argv: list[str] | None = None) -> int:
     ml_on = os.environ.get("ML_TRAINER_ENABLED", "off") == "on"
     # Pattern discovery's miner runs in the same batch service (pattern brief §11, ADR 0091).
     patterns_on = os.environ.get("PATTERN_MINER_ENABLED", "off") == "on"
+    # Research handed over to the Local Companion (ADR 0121): it trains, mines and scores decay.
+    if os.environ.get("RESEARCH_MODE", "cloud") == "companion":
+        log("research runs on the Local Companion (RESEARCH_MODE=companion); nothing done here")
+        return 0
     if not ml_on and not patterns_on:
         log("trainer is switched off (ML_TRAINER_ENABLED and PATTERN_MINER_ENABLED are not 'on'); nothing done")
         return 0

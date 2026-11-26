@@ -2,6 +2,8 @@ import {
   answerCompanionFetches,
   claimPatternScan,
   clearStaleCompanionFetches,
+  patternsDueForDecay,
+  releaseStalledPatternScans,
   encodeBars,
   encodeEvents,
   instrumentRefs,
@@ -34,6 +36,8 @@ export interface CompanionFetchDeps {
   members: (universe: string) => Promise<string[]>;
   /** The factor store's members, as the pattern snapshot job resolves them (ADR 0119). */
   patternMembers: () => Promise<{ members: string[]; sessionMembers: string[]; from: string }>;
+  /** Research runs on the companion (ADR 0121): scans it left running two days go back in the queue. */
+  releaseStalledScans?: boolean;
 }
 
 export function companionFetchAnswerer(deps: CompanionFetchDeps): FetchAnswerer {
@@ -91,6 +95,10 @@ export function companionFetchAnswerer(deps: CompanionFetchDeps): FetchAnswerer 
       }
       case 'pattern_scan':
         return claimPatternScan(deps.research ?? deps.db);
+      case 'pattern_decay_due': {
+        const { today } = request as { today: string };
+        return patternsDueForDecay(deps.research ?? deps.db, today);
+      }
       default:
         throw new Error(`Unknown request kind ${kind}`);
     }
@@ -127,6 +135,14 @@ export function startCompanionFetchLoop(
       if (Date.now() - lastClear > 600_000) {
         lastClear = Date.now();
         await clearStaleCompanionFetches(options.db);
+        if (options.releaseStalledScans) {
+          const released = await releaseStalledPatternScans(options.research ?? options.db);
+          if (released.length > 0)
+            options.logger.warn(
+              { scans: released },
+              'pattern scans left running two days put back in the queue',
+            );
+        }
       }
     } catch (err) {
       options.logger.error({ err }, 'companion request pass failed');

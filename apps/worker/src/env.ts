@@ -120,6 +120,15 @@ export function loadWorkerEnv(source: Record<string, string | undefined> = proce
        * its own ML_TRAINER_ENABLED switch.
        */
       ML_SNAPSHOTS: z.enum(['on', 'off']).default('on'),
+      /**
+       * Where research runs (ADR 0121, S2 step 4): 'companion' hands the ML
+       * feature snapshots and the pattern factor store to the research
+       * producer's Local Companion, so the worker stops writing them, and puts
+       * pattern scans a companion left running two days back in the queue.
+       * 'cloud' (the default) is as before. Set with the web app's and the
+       * trainer's switch of the same name.
+       */
+      RESEARCH_MODE: z.enum(['cloud', 'companion']).default('cloud'),
       /** How often the ML snapshot job looks for dates to do; each pass does one chunk. */
       ML_SNAPSHOT_POLL_MS: z.coerce.number().int().min(1000).default(600_000),
       /**
