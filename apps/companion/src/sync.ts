@@ -68,7 +68,7 @@ export async function recordJob(
     const detail = JSON.stringify(outcome.detail ?? {});
     await sql`
       insert into companion.sync_state (job, ok_at, tried_at, error, detail)
-      values (${job}, now(), now(), null, ${detail}::jsonb)
+      values (${job}, now(), now(), null, ${detail}::text::jsonb)
       on conflict (job) do update set ok_at = now(), tried_at = now(), error = null, detail = excluded.detail`;
   } else {
     await sql`

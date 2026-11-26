@@ -56,3 +56,8 @@ occurrences) hit the inbox's 4 MB limit. Two changes follow:
   push. Every part but the last carries `partial: true`: its patterns and occurrences go in (with
   ON CONFLICT DO NOTHING), and the scan stays as it is. The last part, under the scan's own key,
   sets the scan's outcome.
+
+The one-off command connects to the running store with a plain postgres.js connection. Without
+Drizzle's JSON serializers, that connection sent `${JSON.stringify(x)}::jsonb` as a JSON string
+and the first live run failed. Every JSON value the companion sends now goes as
+`${…}::text::jsonb`, which reads the same on any connection.

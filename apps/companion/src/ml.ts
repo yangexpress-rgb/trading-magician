@@ -30,9 +30,9 @@ export async function syncMlMirror(
       await tx`
         insert into ml_model (id, model_key, name, universe, feature_set, feature_set_version, label,
                               algorithm, status, snapshots_from, availability)
-        values (${m.id}, ${m.modelKey}, ${m.name}, ${m.universe}, ${JSON.stringify(m.featureSet)}::jsonb,
-                ${m.featureSetVersion}, ${JSON.stringify(m.label)}::jsonb, ${m.algorithm}, ${m.status},
-                ${m.snapshotsFrom}, ${m.availability == null ? null : JSON.stringify(m.availability)}::jsonb)
+        values (${m.id}, ${m.modelKey}, ${m.name}, ${m.universe}, ${JSON.stringify(m.featureSet)}::text::jsonb,
+                ${m.featureSetVersion}, ${JSON.stringify(m.label)}::text::jsonb, ${m.algorithm}, ${m.status},
+                ${m.snapshotsFrom}, ${m.availability == null ? null : JSON.stringify(m.availability)}::text::jsonb)
         on conflict (id) do update set
           model_key = excluded.model_key, name = excluded.name, universe = excluded.universe,
           feature_set = excluded.feature_set, feature_set_version = excluded.feature_set_version,
@@ -78,7 +78,7 @@ async function insertRun(tx: postgres.TransactionSql, run: MlRun, predictions: [
                               code_version, status, source, created_at)
     values (${run.id}, ${run.modelId}, ${run.runNo}, ${run.predictionDate}, ${run.trainingStart},
             ${run.trainingEnd}, ${run.maxLabelEnd}, ${run.rowsTrained}, ${run.crossSections},
-            ${JSON.stringify(run.hyperparams)}::jsonb, ${JSON.stringify(run.coefficients)}::jsonb,
+            ${JSON.stringify(run.hyperparams)}::text::jsonb, ${JSON.stringify(run.coefficients)}::text::jsonb,
             ${run.codeVersion}, 'active', ${run.source}, ${run.createdAt})`;
   for (let i = 0; i < predictions.length; i += 1000) {
     const rows = predictions.slice(i, i + 1000).map(([instrumentId, score]) => ({

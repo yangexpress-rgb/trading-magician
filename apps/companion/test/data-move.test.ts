@@ -140,5 +140,22 @@ describe.skipIf(isRoot)('Data move to the companion (ADR 0122)', () => {
     // Running it again (the one-off command) marks nothing new.
     const again = await markCloudCopies(store.sql, cloud);
     expect(again).toEqual({ scans: 0, decayScores: 0, evaluations: 0, reports: 0 });
+
+    // The one-off command runs on a plain connection to the running store (no Drizzle, which
+    // changes how postgres.js sends JSON): it must mark the same rows there.
+    await store.sql`delete from companion.pushed`;
+    await store.sql`delete from companion.decay_pulled`;
+    const plain = postgres(store.url, { max: 1, onnotice: () => undefined });
+    try {
+      expect(await markCloudCopies(plain, cloud)).toEqual({
+        scans: 2,
+        decayScores: 1,
+        evaluations: 0,
+        reports: 0,
+      });
+      expect(await store.sql`select pattern_id from companion.decay_pulled`).toHaveLength(1);
+    } finally {
+      await plain.end();
+    }
   }, 120_000);
 });
