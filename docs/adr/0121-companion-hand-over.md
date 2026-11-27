@@ -49,3 +49,10 @@ The switch is a staging setting, flipped only on Yong's go-ahead. It should go t
 in the local store. Decay works before the move, because the due patterns are pulled. The ML and
 factor jobs start their local history at the cloud's served dates (ADR 0118). Turning the switch
 back to `cloud` resumes the cloud jobs where the cloud's data stands.
+
+## Amendment (2026-11-27, N351)
+
+The decay job takes its day in UTC. On Yong's Mac (New York time) the companion asked the cloud
+for patterns due on the UTC day, but the miner used the local date. From 7 PM each evening the
+two disagreed, and the 200 due patterns were pulled but never scored. Railway runs in UTC, so
+nothing changes for the cloud.

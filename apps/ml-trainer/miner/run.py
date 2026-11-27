@@ -13,7 +13,7 @@ import json
 import time
 import traceback
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Callable
 
 import numpy as np
@@ -319,7 +319,9 @@ def _last_index_on_or_before(days: list[str], day: str) -> int:
 
 def run_decay(conn: psycopg.Connection, code_version: str, *, today: str | None = None) -> list[dict[str, Any]]:
     """Re-scores due Verified patterns on fresh data and runs requested re-verifications (§10)."""
-    today = today or date.today().isoformat()
+    # UTC, the same day the cloud's due list (and the companion that asks for it) uses: on a computer
+    # west of UTC the local date lags it each evening, and the due patterns would not be scored.
+    today = today or datetime.now(UTC).date().isoformat()
     last = last_snapshot_day(conn)
     if last is None:
         return []
