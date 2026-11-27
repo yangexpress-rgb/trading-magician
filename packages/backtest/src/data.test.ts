@@ -44,3 +44,38 @@ describe('loadData failures', () => {
     );
   });
 });
+
+/** N383: ath_drawdown with window 0 reads all loaded history, so runs load from the data start. */
+describe('planSeries for ath_drawdown', () => {
+  const ath = (params: Record<string, number>) =>
+    strategy(
+      compare(
+        {
+          kind: 'metric',
+          id: `ath${JSON.stringify(params)}`,
+          metric: 'ath_drawdown',
+          params,
+          instrumentId: A,
+        },
+        'gte',
+        { kind: 'constant', id: 'c-ath', value: '-0.05' },
+      ),
+      [leg('buy')],
+      compare(close(A), 'lt', close(B)),
+      [leg('sell', { side: 'close' })],
+    );
+  const dailyCloseFrom = (params: Record<string, number>) =>
+    planSeries(ath(params), inputs('2025-01-02', '2025-06-30'))
+      .filter((p) => p.spec.instrumentId === A && p.spec.interval === '1d')
+      .map((p) => p.from)
+      .sort()[0]!;
+
+  it('with window 0 plans from about 20 years before the run', () => {
+    expect(dailyCloseFrom({}) < '2005-06-01').toBe(true);
+  });
+
+  it('with a 252-bar window plans about a year and a half back, not 20 years', () => {
+    const from = dailyCloseFrom({ window: 252 });
+    expect(from > '2023-01-01' && from < '2024-02-01').toBe(true);
+  });
+});
