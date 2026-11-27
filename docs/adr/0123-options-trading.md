@@ -92,7 +92,7 @@ cases (fixed seed), that the new functions give byte-identical results for a mul
 ## Acceptance (O0)
 
 - **A1:** pass. Unit suites 1,393 passed (1,366 on `576f055` plus 27 new); integration suites
-  passed (counts in the PR). The three reference back tests and the byte-identity fixture pass.
+  664 passed and 14 skipped (654 and 14 on `576f055`, plus 10 new). The three reference back tests and the byte-identity fixture pass.
 - **A8 (budget part):** pass. A load fixture with options quoting on stays under 200 requests a
   minute, and equity requests are never refused or delayed by options traffic. The quote-age and
   spread parts belong to O1, which adds the quote gate.
