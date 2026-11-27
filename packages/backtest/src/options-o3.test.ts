@@ -66,7 +66,7 @@ const run = (
   simulate({
     definition: def,
     instruments: INSTRUMENTS,
-    inputs: inputs(FROM, to, { slippageBps: 0 }),
+    inputs: inputs(FROM, to, { slippageBps: '0' }),
     data: loaded({ [A]: closes(FROM, flat(n)) }),
     optionsData: data,
   });
