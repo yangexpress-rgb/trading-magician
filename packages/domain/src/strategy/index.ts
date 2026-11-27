@@ -25,3 +25,4 @@ export * from './tree';
 export * from './validate';
 export * from './validate-options';
 export * from './session-metrics';
+export * from './options-trailing-default';

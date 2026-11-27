@@ -308,3 +308,20 @@ export function heldOptionsExposure(held: readonly HeldContract[]): Decimal {
   }
   return total;
 }
+
+/**
+ * O244 (2026-11-27): the account exposure limit counts option contracts as
+ * the strategy limit does, by what they can still lose (a combo its max loss),
+ * one run at a time: each run's contracts are its own structure, and contracts
+ * of different runs are never paired into a combo.
+ */
+export function accountOptionsExposure(
+  held: readonly (HeldContract & { runtimeId: string })[],
+): Decimal {
+  const byRun = new Map<string, HeldContract[]>();
+  for (const { runtimeId, ...h } of held)
+    byRun.set(runtimeId, [...(byRun.get(runtimeId) ?? []), h]);
+  let total = new Decimal(0);
+  for (const group of byRun.values()) total = total.plus(heldOptionsExposure(group));
+  return total;
+}

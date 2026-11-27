@@ -11,6 +11,7 @@ import {
   comboStructureProblem,
   appDelta,
   heldOptionsExposure,
+  accountOptionsExposure,
   type ComboLeg,
   type HeldContract,
 } from './combo';
@@ -77,6 +78,43 @@ describe('combo payoff (A3, A7)', () => {
     expect(heldOptionsExposure([...one('ZZZ', 1), ...one('YYY', 1)]).toString()).toBe('700');
     // A long call alone counts its premium value, exactly as in Phase O1.
     expect(heldOptionsExposure([held('ZZZ', 'call', 100, 3, '2.10')]).toString()).toBe('630');
+  });
+
+  it('counts each run on the account by its own max loss, never pairing runs (O244)', () => {
+    const h = (
+      runtimeId: string,
+      right: 'call' | 'put',
+      strike: number,
+      q: number,
+      mark: string,
+    ) => ({
+      runtimeId,
+      underlyingId: 'ZZZ',
+      right,
+      strike,
+      quantity: q,
+      mark,
+      multiplier: 100,
+    });
+    // One run's condor at a 1.50 credit: $350, as at the strategy limit.
+    const condor = (run: string) => [
+      h(run, 'put', 95, -1, '1.00'),
+      h(run, 'put', 90, 1, '0.25'),
+      h(run, 'call', 105, -1, '1.00'),
+      h(run, 'call', 110, 1, '0.25'),
+    ];
+    expect(accountOptionsExposure(condor('r1')).toString()).toBe('350');
+    // Two runs' condors on the same underlying: $700, not one combined structure.
+    expect(accountOptionsExposure([...condor('r1'), ...condor('r2')]).toString()).toBe('700');
+    // A long call in one run and a short call in another are not a vertical:
+    // the long counts its premium ($210); the naked short has no bound, so it
+    // counts the legs' value ($100), as heldOptionsExposure does for one run.
+    expect(
+      accountOptionsExposure([
+        h('r1', 'call', 100, 1, '2.10'),
+        h('r2', 'call', 105, -1, '1.00'),
+      ]).toString(),
+    ).toBe('310');
   });
 
   it('finds no bound for a naked short call', () => {

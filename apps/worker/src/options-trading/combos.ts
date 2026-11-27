@@ -33,6 +33,7 @@ import {
   type PlannedOrder,
   type PositionIntent,
   type RiskCheckResult,
+  isTerminalOrderState,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import {
@@ -703,9 +704,16 @@ async function repriceCombo(
   }
 }
 
-/** Whether a safety close of this contract was already placed in the cycle. */
+/**
+ * Whether a close of this contract is working in the cycle. One that ended
+ * unfilled (canceled after its re-price) no longer counts, so the contract is
+ * closed again (staging check, 2026-11-27).
+ */
 const closing = (cycle: ActiveCycle, instrumentId: string) =>
-  cycle.legs.some((l) => l.phase === 'flatten' && l.instrumentId === instrumentId);
+  cycle.legs.some(
+    (l) =>
+      l.phase === 'flatten' && l.instrumentId === instrumentId && !isTerminalOrderState(l.state),
+  );
 
 /** Starts closing a cycle's contracts on an underlying one by one, short legs first. */
 async function startLegByLeg(

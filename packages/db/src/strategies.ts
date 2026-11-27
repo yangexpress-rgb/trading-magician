@@ -4,6 +4,7 @@ import {
   canonicalJson,
   collectInstrumentUses,
   createDefinition,
+  optionsTrailingStopDefault,
   groupMemberCount,
   nyDate,
   parseDefinition,
@@ -827,7 +828,11 @@ export async function createStrategy(
   userId: string,
   input: CreateStrategyInput,
 ): Promise<StrategyDetail> {
-  const def = input.definition === undefined ? createDefinition() : parseOrThrow(input.definition);
+  // O231: a strategy created with options legs starts with the trailing stop off.
+  const def =
+    input.definition === undefined
+      ? createDefinition()
+      : optionsTrailingStopDefault(undefined, parseOrThrow(input.definition));
   await assertWithinLimit(tx, userId, 'savedStrategies');
   const [profile] = await tx.select().from(profiles).where(eq(profiles.userId, userId));
   // New strategies start on the Alpaca paper account when there is one.
@@ -903,7 +908,11 @@ export async function updateStrategy(
   let def: StrategyDefinition | undefined;
   let hash = before.draftHash;
   if (input.definition !== undefined) {
-    def = parseOrThrow(input.definition);
+    // O231: gaining a first options leg turns an untouched 1% trailing stop off.
+    def = optionsTrailingStopDefault(
+      parseOrThrow(before.draftDefinition),
+      parseOrThrow(input.definition),
+    );
     hash = definitionHash(def);
     if (hash !== before.draftHash) {
       if (before.status === 'actively_executing') {
