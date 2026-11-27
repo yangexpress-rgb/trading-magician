@@ -189,7 +189,9 @@ export async function nextOptionDividend(
   const [row] = await tx
     .select({ exDate: optionDividends.exDate, cashAmount: optionDividends.cashAmount })
     .from(optionDividends)
-    .where(and(eq(optionDividends.underlyingId, underlyingId), gte(optionDividends.exDate, onOrAfter)))
+    .where(
+      and(eq(optionDividends.underlyingId, underlyingId), gte(optionDividends.exDate, onOrAfter)),
+    )
     .orderBy(asc(optionDividends.exDate))
     .limit(1);
   return row;
