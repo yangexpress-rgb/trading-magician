@@ -61,7 +61,12 @@ export interface BacktestTrade {
     | 'expected_move'
     | 'trailing_stop'
     | 'session_end'
-    | 'strategy_trailing_stop';
+    | 'strategy_trailing_stop'
+    | 'option_target'
+    | 'option_dte'
+    | 'closed_before_expiry'
+    | 'expired_worthless'
+    | 'exercised';
   /** Two-sided strategies (v1.2 item 8): the direction and entry group of the trade. */
   direction?: 'long' | 'short';
   group?: string;

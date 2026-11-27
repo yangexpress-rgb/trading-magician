@@ -186,6 +186,23 @@ export function OrderDrawer({
             </div>
           )}
 
+          {d.option && (
+            <Alert tone="info">
+              <span className="font-medium">Options contract: </span>
+              {d.option.words}
+              {d.option.quote && (
+                <span className="block text-xs">
+                  Priced from a quote of {d.option.quote.bid} bid, {d.option.quote.ask} ask
+                </span>
+              )}
+              {d.option.decided && (
+                <span className="block text-xs">
+                  Decided while the market was closed, when the pick was {d.option.decided.words};
+                  picked again at the open
+                </span>
+              )}
+            </Alert>
+          )}
           {d.source === 'system' && (
             <Alert tone="info">
               <span className="font-medium">Why the app closed this position: </span>

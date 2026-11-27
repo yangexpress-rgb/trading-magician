@@ -18,7 +18,7 @@ import {
 import { extendedHoursEligible } from './extended-hours';
 import { groupDefinition } from './groups';
 import { checkTiming } from './timing';
-import { checkOptionLegs, hasOptionLegs } from './validate-options';
+import { checkOptionLegs, hasOptionLegs, hasOptionRules } from './validate-options';
 import { finestBarMinutes, isCalendarSchedule, rulesReadIntraday } from './schedule';
 import {
   collectInstrumentUses,
@@ -178,7 +178,7 @@ export function validateStrategy(
   checkOptions(def, ctx, add);
   checkRemovedInstruments(def, ctx, add);
   // Options legs (ADR 0123): checked only when the strategy has one.
-  if (hasOptionLegs(def)) checkOptionLegs(def, ctx, add);
+  if (hasOptionLegs(def) || hasOptionRules(def)) checkOptionLegs(def, ctx, add);
 
   for (const p of checkTiming(def)) {
     const index = def[p.phase].orders.findIndex((o) => o.id === p.legId);

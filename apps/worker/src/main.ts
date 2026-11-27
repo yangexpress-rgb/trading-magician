@@ -9,6 +9,7 @@ import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
 import { startMembershipSync } from './groups/membership-sync';
 import { resolveBuiltinUniverse, resolveStockSymbols } from './universes';
 import { startBacktestLoop, type BacktestLoop } from './backtests';
+import type { OptionsHistory } from './options-trading/backtest-data';
 import { startBillingLoop, type BillingLoop } from './billing-sync';
 import { loadWorkerEnv, patternSnapshotsOn, shiftedClock, shortInterestMode } from './env';
 import { createHealthServer } from './health';
@@ -217,7 +218,10 @@ if (databaseUrl) {
     privateKey: credentialKey,
     logger,
   });
+  // Options history for options back tests (ADR 0123), set once the options data key is known.
+  let optionsHistory: OptionsHistory | undefined;
   loop = startBacktestLoop({
+    optionsHistory: () => optionsHistory,
     db,
     research,
     provider: (userId, run) =>
@@ -394,6 +398,11 @@ if (databaseUrl) {
             : {}),
         })
       : undefined;
+    if (client && optionsTradingEnabled())
+      optionsHistory = {
+        contracts: (q) => fetchOptionContracts(client, q),
+        bars: (symbols, from, to) => fetchOptionBars(client, symbols, from, to),
+      };
     if (!appKey) {
       logger.warn(
         'No Alpaca key for options data (OPTIONS_ALPACA_KEY_ID unset and no admin Alpaca feed): option chains are stored, but signals wait for an Alpaca close and the history rebuild waits',

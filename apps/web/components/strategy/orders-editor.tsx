@@ -285,7 +285,7 @@ function LegEditor({
   onDuplicate: () => void;
   onRemove: () => void;
 }) {
-  const { accounts, editable: canEdit, issueAt, baseCurrency } = useEditor();
+  const { accounts, editable: canEdit, issueAt, baseCurrency, optionsTrading } = useEditor();
   const editable = canEdit && !locked;
   const [expanded, setExpanded] = useState(false);
   const path = [phase, 'orders', number - 1] as const;
@@ -557,6 +557,29 @@ function LegEditor({
           />
         </div>
 
+        {(optionsTrading || order.option) && (
+          <OptionLegFields
+            order={order}
+            idOf={id}
+            error={err('option')}
+            onChange={(option) => {
+              const { option: _o, ...rest } = order;
+              void _o;
+              // The app prices an options order itself, as a limit at the mid (§7.1).
+              onChange(
+                option
+                  ? {
+                      ...rest,
+                      option,
+                      orderType: 'market',
+                      limitPrice: undefined,
+                      stopPrice: undefined,
+                    }
+                  : rest,
+              );
+            }}
+          />
+        )}
         <button
           type="button"
           className="mt-2 text-xs font-medium text-ink-muted underline"
@@ -629,5 +652,123 @@ function LegEditor({
         <span className="font-semibold">Timing:</span> {describe(order)}
       </p>
     </section>
+  );
+}
+
+/**
+ * "Options on this instrument" (options brief v0.2 §5.1, ADR 0123): shown only
+ * while the server trades options, or on a leg already saved with options.
+ * The contract is picked when the order is placed: the right, a strike rule
+ * and a target days to expiry, never a fixed contract.
+ */
+function OptionLegFields({
+  order,
+  idOf,
+  error,
+  onChange,
+}: {
+  order: PlannedOrder;
+  idOf: (f: string) => string;
+  error: string | undefined;
+  onChange: (option: PlannedOrder['option']) => void;
+}) {
+  const o = order.option;
+  const strikePct = o?.strikeRule.type === 'moneynessPct' ? o.strikeRule.pct : 0;
+  return (
+    <div className="mt-2 space-y-2 rounded border border-line p-2">
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          id={idOf('options')}
+          type="checkbox"
+          checked={!!o}
+          onChange={(e) =>
+            onChange(
+              e.target.checked
+                ? {
+                    right: 'call',
+                    strikeRule: { type: 'atm' },
+                    expiryRule: { targetDte: 30, minDte: 7 },
+                  }
+                : undefined,
+            )
+          }
+        />
+        Trade options on this instrument (paper only)
+      </label>
+      {error && <p className="text-xs text-danger">{error}</p>}
+      {o && (
+        <div className="grid-fields-wide gap-2">
+          <MiniSelect
+            id={idOf('option-right')}
+            label="Option"
+            value={o.right}
+            onChange={(e) => onChange({ ...o, right: e.target.value as 'call' | 'put' })}
+          >
+            <option value="call">Call</option>
+            <option value="put">Put</option>
+          </MiniSelect>
+          <MiniInput
+            id={idOf('option-strike')}
+            label="Strike, % out of the money (0 is at the money)"
+            type="number"
+            min={-50}
+            max={50}
+            step={0.5}
+            value={String(strikePct)}
+            onChange={(e) => {
+              const pct = Number(e.target.value);
+              onChange({
+                ...o,
+                strikeRule:
+                  Number.isFinite(pct) && pct !== 0
+                    ? { type: 'moneynessPct', pct: Math.max(-50, Math.min(50, pct)) }
+                    : { type: 'atm' },
+              });
+            }}
+          />
+          <MiniInput
+            id={idOf('option-dte')}
+            label="Target days to expiry"
+            type="number"
+            min={1}
+            max={730}
+            value={String(o.expiryRule.targetDte)}
+            onChange={(e) =>
+              onChange({
+                ...o,
+                expiryRule: {
+                  ...o.expiryRule,
+                  targetDte: Math.max(1, Math.min(730, Math.round(Number(e.target.value) || 1))),
+                },
+              })
+            }
+          />
+          <MiniInput
+            id={idOf('option-min-dte')}
+            label="At least, days to expiry"
+            type="number"
+            min={0}
+            max={730}
+            value={String(o.expiryRule.minDte)}
+            onChange={(e) =>
+              onChange({
+                ...o,
+                expiryRule: {
+                  ...o.expiryRule,
+                  minDte: Math.max(0, Math.min(730, Math.round(Number(e.target.value) || 0))),
+                },
+              })
+            }
+          />
+        </div>
+      )}
+      {o && (
+        <p className="text-xs text-ink-muted">
+          The contract is picked when the order goes: the nearest expiry at least the minimum days
+          out, then the strike nearest the target. Orders go as a limit at the quote&apos;s mid, are
+          re-priced once after 120 seconds, then canceled.
+        </p>
+      )}
+    </div>
   );
 }

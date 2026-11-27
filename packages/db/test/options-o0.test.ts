@@ -30,7 +30,13 @@ import {
   users,
 } from '../src/schema';
 import { generateCredentialKeyPair } from '../src/sealed';
-import { createStrategy, startStrategy, StrategyError, updateStrategy } from '../src/strategies';
+import {
+  createStrategy,
+  startStrategy,
+  stopStrategy,
+  StrategyError,
+  updateStrategy,
+} from '../src/strategies';
 import { withTenant } from '../src/tenant';
 import { createTestDatabase, type TestDatabase } from './harness';
 
@@ -178,7 +184,7 @@ const start = (s: { id: string; rowVersion: number }, accountId: string) =>
     startStrategy(tx, userId, s.id, {
       rowVersion: s.rowVersion,
       confirmed: true,
-      acknowledgedWarnings: ['no_backtest', 'non_atomic_multi_leg'],
+      acknowledgedWarnings: ['no_backtest', 'non_atomic_multi_leg', 'options_trailing_stop'],
       accountId,
     }),
   );
@@ -336,16 +342,21 @@ describe('Start gates and account isolation (§§5.4–5.6, A10)', () => {
     expect((sim as Error).message).toMatch(/doesn't trade options/);
   });
 
-  it('passes the options gates at a level that covers the strategy (validation decides the rest)', async () => {
+  it('starts a long-call run at a level that covers it, marked as trading options (O1)', async () => {
     optionsOn();
     await setLevel(optionsAccount, 2);
     const long = await strategy('Long call 2', definition(optionsAccount, 'long'));
-    const e = await errorOf(start(long, optionsAccount));
-    // O0 builds no options orders: the gates pass and validation refuses the leg.
-    expect(((e as StrategyError).details as { reason?: string } | undefined)?.reason).not.toMatch(
-      /^options_|equity_account/,
-    );
-    expect(JSON.stringify((e as StrategyError).details)).toMatch(/options_not_built/);
+    const started = await start(long, optionsAccount);
+    expect(started.status).toBe('actively_executing');
+    const where = eq(strategyRuntimes.strategyId, long.id);
+    const [run] = await t.owner.db
+      .select({ tradesOptions: strategyRuntimes.tradesOptions })
+      .from(strategyRuntimes)
+      .where(where);
+    expect(run?.tradesOptions).toBe(true);
+    // Stopped runs don't count: the account is free again for the tests below.
+    await as((tx) => stopStrategy(tx, userId, long.id, { rowVersion: started.rowVersion }));
+    expect(await as((tx) => isOptionsAccount(tx, optionsAccount))).toBe(false);
   });
 
   it('starts stock and ETF strategies normally on the same accounts', async () => {
@@ -372,8 +383,8 @@ describe('Start gates and account isolation (§§5.4–5.6, A10)', () => {
     );
     expect((joined as Error).message).toMatch(/runs stock and ETF strategies/);
 
-    // An options run on the options account. O0 places no options order, so a
-    // run is started there and then marked as trading options directly.
+    // An options run on the options account, started there and marked as
+    // trading options directly (as the O0 version of this test did).
     const holder = await strategy('Options holder', definition(optionsAccount));
     await start(holder, optionsAccount);
     await t.owner.db

@@ -54,6 +54,18 @@ export interface OrderRowDto {
    * from N306 on has one; earlier ones show null.
    */
   closeReason: string | null;
+  /**
+   * An options order (ADR 0123): the contract in plain words, the quote its
+   * limit came from, and, for an entry decided while the market was closed,
+   * the contract first picked. Null for every stock and ETF order.
+   */
+  option?: {
+    words: string;
+    contract: string;
+    quote?: { bid: string; ask: string; at: string } | undefined;
+    decided?: { words: string; at: string } | undefined;
+    lifecycle?: string | undefined;
+  } | null;
   strategyId: string;
   strategyName: string;
   /** The strategy's own S number (ADR 0066), shown with its name; null if none. */

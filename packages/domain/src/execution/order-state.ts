@@ -93,7 +93,8 @@ export interface BrokerUpdate {
   rawStatus: string;
   /** Provider timestamp, ISO 8601. */
   at: string;
-  fill?: { quantity: string; price: string; fee: string } | undefined;
+  /** `kind` `expiry`: an option that expired worthless, settled at 0 (ADR 0123). */
+  fill?: { quantity: string; price: string; fee: string; kind?: 'expiry' | undefined } | undefined;
   reason?: string | undefined;
 }
 

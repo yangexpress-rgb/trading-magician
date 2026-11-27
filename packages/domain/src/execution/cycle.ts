@@ -68,6 +68,10 @@ export interface CycleState {
     | 'trailing_stop'
     | 'session_end'
     | 'strategy_trailing_stop'
+    | 'option_target'
+    | 'option_dte'
+    | 'closed_before_expiry'
+    | 'expired_worthless'
     | undefined;
   /** The entry group that opened it (v1.2 item 8); absent for the strategy's own Entry. */
   group?: string | undefined;
@@ -135,7 +139,14 @@ export interface CycleInput {
   /** Whether Check Exit is due on this pass (ADR 0073); the time stop waits for it. Default true. */
   exitDue?: boolean | undefined;
   /** Exit now because a rebalance no longer selects this slot (v1.2 items 1, 2). */
-  forceExit?: 'rebalance' | 'atr_stop' | 'expected_move' | 'trailing_stop' | undefined;
+  forceExit?:
+    | 'rebalance'
+    | 'atr_stop'
+    | 'expected_move'
+    | 'trailing_stop'
+    | 'option_target'
+    | 'option_dte'
+    | undefined;
   /**
    * Flatten at session end (N256): this is the session's final pass, so
    * whatever the cycle holds closes now with market orders, unconditionally.
@@ -146,6 +157,12 @@ export interface CycleInput {
    * cycle holds now, the same way as at session end.
    */
   strategyStop?: boolean | undefined;
+  /**
+   * Expiry day (options brief v0.2 §8.3, ADR 0123): a contract the cycle holds
+   * expires today and it is past 15:00 New York time, so what the cycle holds
+   * closes now, the same way as at session end.
+   */
+  expiryClose?: boolean | undefined;
 }
 
 export interface CyclePlan {
@@ -156,7 +173,12 @@ export interface CyclePlan {
   scheduled: PlannedLeg[];
   cancel: {
     intentId: string;
-    reason: 'leg_timeout' | 'leg_failed' | 'session_end' | 'strategy_trailing_stop';
+    reason:
+      | 'leg_timeout'
+      | 'leg_failed'
+      | 'session_end'
+      | 'strategy_trailing_stop'
+      | 'closed_before_expiry';
   }[];
   /** Create closing orders for whatever the cycle still holds. */
   flatten: boolean;
@@ -176,6 +198,7 @@ export type CycleNote =
   | 'flattening'
   | 'session_end'
   | 'strategy_trailing_stop'
+  | 'closed_before_expiry'
   | 'closed'
   | 'aborted';
 
@@ -490,7 +513,9 @@ export function planCycle(input: CycleInput): CyclePlan {
     ? ('session_end' as const)
     : input.strategyStop
       ? ('strategy_trailing_stop' as const)
-      : undefined;
+      : input.expiryClose
+        ? ('closed_before_expiry' as const)
+        : undefined;
   if (
     flattenReason &&
     !cycle.flattened &&

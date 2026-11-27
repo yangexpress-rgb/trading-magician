@@ -22,8 +22,17 @@ const OPEN = Date.parse('2026-10-06T15:00:00Z');
 const CLOSED = Date.parse('2026-10-06T21:00:00Z');
 const A = { instrumentId: '00000000-0000-4000-8000-0000000000a1', symbol: 'ZTSTA' };
 
-function setup(clock: { t: number }, options: { shortingEnabled?: boolean } = {}) {
+const OPT = {
+  instrumentId: '00000000-0000-4000-8000-0000000000c1',
+  symbol: 'ZTSTA261120C00100000',
+};
+
+function setup(
+  clock: { t: number },
+  options: { shortingEnabled?: boolean; optionsLevel?: number } = {},
+) {
   const fake = new FakeAlpaca({ now: () => new Date(clock.t), ...options });
+  if (options.optionsLevel !== undefined) fake.addOptionContracts([{ symbol: OPT.symbol }]);
   const client = new AlpacaClient({
     credentials: fake.credentials,
     fetch: fake.fetch,
@@ -33,19 +42,38 @@ function setup(clock: { t: number }, options: { shortingEnabled?: boolean } = {}
   });
   const broker = new AlpacaBroker({
     client,
-    capabilities: alpacaCapabilities({ shorting_enabled: options.shortingEnabled ?? true }),
-    instrumentIdFor: async (symbol) => (symbol === A.symbol ? A.instrumentId : undefined),
+    capabilities: {
+      ...alpacaCapabilities({ shorting_enabled: options.shortingEnabled ?? true }),
+      ...(options.optionsLevel !== undefined ? { options: true } : {}),
+    },
+    ...(options.optionsLevel !== undefined ? { optionsClient: client } : {}),
+    instrumentIdFor: async (symbol) =>
+      symbol === A.symbol ? A.instrumentId : symbol === OPT.symbol ? OPT.instrumentId : undefined,
     now: () => new Date(clock.t),
   });
   return { fake, client, broker };
 }
 
-function alpacaHarness(faults?: Parameters<typeof withFaults>[1]) {
+function alpacaHarness(faults?: Parameters<typeof withFaults>[1], optionsLevel?: number) {
   return async (): Promise<ContractHarness> => {
     const clock = { t: OPEN };
-    const { fake, broker } = setup(clock);
+    const { fake, broker } = setup(clock, optionsLevel !== undefined ? { optionsLevel } : {});
     let day = 0;
     return {
+      ...(optionsLevel !== undefined
+        ? {
+            option: {
+              ...OPT,
+              underlying: A.symbol,
+              setQuote: (bid: string, ask: string, fillAtMid?: boolean) =>
+                fake.setOptionQuote(OPT.symbol, {
+                  bid,
+                  ask,
+                  ...(fillAtMid ? { fillAtMid } : {}),
+                }),
+            },
+          }
+        : {}),
       adapter: faults ? withFaults(broker, faults) : broker,
       accountId: 'acct-1',
       instrument: A,
@@ -90,6 +118,8 @@ describeBrokerContract(
     disconnectRate: 0.2,
   }),
 );
+
+describeBrokerContract('Alpaca paper (fake) with options level 2', alpacaHarness(undefined, 2));
 
 describe('Alpaca broker adapter', () => {
   it('reads an order’s state into normalized events', () => {

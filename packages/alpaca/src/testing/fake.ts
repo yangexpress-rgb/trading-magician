@@ -16,6 +16,7 @@ import type {
   AlpacaAsset,
   AlpacaBar,
   AlpacaFillActivity,
+  AlpacaOptionContract,
   AlpacaOrder,
   AlpacaPosition,
   AlpacaSnapshot,
@@ -62,6 +63,8 @@ export const FAKE_ALPACA_ASSETS: Record<
 
 export interface FakeAlpacaOptions {
   now: () => Date;
+  /** The account's options approval level (ADR 0123); absent means the account doesn't say. */
+  optionsLevel?: number;
   /** The key the fake accepts. Any other is refused with 401. */
   keyId?: string;
   secretKey?: string;
@@ -81,7 +84,24 @@ interface OrderMeta {
   extendedHours: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Set once the order was replaced (a re-price): the order that replaced it. */
+  replacedBy?: string;
+  positionIntent?: string;
 }
+
+/** An options contract's quote in the fake; `fillAtMid` lets a limit at the mid fill. */
+interface FakeOptionQuote {
+  bid: string;
+  ask: string;
+  at?: string;
+  fillAtMid?: boolean;
+}
+
+/** OCC option symbols (root, yymmdd, C/P, strike × 1000). */
+const OCC = /^[A-Z.]{1,6}\d{6}[CP]\d{8}$/;
+const isOcc = (symbol: string) => OCC.test(symbol);
+/** What one unit moves cash by: 100 shares a contract (ADR 0123). */
+const unitsOf = (symbol: string) => (isOcc(symbol) ? 100 : 1);
 
 const ACCOUNT = 'fake-account';
 
@@ -107,8 +127,12 @@ export class FakeAlpaca {
   private lastMicros = 0;
   private seq = 0;
   private failures: number[] = [];
+  private optionsLevel: number | undefined;
+  private readonly optionContracts: AlpacaOptionContract[] = [];
+  private readonly optionQuoteMap = new Map<string, FakeOptionQuote>();
 
   constructor(options: FakeAlpacaOptions) {
+    this.optionsLevel = options.optionsLevel;
     this.now = options.now;
     this.keyId = options.keyId ?? 'PKFAKEKEYID000000001';
     this.secretKey = options.secretKey ?? 'fake-secret-key-for-tests-only-0001';
@@ -117,6 +141,7 @@ export class FakeAlpaca {
     const quotes: LiveQuoteProvider = {
       id: 'fake-alpaca',
       latestQuote: (ref) => {
+        if (isOcc(ref.symbol)) return Promise.resolve(this.optionAsQuote(ref));
         const asset = FAKE_ALPACA_ASSETS[ref.symbol];
         return asset
           ? this.demoQuotes.latestQuote({ instrumentId: ref.instrumentId, symbol: asset.demo })
@@ -138,6 +163,78 @@ export class FakeAlpaca {
   /** The next `count` requests fail with `status` (e.g. 503), then it recovers. */
   failNext(status: number, count = 1) {
     for (let i = 0; i < count; i++) this.failures.push(status);
+  }
+
+  /** The account's options approval level, as Alpaca reports it (ADR 0123). */
+  setOptionsLevel(level: number | undefined) {
+    this.optionsLevel = level;
+  }
+
+  /** Lists contracts, as `/v2/options/contracts` returns them; defaults are standard. */
+  addOptionContracts(contracts: readonly Partial<AlpacaOptionContract>[]) {
+    for (const c of contracts) {
+      const occ = /^([A-Z.]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/.exec(c.symbol ?? '');
+      if (!occ) throw new Error(`not an OCC symbol: ${c.symbol}`);
+      const root = occ[1]!;
+      this.optionContracts.push({
+        id: crypto.randomUUID(),
+        symbol: c.symbol!,
+        name: c.symbol!,
+        status: 'active',
+        tradable: true,
+        expiration_date: `20${occ[2]}-${occ[3]}-${occ[4]}`,
+        root_symbol: root,
+        underlying_symbol: root,
+        type: occ[5] === 'C' ? 'call' : 'put',
+        style: 'american',
+        strike_price: String(Number(occ[6]) / 1000),
+        multiplier: '100',
+        size: '100',
+        deliverables: [{ type: 'equity', symbol: root, amount: '100' }],
+        ...c,
+      });
+    }
+  }
+
+  /** Sets a contract's quote. With `fillAtMid`, a limit at the mid or better fills at once. */
+  setOptionQuote(symbol: string, quote: FakeOptionQuote) {
+    this.optionQuoteMap.set(symbol, quote);
+  }
+
+  /** Removes a contract from the account, as Alpaca does after expiry. */
+  async expireOption(symbol: string) {
+    const held = (await this.broker.positions(ACCOUNT)).find((p) => p.instrumentId === symbol);
+    if (!held) return;
+    await (
+      this.broker as unknown as {
+        options: { store: { setPosition: (a: string, p: unknown) => Promise<void> } };
+      }
+    ).options.store.setPosition(ACCOUNT, {
+      instrumentId: symbol,
+      quantity: '0',
+      averageCost: undefined,
+    });
+  }
+
+  private optionAsQuote(ref: { instrumentId: string; symbol: string }) {
+    const q = this.optionQuoteMap.get(ref.symbol);
+    if (!q) return undefined;
+    const bid = new Decimal(q.bid);
+    const ask = new Decimal(q.ask);
+    const mid = bid.plus(ask).div(2).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    const now = this.now();
+    return {
+      instrumentId: ref.instrumentId,
+      symbol: ref.symbol,
+      bid: q.fillAtMid ? mid : bid,
+      ask: q.fillAtMid ? mid : ask,
+      last: mid,
+      size: new Decimal(1000),
+      at: q.at ?? now.toISOString(),
+      receivedAt: now.toISOString(),
+      source: 'fake-alpaca',
+      marketOpen: isRegularSessionOpen(now),
+    };
   }
 
   /** Lets resting orders trade at the current time. */
@@ -175,6 +272,9 @@ export class FakeAlpaca {
         next_close: now.toISOString(),
       });
     }
+    if (method === 'GET' && path === '/v2/options/contracts') {
+      return json(200, this.listContracts(q));
+    }
     if (method === 'GET' && path === '/v2/assets') {
       // Every listed asset, filtered as Alpaca filters by status and class.
       const all = Object.keys(FAKE_ALPACA_ASSETS).flatMap((s) => this.asset(s) ?? []);
@@ -209,6 +309,7 @@ export class FakeAlpaca {
       const meta = this.orders.get(decodeURIComponent(one[1]!));
       if (!meta) return json(404, errors.notFound);
       if (method === 'GET') return json(200, await this.order(meta));
+      if (method === 'PATCH') return this.replace(meta, JSON.parse(String(init.body)));
       if (method === 'DELETE') {
         const view = await this.view(meta);
         if (!['acknowledged', 'partially_filled'].includes(view.state)) {
@@ -230,19 +331,31 @@ export class FakeAlpaca {
   private async account(): Promise<AlpacaAccount> {
     let cash = new Decimal(accountFixture.cash);
     for (const a of this.activities) {
-      const value = new Decimal(a.price).times(a.qty);
+      const value = new Decimal(a.price).times(a.qty).times(unitsOf(a.symbol));
       cash = a.side === 'buy' ? cash.minus(value) : cash.plus(value);
     }
     let held = new Decimal(0);
     for (const p of await this.broker.positions(ACCOUNT)) {
       const asset = FAKE_ALPACA_ASSETS[p.instrumentId];
-      const quote = asset
-        ? await this.demoQuotes.latestQuote({ instrumentId: p.instrumentId, symbol: asset.demo })
-        : undefined;
-      held = held.plus(new Decimal(p.quantity).times(quote?.last ?? p.averageCost ?? 0));
+      const quote = isOcc(p.instrumentId)
+        ? this.optionAsQuote({ instrumentId: p.instrumentId, symbol: p.instrumentId })
+        : asset
+          ? await this.demoQuotes.latestQuote({ instrumentId: p.instrumentId, symbol: asset.demo })
+          : undefined;
+      held = held.plus(
+        new Decimal(p.quantity)
+          .times(quote?.last ?? p.averageCost ?? 0)
+          .times(unitsOf(p.instrumentId)),
+      );
     }
     return {
       ...accountFixture,
+      ...(this.optionsLevel !== undefined
+        ? {
+            options_approved_level: this.optionsLevel,
+            options_trading_level: this.optionsLevel,
+          }
+        : {}),
       shorting_enabled: this.shortingEnabled,
       cash: cash.toString(),
       equity: cash.plus(held).toString(),
@@ -269,7 +382,20 @@ export class FakeAlpaca {
       return json(422, errors.duplicate);
     }
     const symbol = str('symbol') ?? '';
-    if (!FAKE_ALPACA_ASSETS[symbol]) {
+    if (isOcc(symbol)) {
+      if (!this.optionContracts.some((c) => c.symbol === symbol))
+        return json(422, { code: 40010001, message: `asset "${symbol}" not found` });
+      if ((this.optionsLevel ?? 0) < 2)
+        return json(403, { code: 40310000, message: 'account not eligible to trade options' });
+      if ((str('type') ?? 'market') !== 'limit' && (str('type') ?? 'market') !== 'market')
+        return json(422, { code: 42210000, message: 'invalid order type for options' });
+      if (body.extended_hours === true)
+        return json(422, { code: 42210000, message: 'options do not trade extended hours' });
+      const pi = str('position_intent');
+      const side0 = str('side');
+      if (pi && !(side0 === 'buy' ? /^buy_to_(open|close)$/ : /^sell_to_(open|close)$/).test(pi))
+        return json(422, { code: 42210000, message: 'position_intent does not match side' });
+    } else if (!FAKE_ALPACA_ASSETS[symbol]) {
       return json(422, { code: 40010001, message: `asset "${symbol}" not found` });
     }
     const side = str('side');
@@ -353,6 +479,7 @@ export class FakeAlpaca {
       extendedHours,
       createdAt: at,
       updatedAt: at,
+      ...(str('position_intent') ? { positionIntent: str('position_intent')! } : {}),
     };
     this.orders.set(brokerOrderId, meta);
     await this.sync();
@@ -401,8 +528,9 @@ export class FakeAlpaca {
 
   private async order(meta: OrderMeta): Promise<AlpacaOrder> {
     const v = await this.view(meta);
-    const status: AlpacaOrder['status'] =
-      v.state === 'filled'
+    const status: AlpacaOrder['status'] = meta.replacedBy
+      ? 'replaced'
+      : v.state === 'filled'
         ? 'filled'
         : v.state === 'partially_filled'
           ? 'partially_filled'
@@ -426,10 +554,11 @@ export class FakeAlpaca {
       expired_at: terminal('expired'),
       canceled_at: terminal('canceled'),
       failed_at: terminal('rejected'),
-      replaced_at: null,
-      asset_id: FAKE_ALPACA_ASSETS[meta.symbol]!.id,
+      replaced_at: meta.replacedBy ? meta.updatedAt : null,
+      ...(meta.replacedBy ? { replaced_by: meta.replacedBy } : {}),
+      asset_id: FAKE_ALPACA_ASSETS[meta.symbol]?.id ?? meta.symbol,
       symbol: meta.symbol,
-      asset_class: 'us_equity',
+      asset_class: isOcc(meta.symbol) ? 'us_option' : 'us_equity',
       qty: meta.qty,
       filled_qty: v.filledQuantity.toString(),
       filled_avg_price: v.averagePrice?.toDecimalPlaces(4).toString() ?? null,
@@ -469,14 +598,66 @@ export class FakeAlpaca {
           asset_id: FAKE_ALPACA_ASSETS[p.instrumentId]?.id ?? '',
           symbol: p.instrumentId,
           exchange: FAKE_ALPACA_ASSETS[p.instrumentId]?.exchange ?? '',
-          asset_class: 'us_equity',
+          asset_class: isOcc(p.instrumentId) ? 'us_option' : 'us_equity',
           qty: qty.toString(),
           avg_entry_price: cost.toString(),
           side: qty.isNegative() ? 'short' : 'long',
-          market_value: qty.times(cost).toString(),
-          cost_basis: qty.abs().times(cost).toString(),
+          market_value: qty.times(cost).times(unitsOf(p.instrumentId)).toString(),
+          cost_basis: qty.abs().times(cost).times(unitsOf(p.instrumentId)).toString(),
         };
       });
+  }
+
+  /** `/v2/options/contracts`, filtered as Alpaca filters, one page (ADR 0123). */
+  private listContracts(q: URLSearchParams) {
+    const underlyings = (q.get('underlying_symbols') ?? '').split(',').filter(Boolean);
+    const num = (k: string) => (q.get(k) ? new Decimal(q.get(k)!) : undefined);
+    const lo = num('strike_price_gte');
+    const hi = num('strike_price_lte');
+    const list = this.optionContracts.filter(
+      (c) =>
+        (underlyings.length === 0 || underlyings.includes(c.underlying_symbol ?? '')) &&
+        (!q.get('status') || c.status === q.get('status')) &&
+        (!q.get('expiration_date_gte') || c.expiration_date >= q.get('expiration_date_gte')!) &&
+        (!q.get('expiration_date_lte') || c.expiration_date <= q.get('expiration_date_lte')!) &&
+        (!lo || new Decimal(c.strike_price).gte(lo)) &&
+        (!hi || new Decimal(c.strike_price).lte(hi)),
+    );
+    const limit = Math.min(Number(q.get('limit') ?? 100), 10_000);
+    const offset = Number(q.get('page_token') ?? 0);
+    const page = list
+      .slice(offset, offset + limit)
+      .map((c) => (q.get('show_deliverables') === 'true' ? c : { ...c, deliverables: undefined }));
+    return {
+      option_contracts: page,
+      next_page_token: offset + limit < list.length ? String(offset + limit) : null,
+    };
+  }
+
+  /** PATCH /v2/orders/{id}: Alpaca replaces the order with a new one at the new price. */
+  private async replace(meta: OrderMeta, body: Record<string, unknown>): Promise<Response> {
+    const view = await this.view(meta);
+    if (meta.replacedBy || !['acknowledged', 'partially_filled'].includes(view.state))
+      return json(422, errors.notCancelable);
+    await this.broker.cancelOrder(ACCOUNT, meta.id);
+    await this.sync();
+    const left = new Decimal(meta.qty).minus(view.filledQuantity);
+    const r = await this.submit({
+      symbol: meta.symbol,
+      side: meta.side,
+      type: meta.type,
+      time_in_force: meta.timeInForce,
+      qty: typeof body.qty === 'string' ? body.qty : left.toString(),
+      limit_price: typeof body.limit_price === 'string' ? body.limit_price : meta.limitPrice,
+      client_order_id:
+        typeof body.client_order_id === 'string' ? body.client_order_id : crypto.randomUUID(),
+      ...(meta.positionIntent ? { position_intent: meta.positionIntent } : {}),
+    });
+    if (r.status !== 200) return r;
+    const next = (await r.clone().json()) as AlpacaOrder;
+    meta.replacedBy = next.id;
+    meta.updatedAt = this.stamp();
+    return r;
   }
 
   private fills(q: URLSearchParams): AlpacaFillActivity[] {
@@ -509,6 +690,22 @@ export class FakeAlpaca {
       return json(200, out);
     }
     if (path === '/v2/stocks/bars') return this.bars(q);
+    if (path === '/v1beta1/options/quotes/latest') {
+      const quotes: Record<string, { ap: number; as: number; bp: number; bs: number; t: string }> =
+        {};
+      for (const symbol of (q.get('symbols') ?? '').split(',').filter(Boolean)) {
+        const o = this.optionQuoteMap.get(symbol);
+        if (!o) continue;
+        quotes[symbol] = {
+          ap: Number(o.ask),
+          as: 10,
+          bp: Number(o.bid),
+          bs: 10,
+          t: o.at ?? this.now().toISOString(),
+        };
+      }
+      return json(200, { quotes });
+    }
     return json(404, { message: 'not found' });
   }
 

@@ -78,6 +78,9 @@ import {
   type StrategyDefinition,
   withPositions,
   type Schedule,
+  isOptionLeg,
+  optionFillPrice,
+  effectivePrice,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import {
@@ -92,6 +95,16 @@ import { quoteFill, stopReached, volumeCap, type Direction } from './fills';
 import { ConditionRecorder, conditionChecks, whyNotFired } from './explain';
 import { describeAssumptions, type BacktestInputs, type BacktestInterval } from './inputs';
 import { MarketView } from './market';
+import {
+  contractRef,
+  heldOption,
+  intrinsicValue,
+  OPTIONS_BACKTEST_LABEL,
+  optionExitOf,
+  optionInstrumentId,
+  pickContract,
+  type OptionsBacktestData,
+} from './options';
 import { describeCoverage, optionsCoverage } from './options-coverage';
 import { describeEarningsCoverage } from './events-coverage';
 import { computeMetrics } from './metrics';
@@ -160,8 +173,19 @@ const RISK_MESSAGES: Record<RiskCheckCode, string> = {
   risk_collar: 'Limit orders were rejected by the price collar',
   stale_data: 'Orders were rejected because the price was stale',
   market_closed: 'Orders were canceled because the market was closed',
+  // Options legs (ADR 0123).
+  option_contract: 'Some options orders were skipped because no contract matched the rule',
+  option_quote_missing: 'Some options orders were skipped because the contract had no price',
+  option_quote_stale: 'Some options orders were skipped because the quote was old',
+  option_spread_wide: 'Some options orders were skipped because the spread was wide',
 };
 const HUNDRED = new Decimal(100);
+
+/** Why an options leg placed nothing in a back test (ADR 0123). */
+const OPTION_MESSAGES = {
+  option_contract:
+    'Some options orders were skipped because no contract matching the leg had traded by then',
+} as const;
 
 type LegStatus = 'waiting' | 'working' | 'filled' | 'partial' | 'failed' | 'skipped' | 'canceled';
 const TERMINAL: readonly LegStatus[] = ['filled', 'partial', 'failed', 'skipped', 'canceled'];
@@ -255,7 +279,12 @@ interface Cycle {
     | 'expected_move'
     | 'trailing_stop'
     | 'session_end'
-    | 'strategy_trailing_stop';
+    | 'strategy_trailing_stop'
+    | 'option_target'
+    | 'option_dte'
+    | 'closed_before_expiry'
+    | 'expired_worthless'
+    | 'exercised';
   state: 'entering' | 'open' | 'exiting' | 'closed' | 'aborted';
   entryTriggeredAt?: number;
   events: Map<PhaseEvent, number>;
@@ -327,6 +356,13 @@ export interface SimulationInput {
    * group. When given, a selection on a day ranks only that day's members.
    */
   memberSpans?: ReadonlyMap<string, readonly MembershipSpan[]>;
+  /**
+   * Contracts and their daily bars, for a strategy whose legs trade options
+   * (options brief §11, ADR 0123). Absent for every other strategy.
+   */
+  optionsData?: OptionsBacktestData;
+  /** Told the contracts whose bars a pick needed and didn't have, so the loader can fetch them. */
+  onOptionBarsNeeded?: (symbols: readonly string[]) => void;
 }
 
 /** Rounds of a selection log kept in a result, so results stay small. */
@@ -365,8 +401,19 @@ export function simulate({
   data,
   members = [],
   memberSpans,
+  optionsData,
+  onOptionBarsNeeded,
 }: SimulationInput): BacktestResult {
   const warnings = new Warnings();
+  // Options (ADR 0123): contracts become instruments as the resolver picks them.
+  const optionLegs =
+    !!optionsData && [...def.entry.orders, ...def.exit.orders].some((o) => isOptionLeg(o));
+  if (optionLegs) {
+    instruments = new Map(instruments);
+    warnings.add('options_pricing', OPTIONS_BACKTEST_LABEL);
+  }
+  const contractRefs = instruments as Map<string, InstrumentRef>;
+  const optionsNeeded = new Set<string>();
   const mode = slotModeOf(def);
   const schedule = scheduleOf(def);
   const calendar = isCalendarSchedule(schedule);
@@ -383,6 +430,7 @@ export function simulate({
   const perCandidateEntry = mode === 'selection' && readsThisInstrument(def.entry.condition);
   /** v1.2 features in use: results then say why each cycle exited. */
   const v12 =
+    optionLegs ||
     mode !== 'none' ||
     calendar ||
     (def.exit.rules?.length ?? 0) > 0 ||
@@ -390,8 +438,23 @@ export function simulate({
     !!def.risk.trailingStopPct;
   for (const w of data.warnings) warnings.add(`data:${w}`, w);
   const watchOnly = watchOnlyInstruments(instruments);
+  let series = data.series;
+  if (optionLegs && optionsData) {
+    const withContracts = new Map(series);
+    for (const [sym, bars] of optionsData.bars)
+      withContracts.set(
+        seriesKey({
+          instrumentId: optionInstrumentId(sym),
+          interval: inputs.interval,
+          adjustment: inputs.adjustment,
+          session: 'regular',
+        }),
+        [...bars],
+      );
+    series = withContracts;
+  }
   const view = new MarketView(
-    data.series,
+    series,
     watchOnly,
     data.fundamentals,
     data.options,
@@ -425,6 +488,11 @@ export function simulate({
   const usedInstruments = new Set<string>(strategyInstruments(def, members));
   const symbol = (id: string) => instruments.get(id)?.symbol ?? '?';
   const lot = (id: string) => new Decimal(instruments.get(id)?.lotSize ?? '1');
+  /** A contract's multiplier (100); undefined for stocks and ETFs, whose amounts stay as they are. */
+  const multiplierOf = (id: string) => instruments.get(id)?.multiplier;
+  /** Money for a quantity × price: × the multiplier for a contract only (§5.7). */
+  const money = (amount: Decimal, id: string) => effectivePrice(amount, multiplierOf(id));
+  const isOption = (id: string) => instruments.get(id)?.assetClass === 'option';
 
   // The clock: every execution bar end inside the requested dates.
   const stepSet = new Set<number>();
@@ -539,8 +607,8 @@ export function simulate({
     for (const [id, q] of portfolio) {
       const px = mark(id);
       if (!px || q.isZero()) continue;
-      gross = gross.plus(q.abs().times(px));
-      net = net.plus(q.times(px));
+      gross = gross.plus(money(q.abs().times(px), id));
+      net = net.plus(money(q.times(px), id));
     }
     return { gross, net };
   };
@@ -759,8 +827,57 @@ export function simulate({
 
   /** Sizes, risk-checks and places one leg (§6.6, §8.6). */
   function submitLeg(c: Cycle, leg: LegState, now: number): boolean {
-    const o = leg.leg;
     leg.decidedAt = now;
+    // An options leg trades a contract (ADR 0123): an Entry picks it from the
+    // contracts known on this date, an Exit closes the one its Entry holds.
+    if (isOptionLeg(leg.leg)) {
+      if (!optionsData) return reject(leg, now, 'option_contract', OPTION_MESSAGES.option_contract);
+      const spec = leg.leg;
+      let contractId: string | undefined;
+      if (leg.phase === 'entry') {
+        const price = mark(spec.instrumentId);
+        if (!price || price.lte(0))
+          return reject(
+            leg,
+            now,
+            'no_price',
+            'Some orders were skipped because there was no price yet',
+          );
+        const pick = pickContract(
+          optionsData,
+          spec,
+          { symbol: symbol(spec.instrumentId), price },
+          nyDate(iso(now)),
+        );
+        if (!pick.ok) {
+          if (pick.code === 'option_bars_needed') optionsNeeded.add(pick.symbol);
+          return reject(leg, now, 'option_contract', OPTION_MESSAGES.option_contract, {
+            value: pick.message,
+          });
+        }
+        contractId = optionInstrumentId(pick.contract.symbol);
+        if (!contractRefs.has(contractId))
+          contractRefs.set(contractId, contractRef(spec.instrumentId, pick.contract));
+      } else {
+        contractId = heldOption(c.positions, instruments, spec);
+        if (!contractId) {
+          endLeg(leg, 'skipped', now);
+          return false;
+        }
+      }
+      // The leg now names its contract; the app prices it, so no limit or stop of its own.
+      const { option: _spec, limitPrice: _l, stopPrice: _s, ...rest } = spec;
+      void _spec;
+      void _l;
+      void _s;
+      leg.leg = {
+        ...rest,
+        instrumentId: contractId,
+        orderType: 'market',
+        quantity: { ...spec.quantity, rounding: 'down' },
+      };
+    }
+    const o = leg.leg;
     const ref = mark(o.instrumentId);
     if (!ref || ref.lte(0))
       return reject(
@@ -840,6 +957,7 @@ export function simulate({
       equity: equityNow(),
       position: pos,
       lotSize: lot(o.instrumentId),
+      multiplier: multiplierOf(o.instrumentId),
       ...(riskDistance && leg.phase === 'entry'
         ? {
             atr: evaluateExpr(
@@ -868,6 +986,7 @@ export function simulate({
       quantity: qty,
       referencePrice: ref,
       limitPrice: limit,
+      multiplier: multiplierOf(o.instrumentId),
       activeOrders: working().length,
       grossExposure: positionValue().gross.minus(closingGross),
       equity: equityNow(),
@@ -893,12 +1012,13 @@ export function simulate({
       perShare.isZero() && minCommission.isZero()
         ? ZERO
         : Decimal.max(qty.times(perShare), minCommission);
-    const slip = price.minus(base).abs().times(qty);
-    cash = cash.minus(price.times(qty).times(sign)).minus(commission);
+    const id = order.instrumentId;
+    const slip = money(price.minus(base).abs().times(qty), id);
+    cash = cash.minus(money(price.times(qty).times(sign), id)).minus(commission);
     const p = position(c, order.instrumentId);
     p.quantity = p.quantity.plus(qty.times(sign));
-    p.cash = p.cash.minus(price.times(qty).times(sign)).minus(commission);
-    p.grossCash = p.grossCash.minus(base.times(qty).times(sign));
+    p.cash = p.cash.minus(money(price.times(qty).times(sign), id)).minus(commission);
+    p.grossCash = p.grossCash.minus(money(base.times(qty).times(sign), id));
     p.commission = p.commission.plus(commission);
     p.slippage = p.slippage.plus(slip);
     portfolio.set(
@@ -917,7 +1037,7 @@ export function simulate({
     if (leg.phase === 'entry') {
       p.entryQuantity = p.entryQuantity.plus(qty);
       p.entryCost = p.entryCost.plus(price.times(qty));
-      c.entryValue = c.entryValue.plus(price.times(qty));
+      c.entryValue = c.entryValue.plus(money(price.times(qty), id));
       if (!c.events.has('entry_partial_fill')) c.events.set('entry_partial_fill', at);
     }
     fills.push({
@@ -963,6 +1083,16 @@ export function simulate({
       (order.direction === 'buy' ? best.lt(leg.bestPrice) : best.gt(leg.bestPrice))
     )
       leg.bestPrice = best;
+    // A contract fills at its bar's open, standing in for the mid, ± the slippage
+    // percent of premium; no collar or volume cap (§11, ADR 0123).
+    if (optionsData && isOption(order.instrumentId)) {
+      let qty = order.quantity.minus(order.filled);
+      if (order.closing)
+        qty = Decimal.min(qty, position(order.cycle, order.instrumentId).quantity.abs());
+      const price = optionFillPrice(bar.open, order.direction, optionsData.slippagePct);
+      if (qty.gt(0) && price.gt(0)) applyFill(order, qty, price, bar.open, at);
+      return;
+    }
     const quote = quoteFill(order, bar, slippageBps);
     if (!quote) {
       if (stopReached(order, bar)) order.stopTriggered = true;
@@ -1352,11 +1482,148 @@ export function simulate({
     settle(c, now);
   }
 
+  /** The contracts a cycle holds, with the premium paid and their close now (§8.4). */
+  function optionHoldings(c: Cycle) {
+    const out: { expiry: string; premiumPaid: Decimal; close: Decimal | undefined }[] = [];
+    for (const [id, p] of c.positions) {
+      const o = instruments.get(id)?.option;
+      if (!o || p.quantity.isZero() || p.entryQuantity.isZero()) continue;
+      out.push({
+        expiry: o.expiry,
+        premiumPaid: p.entryCost.div(p.entryQuantity),
+        close: mark(id),
+      });
+    }
+    return out;
+  }
+
+  /**
+   * §8.3 in a back test: on a contract's expiry day, from 15:00, the cycle
+   * closes it at the day's close less the slippage; without a trade that day
+   * it settles at its intrinsic value on the underlying's close (0 is
+   * "Expired worthless", more is "Exercised", settled in cash at that value).
+   */
+  function closeExpiring(c: Cycle, now: number) {
+    const day = nyDate(iso(now - 1));
+    const session = regularSession(day);
+    if (!session || now < Date.parse(session.close) - 60 * 60_000) return;
+    let reason: 'closed_before_expiry' | 'expired_worthless' | 'exercised' | undefined;
+    for (const [id, p] of c.positions) {
+      const o = instruments.get(id)?.option;
+      if (!o || o.expiry !== day || p.quantity.isZero()) continue;
+      for (const l of [...c.entryLegs, ...c.exitLegs, ...c.flattenLegs])
+        if (l.status === 'working' && l.leg.instrumentId === id)
+          endLeg(
+            l,
+            'canceled',
+            now,
+            'expiry_canceled',
+            'Options orders still working on expiry day were canceled when the contract was closed',
+          );
+      const bar = view.latest(execKey(id));
+      const tradedToday = bar !== undefined && nyDate(bar.start) === day;
+      const underlying = mark(o.underlyingId);
+      let price: Decimal;
+      let base: Decimal;
+      let why: NonNullable<typeof reason>;
+      if (tradedToday) {
+        base = bar.close;
+        price = optionFillPrice(
+          bar.close,
+          p.quantity.gt(0) ? 'sell' : 'buy',
+          optionsData?.slippagePct ?? '0',
+        );
+        why = 'closed_before_expiry';
+      } else {
+        base = underlying ? intrinsicValue(o, underlying) : ZERO;
+        price = base;
+        why = base.gt(0) ? 'exercised' : 'expired_worthless';
+      }
+      const long = p.quantity.gt(0);
+      const quantity = p.quantity.abs();
+      const side: OrderSide = long ? 'sell' : 'buy_to_cover';
+      const leg: LegState = {
+        cycle: c,
+        detail: {},
+        barsWorking: 0,
+        fillCount: 0,
+        decidedAt: now,
+        leg: {
+          id: `expiry-${id}`,
+          legLabel: `Close ${symbol(id)} on expiry day`,
+          instrumentId: id,
+          accountId: '',
+          side,
+          quantity: { type: 'units', value: quantity.toString(), rounding: 'down' },
+          orderType: 'market',
+          timeInForce: 'day',
+          timing: { mode: 'immediate' },
+        },
+        phase: 'flatten',
+        side,
+        status: 'working',
+        quantity,
+        filled: ZERO,
+        cost: ZERO,
+        reference: base,
+        submittedAt: now,
+        reason: why,
+      };
+      const order: Order = {
+        id: ++orderSeq,
+        cycle: c,
+        leg,
+        instrumentId: id,
+        direction: long ? 'sell' : 'buy',
+        type: 'market',
+        stopTriggered: false,
+        tif: 'day',
+        quantity,
+        filled: ZERO,
+        reference: base,
+        referenceAt: now,
+        referenceSession: day,
+        referenceSource: 'decision',
+        activeFrom: now,
+        firstBarSeen: true,
+        closing: true,
+      };
+      leg.order = order;
+      c.flattenLegs.push(leg);
+      allLegs.push(leg);
+      orders.push(order);
+      submitted += 1;
+      applyFill(order, quantity, price, base, now);
+      // Closing beats a settlement in the reason when a cycle holds several contracts.
+      reason = reason === 'closed_before_expiry' ? reason : why;
+    }
+    if (!reason) return;
+    warnings.add(
+      `options_${reason}`,
+      reason === 'closed_before_expiry'
+        ? 'Options still held on their expiry day were closed at that day’s close'
+        : reason === 'expired_worthless'
+          ? 'Options that did not trade on their expiry day and were out of the money expired worthless'
+          : 'Options in the money on their expiry day were settled at their value on the underlying’s close',
+    );
+    c.state = 'exiting';
+    c.exitReason = reason;
+    if (!c.legEvents.has('exit:trigger')) c.legEvents.set('exit:trigger', now);
+    settle(c, now);
+  }
+
   /** Starts a cycle's Exit now, for a reason other than its Exit condition. */
   function forceExit(
     c: Cycle,
     now: number,
-    reason: 'rebalance' | 'time_stop' | 'atr_stop' | 'expected_move' | 'trailing_stop',
+    reason:
+      | 'rebalance'
+      | 'time_stop'
+      | 'atr_stop'
+      | 'expected_move'
+      | 'trailing_stop'
+      | 'option_target'
+      | 'option_dte',
   ) {
     c.state = 'exiting';
     c.exitReason = reason;
@@ -1797,6 +2064,9 @@ export function simulate({
       if (p !== undefined) lastExitPeriod = p;
     }
 
+    // Expiry day (§8.3, ADR 0123): what is still held closes from 15:00.
+    if (optionLegs) for (const c of activeCycles()) closeExpiring(c, now);
+
     for (const c of activeCycles()) {
       scheduleLegs(c, c.entryLegs, c.entryTriggeredAt, now);
       if (c.state === 'open' && !evaluateExit && c.exitLegs.length === 0)
@@ -1832,6 +2102,11 @@ export function simulate({
         if (c.state === 'open' && checkExpectedMove(c)) forceExit(c, now, 'expected_move');
         // The trailing stop, also by OR (ADR 0059).
         if (c.state === 'open' && checkTrailingStop(c, now)) forceExit(c, now, 'trailing_stop');
+        // Option-style exits on the contract's close (§8.4, ADR 0123), also by OR.
+        if (c.state === 'open' && optionLegs) {
+          const why = optionExitOf(c.def.exit.rules, optionHoldings(c), nyDate(iso(now - 1)));
+          if (why) forceExit(c, now, why);
+        }
       }
       if (c.state === 'open' || c.state === 'exiting') {
         const exitTriggeredAt = c.state === 'exiting' ? c.legEvents.get('exit:trigger') : undefined;
@@ -1857,6 +2132,8 @@ export function simulate({
   // ---------------------------------------------------------------------------
   // Wrap up
 
+  // Contracts a pick needed bars for (ADR 0123): the loader fetches them and runs again.
+  if (optionsNeeded.size > 0) onOptionBarsNeeded?.([...optionsNeeded]);
   const stillWorking = working().length;
   if (stillWorking > 0)
     warnings.add(
@@ -1906,7 +2183,7 @@ export function simulate({
     .filter((c) => c.firstFill !== undefined || c.pick)
     .map((c) => {
       const instrumentsPnl = [...c.positions].map(([id, p]) => {
-        const value = p.quantity.times(mark(id) ?? ZERO);
+        const value = money(p.quantity.times(mark(id) ?? ZERO), id);
         return {
           instrumentId: id,
           symbol: symbol(id),
@@ -1945,7 +2222,7 @@ export function simulate({
       let net = ZERO;
       let costs = ZERO;
       for (const [id, p] of c.positions) {
-        const value = p.quantity.times(mark(id) ?? ZERO);
+        const value = money(p.quantity.times(mark(id) ?? ZERO), id);
         gross = gross.plus(p.grossCash).plus(value);
         net = net.plus(p.cash).plus(value);
         costs = costs.plus(p.commission).plus(p.slippage).plus(p.borrow);
@@ -2102,7 +2379,7 @@ export function simulate({
   >();
   for (const c of cycles) {
     for (const [id, p] of c.positions) {
-      const value = p.quantity.times(mark(id) ?? ZERO);
+      const value = money(p.quantity.times(mark(id) ?? ZERO), id);
       const agg = byInstrument.get(id) ?? {
         gross: ZERO,
         net: ZERO,

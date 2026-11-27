@@ -49,6 +49,8 @@ export interface InstrumentRef {
    * options brief v0.2 §5.7, ADR 0123). Absent for every stock and ETF.
    */
   multiplier?: string;
+  /** An option contract's terms (ADR 0123): its underlying, right, strike and expiry. */
+  option?: { underlyingId: string; right: 'call' | 'put'; strike: string; expiry: string };
 }
 
 /** Bars the engine runs on, keyed by `seriesKey`, plus where they came from. */

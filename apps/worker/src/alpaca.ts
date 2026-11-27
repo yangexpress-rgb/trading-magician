@@ -1,6 +1,7 @@
 import {
   AlpacaBroker,
   AlpacaClient,
+  type AlpacaRequestBudget,
   alpacaCapabilities,
   checkAlpacaData,
   discoverAlpacaAccount,
@@ -21,6 +22,7 @@ import {
   addDays,
   liveTradingEnabled,
   nyDate,
+  optionsTradingEnabled,
   regularSession,
   SCREEN_HISTORY_DAYS,
   type AccountCapabilities,
@@ -44,12 +46,16 @@ export interface AlpacaProviderOptions {
   fake?: { tradingUrl: string; dataUrl: string } | undefined;
   /** Tests only: waits between throttled screen requests. */
   sleep?: ((ms: number) => Promise<void>) | undefined;
+  /** Tests only: a request budget of their own, e.g. on the test's clock. */
+  budget?: AlpacaRequestBudget | undefined;
 }
 
 function clientFactory(options: AlpacaProviderOptions) {
   return (
     ctx: Pick<ProviderContext, 'credential' | 'background'> & {
       environment?: 'paper' | 'live' | undefined;
+      /** The options share of the key's budget (ADR 0123). */
+      optionsQuotes?: boolean | undefined;
     },
   ) => {
     const fields = ctx.credential?.fields;
@@ -60,6 +66,8 @@ function clientFactory(options: AlpacaProviderOptions) {
       credentials: { keyId: fields.keyId, secretKey: fields.secretKey },
       fetch: options.fetch,
       background: ctx.background ?? false,
+      optionsQuotes: ctx.optionsQuotes ?? false,
+      ...(options.budget ? { budget: options.budget } : {}),
       // A live account's host only while the server's flag is on (ADR 0109).
       environment: ctx.environment ?? 'paper',
       liveEnabled: liveTradingEnabled(),
@@ -220,10 +228,16 @@ export function alpacaBrokerProvider(options: AlpacaProviderOptions = {}): Broke
       ];
     },
     adapter(ctx, account, instrumentIdFor) {
+      // Options (ADR 0123): on paper accounts only, and only while the server's switch is on.
+      const options = optionsTradingEnabled() && ctx.environment === 'paper';
       return new AlpacaBroker({
         client: clientFor(ctx),
-        capabilities: alpacaCapabilities({ shorting_enabled: account.capabilities.shortSelling }),
+        capabilities: {
+          ...alpacaCapabilities({ shorting_enabled: account.capabilities.shortSelling }),
+          ...(options ? { options: true } : {}),
+        },
         instrumentIdFor,
+        ...(options ? { optionsClient: clientFor({ ...ctx, optionsQuotes: true }) } : {}),
       });
     },
   };

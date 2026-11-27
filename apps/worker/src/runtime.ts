@@ -142,6 +142,9 @@ import {
   sizeOrder,
   effectivePrice,
   isOptionLeg,
+  expiryStage,
+  optionExitReason,
+  type OptionHolding,
   walkExpressions,
   type BrokerAdapter,
   type BrokerOrderRequest,
@@ -170,6 +173,19 @@ import type { BrokerRegistry } from './brokers';
 import { createRoutedHistory } from './routed-history';
 import { quotesForAccount } from './account-quotes';
 import type { OptionsLifecycle } from './options-trading/lifecycle';
+import {
+  OptionQuoteCache,
+  withOptionQuotes,
+  type OptionQuoteSource,
+} from './options-trading/quotes';
+import {
+  manageOptionOrders,
+  optionsState,
+  placeOptionFlatten,
+  placeOptionLeg,
+  settleExpiredOptions,
+  type OptionPassContext,
+} from './options-trading/orders';
 import { QuoteHub } from './quote-hub';
 import { quoteTrail, type RoutedQuotes } from './routed-quotes';
 import { NO_COMPANY_FEED, type FundamentalsLoader } from './fundamentals';
@@ -264,6 +280,8 @@ export interface RuntimeCaches {
   side: RuntimeSideData<SideData>;
   /** Live prices shared by every runtime, one feed request at a time (N328). */
   quotes: QuoteHub;
+  /** Options quotes, asked at most every 15 seconds a contract (options brief §8.2). */
+  optionQuotes?: OptionQuoteCache;
 }
 
 export function createRuntimeCaches(
@@ -275,8 +293,12 @@ export function createRuntimeCaches(
     universes: new RuntimeUniverses(resolveUniverse),
     side: new RuntimeSideData<SideData>(),
     quotes: new QuoteHub({ logger, trail: quoteTrail }),
+    optionQuotes: new OptionQuoteCache(),
   };
 }
+
+/** Options quotes for a worker without caches (tests): kept for the process. */
+const OPTION_QUOTES = new OptionQuoteCache();
 
 const ZERO = new Decimal(0);
 /** How long before the close the paper runtime flattens at session end (N256, O156). */
@@ -370,7 +392,7 @@ export async function runRuntimePass(
     });
     // Prices come from the run's account's own feeds when it has any (ADR 0108),
     // otherwise through the tenant's routes, failing over between feeds (ADR 0016).
-    const quotes = await quotesForAccount({
+    const accountQuotes = await quotesForAccount({
       tx,
       userId,
       accountId: await runtimeAccountId(tx, runtimeId),
@@ -382,10 +404,20 @@ export async function runRuntimePass(
       decide: true,
       hub: options.caches?.quotes,
     });
+    // Options (ADR 0123): only while the switch is on, contracts are priced from
+    // the run's broker on the options budget; with it off the quotes are as before.
+    const optionQuotes: OptionQuoteSource | undefined = options.optionsLifecycle
+      ? withOptionQuotes(accountQuotes, {
+          cache: options.caches?.optionQuotes ?? OPTION_QUOTES,
+          now,
+          isOption: (id) => work?.instruments.get(id)?.assetClass === 'option',
+        })
+      : undefined;
+    const quotes = optionQuotes ?? accountQuotes;
     const store = new DbPaperBrokerStore(tx, userId);
     const paper = new PaperBroker({ quotes, store, now: at });
 
-    let work = await loadRuntimeWork(tx, runtimeId, workerId);
+    let work: RuntimeWork | undefined = await loadRuntimeWork(tx, runtimeId, workerId);
     if (!work) return 'lost';
     // A Selection group's members: a list as stored, or a built-in group looked up (ADR 0087).
     const group = await groupMembers(options, tx, work, now);
@@ -418,6 +450,14 @@ export async function runRuntimePass(
       }),
     });
     const broker = options.wrapBroker ? options.wrapBroker(router) : router;
+    if (optionQuotes) {
+      optionQuotes.attach(broker, work.accountId);
+      await optionQuotes.prefetch(
+        watchedInstruments(work, new Set(members)).filter(
+          (r) => work?.instruments.get(r.instrumentId)?.assetClass === 'option',
+        ),
+      );
+    }
 
     // 1–2. Orders at the broker move on; read what happened.
     const health: PassHealth = { brokerDown: false };
@@ -425,6 +465,10 @@ export async function runRuntimePass(
     await sendCancels(broker, work, health);
     await submitReady(tx, { work, broker, quotes, now, logger, health, accounts });
     const sync = await syncUpdates(tx, broker, work, health, now, options.accountSync);
+    // Options the broker removed after expiry are settled before reconciliation
+    // looks, so a worthless expiry is no mismatch (§8.3, ADR 0123).
+    if (optionQuotes && (await settleExpiredOptions(tx, { work, broker, now, logger })) > 0)
+      work = withMembers((await loadRuntimeWork(tx, runtimeId, workerId)) ?? work);
     // 3. Periodic reconciliation against the broker (§8.5).
     const healed = sync.complete
       ? await reconcile(tx, broker, work, now, sync.unknown, health, options.optionsLifecycle)
@@ -451,6 +495,7 @@ export async function runRuntimePass(
         broker,
         history,
         quotes,
+        optionQuotes,
         now,
         logger,
         health,
@@ -720,6 +765,8 @@ async function readFeed(
   const prices: WatchedPrice[] = [];
   const why = (quotes as Partial<Pick<RoutedQuotes, 'missReason'>>).missReason;
   for (const { instrumentId, symbol } of watchedInstruments(work, members)) {
+    // A contract's quote is judged when an order is sent (§8.2), never as the run's feed.
+    if (work.instruments.get(instrumentId)?.assetClass === 'option') continue;
     const quote = await quotes.latestQuote({ instrumentId, symbol });
     prices.push({ instrumentId, symbol, quote, miss: quote ? undefined : why?.(instrumentId) });
   }
@@ -1071,6 +1118,8 @@ interface PassContext {
   broker: BrokerAdapter;
   history: HistoricalDataProvider;
   quotes: LiveQuoteProvider;
+  /** Set only while options trading is on (ADR 0123): contract quotes and orders. */
+  optionQuotes?: OptionQuoteSource | undefined;
   now: Date;
   logger: RuntimeWorkerOptions['logger'];
   health: PassHealth;
@@ -1150,6 +1199,9 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   const def = work.definition;
   const t = now.getTime();
   const state: RuntimeState = structuredClone(work.state);
+  // Working options orders: one re-price, then cancel (§7.4, ADR 0123).
+  const octx = optionContext(tx, ctx);
+  if (octx) await manageOptionOrders(octx);
 
   // Marks and equity (§8.6): paper capital plus what the runtime's fills made.
   const quoteCache = new Map<string, Quote | undefined>();
@@ -1299,7 +1351,9 @@ async function planPass(tx: Transaction, ctx: PassContext) {
                   ? strategyTrailText(def.risk.trailingStopPct, state.strategyTrail)
                   : undefined),
             }
-          : { kind: 'leg_failed' },
+          : notes.includes('closed_before_expiry')
+            ? { kind: 'closed_before_expiry' }
+            : { kind: 'leg_failed' },
     );
   const due = (schedule: Schedule, last: string | undefined): string | undefined => {
     const s = normalSchedule(schedule);
@@ -1766,6 +1820,34 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         c.cycle = { ...c.cycle, trailPeak: trailingPeak(start, close, long).toString() };
       }
     }
+    // Options (§§8.3–8.4, ADR 0123): option-style exits on the contract's mid,
+    // and the expiry-day close. Nothing here runs while options trading is off.
+    let optionExit: 'option_target' | 'option_dte' | undefined;
+    let expiryClose = false;
+    if (ctx.optionQuotes && (c.cycle.status === 'open' || c.cycle.status === 'exit_working')) {
+      const holdings: OptionHolding[] = [];
+      for (const [id, q] of c.positions) {
+        const ref = work.instruments.get(id);
+        if (q.isZero() || ref?.assetClass !== 'option' || !ref.option) continue;
+        const stage = expiryStage(ref.option.expiry, now);
+        if (stage === 'close' || stage === 'touch') {
+          expiryClose = true;
+          // The underlying's price late on expiry day says, if it is ever needed,
+          // whether a contract left at expiry was in the money (§8.3).
+          const u = await quoteFor(ref.option.underlyingId);
+          const st = optionsState(work);
+          if (u) st.expiryMarks = { ...st.expiryMarks, [id]: u.last.toString() };
+        }
+        const e = c.entries.get(id);
+        holdings.push({
+          premiumPaid: e && !e.quantity.isZero() ? e.cost.div(e.quantity) : 0,
+          premiumNow: (await quoteFor(id))?.last,
+          expiry: ref.option.expiry,
+        });
+      }
+      if (exitDue && c.cycle.status === 'open')
+        optionExit = optionExitReason(cycleDef.exit.rules, holdings, today);
+    }
     const plan = planCycle({
       definition: cycleDef,
       cycle: c.cycle,
@@ -1776,6 +1858,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       exitDue,
       sessionEnd,
       strategyStop: trailClosing,
+      expiryClose,
       forceExit: rebalanceExits.has(c.id)
         ? 'rebalance'
         : atrStopFired
@@ -1784,8 +1867,15 @@ async function planPass(tx: Transaction, ctx: PassContext) {
             ? 'expected_move'
             : trailFired
               ? 'trailing_stop'
-              : undefined,
+              : optionExit,
     });
+    // Options orders keep their own clock: one re-price at 120 s, then cancel (§7.4).
+    if (ctx.optionQuotes)
+      plan.cancel = plan.cancel.filter(
+        (x) =>
+          x.reason !== 'leg_timeout' ||
+          work.working.find((o) => o.intent.id === x.intentId)?.intent.optionDetail == null,
+      );
     let exitEventId: string | undefined;
     if (exitTruth) {
       exitEventId = await recordTriggerEvent(tx, {
@@ -1812,7 +1902,9 @@ async function planPass(tx: Transaction, ctx: PassContext) {
             ? 'Session end: the position was flattened'
             : cancel.reason === 'strategy_trailing_stop'
               ? 'Trailing stop: the strategy closed its positions'
-              : 'Another leg of the plan did not fill',
+              : cancel.reason === 'closed_before_expiry'
+                ? 'Expiry day: the option is being closed'
+                : 'Another leg of the plan did not fill',
       );
       if (target) {
         try {
@@ -1892,6 +1984,21 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         safetyCloses.set(reason, [...prior, ...symbols]);
       }
     }
+    // An expiry-day close that could not go yet (no quote) goes on a later pass;
+    // one already placed is not placed again (§8.3, ADR 0123).
+    if (!plan.flatten && expiryClose && plan.cycle.flattened && octx) {
+      const reason = safetyCloseReason({ kind: 'closed_before_expiry' });
+      for (const [instrumentId, q] of c.positions) {
+        if (q.isZero() || work.instruments.get(instrumentId)?.assetClass !== 'option') continue;
+        const symbol = await placeOptionFlatten(octx, {
+          cycle: c,
+          instrumentId,
+          quantity: q,
+          closeReason: reason,
+        });
+        if (symbol) safetyCloses.set(reason, [...(safetyCloses.get(reason) ?? []), symbol]);
+      }
+    }
 
     let realizedPnl: string | undefined;
     if (plan.cycle.status === 'closed') realizedPnl = c.cash.toDecimalPlaces(2).toString();
@@ -1956,6 +2063,8 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     });
   }
 
+  // The options path keeps its own part of the state on the run (ADR 0123).
+  if (octx) state.options = work.state.options;
   await saveRuntimeState(tx, work.id, state, now);
 }
 
@@ -2039,11 +2148,19 @@ async function placeLeg(
   const { cycle: c, plan, leg } = input;
   const order = def[leg.phase].orders.find((o) => o.id === leg.legId);
   if (!order) return skip(plan, leg);
-  // Options legs are never sent as share orders (ADR 0123). O0 builds no options
-  // order path, and validation refuses them before Start; this is the last guard.
+  // Options legs are never sent as share orders (ADR 0123): they go through the
+  // options path, and only while options trading is on; otherwise they are skipped.
   if (isOptionLeg(order)) {
-    ctx.logger.warn({ runtimeId: work.id, leg: leg.legId }, 'options leg skipped: not built');
-    return skip(plan, leg);
+    const octx = optionContext(tx, ctx);
+    if (!octx) {
+      ctx.logger.warn({ runtimeId: work.id, leg: leg.legId }, 'options leg skipped: options off');
+      return skip(plan, leg);
+    }
+    return placeOptionLeg(octx, {
+      ...input,
+      order,
+      underlying: await input.quoteFor(order.instrumentId),
+    });
   }
   const quote = await input.quoteFor(order.instrumentId);
   if (!quote) return skip(plan, leg);
@@ -2193,6 +2310,20 @@ async function placeLeg(
   });
 }
 
+/** The options path's view of a pass, or undefined while options trading is off. */
+function optionContext(tx: Transaction, ctx: PassContext): OptionPassContext | undefined {
+  if (!ctx.optionQuotes) return undefined;
+  return {
+    tx,
+    work: ctx.work,
+    broker: ctx.broker,
+    quotes: ctx.optionQuotes,
+    now: ctx.now,
+    logger: ctx.logger,
+    submit: (intentId, request) => submit(tx, ctx, intentId, request),
+  };
+}
+
 function skip(plan: CyclePlan, leg: PlannedLeg): undefined {
   if (!plan.cycle.skipped.includes(leg.key)) plan.cycle.skipped.push(leg.key);
   return undefined;
@@ -2272,6 +2403,13 @@ async function placeFlatten(
   closeReason: string,
 ): Promise<string | undefined> {
   const { work, now } = ctx;
+  if (work.instruments.get(instrumentId)?.assetClass === 'option') {
+    // A contract closes as a limit, never at market (§§7.1, 8.3, ADR 0123).
+    const octx = optionContext(tx, ctx);
+    return octx
+      ? placeOptionFlatten(octx, { cycle: c, instrumentId, quantity, closeReason })
+      : undefined;
+  }
   const quote = await quoteFor(instrumentId);
   if (!quote) return undefined;
   const accountId = c.legs.find((l) => l.instrumentId === instrumentId)

@@ -46,6 +46,13 @@ import {
 import type { Logger } from 'pino';
 import { BacktestTrace } from './backtest-trace';
 import { NO_COMPANY_FEED, type FundamentalsLoader } from './fundamentals';
+import {
+  hasOptionLegs,
+  loadContractLists,
+  optionsBacktestProblem,
+  simulateWithOptions,
+  type OptionsHistory,
+} from './options-trading/backtest-data';
 
 /**
  * Runs queued back tests (Design v1.0 §7.2, ADR 0009). One run at a time per
@@ -92,6 +99,11 @@ export interface BacktestWorkerOptions {
    * simulations far shorter.
    */
   simulateLeaseSeconds?: number;
+  /**
+   * Alpaca's option contracts and contract bars, for strategies whose legs
+   * trade options (options brief §11, ADR 0123); read when a run needs them.
+   */
+  optionsHistory?: () => OptionsHistory | undefined;
   /** Most estimated bars a run may hold (tests lower it; ADR 0081). */
   maxBars?: number;
   /** How often a running attempt logs its stage and memory (0 turns it off). */
@@ -393,15 +405,38 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
         return (await inTenant((tx) => finishCanceled(tx, runId, workerId))) ?? 'lost';
       }
 
+      // Options legs (ADR 0123): contracts point in time, read before the simulation.
+      const optionsHistory = hasOptionLegs(work.definition)
+        ? options.optionsHistory?.()
+        : undefined;
+      let contracts: Awaited<ReturnType<typeof loadContractLists>> | undefined;
+      if (hasOptionLegs(work.definition)) {
+        const problem = optionsBacktestProblem(work.definition, work.inputs, optionsHistory);
+        if (problem || !optionsHistory) throw new UnsupportedBarRequestError(problem ?? '');
+        done = trace.stage('load_option_contracts');
+        contracts = await loadContractLists(
+          work.definition,
+          instruments,
+          data,
+          work.inputs,
+          optionsHistory,
+        );
+        done({ underlyings: contracts.size });
+      }
+
       done = trace.stage('simulate');
-      const result = simulate({
+      const simulation = {
         definition: work.definition,
         instruments,
         inputs: work.inputs,
         data,
         members,
         ...(memberSpans ? { memberSpans } : {}),
-      });
+      };
+      const result =
+        contracts && optionsHistory
+          ? await simulateWithOptions(simulation, contracts, optionsHistory)
+          : simulate(simulation);
       if (membership) result.membership = { ...membership, priceable: priced(members, data) };
       done({
         steps: result.equity.length,

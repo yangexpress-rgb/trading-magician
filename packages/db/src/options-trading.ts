@@ -1,5 +1,7 @@
 import {
+  contractListVersion,
   isOptionLeg,
+  type ContractListEntry,
   parseOptionsLevel,
   type OptionsAccountView,
   type OptionsUse,
@@ -7,7 +9,14 @@ import {
 } from '@tm/domain';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import type { Transaction } from './client';
-import { brokerConnections, strategyRuntimes, tradingAccounts } from './schema';
+import {
+  brokerConnections,
+  brokerOrders,
+  optionContractLists,
+  orderEvents,
+  strategyRuntimes,
+  tradingAccounts,
+} from './schema';
 
 /**
  * Options trading in the database (options brief v0.2, ADR 0123): contracts as
@@ -105,4 +114,75 @@ export async function isOptionsAccount(tx: Transaction, accountId: string): Prom
     )
     .limit(1);
   return !!row;
+}
+
+// ---------------------------------------------------------------------------
+// §6.3 The contract list, cached in Core
+// ---------------------------------------------------------------------------
+
+export interface CachedContractList {
+  underlyingId: string;
+  fetchedOn: string;
+  fetchedAt: Date;
+  version: string;
+  expiryTo: string;
+  strikeFrom: string;
+  strikeTo: string;
+  contracts: ContractListEntry[];
+}
+
+/** Worker only: the cached list of an underlying, or undefined while none was read. */
+export async function loadContractList(
+  tx: Transaction,
+  underlyingId: string,
+): Promise<CachedContractList | undefined> {
+  const [row] = await tx
+    .select()
+    .from(optionContractLists)
+    .where(eq(optionContractLists.underlyingId, underlyingId));
+  return row ? { ...row, contracts: row.contracts as ContractListEntry[] } : undefined;
+}
+
+/** Worker only: replaces an underlying's cached list (§6.3). */
+export async function saveContractList(
+  tx: Transaction,
+  list: Omit<CachedContractList, 'version'>,
+): Promise<CachedContractList> {
+  const version = contractListVersion(list.fetchedOn, list.contracts);
+  const row = { ...list, version };
+  await tx
+    .insert(optionContractLists)
+    .values(row)
+    .onConflictDoUpdate({ target: optionContractLists.underlyingId, set: row });
+  return row;
+}
+
+/**
+ * Worker only (§7.1): an options order re-priced in place. The broker gave it
+ * a new order id; the intent keeps its own client order id (with `_r` at the
+ * broker), and the order's timeline shows the new limit and its quote.
+ */
+export async function recordReprice(
+  tx: Transaction,
+  intentId: string,
+  change: {
+    brokerOrderId: string;
+    limitPrice: string;
+    quote: { bid: string; ask: string; at: string };
+  },
+): Promise<void> {
+  const [row] = await tx
+    .update(brokerOrders)
+    .set({ brokerOrderId: change.brokerOrderId, updatedAt: new Date() })
+    .where(eq(brokerOrders.intentId, intentId))
+    .returning({ userId: brokerOrders.userId, state: brokerOrders.state });
+  if (!row) throw new Error('unknown order');
+  await tx.insert(orderEvents).values({
+    userId: row.userId,
+    intentId,
+    source: 'app',
+    fromState: row.state,
+    toState: row.state,
+    payload: { kind: 'option_reprice', ...change },
+  });
 }

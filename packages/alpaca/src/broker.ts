@@ -1,6 +1,10 @@
 import {
   BrokerRejectedError,
   NO_OPTIONS_REASON,
+  OPTIONS_DEFAULTS,
+  type ContractListEntry,
+  type ContractListQuery,
+  type OptionQuote,
   type BrokerAccountBalance,
   type BrokerAdapter,
   type BrokerCapabilities,
@@ -10,7 +14,14 @@ import {
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { AlpacaRequestError, type AlpacaClient } from './client';
-import type { AlpacaAccount, AlpacaFillActivity, AlpacaOrder, AlpacaPosition } from './types';
+import type {
+  AlpacaAccount,
+  AlpacaFillActivity,
+  AlpacaOptionContract,
+  AlpacaOptionQuote,
+  AlpacaOrder,
+  AlpacaPosition,
+} from './types';
 
 /**
  * The Alpaca paper broker behind the app's broker contract (§8.2–8.5, §9.3;
@@ -30,6 +41,44 @@ export interface AlpacaBrokerOptions {
   instrumentIdFor?: ((symbol: string) => Promise<string | undefined>) | undefined;
   /** The clock, for how long part two of a split order is retried (tests set it). */
   now?: (() => Date) | undefined;
+  /**
+   * Options (options brief v0.2 §8.2, ADR 0123): a client on the options share
+   * of the key's budget, for contract quotes and lists. Given only while the
+   * server's options switch is on, with `capabilities.options` true.
+   */
+  optionsClient?: AlpacaClient | undefined;
+}
+
+type AlpacaContract = AlpacaOptionContract;
+
+/**
+ * §5.3: a standard contract delivers 100 shares of its own underlying under
+ * its own root. Anything else (an adjusted contract) is never picked.
+ */
+export function contractEntry(c: AlpacaContract): ContractListEntry | undefined {
+  const right = c.type === 'call' || c.type === 'put' ? c.type : undefined;
+  const strike = new Decimal(c.strike_price || 0);
+  if (!right || !strike.gt(0) || !/^\d{4}-\d{2}-\d{2}$/.test(c.expiration_date)) return undefined;
+  const multiplier = c.multiplier ?? c.size ?? '100';
+  const std = String(OPTIONS_DEFAULTS.standardMultiplier);
+  const d = c.deliverables;
+  const standard =
+    new Decimal(multiplier).eq(std) &&
+    (c.size === undefined || new Decimal(c.size).eq(std)) &&
+    (!c.root_symbol || !c.underlying_symbol || c.root_symbol === c.underlying_symbol) &&
+    (!d ||
+      d.length === 0 ||
+      (d.length === 1 &&
+        d[0]?.symbol === c.underlying_symbol &&
+        new Decimal(d[0]?.amount ?? 0).eq(std)));
+  return {
+    symbol: c.symbol,
+    expiry: c.expiration_date,
+    right,
+    strike: strike.toString(),
+    multiplier: new Decimal(multiplier).toString(),
+    standard,
+  };
 }
 
 const ORDERS_PAGE = 500;
@@ -93,6 +142,8 @@ export function orderEvents(o: AlpacaOrder): BrokerOrderUpdate[] {
       at: o.submitted_at,
     },
   ];
+  // A re-price (ADR 0123): the order lives on as its replacement, so nothing ended.
+  if (o.status === 'replaced' && o.replaced_by) return events;
   if (o.status === 'canceled' || o.status === 'replaced') {
     events.push({
       ...base,
@@ -176,6 +227,8 @@ const isDuplicate = (e: AlpacaRequestError) =>
  */
 const PART_ONE = /^(.+)_1_(\d+(?:\.\d+)?)$/;
 const PART_TWO = /^(.+)_2$/;
+/** A re-priced options order (ADR 0123): the intent's client order id with `_r`. */
+const REPRICED = /^(.+)_r$/;
 const INSUFFICIENT =
   /insufficient qty available for order \(requested: (\d+(?:\.\d+)?), available: (\d+(?:\.\d+)?)\)/i;
 /** How long part two is retried after part one filled, before the rest is given up. */
@@ -196,6 +249,7 @@ export function appClientOrderId(alpacaClientOrderId: string): string {
   return (
     partOne(alpacaClientOrderId)?.base ??
     PART_TWO.exec(alpacaClientOrderId)?.[1] ??
+    REPRICED.exec(alpacaClientOrderId)?.[1] ??
     alpacaClientOrderId
   );
 }
@@ -250,6 +304,7 @@ export class AlpacaBroker implements BrokerAdapter {
     quantity: string,
   ): Promise<{ brokerOrderId: string }> {
     const body = {
+      ...(request.positionIntent ? { position_intent: request.positionIntent } : {}),
       symbol: request.symbol,
       qty: quantity,
       side: request.direction,
@@ -463,6 +518,81 @@ export class AlpacaBroker implements BrokerAdapter {
       });
     }
     return out;
+  }
+
+  /** §7.1: re-prices a working options limit order in place (Alpaca replaces it). */
+  async replaceOrder(
+    _accountId: string,
+    brokerOrderId: string,
+    change: { limitPrice: string; clientOrderId: string },
+  ) {
+    this.optionsOnly();
+    try {
+      const order = await this.client.trading<AlpacaOrder>(
+        'PATCH',
+        `/v2/orders/${encodeURIComponent(brokerOrderId)}`,
+        { body: { limit_price: change.limitPrice, client_order_id: change.clientOrderId } },
+      );
+      return { brokerOrderId: order.id };
+    } catch (e) {
+      if (!(e instanceof AlpacaRequestError)) throw e;
+      throw new BrokerRejectedError(e.status === 422 ? 'not_replaceable' : 'invalid', e.message);
+    }
+  }
+
+  /** §8.2: latest contract quotes on the indicative feed, pinned explicitly. */
+  async optionQuotes(_accountId: string, symbols: readonly string[]) {
+    const client = this.optionsOnly();
+    const out = new Map<string, OptionQuote>();
+    for (let i = 0; i < symbols.length; i += 100) {
+      const batch = symbols.slice(i, i + 100);
+      const r = await client.data<{ quotes?: Record<string, AlpacaOptionQuote> | null }>(
+        '/v1beta1/options/quotes/latest',
+        { symbols: batch.join(','), feed: 'indicative' },
+      );
+      for (const [symbol, q] of Object.entries(r.quotes ?? {}))
+        out.set(symbol, { bid: String(q.bp), ask: String(q.ap), at: q.t });
+    }
+    return out;
+  }
+
+  /** §6.3: the active contracts of an underlying in a window, with their deliverables. */
+  async optionContracts(_accountId: string, query: ContractListQuery) {
+    const client = this.optionsOnly();
+    const out: ContractListEntry[] = [];
+    let token: string | undefined;
+    for (let page = 0; page < 20; page++) {
+      const r = await client.trading<{
+        option_contracts?: AlpacaContract[] | null;
+        next_page_token?: string | null;
+      }>('GET', '/v2/options/contracts', {
+        query: {
+          underlying_symbols: query.underlying,
+          status: 'active',
+          expiration_date_gte: query.expirationGte,
+          expiration_date_lte: query.expirationLte,
+          strike_price_gte: query.strikeGte,
+          strike_price_lte: query.strikeLte,
+          show_deliverables: true,
+          limit: 10_000,
+          page_token: token,
+        },
+      });
+      for (const c of r.option_contracts ?? []) {
+        if (c.tradable === false) continue;
+        const e = contractEntry(c);
+        if (e) out.push(e);
+      }
+      if (!r.next_page_token) break;
+      token = r.next_page_token;
+    }
+    return out;
+  }
+
+  private optionsOnly(): AlpacaClient {
+    if (!this.capabilities.options || !this.options.optionsClient)
+      throw new BrokerRejectedError('options_unsupported', NO_OPTIONS_REASON);
+    return this.options.optionsClient;
   }
 
   private order(id: string) {

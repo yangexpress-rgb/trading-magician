@@ -737,6 +737,40 @@ export function ExitRulesEditor({
                     open, after the position was held through five closes.
                   </p>
                 </>
+              ) : r.kind === 'optionTarget' ? (
+                <>
+                  <MiniInput
+                    id={`rule-${r.id}-pct`}
+                    label="Options profit target: % gained on the premium paid"
+                    inputMode="decimal"
+                    disabled={!editable}
+                    value={r.pct}
+                    error={issueAt(['exit', 'rules', i, 'pct'])}
+                    onChange={(e) => replace(i, { ...r, pct: e.target.value.trim() })}
+                  />
+                  <p className="flex-1 pb-1 text-xs text-ink-muted">
+                    Reads the contract&rsquo;s premium, not the stock. 50% closes a call bought for
+                    2.00 once it is worth 3.00.
+                  </p>
+                </>
+              ) : r.kind === 'optionDte' ? (
+                <>
+                  <MiniInput
+                    id={`rule-${r.id}-days`}
+                    label="Close options before expiry: days to expiry"
+                    type="number"
+                    min={1}
+                    max={365}
+                    step={1}
+                    disabled={!editable}
+                    value={Number.isFinite(r.days) ? String(r.days) : ''}
+                    error={issueAt(['exit', 'rules', i, 'days'])}
+                    onChange={(e) => replace(i, { ...r, days: asInt(e.target.value) })}
+                  />
+                  <p className="flex-1 pb-1 text-xs text-ink-muted">
+                    Calendar days. The contract closes once it has this many days or fewer left.
+                  </p>
+                </>
               ) : r.kind === 'trailingStop' ? (
                 <>
                   <MiniInput
@@ -871,7 +905,11 @@ export function ExitRulesEditor({
                         ? 'Remove the expected-move exit'
                         : r.kind === 'trailingStop'
                           ? 'Remove the trailing stop'
-                          : 'Remove the ATR stop'
+                          : r.kind === 'optionTarget'
+                            ? 'Remove the options profit target'
+                            : r.kind === 'optionDte'
+                              ? 'Remove the close before expiry'
+                              : 'Remove the ATR stop'
                   }
                   className="text-danger"
                   onClick={() => remove(i)}

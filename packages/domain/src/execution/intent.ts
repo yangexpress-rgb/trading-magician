@@ -44,6 +44,24 @@ export interface OrderIntent {
   closeReason?: string | undefined;
   /** The data feed whose price `referencePrice` is (ADR 0108), when it came through one. */
   pricedByFeedId?: string | undefined;
+  /** Options orders only (ADR 0123): how the contract and the limit were chosen. */
+  optionDetail?: OptionOrderDetail | undefined;
+}
+
+/** What an options order's detail shows (options brief v0.2 §§6.2, 6.3, 7.1, 9). */
+export interface OptionOrderDetail {
+  underlying: string;
+  contract: string;
+  /** The contract in plain words, e.g. "AAPL 105 call, expiring Fri Dec 26". */
+  words: string;
+  /** The contract list the pick was made from (§6.3); absent on an exit, which never re-resolves. */
+  listVersion?: string | undefined;
+  /** Decided while the market was closed and resolved again at release (§6.2): the first pick. */
+  decided?: { contract: string; words: string; at: string; listVersion: string } | undefined;
+  /** The quote the limit came from. */
+  quote?: { bid: string; ask: string; at: string } | undefined;
+  /** Why the app placed it, for a lifecycle close (e.g. closed before expiry). */
+  lifecycle?: string | undefined;
 }
 
 /**

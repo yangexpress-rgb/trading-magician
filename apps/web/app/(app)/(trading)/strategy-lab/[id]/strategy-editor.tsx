@@ -73,6 +73,8 @@ interface Props {
   instruments: InstrumentOption[];
   /** Underlyings with options signals, for the options metric picker (brief v2 §6). */
   optionUnderlyings?: OptionUnderlying[];
+  /** Whether this server trades options (ADR 0123); off by default. */
+  optionsTrading?: boolean;
   /** Registered model series for `ml.score` (ML brief v1 §8). */
   mlModels?: MlModelOption[];
   accounts: AccountOption[];
@@ -114,6 +116,7 @@ export function StrategyEditor({
   initialRowVersion,
   instruments: initialInstruments,
   optionUnderlyings = NO_UNDERLYINGS,
+  optionsTrading = false,
   mlModels = NO_MODELS,
   accounts,
   timeZone,
@@ -249,6 +252,7 @@ export function StrategyEditor({
       universeClasses,
       optionUnderlyings,
       mlModels,
+      optionsTrading,
     }),
     [
       instruments,
@@ -263,6 +267,7 @@ export function StrategyEditor({
       universeClasses,
       optionUnderlyings,
       mlModels,
+      optionsTrading,
     ],
   );
 
