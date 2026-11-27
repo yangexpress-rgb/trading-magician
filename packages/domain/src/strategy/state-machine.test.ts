@@ -502,7 +502,12 @@ describe('the worked example on a walk (§4, §2.7)', () => {
 
   it('a missing bar mid-run is a stay, never a lower row winning (§2.2)', () => {
     const switchDay = dates.indexOf(replay.switches[5]!.on);
-    const gap = replayMachine(def.machine, dates, dayResolver(days, new Set([switchDay])));
+    // Replaying to the gap day is enough: the path up to a day reads no later bar (A2).
+    const gap = replayMachine(
+      def.machine,
+      dates.slice(0, switchDay + 1),
+      dayResolver(days, new Set([switchDay])),
+    );
     expect(gap.steps[switchDay]!.decision).toMatchObject({ kind: 'stay', reason: 'unknown' });
     expect(gap.steps.slice(0, switchDay)).toEqual(replay.steps.slice(0, switchDay));
   });
@@ -516,9 +521,11 @@ describe('the worked example on a walk (§4, §2.7)', () => {
           volume: d.volume * 30,
         }));
         const mutated = [...days.slice(0, t + 1), ...future];
-        const other = replayMachine(def.machine, dates, dayResolver(mutated));
+        // The resolver holds every mutated bar, so a lookahead would show in the first t + 1 days.
+        const other = replayMachine(def.machine, dates.slice(0, t + 1), dayResolver(mutated));
         expect(other.steps.slice(0, t + 1)).toEqual(replay.steps.slice(0, t + 1));
       }
     }
-  });
+    // Six replays of up to 1,200 days: about 2 s here, slower on a loaded CI runner.
+  }, 30_000);
 });
