@@ -228,7 +228,7 @@ export async function pushDecayScores(sql: postgres.Sql, client: CompanionClient
   const scored = await sql<
     {
       id: string;
-      decay_state: string;
+      decay_state: 'holding' | 'weakening' | 'broken' | null;
       decay_stats: Record<string, unknown>;
       last_scored: string;
       pulled: string | null;
@@ -238,7 +238,7 @@ export async function pushDecayScores(sql: postgres.Sql, client: CompanionClient
     select p.id::text, p.decay_state, p.decay_stats, p.last_scored::text, d.last_scored::text as pulled,
            'decay:' || p.id::text || ':' || p.last_scored::text || ':' || md5(p.decay_stats::text) as key
     from pattern p left join companion.decay_pulled d on d.pattern_id = p.id
-    where p.status = 'verified' and p.decay_state is not null and p.last_scored is not null
+    where p.status = 'verified' and p.last_scored is not null
       and p.decay_stats is not null
       and not exists (
         select 1 from companion.pushed x

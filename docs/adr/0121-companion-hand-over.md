@@ -56,3 +56,8 @@ The decay job takes its day in UTC. On Yong's Mac (New York time) the companion 
 for patterns due on the UTC day, but the miner used the local date. From 7 PM each evening the
 two disagreed, and the 200 due patterns were pulled but never scored. Railway runs in UTC, so
 nothing changes for the cloud.
+
+**N352 (same day).** With the day fixed, the miner scored 236 patterns but the companion sent only 10. A pattern with fewer than 10 fresh occurrences gets no decay state, and the companion skipped
+scores without a state. The cloud never learned the new score date, so it kept listing the same
+200 patterns as due, and the companion re-scored them every 5 minutes. A score without a state is
+now sent like any other (`decayState: null`), as the cloud's own miner already records it.

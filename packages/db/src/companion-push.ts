@@ -140,7 +140,8 @@ export const PatternDecayPush = z.object({
   /** Present on the last part only. */
   state: z
     .object({
-      decayState: z.enum(['holding', 'weakening', 'broken']),
+      /** Null while a pattern has too few fresh occurrences to judge (N352): still a score. */
+      decayState: z.enum(['holding', 'weakening', 'broken']).nullable(),
       decayStats: z.record(z.string(), z.unknown()),
       lastScored: day,
     })

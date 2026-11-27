@@ -476,4 +476,51 @@ describe.skipIf(isRoot)('ML on the Local Companion (ADR 0117)', () => {
     expect(scored).toBe(1);
     expect(pushes.filter((p) => p.kind === 'pattern_decay')).toHaveLength(1);
   });
+
+  it('sends a score with too few fresh occurrences to judge, so the cloud stops listing it (N352)', async () => {
+    const scanId = randomUUID();
+    const patternId = randomUUID();
+    const userId = randomUUID();
+    decayDue.push({
+      id: patternId,
+      userId,
+      rank: 1,
+      rule: [{ factor: 'rsi_14', mode: 'le', bucket: 1 }],
+      stats: { holdout: { n: 30 } },
+      decayState: null,
+      decayStats: null,
+      lastScored: null,
+      scan: {
+        id: scanId,
+        userId,
+        config: { horizon: 5 },
+        summary: 'Quiet scan',
+        effective: { to: '2026-06-30', discoveryEnd: '2025-12-31' },
+        createdAt: '2026-07-01T00:00:00Z',
+      },
+    });
+    const before = pushes.filter((p) => p.kind === 'pattern_decay').length;
+    // The miner's decay job on a pattern with no fresh occurrences: no state, but a score date.
+    const miner: MinerRunner = async (storeUrl) => {
+      const { default: postgresJs } = await import('postgres');
+      const sql = postgresJs(storeUrl, { max: 1, onnotice: () => undefined });
+      try {
+        await sql`update pattern set decay_state = null, last_scored = '2026-11-26',
+                    decay_stats = ${JSON.stringify({ fresh: { n: 0 } })}::text::jsonb
+                  where id = ${patternId} and last_scored is null`;
+      } finally {
+        await sql.end();
+      }
+      return { code: 0, tail: [] };
+    };
+    await round(trainerWriting(null), miner);
+    const sent = pushes.filter((p) => p.kind === 'pattern_decay').slice(before);
+    expect(sent.map((p) => p.payload)).toEqual([
+      {
+        patternId,
+        occurrences: [],
+        state: { decayState: null, decayStats: { fresh: { n: 0 } }, lastScored: '2026-11-26' },
+      },
+    ]);
+  });
 });

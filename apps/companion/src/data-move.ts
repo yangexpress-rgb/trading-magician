@@ -191,9 +191,7 @@ export async function markCloudCopies(
       on conflict do nothing`;
     return rows.count;
   };
-  const scored = patterns.filter(
-    (p) => p.decay_state != null && p.last_scored != null && p.decay_stats != null,
-  );
+  const scored = patterns.filter((p) => p.last_scored != null && p.decay_stats != null);
   // The same key the decay push uses, with the hash taken over Postgres's own jsonb text.
   const decayKeys = scored.length
     ? (
