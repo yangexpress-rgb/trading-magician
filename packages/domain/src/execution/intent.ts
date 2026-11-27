@@ -81,6 +81,19 @@ export interface OptionOrderDetail {
         path?: 'combo' | 'legs_short_first' | undefined;
       }
     | undefined;
+  /**
+   * Phase O3: a call or put sold on its own, a covered call or a cash-secured
+   * put, with what it can lose and the cash set aside, at pricing time.
+   */
+  sold?:
+    | {
+        kind: 'covered_call' | 'cash_secured_put';
+        maxLoss: string;
+        buyingPower: string;
+      }
+    | undefined;
+  /** Phase O3: the roll this order belongs to (1 for the first), when a roll rule placed it. */
+  roll?: number | undefined;
   /** Phase O2: where the delta rule's Greeks came from, when it picked the strike. */
   greeks?: { source: 'broker' | 'app'; delta: string } | undefined;
 }

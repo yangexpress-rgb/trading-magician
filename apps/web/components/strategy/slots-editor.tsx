@@ -634,6 +634,33 @@ export function RiskDistanceEditor({
   );
 }
 
+/** The options exits a strategy with options legs can add (§8.4; the roll is Phase O3). */
+const OPTION_RULE_BUTTONS: {
+  kind: 'optionTarget' | 'optionDte' | 'optionRoll';
+  label: string;
+  text: string;
+  make: () => ExitRule;
+}[] = [
+  {
+    kind: 'optionTarget',
+    label: 'Add an options profit target',
+    text: '+ Options profit target',
+    make: () => ({ kind: 'optionTarget', id: randomId(), pct: '50' }),
+  },
+  {
+    kind: 'optionDte',
+    label: 'Add a close before expiry',
+    text: '+ Close before expiry',
+    make: () => ({ kind: 'optionDte', id: randomId(), days: 7 }),
+  },
+  {
+    kind: 'optionRoll',
+    label: 'Add a roll before expiry',
+    text: '+ Roll before expiry',
+    make: () => ({ kind: 'optionRoll', id: randomId(), days: 5 }),
+  },
+];
+
 /**
  * Every way a position exits, in one list (ADR 0049): the Exit condition
  * above, the holding-period exit, the ATR stop, the trailing stop, the
@@ -670,6 +697,9 @@ export function ExitRulesEditor({
   // Per-leg conditions kept as saved still rebalance on a calendar Check Entry.
   const rebalances = mode === 'legs' && isScheduled(definition);
   const distance = definition.entry.risk ?? DEFAULT_RISK_DISTANCE;
+  const options = [...definition.entry.orders, ...definition.exit.orders].some(
+    (o) => o.option !== undefined,
+  );
   return (
     <div className="mt-3">
       {editable && (
@@ -700,6 +730,17 @@ export function ExitRulesEditor({
           >
             + Expected move
           </RowButton>
+          {/* Options exits (§8.4, ADR 0123): shown only when a leg trades options. */}
+          {options &&
+            OPTION_RULE_BUTTONS.filter((b) => !rules.some((r) => r.kind === b.kind)).map((b) => (
+              <RowButton
+                key={b.kind}
+                label={b.label}
+                onClick={() => setRules([...rules, b.make()])}
+              >
+                {b.text}
+              </RowButton>
+            ))}
         </div>
       )}
       {kept.length > 0 && (
@@ -769,6 +810,26 @@ export function ExitRulesEditor({
                   />
                   <p className="flex-1 pb-1 text-xs text-ink-muted">
                     Calendar days. The contract closes once it has this many days or fewer left.
+                  </p>
+                </>
+              ) : r.kind === 'optionRoll' ? (
+                <>
+                  <MiniInput
+                    id={`rule-${r.id}-days`}
+                    label="Roll options before expiry: days to expiry"
+                    type="number"
+                    min={1}
+                    max={365}
+                    step={1}
+                    disabled={!editable}
+                    value={Number.isFinite(r.days) ? String(r.days) : ''}
+                    error={issueAt(['exit', 'rules', i, 'days'])}
+                    onChange={(e) => replace(i, { ...r, days: asInt(e.target.value) })}
+                  />
+                  <p className="flex-1 pb-1 text-xs text-ink-muted">
+                    Calendar days. Once a contract has this many days or fewer left, the cycle
+                    closes its options and opens them again from the Entry&rsquo;s rules, on later
+                    contracts. Shares a covered call is sold on stay held.
                   </p>
                 </>
               ) : r.kind === 'trailingStop' ? (
@@ -909,7 +970,9 @@ export function ExitRulesEditor({
                             ? 'Remove the options profit target'
                             : r.kind === 'optionDte'
                               ? 'Remove the close before expiry'
-                              : 'Remove the ATR stop'
+                              : r.kind === 'optionRoll'
+                                ? 'Remove the roll before expiry'
+                                : 'Remove the ATR stop'
                   }
                   className="text-danger"
                   onClick={() => remove(i)}

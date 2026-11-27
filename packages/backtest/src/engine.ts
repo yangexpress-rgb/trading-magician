@@ -85,6 +85,8 @@ import {
   comboMaxLoss,
   gcd,
   heldOptionsExposure,
+  soldOptionRisk,
+  optionRollDue,
   legSign,
   optionCombos,
   type HeldContract,
@@ -192,6 +194,8 @@ const HUNDRED = new Decimal(100);
 const OPTION_MESSAGES = {
   option_contract:
     'Some options orders were skipped because no contract matching the leg had traded by then',
+  options_uncovered_call:
+    'Some calls were not sold because the cycle did not hold or have bought the 100 shares a contract that cover them',
 } as const;
 
 type LegStatus = 'waiting' | 'working' | 'filled' | 'partial' | 'failed' | 'skipped' | 'canceled';
@@ -282,6 +286,8 @@ interface Cycle {
   no: number;
   /** Options combos of this cycle's Entry, by underlying (Phase O2). */
   combos?: Map<string, ComboPick>;
+  /** How many times the roll rule rolled this cycle's options (Phase O3). */
+  rolls?: number;
   /** What this cycle runs: the strategy, or a slot's definition (v1.2). */
   def: StrategyDefinition;
   /** The universe member or leg this cycle holds, for Selection groups and per-leg conditions. */
@@ -1135,6 +1141,31 @@ export function simulate({
     // Pre-trade risk checks (§8.6), shared with paper execution. A combo leg's
     // were made for the combo as a whole when its contracts were picked (Phase O2).
     if (leg.comboChecked) return placeOrder(c, leg, qty, direction, closing, now, { limit, stop });
+    // Phase O3: a call sold alone needs the shares that cover it, bought or being
+    // bought in this cycle; a put sold alone counts its strike less the premium,
+    // and the cash an assignment needs is checked against buying power.
+    let sold: { atRisk: Decimal; buyingPower: Decimal } | undefined;
+    const contract = instruments.get(o.instrumentId)?.option;
+    if (contract && leg.phase === 'entry' && o.side === 'sell_short') {
+      const u = contract.underlyingId;
+      const buying = c.entryLegs
+        .filter((l) => l.order && l.leg.instrumentId === u && l.order.direction === 'buy')
+        .reduce((n, l) => n.plus(l.order ? l.order.quantity.minus(l.order.filled) : ZERO), ZERO);
+      const r = soldOptionRisk({
+        right: contract.right,
+        strike: contract.strike,
+        contracts: qty,
+        limit: ref,
+        sharesHeld: position(c, u).quantity.plus(buying),
+        multiplier: multiplierOf(o.instrumentId),
+      });
+      if (!r.ok)
+        return reject(leg, now, r.code, OPTION_MESSAGES.options_uncovered_call, {
+          limit: r.needed.toString(),
+          value: r.held.toString(),
+        });
+      sold = { atRisk: r.atRisk, buyingPower: r.buyingPower };
+    }
     const checked = checkPreTradeRisk({
       risk,
       closing,
@@ -1149,6 +1180,7 @@ export function simulate({
       drawdownHit: drawdownHalt,
       openPositions: [...portfolio.values()].filter((q) => !q.isZero()).length,
       instrumentHeld: !(portfolio.get(o.instrumentId) ?? ZERO).isZero(),
+      ...(sold ? { combo: sold } : {}),
     });
     if (!checked.ok && checked.code) {
       const failed = checked.checks.find((x) => !x.passed);
@@ -1781,6 +1813,109 @@ export function simulate({
     settle(c, now);
   }
 
+  /**
+   * Phase O3, the roll rule: the cycle's contracts close at this bar's close
+   * (less the slippage), and the Entry's options legs are placed again, picking
+   * later contracts from their rules on this date. Shares stay held. With no
+   * contract to roll into, the cycle ends as closed before expiry.
+   */
+  function rollOptions(c: Cycle, now: number) {
+    const rule = c.def.exit.rules?.find((r) => r.kind === 'optionRoll');
+    if (!rule || rule.kind !== 'optionRoll') return;
+    let rolled = false;
+    for (const [id, p] of c.positions) {
+      const o = instruments.get(id)?.option;
+      if (!o || p.quantity.isZero()) continue;
+      const base = mark(id);
+      if (!base) continue;
+      for (const l of [...c.entryLegs, ...c.exitLegs, ...c.flattenLegs])
+        if (l.status === 'working' && l.leg.instrumentId === id)
+          endLeg(
+            l,
+            'canceled',
+            now,
+            'rolled',
+            'Options orders still working were canceled when the contract was rolled',
+          );
+      const long = p.quantity.gt(0);
+      const quantity = p.quantity.abs();
+      const side: OrderSide = long ? 'sell' : 'buy_to_cover';
+      const price = optionFillPrice(base, long ? 'sell' : 'buy', optionsData?.slippagePct ?? '0');
+      const leg: LegState = {
+        cycle: c,
+        detail: {},
+        barsWorking: 0,
+        fillCount: 0,
+        decidedAt: now,
+        leg: {
+          id: `roll-${c.rolls ?? 0}-${id}`,
+          legLabel: `Roll ${symbol(id)}`,
+          instrumentId: id,
+          accountId: '',
+          side,
+          quantity: { type: 'units', value: quantity.toString(), rounding: 'down' },
+          orderType: 'market',
+          timeInForce: 'day',
+          timing: { mode: 'immediate' },
+        },
+        phase: 'flatten',
+        side,
+        status: 'working',
+        quantity,
+        filled: ZERO,
+        cost: ZERO,
+        reference: base,
+        submittedAt: now,
+        reason: 'rolled',
+      };
+      const order: Order = {
+        id: ++orderSeq,
+        cycle: c,
+        leg,
+        instrumentId: id,
+        direction: long ? 'sell' : 'buy',
+        type: 'market',
+        stopTriggered: false,
+        tif: 'day',
+        quantity,
+        filled: ZERO,
+        reference: base,
+        referenceAt: now,
+        referenceSession: nyDate(iso(now - 1)),
+        referenceSource: 'decision',
+        activeFrom: now,
+        firstBarSeen: true,
+        closing: true,
+      };
+      leg.order = order;
+      c.flattenLegs.push(leg);
+      allLegs.push(leg);
+      orders.push(order);
+      submitted += 1;
+      applyFill(order, quantity, price, base, now);
+      rolled = true;
+    }
+    if (!rolled) return;
+    c.rolls = (c.rolls ?? 0) + 1;
+    c.combos?.clear();
+    // The Entry's options legs go again, each picking from its rule on this date.
+    const again = legOrderFor(c.def, 'entry')
+      .filter((l) => isOptionLeg(l))
+      .map((l) => legState(c, l, 'entry'));
+    c.entryLegs.push(...again);
+    for (const l of again) submitLeg(c, l, now);
+    warnings.add(
+      'options_rolled',
+      `Options were rolled at ${rule.days} days to expiry: closed at that day’s close and opened again from the Entry’s rules`,
+    );
+    if (again.every((l) => TERMINAL.includes(l.status) && l.filled.isZero()) && flat(c)) {
+      c.state = 'exiting';
+      c.exitReason = 'option_dte';
+      if (!c.legEvents.has('exit:trigger')) c.legEvents.set('exit:trigger', now);
+    }
+    settle(c, now);
+  }
+
   /** Starts a cycle's Exit now, for a reason other than its Exit condition. */
   function forceExit(
     c: Cycle,
@@ -2275,6 +2410,9 @@ export function simulate({
         if (c.state === 'open' && optionLegs) {
           const why = optionExitOf(c.def.exit.rules, optionHoldings(c), nyDate(iso(now - 1)));
           if (why) forceExit(c, now, why);
+          // Phase O3: the roll rule, when no exit fired.
+          else if (optionRollDue(c.def.exit.rules, optionHoldings(c), nyDate(iso(now - 1))))
+            rollOptions(c, now);
         }
       }
       if (c.state === 'open' || c.state === 'exiting') {

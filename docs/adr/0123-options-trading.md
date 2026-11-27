@@ -1,9 +1,9 @@
 # ADR 0123: Options trading on paper (brief v0.2, Phases O0 to O3)
 
-- **Status:** accepted (O0, O1)
+- **Status:** accepted (O0, O1, O2, O3)
 - **Date:** 2026-11-27
 - **Design refs:** "Trading Magician — Options Trading: Design Brief", draft v0.2 (Drive file
-  `trading-app-options-trading-brief-v0.2.md`); N353 to N360 and N361 to N366; open points O219 to O221 and O222 to O232; migrations 0118 and 0119. Each later phase amends this ADR with its own rows.
+  `trading-app-options-trading-brief-v0.2.md`); N353 to N360 and N361 to N366; N367 to N373; N374 to N377; open points O219 to O221, O222 to O232, O233 to O246 and O247 to O254; migrations 0118, 0119 and 0120 (O3 has none). Each later phase amends this ADR with its own rows.
 
 ## Context
 
@@ -310,6 +310,69 @@ until the options account exists.
   account.
 - **A5, A10:** unchanged from O0/O1 (A10 adds the level-3 gate for combos, covered by the
   options-trading start checks).
+
+## Decision: Phase O3 (covered calls, cash-secured puts, rolls)
+
+O3 adds the level-1 structures and the roll rule, on paper accounts with the switch on. With it
+off nothing below is reached; a stock or ETF cycle holds no short call, so the two new waits
+never apply to it.
+
+- **Covered calls** (N374). On one underlying, one call sold to open next to a share leg buying
+  100 shares a contract in the same Entry is a covered call: level 1 to start, not a combo.
+  Fewer shares is refused naming how many are needed (`options_uncovered_call`); no shares at
+  all is still `options_naked_call`. On paper the call is sold once the cycle holds the shares
+  (nothing is asked or recorded before), and the shares never sell, by an Exit leg or a safety
+  close, while the call is held: the call is bought back first (O247, O248). The call adds
+  nothing to exposure when sold (O249). An assigned covered call sells the cycle's own shares at
+  the strike, and the cycle ends (O251). The dividend watch and day-early close apply as to any
+  short call.
+- **Cash-secured puts** (N375). One put sold to open alone is a cash-secured put: level 1. At
+  pricing time its order size and exposure are its max loss, (strike − premium) × 100, and the
+  assignment cash, strike × 100, is checked as buying power (O250). Assignment buys the shares,
+  which then close (O251). Shared by both engines: `soldOptionRisk` in `options/covered.ts`.
+- **Rolls** (N376). A new exit rule, `optionRoll` with days to expiry: when a contract held has
+  that many days or fewer, the cycle closes its contracts (short legs first) and, once nothing is
+  held or closing, places its Entry's options legs again, picked from their rules on that date,
+  as attempt 1000 + the roll's number. The planner keeps a rolling cycle open while it holds
+  nothing (`rolling`). Shares stay held, so a covered call is bought back and sold again on a
+  later expiry. The roll days must be below the Entry's minimum days to expiry; an exit that
+  fires the same day wins; a safety close stops a roll; a roll that opens nothing ends the cycle
+  as closed before expiry (O252). Back tests roll at the day's close and open at the next open
+  (O253).
+- **Builder and order detail** (N377). Strategies with options legs get "+ Options profit target",
+  "+ Close before expiry" and "+ Roll before expiry" under Exit when (O1 and O2 had the rules but
+  no way to add them in the builder). The order detail now shows what O2 and O3 record: a combo's
+  legs, net, max loss, buying power and close path; the delta rule's Greeks and their source; a
+  covered call or cash-secured put; and the roll that placed an order.
+- **Calendars and diagonals** are not built: the brief says "if still wanted" (O254).
+- **One O2 test changed.** O2 refused a lone short put as "cash-secured puts come later"; that
+  fixture now expects it to validate. No test of stock or ETF behaviour changed.
+
+### O3 deviations
+
+O247–O254 in `docs/design/v1.2-deviations.md`: covered calls only on the Entry's own shares; the
+paper ordering of call and shares; a covered call's exposure; the put's cash as buying power;
+assignment ends the cycle (no wheel); a roll as close-then-open under one rule; back-tested roll
+prices; and calendars and diagonals left for Yong.
+
+## Acceptance (O3)
+
+- **A1:** pass. Unit suites 1,481 passed (1,465 after O2 plus 16 new); integration suites
+  680 passed, 14 skipped (677 after O2 plus 3 new). The three reference back tests pass unchanged. No migration.
+- **A3 (O3 structures):** pass (domain `options/covered.test.ts`): covered call valid at level 1
+  and refused at 0; too few shares refused with the count; a put sold alone validates; a
+  cash-secured put of 2 at strike 95 for 1.20 counts $18,760 and sets aside $19,000.
+- **Covered call on the fake:** pass (worker `test/options-o3.test.ts`): only the shares go on the
+  first pass; the call goes after they fill, marked as a covered call; on the target the call is
+  bought back first, the shares sold on the next pass, and nothing is left at the broker.
+- **Cash-secured put on the fake:** pass: refused at an order limit below (strike − mid) × 100,
+  with that figure; placed above it, with strike × 100 set aside.
+- **Roll on the fake:** pass: at 19 days to expiry the contract closes ("Rolled: ..."), the later
+  expiry is bought as roll 1, and the cycle stays the same, open.
+- **Back tests:** pass (backtest `options-o3.test.ts`): a covered call keeps $90 of premium on flat
+  shares; an uncovered call is refused; a cash-secured put is refused at $9,349 and placed at
+  $9,350; a roll closes the Apr 5 call and buys the Apr 12 one in one cycle.
+- **On staging paper:** pending the options account, as in O1 and O2.
 
 ## Consequences
 

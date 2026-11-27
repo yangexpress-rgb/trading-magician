@@ -65,6 +65,25 @@ export interface OrderRowDto {
     quote?: { bid: string; ask: string; at: string } | undefined;
     decided?: { words: string; at: string } | undefined;
     lifecycle?: string | undefined;
+    /** Phase O2: the combo in words, its net limit, max loss, buying power and close path. */
+    combo?:
+      | {
+          legs: string[];
+          netLimit: string;
+          sets: string;
+          maxLoss?: string | undefined;
+          buyingPower?: string | undefined;
+          path?: 'combo' | 'legs_short_first' | undefined;
+        }
+      | undefined;
+    /** Phase O2: the delta rule's Greeks, the broker's or the app's own. */
+    greeks?: { source: 'broker' | 'app'; delta: string } | undefined;
+    /** Phase O3: a covered call or cash-secured put. */
+    sold?:
+      | { kind: 'covered_call' | 'cash_secured_put'; maxLoss: string; buyingPower: string }
+      | undefined;
+    /** Phase O3: the roll that placed it. */
+    roll?: number | undefined;
   } | null;
   strategyId: string;
   strategyName: string;

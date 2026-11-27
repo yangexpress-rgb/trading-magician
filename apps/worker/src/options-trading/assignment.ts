@@ -108,7 +108,7 @@ export async function settleAssignedOptions(tx: Transaction, ctx: Ctx): Promise<
       right: option.right,
       expiry: option.expiry,
     });
-    const detail = `${contracts} ${words} sold in this combo ${contracts.eq(1) ? 'was' : 'were'} assigned, so ${shares} ${underlying.symbol} shares were ${call ? 'sold' : 'bought'} at ${option.strike}`;
+    const detail = `${contracts} ${words} sold in this ${work.definition.entry.orders.filter((o) => o.option).length > 1 ? 'combo' : 'cycle'} ${contracts.eq(1) ? 'was' : 'were'} assigned, so ${shares} ${underlying.symbol} shares were ${call ? 'sold' : 'bought'} at ${option.strike}`;
     const closeReason = safetyCloseReason({ kind: 'assigned', detail });
     const base = idempotencyKey({
       runtimeId: work.id,
@@ -121,7 +121,7 @@ export async function settleAssignedOptions(tx: Transaction, ctx: Ctx): Promise<
     const record = async (input: {
       key: string;
       instrumentId: string;
-      side: 'buy_to_cover' | 'sell_short' | 'buy';
+      side: 'buy_to_cover' | 'sell_short' | 'sell' | 'buy';
       direction: 'buy' | 'sell';
       quantity: Decimal;
       price: string;
@@ -205,10 +205,12 @@ export async function settleAssignedOptions(tx: Transaction, ctx: Ctx): Promise<
     });
     if (!done) continue;
     // The shares, at the strike, attributed to the same cycle.
+    // A covered call's own shares are sold (Phase O3); a combo's call sells short.
+    const cycleShares = c.positions.get(option.underlyingId) ?? ZERO;
     await record({
       key: `${base}:shares`,
       instrumentId: option.underlyingId,
-      side: call ? 'sell_short' : 'buy',
+      side: call ? (cycleShares.gte(shares) ? 'sell' : 'sell_short') : 'buy',
       direction: call ? 'sell' : 'buy',
       quantity: shares,
       price: new Decimal(option.strike).toString(),

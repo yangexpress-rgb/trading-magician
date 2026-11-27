@@ -1,5 +1,6 @@
 import {
   contractListVersion,
+  coveredStructures,
   hasCombo,
   isOptionLeg,
   type ContractListEntry,
@@ -58,9 +59,17 @@ export async function ensureOptionInstrument(
 export function optionsUses(def: StrategyDefinition): OptionsUse[] {
   const legs = [...def.entry.orders, ...def.exit.orders].filter(isOptionLeg);
   if (legs.length === 0) return [];
-  const uses = new Set<OptionsUse>(['long']);
-  // Two or more options legs on one underlying, or any sold to open, are a combo (§§3, 5.4).
+  const uses = new Set<OptionsUse>();
+  // Buying to open is a long option (level 2); an Entry with no options leg reads as one too.
+  if (
+    def.entry.orders.some((o) => isOptionLeg(o) && o.side === 'buy') ||
+    !def.entry.orders.some(isOptionLeg)
+  )
+    uses.add('long');
+  // Two or more options legs on one underlying, or any sold to open, are a combo (§§3, 5.4)...
   if (hasCombo(def)) uses.add('combo');
+  // ...except a call covered by the Entry's shares or a cash-secured put (level 1, Phase O3).
+  if (coveredStructures(def.entry.orders).length > 0) uses.add('covered');
   return [...uses];
 }
 

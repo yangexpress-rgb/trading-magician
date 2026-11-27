@@ -703,6 +703,7 @@ export const EXIT_RULE_KINDS = [
   'leftGroup',
   'optionTarget',
   'optionDte',
+  'optionRoll',
 ] as const;
 export const EXPECTED_MOVE_SIDES = ['either', 'gain', 'loss'] as const;
 export const exitRuleSchema = z.discriminatedUnion('kind', [
@@ -767,6 +768,17 @@ export const exitRuleSchema = z.discriminatedUnion('kind', [
     kind: z.literal('optionDte'),
     id,
     days: z.number().int().min(1, 'Close at least 1 day before expiry').max(365),
+  }),
+  /**
+   * Phase O3 (ADR 0123): roll a contract when it has `days` calendar days or
+   * fewer to expiry: close what the cycle holds in options and open them again
+   * from the Entry's rules, in the same cycle (shares a covered call sells on
+   * stay held).
+   */
+  z.object({
+    kind: z.literal('optionRoll'),
+    id,
+    days: z.number().int().min(1, 'Roll at least 1 day before expiry').max(365),
   }),
 ]);
 export type ExitRule = z.infer<typeof exitRuleSchema>;

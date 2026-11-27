@@ -18,7 +18,9 @@ export type SafetyCloseTrigger =
   /** A short leg of an options combo was assigned: the rest and the shares close (§8.3, O2). */
   | { kind: 'assigned'; detail?: string | undefined }
   /** A short call is likely to be exercised early for a dividend: the combo closes (§7.5, O2). */
-  | { kind: 'dividend_risk'; detail?: string | undefined };
+  | { kind: 'dividend_risk'; detail?: string | undefined }
+  /** The strategy's roll rule: the contract closes and a later one opens from Entry (O3). */
+  | { kind: 'rolled'; days: number };
 
 export const SAFETY_CLOSE_LABELS: Record<SafetyCloseTrigger['kind'], string> = {
   strategy_trailing_stop: 'Trailing stop (whole strategy)',
@@ -28,6 +30,7 @@ export const SAFETY_CLOSE_LABELS: Record<SafetyCloseTrigger['kind'], string> = {
   expired_worthless: 'Expired worthless',
   assigned: 'Assigned',
   dividend_risk: 'Closed before a dividend',
+  rolled: 'Rolled',
 };
 
 /** The reason a safety close records, in plain language. */
@@ -49,6 +52,8 @@ export function safetyCloseReason(t: SafetyCloseTrigger): string {
       return `${SAFETY_CLOSE_LABELS.assigned}: ${t.detail ?? 'a short option of this combo was assigned, so the broker delivered shares at the strike'}. The app closes the rest of the combo and the shares in the regular session.`;
     case 'dividend_risk':
       return `${SAFETY_CLOSE_LABELS.dividend_risk}: ${t.detail ?? 'a short call of this combo is worth less than the dividend over its intrinsic value, so it is likely to be exercised early'}, so the app closes the combo before the ex-dividend date.`;
+    case 'rolled':
+      return `${SAFETY_CLOSE_LABELS.rolled}: the contract has ${t.days} day${t.days === 1 ? '' : 's'} or fewer to expiry, so the strategy's roll rule closes it and opens a later one from the Entry's rules, in the same cycle.`;
     case 'expired_worthless':
       return `${SAFETY_CLOSE_LABELS.expired_worthless}: the option expired out of the money and the broker removed it, so it was settled at 0 and the premium paid is the loss.`;
   }
