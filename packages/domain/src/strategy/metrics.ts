@@ -10,6 +10,7 @@ import type { OptionSignalField, OptionSignalSource } from '../options/signals';
 import type { EventMetricId, EventPoint } from '../events/signals';
 import { isMlModelKey, type MlPrediction } from '../ml/predictions';
 import {
+  ALL_HISTORY_BARS,
   BAR_INTERVALS,
   type BarInterval,
   type IndicatorParamSpec,
@@ -188,6 +189,41 @@ function rsiSeries(instrumentId: string, p: Record<string, number | string>): In
   };
 }
 
+/** The daily volume series of an instrument, `offset` bars back (N382). */
+function dailyVolume(instrumentId: string, offset = 0): MarketExpr {
+  return {
+    kind: 'market',
+    id: `metric:volume:${instrumentId}`,
+    instrumentId,
+    field: 'volume',
+    interval: '1d',
+    adjustment: 'split_and_dividend',
+    session: 'regular',
+    offset,
+  };
+}
+
+/**
+ * The highest daily close the all-time-high drawdown compares with (N383):
+ * over the last `window` bars, or with 0 over all loaded history, which asks
+ * for ALL_HISTORY_BARS so a back test and a paper run load from the data's start.
+ */
+function highestClose(instrumentId: string, window: number): IndicatorExpr {
+  const name = window > 0 ? 'HIGHEST' : 'HIGHEST_EVER';
+  return {
+    kind: 'indicator',
+    id: `metric:${name}:close:${window}:${instrumentId}`,
+    name,
+    params: window > 0 ? { period: window } : {},
+    instrumentId,
+    field: 'close',
+    interval: '1d',
+    adjustment: 'split_and_dividend',
+    session: 'regular',
+    offset: 0,
+  };
+}
+
 function dailyIndicator(instrumentId: string, name: string, period: number): IndicatorExpr {
   return {
     kind: 'indicator',
@@ -341,6 +377,90 @@ const PRICE_METRICS: readonly MetricSpec[] = [
         returns.push(today.div(before).minus(1));
       }
       return sampleStdDev(returns)?.times(new Decimal(TRADING_DAYS_PER_YEAR).sqrt());
+    },
+  },
+  {
+    // State-machine brief v1.3 §3 (N381): "MA20 rising" is ma_slope{20, 1} > 0.
+    id: 'ma_slope',
+    label: 'Moving-average slope',
+    help: 'SMA(period) today / SMA(period) a number of bars earlier − 1, on daily closes. Above 0 means the average is rising; 0.01 is 1% higher.',
+    category: 'price',
+    unit: 'fraction',
+    params: [
+      { name: 'period', label: 'SMA period', kind: 'int', min: 2, max: 500, default: 20 },
+      {
+        name: 'bars',
+        label: 'Compared with (bars back)',
+        kind: 'int',
+        min: 1,
+        max: 250,
+        default: 1,
+      },
+    ],
+    assetClasses: PRICE_CLASSES,
+    requirements: (id, p) => [
+      { ...dailyIndicator(id, 'SMA', Number(p.period ?? 20)), offset: Number(p.bars ?? 1) },
+    ],
+    compute: (id, p, r, barsBack) => {
+      const avg = dailyIndicator(id, 'SMA', Number(p.period ?? 20));
+      const now = r.value(avg, barsBack);
+      const before = r.value(avg, barsBack + Number(p.bars ?? 1));
+      if (!now || !before || before.lte(0)) return undefined;
+      return now.div(before).minus(1);
+    },
+  },
+  {
+    // State-machine brief v1.3 §3 (N382).
+    id: 'relative_volume',
+    label: 'Relative volume',
+    help: "The day's volume / the average volume of the window's bars before it (the day itself left out). 2 is twice the usual volume. On the free IEX feed volumes are only IEX's own trades, so they are understated; the ratio still compares like with like.",
+    category: 'price',
+    unit: 'number',
+    params: [
+      { name: 'window', label: 'Average over (bars)', kind: 'int', min: 2, max: 500, default: 60 },
+    ],
+    // Indices come as daily closes only, without volume.
+    assetClasses: YEAR_RANGE_CLASSES,
+    requirements: (id, p) => [dailyVolume(id, Number(p.window ?? 60))],
+    compute: (id, p, r, barsBack) => {
+      const n = Number(p.window ?? 60);
+      const today = r.value(dailyVolume(id), barsBack);
+      if (!today) return undefined;
+      let sum = new Decimal(0);
+      for (let k = 1; k <= n; k++) {
+        const v = r.value(dailyVolume(id), barsBack + k);
+        if (!v) return undefined;
+        sum = sum.plus(v);
+      }
+      if (sum.lte(0)) return undefined;
+      return today.div(sum.div(n));
+    },
+  },
+  {
+    // State-machine brief v1.3 §3 (N383): the closes-based, all-history sibling of from_52w_high.
+    id: 'ath_drawdown',
+    label: 'Drawdown from all-time high',
+    help: 'close / the highest daily close − 1, today included: 0 at a new high, −0.30 is 30% below it. With a window of 0 the high is over all loaded history, which on the app\'s data starts in July 2020, so "all-time" means since the data starts; otherwise over the last window bars.',
+    category: 'price',
+    unit: 'fraction',
+    params: [
+      {
+        name: 'window',
+        label: 'Window (bars, 0 = all loaded history)',
+        kind: 'int',
+        min: 0,
+        max: ALL_HISTORY_BARS,
+        default: 0,
+        presets: [0, 252, 1260],
+      },
+    ],
+    assetClasses: PRICE_CLASSES,
+    requirements: (id, p) => [highestClose(id, Number(p.window ?? 0)), dailyClose(id)],
+    compute: (id, p, r, barsBack) => {
+      const close = r.value(dailyClose(id), barsBack);
+      const high = r.value(highestClose(id, Number(p.window ?? 0)), barsBack);
+      if (!close || !high || high.lte(0)) return undefined;
+      return close.div(high).minus(1);
     },
   },
   {

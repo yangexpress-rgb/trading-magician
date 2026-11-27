@@ -119,6 +119,12 @@ function rolling(xs: readonly Decimal[], n: number, pick: 'max' | 'min'): Indica
 export const highest = (xs: readonly Decimal[], n: number) => rolling(xs, n, 'max');
 export const lowest = (xs: readonly Decimal[], n: number) => rolling(xs, n, 'min');
 
+/** The highest value from the first loaded bar up to each bar, the current one included (N383). */
+export function highestEver(xs: readonly Decimal[]): IndicatorValues {
+  let best: Decimal | undefined;
+  return xs.map((x) => (best = best === undefined || x.gt(best) ? x : best));
+}
+
 /**
  * Bars since the lowest (or highest) value of the last `n` bars, the current
  * bar included: 0 when the current bar is the extreme. Ties go to the most
@@ -185,6 +191,8 @@ export function indicatorSeries(
       return highest(xs, n);
     case 'LOWEST':
       return lowest(xs, n);
+    case 'HIGHEST_EVER':
+      return highestEver(xs);
     case 'ROC':
       return roc(xs, n);
     case 'LOWEST_AGO':

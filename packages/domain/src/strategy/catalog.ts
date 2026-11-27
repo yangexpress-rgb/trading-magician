@@ -95,6 +95,15 @@ function extremeHelp(
   );
 }
 
+/**
+ * Daily bars an "all loaded history" series asks for (N383): 20 years, more
+ * than any feed the app has holds (Alpaca's free IEX bars start in July
+ * 2020), so loading that far back loads from the start of the data. The
+ * back test and the paper runtime both plan from it, so they see the same
+ * history (state-machine brief v1.3 §3, A6).
+ */
+export const ALL_HISTORY_BARS = 5040;
+
 export const INDICATORS: readonly IndicatorSpec[] = [
   {
     name: 'SMA',
@@ -183,6 +192,14 @@ export const INDICATORS: readonly IndicatorSpec[] = [
     lookback: (p) => Number(p.period),
   },
   {
+    // Behind the "Drawdown from all-time high" metric over all loaded history (N383); the builder offers the metric.
+    name: 'HIGHEST_EVER',
+    label: 'Highest value ever loaded',
+    params: [],
+    defaultField: 'close',
+    lookback: () => ALL_HISTORY_BARS,
+  },
+  {
     name: 'ROC',
     label: 'Rate of change (%)',
     params: [period(10)],
@@ -206,6 +223,8 @@ export const INDICATORS_WITH_A_METRIC: ReadonlySet<string> = new Set([
   // The 52-week metrics' building blocks (N290).
   'LOWEST_AGO',
   'HIGHEST_AGO',
+  // The all-time-high drawdown's building block (N383).
+  'HIGHEST_EVER',
 ]);
 
 /** The indicators the builder offers: those with no metric or statistic equivalent. */
