@@ -695,6 +695,8 @@ export const EXIT_RULE_KINDS = [
   'expectedMove',
   'trailingStop',
   'leftGroup',
+  'optionTarget',
+  'optionDte',
 ] as const;
 export const EXPECTED_MOVE_SIDES = ['either', 'gain', 'loss'] as const;
 export const exitRuleSchema = z.discriminatedUnion('kind', [
@@ -744,6 +746,22 @@ export const exitRuleSchema = z.discriminatedUnion('kind', [
    * is schema 2's `keepHoldings`).
    */
   z.object({ kind: z.literal('leftGroup'), id }),
+  /**
+   * Options brief v0.2 §8.4 (ADR 0123), options legs only: exit when a
+   * position's premium has gained `pct` % of what was paid for it (O2 reads
+   * a combo's max profit). Reads the contract premium, never the underlying.
+   */
+  z.object({
+    kind: z.literal('optionTarget'),
+    id,
+    pct: positiveDecimalString.refine((v) => Number(v) <= 1000, 'Use 1000% or less'),
+  }),
+  /** §8.4: close a contract when it has `days` calendar days or fewer to expiry. */
+  z.object({
+    kind: z.literal('optionDte'),
+    id,
+    days: z.number().int().min(1, 'Close at least 1 day before expiry').max(365),
+  }),
 ]);
 export type ExitRule = z.infer<typeof exitRuleSchema>;
 

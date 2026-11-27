@@ -5,3 +5,6 @@ export * from './derive';
 export * from './cboe';
 export * from './live';
 export * from './trading';
+export * from './resolver';
+export * from './quotes';
+export * from './exits';

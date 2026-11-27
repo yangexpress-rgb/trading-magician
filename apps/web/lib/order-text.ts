@@ -76,6 +76,10 @@ export const RISK_CHECK_LABELS: Record<RiskCheckCode, string> = {
   risk_collar: 'Price collar',
   stale_data: 'Price age',
   market_closed: 'Market hours',
+  option_contract: 'Options contract',
+  option_quote_missing: 'Options quote',
+  option_quote_stale: 'Options quote age',
+  option_spread_wide: 'Options spread',
 };
 
 type TimelineItem = OrderDetailDto['timeline'][number];
@@ -99,6 +103,11 @@ export function describeEvent(e: TimelineItem): string {
       return `Cancel requested${reason ? ` (${reason})` : ''}`;
     case 'canceled_before_submit':
       return `Canceled before it was sent${reason ? ` (${reason})` : ''}`;
+    case 'option_reprice':
+      // Options orders are re-priced once, a third of the way to the touch (ADR 0123).
+      return typeof d.limitPrice === 'string'
+        ? `Re-priced to ${formatPrice(d.limitPrice)}`
+        : 'Re-priced';
     case 'broker_update': {
       const u = d.update as
         | { kind?: string; reason?: string; fill?: { quantity?: string; price?: string } }
@@ -107,6 +116,8 @@ export function describeEvent(e: TimelineItem): string {
         case 'accepted':
           return 'Accepted by the broker';
         case 'fill':
+          if ((u.fill as { kind?: string } | undefined)?.kind === 'expiry')
+            return `Expired worthless: ${u.fill?.quantity ?? ''} settled at 0`.trim();
           return u.fill?.quantity && u.fill.price
             ? `Filled ${u.fill.quantity} at ${formatPrice(u.fill.price)}`
             : 'Filled';
@@ -142,7 +153,8 @@ const MONEY_CHECKS = new Set<string>([
 export function riskFigure(code: string, value: string): string {
   if (MONEY_CHECKS.has(code)) return formatPrice(value);
   if (code === 'risk_collar') return `${value}%`;
-  if (code === 'stale_data') return `${value} s`;
+  if (code === 'stale_data' || code === 'option_quote_stale') return `${value} s`;
+  if (code === 'option_spread_wide') return `${value}%`;
   return value;
 }
 

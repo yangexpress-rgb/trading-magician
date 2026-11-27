@@ -30,6 +30,17 @@ export interface ContractHarness {
   advance(ms: number): Promise<void>;
   /** Current last price of the instrument. */
   lastPrice(): Promise<Decimal>;
+  /**
+   * An options contract the adapter can trade, for adapters that say they
+   * trade options (ADR 0123): its symbol and underlying, and a way to set its
+   * quote (`fillAtMid` lets a limit at the mid fill).
+   */
+  option?: {
+    instrumentId: string;
+    symbol: string;
+    underlying: string;
+    setQuote(bid: string, ask: string, fillAtMid?: boolean): void;
+  };
 }
 
 let seq = 0;
@@ -255,6 +266,64 @@ export function describeBrokerContract(name: string, setup: () => Promise<Contra
       for (const { brokerOrderId } of ids) {
         expect(isTerminalOrderState((await view(h, brokerOrderId, '10')).state)).toBe(true);
       }
+    });
+
+    it('either trades options with quotes, contracts and replace, or refuses them all (ADR 0123)', async () => {
+      const h = await setup();
+      await h.openMarket();
+      const a = h.adapter;
+      if (!a.capabilities.options || !h.option) {
+        for (const call of [
+          () => a.optionQuotes?.(h.accountId, ['X']),
+          () => a.replaceOrder?.(h.accountId, 'x', { limitPrice: '1', clientOrderId: 'x_r' }),
+        ]) {
+          const r = call();
+          if (r) await expect(r).rejects.toBeInstanceOf(BrokerRejectedError);
+        }
+        return;
+      }
+      const o = h.option;
+      o.setQuote('2.00', '2.20');
+      const quotes = await a.optionQuotes!(h.accountId, [o.symbol]);
+      expect(quotes.get(o.symbol)).toMatchObject({ bid: '2', ask: '2.2' });
+      const listed = await a.optionContracts!(h.accountId, {
+        underlying: o.underlying,
+        expirationGte: '2000-01-01',
+        expirationLte: '2100-01-01',
+        strikeGte: '0',
+        strikeLte: '100000',
+      });
+      expect(listed.map((c) => c.symbol)).toContain(o.symbol);
+
+      // A limit at the mid rests; replaced once it moves to the new price under a new id.
+      const clientOrderId = `contract-${++seq}`;
+      const sent = await submitWithRetry(a, {
+        ...request(h, { clientOrderId, quantity: '1', orderType: 'limit', limitPrice: '2.1' }),
+        instrumentId: o.instrumentId,
+        symbol: o.symbol,
+        assetClass: 'option',
+        positionIntent: 'buy_to_open',
+      });
+      await h.advance(2_000);
+      expect((await view(h, sent.brokerOrderId, '1')).state).not.toBe('filled');
+      const replaced = await a.replaceOrder!(h.accountId, sent.brokerOrderId, {
+        limitPrice: '2.14',
+        clientOrderId: `${clientOrderId}_r`,
+      });
+      expect(replaced.brokerOrderId).not.toBe(sent.brokerOrderId);
+      o.setQuote('2.10', '2.10', true);
+      await h.advance(5_000);
+      const updates = await drainUpdates(a, h.accountId);
+      // The replaced order never reads as canceled; the replacement fills for the same app order.
+      expect(
+        updates.some((u) => u.brokerOrderId === sent.brokerOrderId && u.kind === 'canceled'),
+      ).toBe(false);
+      const fill = updates.find(
+        (u) => u.brokerOrderId === replaced.brokerOrderId && u.kind === 'fill',
+      );
+      expect(fill?.clientOrderId).toBe(clientOrderId);
+      const held = await a.positions(h.accountId);
+      expect(held.find((p) => p.instrumentId === o.instrumentId)?.quantity).toBe('1');
     });
   });
 }

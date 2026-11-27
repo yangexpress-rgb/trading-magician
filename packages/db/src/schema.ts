@@ -1326,7 +1326,7 @@ export const backtestTrades = pgTable(
     check('backtest_trade_status', sql`${t.status} in ('closed', 'open', 'aborted')`),
     check(
       'backtest_trade_exit_reason',
-      sql`${t.exitReason} is null or ${t.exitReason} in ('condition', 'time_stop', 'rebalance', 'atr_stop', 'expected_move', 'trailing_stop', 'session_end', 'strategy_trailing_stop')`,
+      sql`${t.exitReason} is null or ${t.exitReason} in ('condition', 'time_stop', 'rebalance', 'atr_stop', 'expected_move', 'trailing_stop', 'session_end', 'strategy_trailing_stop', 'option_target', 'option_dte', 'expired_worthless', 'exercised', 'assigned', 'closed_before_expiry')`,
     ),
     check(
       'backtest_trade_direction',
@@ -1591,6 +1591,13 @@ export const orderIntents = pgTable(
     closeReason: text('close_reason'),
     /** The data feed whose price this order was placed on (Phase 7 P2, ADR 0108). */
     pricedByFeedId: uuid('priced_by_feed_id'),
+    /**
+     * Options legs only (options brief v0.2 §§6.2, 6.3, 7.1; ADR 0123): the
+     * contract list version, the decision-time and (if it differs) release-time
+     * resolution, the quote the limit came from and any re-price. Null on every
+     * stock and ETF order.
+     */
+    optionDetail: jsonb('option_detail'),
     mode: tradingMode('mode').notNull().default('paper'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1714,6 +1721,12 @@ export const fills = pgTable(
     fee: numeric('fee').notNull().default('0'),
     filledAt: timestamp('filled_at', { withTimezone: true }).notNull(),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * `trade` for every broker fill. `expiry` (options brief v0.2 §8.3, ADR
+     * 0123): an option contract that expired worthless, settled at 0 by the
+     * options lifecycle job; the only fill whose price may be 0.
+     */
+    kind: text('kind').notNull().default('trade'),
   },
   (t) => [
     foreignKey({
@@ -1723,7 +1736,8 @@ export const fills = pgTable(
     unique('fill_broker_uq').on(t.intentId, t.brokerFillId),
     index('fill_user_time_idx').on(t.userId, t.filledAt),
     check('fill_quantity_positive', sql`${t.quantity} > 0`),
-    check('fill_price_positive', sql`${t.price} > 0`),
+    check('fill_price_positive', sql`${t.price} > 0 or (${t.kind} = 'expiry' and ${t.price} = 0)`),
+    check('fill_kind', sql`${t.kind} in ('trade', 'expiry')`),
   ],
 );
 
@@ -2885,6 +2899,29 @@ export const groupMembershipPeriod = pgTable(
     check('group_membership_period_dates', sql`${t.toDate} is null or ${t.toDate} > ${t.fromDate}`),
   ],
 );
+
+/**
+ * The contract list of an underlying, cached in Core (options brief v0.2
+ * §6.3, ADR 0123): read from the broker once a day for every underlying an
+ * options run references, filtered to the expiry window and strike band the
+ * runs need. The resolver picks from it; execution never reads Research.
+ */
+export const optionContractLists = pgTable('option_contract_list', {
+  underlyingId: uuid('underlying_id')
+    .primaryKey()
+    .references(() => instruments.id),
+  /** New York date of the fetch. */
+  fetchedOn: date('fetched_on', { mode: 'string' }).notNull(),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
+  /** `contractListVersion`, recorded on each order resolved from it. */
+  version: text('version').notNull(),
+  /** The window it was read for: expiries up to this date, strikes in this band. */
+  expiryTo: date('expiry_to', { mode: 'string' }).notNull(),
+  strikeFrom: numeric('strike_from').notNull(),
+  strikeTo: numeric('strike_to').notNull(),
+  /** `ContractListEntry[]`. */
+  contracts: jsonb('contracts').notNull(),
+});
 
 /** Where each event job has got to: covered dates, last run and last error. */
 export const eventScanState = pgTable(

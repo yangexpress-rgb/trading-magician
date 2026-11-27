@@ -7,7 +7,9 @@ import {
   type CredentialKey,
 } from '@tm/db';
 import {
+  BrokerRejectedError,
   BrokerUnavailableError,
+  NO_OPTIONS_REASON,
   liveTradingEnabled,
   type BrokerAdapter,
   type BrokerCapabilities,
@@ -57,6 +59,25 @@ export function createAccountRouter(options: {
     async account(accountId) {
       const adapter = await forAccount(accountId);
       return adapter.account ? adapter.account(accountId) : undefined;
+    },
+    // Options (ADR 0123): only an adapter that trades options answers.
+    async optionQuotes(accountId, symbols) {
+      const adapter = await forAccount(accountId);
+      if (!adapter.capabilities.options || !adapter.optionQuotes)
+        throw new BrokerRejectedError('options_unsupported', NO_OPTIONS_REASON);
+      return adapter.optionQuotes(accountId, symbols);
+    },
+    async replaceOrder(accountId, brokerOrderId, change) {
+      const adapter = await forAccount(accountId);
+      if (!adapter.capabilities.options || !adapter.replaceOrder)
+        throw new BrokerRejectedError('options_unsupported', NO_OPTIONS_REASON);
+      return adapter.replaceOrder(accountId, brokerOrderId, change);
+    },
+    async optionContracts(accountId, query) {
+      const adapter = await forAccount(accountId);
+      if (!adapter.capabilities.options || !adapter.optionContracts)
+        throw new BrokerRejectedError('options_unsupported', NO_OPTIONS_REASON);
+      return adapter.optionContracts(accountId, query);
     },
   };
 }

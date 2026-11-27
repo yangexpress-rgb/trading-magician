@@ -24,6 +24,11 @@ export const RISK_CHECK_CODES = [
   'risk_collar',
   'stale_data',
   'market_closed',
+  // Options orders only (options brief v0.2 §§6.1, 8.2; ADR 0123): never run on a stock or ETF order.
+  'option_contract',
+  'option_quote_missing',
+  'option_quote_stale',
+  'option_spread_wide',
 ] as const;
 export type RiskCheckCode = (typeof RISK_CHECK_CODES)[number];
 
@@ -356,6 +361,10 @@ export const RISK_CHECK_TEXT: Record<RiskCheckCode, string> = {
   risk_collar: 'Price collar',
   stale_data: 'Price age',
   market_closed: 'Market hours',
+  option_contract: 'Options contract',
+  option_quote_missing: 'Options quote',
+  option_quote_stale: 'Options quote age',
+  option_spread_wide: 'Options spread',
 };
 
 const DOLLAR_CHECKS: readonly RiskCheckCode[] = [
@@ -381,12 +390,17 @@ export function riskRefusalText(
   const code = result.code;
   const label = code ? (RISK_CHECK_TEXT[code] ?? code) : 'a check failed';
   const failed = result.checks.find((c) => c.code === code && !c.passed);
+  // An options refusal carries its whole sentence (ADR 0123).
+  if (code?.startsWith('option_') && failed?.value && failed.limit === undefined)
+    return `${label}: ${failed.value}`;
   if (!code || !failed || failed.limit === undefined || failed.value === undefined) return label;
   const { value, limit } = failed;
   let detail: string;
   if (code === 'risk_active_orders') detail = `${value} already working, limit ${limit}`;
   else if (code === 'risk_open_positions') detail = `${value} held, limit ${limit}`;
   else if (code === 'stale_data') detail = `price ${value} s old, limit ${limit} s`;
+  else if (code === 'option_quote_stale') detail = `quote ${value} s old, limit ${limit} s`;
+  else if (code === 'option_spread_wide') detail = `spread ${value}% of the mid, limit ${limit}%`;
   else if (code === 'risk_collar')
     detail = `limit price ${Number(value).toFixed(1)}% away, limit ${limit}%`;
   else if (DOLLAR_CHECKS.includes(code)) detail = `${dollars(value)}, limit ${dollars(limit)}`;

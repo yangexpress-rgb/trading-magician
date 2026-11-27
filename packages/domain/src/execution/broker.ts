@@ -1,3 +1,5 @@
+import type { OptionQuote } from '../options/quotes';
+import type { ContractListEntry } from '../options/resolver';
 import type { OrderType, PlannedOrder } from '../strategy/schema';
 import type { BrokerUpdate } from './order-state';
 import type { Direction } from './sizing';
@@ -41,6 +43,33 @@ export interface BrokerOrderRequest {
   extendedHours: boolean;
   /** `option` for a contract order (ADR 0123); absent for stocks and ETFs. */
   assetClass?: 'option' | undefined;
+  /** Options only (§5.1): what the order does to the position, sent as the broker's intent. */
+  positionIntent?: PositionIntent | undefined;
+}
+
+export type PositionIntent = 'buy_to_open' | 'sell_to_open' | 'buy_to_close' | 'sell_to_close';
+
+/** §5.1: a leg's side as the broker's position intent. */
+export function positionIntentFor(side: PlannedOrder['side']): PositionIntent {
+  switch (side) {
+    case 'buy':
+      return 'buy_to_open';
+    case 'sell_short':
+      return 'sell_to_open';
+    case 'buy_to_cover':
+      return 'buy_to_close';
+    default:
+      return 'sell_to_close';
+  }
+}
+
+/** §6.3: which contracts to read for an underlying. */
+export interface ContractListQuery {
+  underlying: string;
+  expirationGte: string;
+  expirationLte: string;
+  strikeGte: string;
+  strikeLte: string;
 }
 
 /** The plain reason an adapter without options gives for an options order (A10). */
@@ -99,7 +128,28 @@ export interface BrokerAdapter {
    * not; its accounts are valued from the app's own ledger (ADR 0020).
    */
   account?(accountId: string): Promise<BrokerAccountBalance | undefined>;
+  /**
+   * Options only (options brief v0.2 §§6.3, 8.2; ADR 0123), on adapters whose
+   * `capabilities.options` is true: the latest quotes of some contracts, keyed
+   * by OCC symbol, and the listed contracts of an underlying. Both draw on the
+   * options share of the broker's request budget and never wait for it.
+   */
+  optionQuotes?(accountId: string, symbols: readonly string[]): Promise<Map<string, OptionQuote>>;
+  optionContracts?(accountId: string, query: ContractListQuery): Promise<ContractListEntry[]>;
+  /**
+   * Options re-price (§7.1): a working limit order's price changed in place.
+   * The broker gives the order a new id, reported under `clientOrderId`, which
+   * the app maps back to the same intent (`repriceClientOrderId`).
+   */
+  replaceOrder?(
+    accountId: string,
+    brokerOrderId: string,
+    change: { limitPrice: string; clientOrderId: string },
+  ): Promise<{ brokerOrderId: string }>;
 }
+
+/** The client order id of a re-priced order (ADR 0123): the intent's own, marked. */
+export const repriceClientOrderId = (clientOrderId: string) => `${clientOrderId}_r`;
 
 /** The broker refused the request outright; retrying will not help. */
 export class BrokerRejectedError extends Error {

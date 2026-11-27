@@ -74,6 +74,8 @@ export interface AlpacaOrder {
   canceled_at: string | null;
   failed_at: string | null;
   replaced_at: string | null;
+  /** The order that replaced this one (a re-price, ADR 0123). */
+  replaced_by?: string | null;
   asset_id: string;
   symbol: string;
   asset_class: string;
@@ -169,4 +171,31 @@ export interface AlpacaClock {
   is_open: boolean;
   next_open: string;
   next_close: string;
+}
+
+/** An options contract as `/v2/options/contracts` lists it (ADR 0123). */
+export interface AlpacaOptionContract {
+  id?: string;
+  symbol: string;
+  name?: string;
+  status?: string;
+  tradable?: boolean;
+  expiration_date: string;
+  root_symbol?: string;
+  underlying_symbol?: string;
+  type: string;
+  style?: string;
+  strike_price: string;
+  multiplier?: string;
+  size?: string;
+  deliverables?: { type?: string; symbol?: string; amount?: string }[] | null;
+}
+
+/** A latest options quote (`/v1beta1/options/quotes/latest`). */
+export interface AlpacaOptionQuote {
+  ap: number;
+  as?: number;
+  bp: number;
+  bs?: number;
+  t: string;
 }

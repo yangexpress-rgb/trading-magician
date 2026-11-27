@@ -104,6 +104,21 @@ export interface RuntimeState {
   lastExitSchedulePeriod?: string | undefined;
   /** Entry trigger state of each further entry group, by group id (v1.2 item 8). */
   groupTriggers?: Record<string, RuntimeTriggerState> | undefined;
+  /**
+   * Options runs only (options brief v0.2 §§6.2, 7.1; ADR 0123): when each
+   * options order was sent and re-priced, and the contract an entry decided
+   * while the market was closed picked, by leg key, to compare at release.
+   */
+  options?:
+    | {
+        orders?: Record<string, { sentAt: number; repricedAt?: number | undefined }> | undefined;
+        picks?:
+          | Record<string, { contract: string; words: string; at: string; listVersion: string }>
+          | undefined;
+        /** The underlying's last price seen on each held contract's expiry day, after 15:00. */
+        expiryMarks?: Record<string, string> | undefined;
+      }
+    | undefined;
 }
 
 export interface WorkingOrder {
@@ -557,6 +572,10 @@ export async function loadRuntimeWork(
           lotSize: instruments.lotSize,
           shortable: instruments.shortable,
           multiplier: instruments.multiplier,
+          underlyingId: instruments.underlyingId,
+          optionRight: instruments.optionRight,
+          strike: instruments.strike,
+          expiry: instruments.expiry,
         })
         .from(instruments)
         .where(inArray(instruments.id, [...ids]))
@@ -571,6 +590,16 @@ export async function loadRuntimeWork(
         ...(r.shortable !== null ? { shortable: r.shortable } : {}),
         // Only an option contract's multiplier is kept (ADR 0123); stocks and ETFs have 1.
         ...(new Decimal(r.multiplier).eq(1) ? {} : { multiplier: r.multiplier }),
+        ...(r.assetClass === 'option' && r.underlyingId && r.optionRight && r.strike && r.expiry
+          ? {
+              option: {
+                underlyingId: r.underlyingId,
+                right: r.optionRight,
+                strike: r.strike,
+                expiry: r.expiry,
+              },
+            }
+          : {}),
       },
     ]),
   );

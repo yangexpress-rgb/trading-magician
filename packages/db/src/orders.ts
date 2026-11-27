@@ -119,6 +119,7 @@ export async function recordOrderIntent(
       source: intent.source,
       closeReason: intent.closeReason?.trim().slice(0, 1000) ?? null,
       pricedByFeedId: intent.pricedByFeedId ?? null,
+      optionDetail: intent.optionDetail ?? null,
       // Paper or live as its run (and so its account) is (ADR 0109).
       mode: run?.mode ?? 'paper',
     })
@@ -324,6 +325,7 @@ export async function applyBrokerUpdates(
           price: update.fill.price,
           fee: update.fill.fee,
           filledAt: new Date(update.at),
+          ...(update.fill.kind === 'expiry' ? { kind: 'expiry' } : {}),
         })
         .onConflictDoNothing();
     }

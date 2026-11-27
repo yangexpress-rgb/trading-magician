@@ -13,7 +13,7 @@ import {
   type StrategyRunState,
 } from '@tm/db';
 import type { StrategyRunStateDto } from '@tm/contracts';
-import { formatDateTime, isLabNumber, STATUS_LABELS } from '@tm/domain';
+import { formatDateTime, isLabNumber, optionsTradingEnabled, STATUS_LABELS } from '@tm/domain';
 import { Badge, buttonClasses, Card, ModeBadge, PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -202,6 +202,7 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
         initialDefinition={strategy.definition}
         initialRowVersion={strategy.rowVersion}
         instruments={instruments}
+        optionsTrading={optionsTradingEnabled()}
         optionUnderlyings={optionUnderlyings.map((u) => ({
           id: u.id,
           symbol: u.symbol,

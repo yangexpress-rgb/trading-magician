@@ -6,6 +6,7 @@ import {
   type StrategyDefinition,
   liveTradingEnabled,
   valuationSession,
+  type OptionOrderDetail,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { and, asc, count, desc, eq, inArray, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
@@ -84,6 +85,7 @@ export interface OrderRow {
   source: 'strategy' | 'user' | 'system';
   /** Why a safety close was placed (N306); null for other orders and earlier safety closes. */
   closeReason: string | null;
+  option?: OrderOptionView | null;
   strategyId: string;
   strategyName: string;
   /** The strategy's own S number (ADR 0066); null if it has none or was deleted. */
@@ -176,6 +178,7 @@ const orderColumns = {
   mode: orderIntents.mode,
   source: orderIntents.source,
   closeReason: orderIntents.closeReason,
+  optionDetail: orderIntents.optionDetail,
   strategyId: orderIntents.strategyId,
   strategyName: strategies.name,
   strategyNumber: strategies.labNumber,
@@ -216,6 +219,7 @@ function toOrderRow(r: RawOrder): OrderRow {
     mode: r.mode as OrderRow['mode'],
     source: r.source as OrderRow['source'],
     closeReason: r.closeReason ?? null,
+    option: optionView(r.optionDetail),
     strategyId: r.strategyId as string,
     strategyName: r.strategyName ?? 'Deleted strategy',
     strategyNumber: r.strategyNumber ?? null,
@@ -1303,4 +1307,25 @@ export async function resumeRuntimeByUser(
     resourceId: runtimeId,
   });
   return getExecutionStatus(tx);
+}
+
+/** What an options order shows (ADR 0123), from its stored detail. */
+export interface OrderOptionView {
+  words: string;
+  contract: string;
+  quote?: { bid: string; ask: string; at: string } | undefined;
+  decided?: { words: string; at: string } | undefined;
+  lifecycle?: string | undefined;
+}
+
+function optionView(detail: unknown): OrderOptionView | null {
+  const d = detail as Partial<OptionOrderDetail> | null | undefined;
+  if (!d || typeof d.words !== 'string' || typeof d.contract !== 'string') return null;
+  return {
+    words: d.words,
+    contract: d.contract,
+    ...(d.quote ? { quote: d.quote } : {}),
+    ...(d.decided ? { decided: { words: d.decided.words, at: d.decided.at } } : {}),
+    ...(d.lifecycle ? { lifecycle: d.lifecycle } : {}),
+  };
 }

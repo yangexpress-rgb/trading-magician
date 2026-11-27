@@ -82,6 +82,11 @@ export interface EditorContextValue {
   optionUnderlyings?: readonly OptionUnderlying[];
   /** Registered model series for `ml.score` (ML brief v1 §8); none outside the editor page. */
   mlModels?: readonly MlModelOption[];
+  /**
+   * Whether this server trades options (OPTIONS_TRADING_ENABLED, ADR 0123).
+   * Off, legs offer no options fields; a saved options leg still shows them.
+   */
+  optionsTrading?: boolean | undefined;
 }
 
 export const EditorContext = createContext<EditorContextValue | null>(null);

@@ -1,5 +1,6 @@
 import {
   ensureOptionInstrument,
+  loadContractList,
   instrumentsBySymbol,
   isOptionsAccount,
   type Transaction,
@@ -64,13 +65,17 @@ export function createOptionsLifecycle(options: {
           );
           continue;
         }
+        // O220: the cached contract list's multiplier when it lists the contract, else 100.
+        const listed = (await loadContractList(tx, underlying))?.contracts.find(
+          (c) => c.symbol === symbol,
+        );
         await ensureOptionInstrument(tx, {
           underlyingId: underlying,
           symbol,
           expiry: occ.expiry,
           strike: String(occ.strike),
           right: occ.right,
-          multiplier: String(OPTIONS_DEFAULTS.standardMultiplier),
+          multiplier: listed?.multiplier ?? String(OPTIONS_DEFAULTS.standardMultiplier),
           provider: 'alpaca',
           providerId: symbol,
         });
