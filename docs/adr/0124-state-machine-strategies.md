@@ -1,9 +1,11 @@
 # ADR 0124: State-machine strategies (brief v1.3, Phase P1)
 
-- **Status:** accepted (P1, the three metrics; P2a, the definition and evaluator)
+- **Status:** accepted (P1, the three metrics; P2a, the definition and evaluator; P2b, the back test engine)
 - **Date:** 2026-11-27
 - **Design refs:** "Trading Magician — State-Machine Strategies: Design Brief" v1.3 (Drive file
-  id `1dYuepl_NasusovfWAXfqDjKm37-S87t5`); N381 to N383 and N384 to N386; open points O259, O260 and O261 to O263; no migration.
+  id `1dYuepl_NasusovfWAXfqDjKm37-S87t5`) and v1.4 (id `1MIj5DiAPV6zqDL_kxefGYd4qMug5wUDZ`, from P2b);
+  N381 to N383, N384 to N386 and N387 to N389; open points O259, O260, O261 to O263 and O264, O265;
+  no migration.
   Each later phase amends this ADR with its own section.
 
 ## Context
@@ -90,3 +92,44 @@ and the A1 reference back tests (ADR 0123) still give the same figures and finge
   t leaves the path up to t unchanged.
 - A1: domain (719), back test (244, including `a1-reference.test.ts`), worker (81) and web (193)
   suites pass.
+
+## Decision: Phase P2b (back test engine)
+
+- **Brief v1.4's 16 rows** are the fixture: rows 4 and 5 send HI_CASH back to NORMAL_HV or NORMAL
+  once close reclaims MA20 above MA200, judged before the deviation escape (O263 closed).
+- **Rebalancing** (N387). `planRebalance` (domain, shared with paper in P3a) takes every
+  instrument held or targeted; equity is cash plus holdings at the given prices; a leg's
+  difference under 0.5% of equity is not traded; a zero target sells everything; otherwise whole
+  lots toward the smaller trade. `underSwitchBand` (every leg under 5%) makes a switch with no
+  orders, complete at once. The engine fills sells first, then sizes each buy from the cash left,
+  so a buy never exceeds cash; the price collar cancels, the % of equity limits reject or cap,
+  the 10% volume cap and max active orders apply as on the rules form.
+- **Completion** (N388). A transition not done after its fill is tried again at each close for up
+  to `COMPLETION_DAYS` (5) trading days after the transition day, then stuck, with a warning
+  (O264). Done is judged at the fill's open prices, so drift after completion never trades. A new
+  switch marks an unfinished transition superseded. Halts skip rebalance buys and let sells go.
+- **One path** (N389). `simulateMachine` replays the decisions over every loaded bar with the
+  shared `decideDay` and `machineView` (sessions counted on the bars), places no orders before
+  `from`, and on the first run day moves holdings to the replayed state (a `start` transition),
+  as Start does on paper (§2.9). The result is a `BacktestResult` with no trades and a `machine`
+  report: each transition (row, Why checks through `machineConditionChecks`, outcome, attempts,
+  orders) and each stay in a state with its return. Orders and fills carry the transition index as
+  their cycle. Metrics come from the equity curve; cycle figures are listed as not applicable.
+- **Not wired yet** (O265): the worker's back test job and the results page still take the rules
+  form; they call this engine from P3, when state machines can be saved.
+
+## Checks (P2b)
+
+- `packages/backtest/src/machine-engine.test.ts`: A4 on a small machine (signal on a separate
+  instrument, held prices fixed): a switch fills at the next open with the sell first; a switch
+  under the 5% band places no orders; a 0.3% leg is skipped while the other trades; a partial
+  buy completes on the next close and nothing trades after; stuck after 5 days; superseded; a
+  price-collar cancel retried; a drawdown halt skips buys but sells. Cash is never negative.
+- The worked example on a 1,500-day synthetic walk: the engine's switches from day 400 equal
+  `replayMachine` over all the bars, start state included; Why lines recorded; A3c visits
+  TOP_ESCAPE, DESPAIR, DESPAIR_HV, ATTACK, NORMAL, HI, HI_CASH and BEAR_CASH; the risk-off lock
+  holds; a day with no QQQ bar is a stay with no order planned. A5: no transition or fill before
+  MA200 exists. The series plan loads about 20 years of daily QQQ for `ath_drawdown` window 0.
+- A3a and A3b wait for P0's inputs (O265).
+- A1: domain (719) and back test (261, including `a1-reference.test.ts`) suites pass; worker and
+  web suites run in CI.

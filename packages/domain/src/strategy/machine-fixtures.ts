@@ -15,10 +15,10 @@ import type { ComparisonOperator, Expr } from './schema';
 import type { ValidationContext } from './validate';
 
 /**
- * Test fixtures for the state-machine form (ADR 0124): the brief v1.3 §4
+ * Test fixtures for the state-machine form (ADR 0124): the brief v1.4 §4
  * worked example, 纳指晴雨, on QQQ and TQQQ, and a bar resolver over daily
  * bars that reads only bars up to the day evaluated. Not exported from the
- * package index; the engines' tests (P2b) import it directly.
+ * package index; the engines' tests import it as @tm/domain/machine-fixtures.
  */
 
 export const QQQ = '00000000-0000-4000-8000-000000000a01';
@@ -82,6 +82,7 @@ const below200 = () => cmp(metric('ma_distance', { period: 200 }), 'lt', num('0'
 const below20 = () => cmp(metric('ma_distance', { period: 20 }), 'lt', num('0'));
 const above20 = () => cmp(metric('ma_distance', { period: 20 }), 'gt', num('0'));
 const atOrBelow20 = () => cmp(metric('ma_distance', { period: 20 }), 'lte', num('0'));
+const atOrAbove20 = () => cmp(metric('ma_distance', { period: 20 }), 'gte', num('0'));
 const slope = (op: ComparisonOperator) =>
   cmp(metric('ma_slope', { period: 20, bars: 1 }), op, num('0'));
 const dd = (op: ComparisonOperator, v: string) => cmp(metric('ath_drawdown'), op, num(v));
@@ -108,7 +109,7 @@ const go = (id: string, stateId: string, condition?: MachineGroup): MachineRow =
   ...(condition ? { condition } : {}),
 });
 
-/** Brief v1.3 §4, rows 1 to 14, in order. */
+/** Brief v1.4 §4, rows 1 to 16, in order (v1.4 adds the chain-exit rows 4 and 5). */
 export function workedExample(): MachineDefinition {
   const q = (weightPct: string) => [{ instrumentId: QQQ, weightPct }];
   const t = (weightPct: string) => [{ instrumentId: TQQQ, weightPct }];
@@ -134,13 +135,16 @@ export function workedExample(): MachineDefinition {
         go('r1', S.HI, all(current(S.HI), above200(), not(below20(), slope('lt')))),
         go('r2', S.HI_CASH, all(current(S.HI), above200(), below20(), slope('lt'))),
         go('r3', S.HI_CASH, all(current(S.HI_CASH), above200(), below20())),
+        // v1.4 (O263): the chain's exit, judged before the deviation escape.
+        go('r4', S.NORMAL_HV, all(current(S.HI_CASH), above200(), atOrAbove20(), highVol())),
+        go('r5', S.NORMAL, all(current(S.HI_CASH), above200(), atOrAbove20())),
         go(
-          'r4',
+          'r6',
           S.HI,
           all(cmp(metric('ma_distance', { period: 200 }), 'gt', num('0.2')), dd('gte', '-0.05')),
         ),
         go(
-          'r5',
+          'r7',
           S.TOP_ESCAPE,
           all(
             dd('gte', '-0.05'),
@@ -149,7 +153,7 @@ export function workedExample(): MachineDefinition {
           ),
         ),
         {
-          id: 'r6',
+          id: 'r8',
           outcome: { kind: 'stay' },
           condition: all(
             current(...RISK_OFF),
@@ -161,24 +165,24 @@ export function workedExample(): MachineDefinition {
               ),
               slope('lte'),
             ),
-            any(ref('r11'), ref('r12')),
+            any(ref('r13'), ref('r14')),
           ),
         },
-        go('r7', S.ATTACK_HV, all(ref('r11'), highVol())),
-        go('r8', S.DESPAIR_HV, all(ref('r10'), highVol())),
-        go('r9', S.NORMAL_HV, all(above200(), dd('gte', '-0.1'), highVol())),
-        go('r10', S.DESPAIR, all(below200(), dd('lte', '-0.3'), slope('gt'))),
+        go('r9', S.ATTACK_HV, all(ref('r13'), highVol())),
+        go('r10', S.DESPAIR_HV, all(ref('r12'), highVol())),
+        go('r11', S.NORMAL_HV, all(above200(), dd('gte', '-0.1'), highVol())),
+        go('r12', S.DESPAIR, all(below200(), dd('lte', '-0.3'), slope('gt'))),
         go(
-          'r11',
+          'r13',
           S.ATTACK,
           any(
             all(above200(), dd('lt', '-0.1')),
             all(below200(), dd('gt', '-0.3'), dd('lte', '-0.1'), above20()),
           ),
         ),
-        go('r12', S.NORMAL, all(above200(), dd('gte', '-0.1'))),
-        go('r13', S.DEFEND, all(below200(), dd('gt', '-0.3'), dd('lte', '-0.1'), atOrBelow20())),
-        go('r14', S.BEAR_CASH),
+        go('r14', S.NORMAL, all(above200(), dd('gte', '-0.1'))),
+        go('r15', S.DEFEND, all(below200(), dd('gt', '-0.3'), dd('lte', '-0.1'), atOrBelow20())),
+        go('r16', S.BEAR_CASH),
       ],
     },
     execution: { ...DEFAULT_MACHINE_EXECUTION },
