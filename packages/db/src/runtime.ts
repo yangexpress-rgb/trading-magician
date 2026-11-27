@@ -133,6 +133,20 @@ export interface RuntimeState {
         /** Phase O2: safety closes waiting for a short leg to be bought back first, by cycle. */
         pendingCloses?: Record<string, string> | undefined;
         /**
+         * Phase O3: a covered call's shares waiting to close until the call is
+         * bought back, by cycle (the close's reason in words).
+         */
+        shareCloses?: Record<string, string> | undefined;
+        /**
+         * Phase O3: a roll in progress, by cycle: closing the contracts held,
+         * then opening the Entry's options legs again (`no` counts the rolls).
+         */
+        rolls?:
+          | Record<string, { stage: 'closing' | 'opening'; no: number; days: number; at: string }>
+          | undefined;
+        /** Phase O3: how many rolls each open cycle has finished. */
+        rollsDone?: Record<string, number> | undefined;
+        /**
          * Phase O2 (§8.3): an assignment the app inferred, by cycle: the contract,
          * how many, when, in words, and the next morning's check against the
          * broker's activity record.

@@ -146,6 +146,8 @@ import {
   expiryStage,
   nextTradingDay,
   shortNearTheMoney,
+  sharesCoverShortCall,
+  optionRollDue,
   optionExitReason,
   type OptionHolding,
   walkExpressions,
@@ -179,6 +181,7 @@ import { createRoutedHistory } from './routed-history';
 import { quotesForAccount } from './account-quotes';
 import type { OptionsLifecycle } from './options-trading/lifecycle';
 import { comboOf, manageCombos, placeComboLeg } from './options-trading/combos';
+import { forgetRolls, startRoll, stepRoll } from './options-trading/rolls';
 import { confirmAssignments, settleAssignedOptions } from './options-trading/assignment';
 import { dividendRisk } from './options-trading/dividends';
 import {
@@ -487,6 +490,8 @@ export async function runRuntimePass(
         work.state.options = { ...before, ...work.state.options, assigned };
       }
       await confirmAssignments(tx, { work, broker, now, logger });
+      // Phase O3: rolls and deferred share closes of cycles that have ended.
+      forgetRolls({ work });
     }
     // 3. Periodic reconciliation against the broker (§8.5).
     const healed = sync.complete
@@ -1907,8 +1912,21 @@ async function planPass(tx: Transaction, ctx: PassContext) {
           delete h.strike;
           delete h.quantity;
         }
-      if (exitDue && c.cycle.status === 'open')
+      // Phase O3: no exit is read on contracts a roll is replacing; the roll
+      // rule starts one when no exit fired.
+      const octxRoll = optionContext(tx, ctx);
+      if (exitDue && c.cycle.status === 'open' && !work.state.options?.rolls?.[c.id]) {
         optionExit = optionExitReason(cycleDef.exit.rules, holdings, today);
+        const roll = cycleDef.exit.rules?.find((r) => r.kind === 'optionRoll');
+        if (
+          !optionExit &&
+          octxRoll &&
+          roll?.kind === 'optionRoll' &&
+          !c.cycle.flattened &&
+          optionRollDue(cycleDef.exit.rules, holdings, today)
+        )
+          startRoll(octxRoll, c, roll.days);
+      }
       // §7.5 (Phase O2): a short call likely to be exercised for tomorrow's dividend.
       const octxNow = optionContext(tx, ctx);
       if (octxNow && !c.cycle.flattened && holdings.some((h) => new Decimal(h.quantity ?? 0).lt(0)))
@@ -1929,6 +1947,8 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       assigned:
         !!work.state.options?.assigned?.[c.id] && !c.cycle.flattened && regularSessionOpenAt(t),
       dividendClose: dividendDetail !== undefined,
+      // Phase O3: a cycle rolling its options stays open while it holds none.
+      ...(work.state.options?.rolls?.[c.id] ? { rolling: true } : {}),
       forceExit: rebalanceExits.has(c.id)
         ? 'rebalance'
         : atrStopFired
@@ -2045,6 +2065,50 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       );
     }
 
+    // Phase O3: a running roll closes the contracts held, then opens the
+    // Entry's options legs again, placed as any Entry leg is.
+    const octxStep = optionContext(tx, ctx);
+    if (
+      octxStep &&
+      !halted &&
+      !plan.flatten &&
+      !plan.cycle.flattened &&
+      (plan.cycle.status === 'open' || plan.cycle.status === 'exit_working') &&
+      work.state.options?.rolls?.[c.id]
+    ) {
+      const rolled = await stepRoll(octxStep, c, cycleDef, async (leg) => {
+        const placed = await placeLeg(tx, ctx, {
+          cycle: c,
+          plan,
+          leg,
+          quoteFor,
+          view: cycleView(c),
+          definition: cycleDef,
+          equity,
+          gross: gross.minus(closingGross).plus(pendingGross),
+          dailyLossHit,
+          drawdownHit,
+          activeOrders: working() + placedThisPass,
+          account: accountExposure,
+          onOpeningRecorded: (notional) => {
+            pendingGross = pendingGross.plus(notional);
+            if (accountGross !== undefined) accountGross = accountGross.plus(notional);
+          },
+          triggerEventId: c.entryTriggerEventId ?? undefined,
+        });
+        if (placed) placedThisPass += 1;
+        return placed;
+      });
+      // Nothing to roll into: the cycle closes as closed before expiry once flat.
+      if (rolled === 'opened_nothing') plan.cycle.exitReason = 'option_dte';
+    } else if (work.state.options?.rolls?.[c.id] && (plan.flatten || plan.cycle.flattened)) {
+      // A safety close took over: the roll stops.
+      const st = optionsState(work);
+      const { [c.id]: _stopped, ...rest } = st.rolls ?? {};
+      void _stopped;
+      st.rolls = rest;
+    }
+
     if (plan.flatten) {
       const reason = closeReasonFor(
         plan.notes,
@@ -2074,6 +2138,28 @@ async function planPass(tx: Transaction, ctx: PassContext) {
           closeReason: reason,
         });
         if (symbol) safetyCloses.set(reason, [...(safetyCloses.get(reason) ?? []), symbol]);
+      }
+    }
+
+    // Phase O3: a covered call's shares, once its call has been bought back.
+    const shareClose = work.state.options?.shareCloses?.[c.id];
+    if (shareClose) {
+      const optionOf = (id: string) => work.instruments.get(id)?.option;
+      let waiting = false;
+      for (const [instrumentId, q] of c.positions) {
+        if (q.isZero() || optionOf(instrumentId)) continue;
+        if (q.gt(0) && sharesCoverShortCall(c.positions, optionOf, instrumentId)) {
+          waiting = true;
+          continue;
+        }
+        const symbol = await placeFlatten(tx, ctx, c, instrumentId, q, quoteFor, shareClose);
+        if (symbol) safetyCloses.set(shareClose, [...(safetyCloses.get(shareClose) ?? []), symbol]);
+      }
+      if (!waiting || plan.cycle.status === 'closed') {
+        const st = optionsState(work);
+        const { [c.id]: _done, ...rest } = st.shareCloses ?? {};
+        void _done;
+        st.shareCloses = rest;
       }
     }
 
@@ -2260,6 +2346,15 @@ async function placeLeg(
     const combo = comboOf(def, order);
     return combo ? placeComboLeg(octx, legInput, combo) : placeOptionLeg(octx, legInput);
   }
+  // Phase O3: a covered call's shares are never sold while the call is held:
+  // the call is bought back first, and the share leg goes on a later pass.
+  // A cycle holding no short call (every stock and ETF cycle) never waits.
+  if (
+    leg.phase !== 'entry' &&
+    order.side !== 'buy' &&
+    sharesCoverShortCall(c.positions, (id) => work.instruments.get(id)?.option, order.instrumentId)
+  )
+    return false;
   const quote = await input.quoteFor(order.instrumentId);
   if (!quote) return skip(plan, leg);
   const price = (e: PlannedOrder['limitPrice']) => (e ? evaluateExpr(e, input.view) : undefined);
@@ -2557,6 +2652,15 @@ async function placeFlatten(
     return octx
       ? placeOptionFlatten(octx, { cycle: c, instrumentId, quantity, closeReason })
       : undefined;
+  }
+  // Phase O3: shares that cover a short call close once the call is bought back.
+  if (
+    quantity.gt(0) &&
+    sharesCoverShortCall(c.positions, (id) => work.instruments.get(id)?.option, instrumentId)
+  ) {
+    const st = optionsState(work);
+    if (!st.shareCloses?.[c.id]) st.shareCloses = { ...st.shareCloses, [c.id]: closeReason };
+    return undefined;
   }
   const quote = await quoteFor(instrumentId);
   if (!quote) return undefined;

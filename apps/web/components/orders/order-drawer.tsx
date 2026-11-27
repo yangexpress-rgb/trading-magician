@@ -201,6 +201,28 @@ export function OrderDrawer({
                   picked again at the open
                 </span>
               )}
+              {d.option.greeks && (
+                <span className="block text-xs">
+                  Strike picked by delta {d.option.greeks.delta}, from{' '}
+                  {d.option.greeks.source === 'broker'
+                    ? "the broker's Greeks"
+                    : "the app's own Greeks (the broker gave none)"}
+                </span>
+              )}
+              {d.option.combo && <ComboLine combo={d.option.combo} />}
+              {d.option.sold && (
+                <span className="block text-xs">
+                  {d.option.sold.kind === 'covered_call'
+                    ? "A covered call: sold against the cycle's own shares"
+                    : 'A cash-secured put: most it can lose ' +
+                      money(d.option.sold.maxLoss) +
+                      ', cash set aside ' +
+                      money(d.option.sold.buyingPower)}
+                </span>
+              )}
+              {d.option.roll !== undefined && (
+                <span className="block text-xs">Opened by roll {d.option.roll}</span>
+              )}
             </Alert>
           )}
           {d.source === 'system' && (
@@ -344,5 +366,36 @@ export function OrderDrawer({
         </>
       )}
     </Drawer>
+  );
+}
+
+const money = (v: string) => '$' + v;
+
+/** An options combo leg's place in its combo (ADR 0123, Phase O2). */
+function ComboLine({
+  combo,
+}: {
+  combo: {
+    legs: string[];
+    netLimit: string;
+    maxLoss?: string | undefined;
+    buyingPower?: string | undefined;
+    path?: string | undefined;
+  };
+}) {
+  const net = Number(combo.netLimit);
+  return (
+    <span className="block text-xs">
+      {combo.path === 'legs_short_first'
+        ? 'Closed leg by leg, short legs bought back first, after the combo close did not go'
+        : 'Part of a combo: ' +
+          combo.legs.join(', ') +
+          ', at a net ' +
+          (net < 0 ? 'credit' : 'debit') +
+          ' of ' +
+          Math.abs(net)}
+      {combo.maxLoss && ' · most it can lose ' + money(combo.maxLoss)}
+      {combo.buyingPower && ' · buying power set aside ' + money(combo.buyingPower)}
+    </span>
   );
 }

@@ -39,6 +39,7 @@ import {
   repriceLimit,
   resolveContract,
   sizeOrder,
+  soldOptionRisk,
   type BrokerAdapter,
   type BrokerOrderRequest,
   type MultiLegOrderRequest,
@@ -57,6 +58,9 @@ import {
 import Decimal from 'decimal.js';
 import type { Logger } from 'pino';
 import type { OptionQuoteSource } from './quotes';
+
+/** Roll attempts start here (Phase O3; rolls.ts), far above any Entry batch. */
+export const ROLL_ATTEMPT = 1000;
 
 /**
  * Options orders on paper (options brief v0.2 §§6–8, ADR 0123). Phase O1:
@@ -276,6 +280,13 @@ export async function placeOptionLeg(
   let held = ZERO;
   if (entry) {
     if (!input.underlying) return skip(plan, leg);
+    // Phase O3: a covered call is sold once its shares are held. Until the
+    // Entry's share leg fills, nothing is asked or recorded, and the leg is
+    // tried again on the next pass (a share leg that fails ends it, §6.7).
+    if (order.side === 'sell_short' && spec.right === 'call' && order.quantity.type === 'units') {
+      const needed = new Decimal(order.quantity.value).times(OPTIONS_DEFAULTS.standardMultiplier);
+      if ((c.positions.get(order.instrumentId) ?? ZERO).lt(needed)) return false;
+    }
     const pick = await resolveFor(ctx, input, underlyingRef.symbol);
     if (!pick.ok) {
       return refuse(
@@ -318,6 +329,8 @@ export async function placeOptionLeg(
       listVersion: pick.listVersion,
       ...(pick.greeks ? { greeks: pick.greeks } : {}),
       ...(decided && decided.contract !== symbol ? { decided } : {}),
+      // Phase O3: an Entry leg a roll placed again.
+      ...(leg.attempt > ROLL_ATTEMPT ? { roll: leg.attempt - ROLL_ATTEMPT } : {}),
     };
     if (decided && state.picks) {
       const { [leg.key]: _done, ...rest } = state.picks;
@@ -380,6 +393,40 @@ export async function placeOptionLeg(
     multiplier,
   });
   if (!sized.ok) return skip(plan, leg);
+  // Phase O3: a call or put sold alone. A covered call adds nothing to what its
+  // shares count; a cash-secured put counts the strike less the premium, and
+  // the cash an assignment needs (strike × 100) is checked as buying power.
+  let sold: { atRisk: Decimal; buyingPower: Decimal } | undefined;
+  const contract = work.instruments.get(contractId)?.option;
+  if (entry && order.side === 'sell_short' && contract) {
+    const r = soldOptionRisk({
+      right: contract.right,
+      strike: contract.strike,
+      contracts: sized.quantity,
+      limit,
+      sharesHeld: c.positions.get(order.instrumentId) ?? ZERO,
+      multiplier,
+    });
+    if (!r.ok)
+      return refuse(
+        ctx,
+        input,
+        key,
+        contractId,
+        limit,
+        refusal(
+          'option_contract',
+          `${detail.words} was not sold: the cycle holds ${r.held} shares and ${r.needed} are needed to cover it`,
+        ),
+        detail,
+      );
+    sold = { atRisk: r.atRisk, buyingPower: r.buyingPower };
+    detail.sold = {
+      kind: contract.right === 'call' ? 'covered_call' : 'cash_secured_put',
+      maxLoss: r.atRisk.toFixed(2),
+      buyingPower: r.buyingPower.toFixed(2),
+    };
+  }
   // §8.1: a long option's exposure is the premium paid: limit × 100 × contracts.
   const risk = checkPreTradeRisk({
     risk: def.risk,
@@ -396,6 +443,7 @@ export async function placeOptionLeg(
     openPositions: [...work.book.positions.values()].filter((q) => !q.isZero()).length,
     instrumentHeld: !(work.book.positions.get(contractId) ?? ZERO).isZero(),
     account: sized.closing ? undefined : await input.account?.(),
+    ...(sold ? { combo: sold } : {}),
   });
   const recorded = await recordOrderIntent(tx, work.userId, {
     runtimeId: work.id,
@@ -427,7 +475,9 @@ export async function placeOptionLeg(
   });
   if (!recorded.created || recorded.state !== 'ready') return false;
   if (!sized.closing)
-    input.onOpeningRecorded?.(sized.quantity.times(effectivePrice(limit, multiplier)));
+    input.onOpeningRecorded?.(
+      sold ? sold.atRisk : sized.quantity.times(effectivePrice(limit, multiplier)),
+    );
   const sent = await ctx.submit(recorded.intentId, {
     clientOrderId: key,
     accountId: work.accountId,

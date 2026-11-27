@@ -86,6 +86,22 @@ export function optionExitReason(
 }
 
 /**
+ * Phase O3: whether a roll rule is due, i.e. a contract held has its days to
+ * expiry or fewer left. The roll then closes the cycle's contracts and opens
+ * them again from the Entry's rules. An exit rule that fires on the same day
+ * wins: the cycle closes instead.
+ */
+export function optionRollDue(
+  rules: readonly ExitRule[] | undefined,
+  holdings: readonly Pick<OptionHolding, 'expiry'>[],
+  today: string,
+): boolean {
+  const roll = rules?.find((r) => r.kind === 'optionRoll');
+  if (!roll || roll.kind !== 'optionRoll') return false;
+  return holdings.some((h) => daysBetween(today, h.expiry) <= roll.days);
+}
+
+/**
  * §8.3 Expiry day: where a held contract stands at `now`. `close` from 15:00
  * New York time on its expiry day (a limit at the mid), `touch` from 15:20
  * (at the bid to sell, the ask to buy), `expired` once its expiry day is past.

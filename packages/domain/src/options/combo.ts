@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import type { PlannedOrder, StrategyDefinition } from '../strategy/schema';
 import { isOptionLeg } from '../strategy/schema';
 import { yearsTo } from './chain';
+import { coveredOf } from './covered';
 import { bsmDelta, impliedVolatility, type OptionRight } from './pricing';
 import { OPTIONS_DEFAULTS } from './trading';
 
@@ -14,7 +15,7 @@ import { OPTIONS_DEFAULTS } from './trading';
  *   the expiry payoff is piecewise linear with breakpoints at the strikes, so it
  *   is bounded below iff the slope beyond the highest strike (the net number of
  *   calls held) is not negative. A short put not covered by a long put is a
- *   cash-secured put, which is Phase O3's and refused with its own reason.
+ *   cash-secured put when it stands alone (Phase O3, covered.ts).
  * - Dollars come at pricing time: max loss from the net price obtained, and
  *   the broker-shaped buying power (Alpaca reserves the full width of a credit
  *   combo, ignoring the credit).
@@ -146,10 +147,13 @@ export function optionCombos(orders: readonly PlannedOrder[]): DefinitionCombo[]
   return [...by.values()].filter((c) => c.legs.length >= 2);
 }
 
-/** Whether a definition's Entry holds a combo, or sells an option to open (level 3, §5.4). */
+/**
+ * Whether a definition's Entry holds a combo, or sells an option to open
+ * other than as a covered call or cash-secured put (level 3, §5.4; O3).
+ */
 export const hasCombo = (def: StrategyDefinition) =>
   optionCombos(def.entry.orders).length > 0 ||
-  def.entry.orders.some((o) => isOptionLeg(o) && o.side === 'sell_short');
+  def.entry.orders.some((o) => isOptionLeg(o) && o.side === 'sell_short' && !coveredOf(def, o));
 
 /** The signed contracts per set of an Entry leg: bought is positive, sold to open negative. */
 export function legSign(o: Pick<PlannedOrder, 'side'>): 1 | -1 {
@@ -207,7 +211,7 @@ export function comboStructureProblem(
     return {
       code: 'options_cash_secured_put',
       message:
-        'This combo sells more puts than it buys, which is a cash-secured put: buy a put for each put sold (cash-secured puts come later)',
+        'This combo sells more puts than it buys: buy a put for each put sold, or sell one put on its own as a cash-secured put',
     };
   return undefined;
 }

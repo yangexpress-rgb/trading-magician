@@ -1316,6 +1316,14 @@ export interface OrderOptionView {
   quote?: { bid: string; ask: string; at: string } | undefined;
   decided?: { words: string; at: string } | undefined;
   lifecycle?: string | undefined;
+  /** Phase O2: the combo in words, its max loss and buying power, and how it closed. */
+  combo?: OptionOrderDetail['combo'];
+  /** Phase O2: the delta rule's Greeks and where they came from. */
+  greeks?: OptionOrderDetail['greeks'];
+  /** Phase O3: a covered call or cash-secured put, with its max loss and cash set aside. */
+  sold?: OptionOrderDetail['sold'];
+  /** Phase O3: the roll that placed it. */
+  roll?: number | undefined;
 }
 
 function optionView(detail: unknown): OrderOptionView | null {
@@ -1327,5 +1335,9 @@ function optionView(detail: unknown): OrderOptionView | null {
     ...(d.quote ? { quote: d.quote } : {}),
     ...(d.decided ? { decided: { words: d.decided.words, at: d.decided.at } } : {}),
     ...(d.lifecycle ? { lifecycle: d.lifecycle } : {}),
+    ...(d.combo ? { combo: d.combo } : {}),
+    ...(d.greeks ? { greeks: d.greeks } : {}),
+    ...(d.sold ? { sold: d.sold } : {}),
+    ...(typeof d.roll === 'number' ? { roll: d.roll } : {}),
   };
 }

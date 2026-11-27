@@ -158,15 +158,16 @@ const errors = (def: StrategyDefinition, ctx = level(3)) =>
   validateStrategy(def, ctx).errors.map((e) => e.code);
 
 describe('combos at save time (A3)', () => {
-  it('refuses a naked short call and a lone short put, each with its own reason', () => {
+  it('refuses a naked short call; a lone short put is a cash-secured put (O3)', () => {
     const naked = comboDef((b) => [leg('Sell call', 'sell_short', 'call', 5, b)]);
     expect(errors(naked)).toContain('options_naked_call');
     expect(
       validateStrategy(naked, level(3)).errors.find((e) => e.code === 'options_naked_call')
         ?.message,
     ).toMatch(/loss has no limit/);
+    // O2 refused it as "cash-secured puts come later"; Phase O3 builds them.
     const csp = comboDef((b) => [leg('Sell put', 'sell_short', 'put', 5, b)]);
-    expect(errors(csp)).toContain('options_cash_secured_put');
+    expect(errors(csp)).toEqual([]);
   });
 
   it('accepts the 105/110 call vertical and the iron condor at level 3, not at level 2', () => {

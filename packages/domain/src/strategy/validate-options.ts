@@ -1,4 +1,5 @@
 import { comboStructureProblem } from '../options/combo';
+import { coveredStructureProblem, coveredStructures } from '../options/covered';
 import { LEVEL_NEEDED, OPTIONS_LEVEL_TEXT, type OptionsLevel } from '../options/trading';
 import { CONTEXT_INSTRUMENT_ID } from './evaluate';
 import type { PlannedOrder, StrategyDefinition } from './schema';
@@ -17,7 +18,7 @@ export function hasOptionLegs(def: StrategyDefinition): boolean {
   return phases.some((p) => p?.orders.some(isOptionLeg));
 }
 
-const OPTION_RULES = new Set(['optionTarget', 'optionDte']);
+const OPTION_RULES = new Set(['optionTarget', 'optionDte', 'optionRoll']);
 
 /** Whether the strategy uses an options-only exit rule (§8.4). */
 export const hasOptionRules = (def: StrategyDefinition) =>
@@ -25,7 +26,7 @@ export const hasOptionRules = (def: StrategyDefinition) =>
     (x.rules ?? []).some((r) => OPTION_RULES.has(r.kind)),
   );
 
-/** Options legs buy or sell to open, and sell or buy to close (Phase O2: selling only in combos). */
+/** Options legs buy or sell to open, and sell or buy to close (selling only in combos, covered calls and cash-secured puts). */
 const OPEN_SIDES: readonly PlannedOrder['side'][] = ['buy', 'sell_short'];
 const CLOSE_SIDES: readonly PlannedOrder['side'][] = ['sell', 'close', 'reduce', 'buy_to_cover'];
 
@@ -97,10 +98,13 @@ export function checkOptionLegs(
     const k = `${o.instrumentId}|${o.accountId}`;
     byUnderlying.set(k, [...(byUnderlying.get(k) ?? []), o]);
   }
+  // Phase O3: one call sold on the Entry's own shares, or one put sold alone.
+  const covered = new Map(coveredStructures(def.entry.orders).map((c) => [c.option.id, c]));
   for (const legs of byUnderlying.values()) {
     if (legs.length < 2 && !legs.some((o) => o.side === 'sell_short')) continue;
     if (legs.length >= 2) for (const o of legs) comboLegIds.add(o.id);
-    const problem = comboStructureProblem(legs);
+    const single = legs.length === 1 && legs[0] ? covered.get(legs[0].id) : undefined;
+    const problem = single ? coveredStructureProblem(single) : comboStructureProblem(legs);
     const first = legs[0];
     if (problem && first) {
       const i = def.entry.orders.indexOf(first);
@@ -121,7 +125,7 @@ export function checkOptionLegs(
         err(
           o.side === 'sell_short' ? 'options_sell_to_open' : 'options_side',
           o.side === 'sell_short'
-            ? `"${o.legLabel}" sells an option to open in Exit: options are sold to open only in an Entry combo`
+            ? `"${o.legLabel}" sells an option to open in Exit: options are sold to open only in Entry, in a combo, a covered call or a cash-secured put`
             : phase === 'entry'
               ? `"${o.legLabel}" must buy or sell its option to open`
               : `"${o.legLabel}" must close the option its Entry leg holds`,
@@ -144,8 +148,25 @@ export function checkOptionLegs(
           ['accountId'],
         );
       const level = account?.capabilities.optionsLevel;
-      const needs =
-        comboLegIds.has(o.id) || o.side === 'sell_short' ? LEVEL_NEEDED.combo : LEVEL_NEEDED.long;
+      const needsFor = (x: PlannedOrder) =>
+        comboLegIds.has(x.id)
+          ? LEVEL_NEEDED.combo
+          : covered.has(x.id)
+            ? LEVEL_NEEDED.covered
+            : x.side === 'sell_short'
+              ? LEVEL_NEEDED.combo
+              : LEVEL_NEEDED.long;
+      // An Exit leg closes what its Entry leg opened, and needs that leg's level.
+      const opener =
+        phase === 'exit'
+          ? def.entry.orders.find(
+              (e) =>
+                isOptionLeg(e) &&
+                e.instrumentId === o.instrumentId &&
+                e.option?.right === o.option?.right,
+            )
+          : undefined;
+      const needs = needsFor(opener ?? o);
       if (account && level !== undefined && level < needs)
         err(
           'options_level',
@@ -183,6 +204,35 @@ export function checkOptionLegs(
         );
     });
   }
+  // Phase O3: a roll opens contracts again from the Entry's rules, which must
+  // pick ones with more days left than the roll's, or it would roll again at once.
+  const minDte = Math.min(
+    ...def.entry.orders.filter(isOptionLeg).map((o) => o.option?.expiryRule.minDte ?? 0),
+  );
+  (def.exit.rules ?? []).forEach((r, i) => {
+    if (r.kind !== 'optionRoll' || r.days < minDte) return;
+    add(
+      'error',
+      'options_roll_days',
+      `The roll happens at ${r.days} days to expiry, but the Entry may pick a contract with only ${minDte} days left: set the roll below the Entry's minimum days to expiry`,
+      ['exit', 'rules', i, 'days'],
+      r.id,
+    );
+  });
+  if (
+    (def.exit.rules ?? []).some((r) => r.kind === 'optionRoll') &&
+    (def.exit.rules ?? []).some((r) => r.kind === 'optionDte')
+  )
+    (def.exit.rules ?? []).forEach((r, i) => {
+      if (r.kind === 'optionDte')
+        add(
+          'warning',
+          'options_roll_and_close',
+          'This strategy both rolls and closes its options before expiry: whichever has more days runs first',
+          ['exit', 'rules', i],
+          r.id,
+        );
+    });
   // A strategy trailing stop reads the premium, which moves many times faster than the stock.
   const trail = def.risk.trailingStopPct;
   if (trail !== undefined && Number(trail) < 25)

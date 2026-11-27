@@ -176,6 +176,12 @@ export interface CycleInput {
    * exercised early for tomorrow's dividend, so the combo closes now.
    */
   dividendClose?: boolean | undefined;
+  /**
+   * Phase O3: the cycle is rolling its options (closing them and opening later
+   * ones from the Entry's rules), so it stays open while it holds nothing.
+   * Absent for every other cycle, which closes exactly as before.
+   */
+  rolling?: boolean | undefined;
 }
 
 export interface CyclePlan {
@@ -600,6 +606,7 @@ export function planCycle(input: CycleInput): CyclePlan {
       entryDone &&
       flattenDone &&
       !plan.flatten &&
+      !input.rolling &&
       (exitDone || flattenLegs.length > 0)
     ) {
       cycle.status = 'closed';
