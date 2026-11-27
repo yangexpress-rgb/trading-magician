@@ -9,7 +9,9 @@ export {
 } from './endpoints';
 export {
   AlpacaRequestBudget,
+  OptionsBudgetFullError,
   sharedAlpacaBudget,
+  type RequestClass,
   type KeyTraffic,
   type RequestBudgetOptions,
   type RequestOutcome,
@@ -17,6 +19,7 @@ export {
 export {
   AlpacaAuthError,
   AlpacaClient,
+  AlpacaOptionsBudgetError,
   AlpacaRequestError,
   AlpacaRateLimitError,
   AlpacaUnavailableError,

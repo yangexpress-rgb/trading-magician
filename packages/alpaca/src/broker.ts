@@ -1,5 +1,6 @@
 import {
   BrokerRejectedError,
+  NO_OPTIONS_REASON,
   type BrokerAccountBalance,
   type BrokerAdapter,
   type BrokerCapabilities,
@@ -130,6 +131,7 @@ function validate(r: BrokerOrderRequest, caps: BrokerCapabilities) {
   const reject = (code: string, message: string) => {
     throw new BrokerRejectedError(code, message);
   };
+  if (r.assetClass === 'option' && !caps.options) reject('options_unsupported', NO_OPTIONS_REASON);
   if (!caps.orderTypes.includes(r.orderType))
     reject('order_type', 'This order type is not supported');
   if (!caps.timeInForce.includes(r.timeInForce))
@@ -441,6 +443,10 @@ export class AlpacaBroker implements BrokerAdapter {
       equity: a.equity,
       dayTrades: a.daytrade_count,
       margin: Number(a.multiplier) > 1,
+      // Read from the broker, never assumed (options brief v0.2 §5.4, ADR 0123).
+      ...(typeof a.options_trading_level === 'number'
+        ? { optionsLevel: a.options_trading_level }
+        : {}),
     };
   }
 

@@ -44,6 +44,11 @@ export interface InstrumentRef {
   lotSize: string;
   /** Whether the broker lends it for shorting; absent or null when unknown (v1.2 item 8). */
   shortable?: boolean | null;
+  /**
+   * The contract multiplier, only where it isn't 1 (an option contract: 100;
+   * options brief v0.2 §5.7, ADR 0123). Absent for every stock and ETF.
+   */
+  multiplier?: string;
 }
 
 /** Bars the engine runs on, keyed by `seriesKey`, plus where they came from. */

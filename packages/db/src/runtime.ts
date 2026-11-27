@@ -1,5 +1,6 @@
 import { strategyInstruments, type InstrumentRef } from '@tm/backtest';
 import {
+  effectivePrice,
   listMembers,
   activeFromFor,
   CAPACITY_RISK_CODES,
@@ -132,11 +133,22 @@ export async function createRuntime(
   versionId: string,
   accountId: string,
   mode: 'paper' | 'live' = 'paper',
+  /** The version has an options leg (ADR 0123). */
+  tradesOptions = false,
 ): Promise<string> {
   const state: RuntimeState = { trigger: newRuntimeTriggerState() };
   const [row] = await tx
     .insert(strategyRuntimes)
-    .values({ userId, strategyId, versionId, accountId, mode, startedBy: userId, state })
+    .values({
+      userId,
+      strategyId,
+      versionId,
+      accountId,
+      mode,
+      startedBy: userId,
+      state,
+      ...(tradesOptions ? { tradesOptions } : {}),
+    })
     .returning({ id: strategyRuntimes.id });
   if (!row) throw new Error('Failed to create the runtime');
   return row.id;
@@ -544,6 +556,7 @@ export async function loadRuntimeWork(
           assetClass: instruments.assetClass,
           lotSize: instruments.lotSize,
           shortable: instruments.shortable,
+          multiplier: instruments.multiplier,
         })
         .from(instruments)
         .where(inArray(instruments.id, [...ids]))
@@ -556,6 +569,8 @@ export async function loadRuntimeWork(
         assetClass: r.assetClass,
         lotSize: r.lotSize,
         ...(r.shortable !== null ? { shortable: r.shortable } : {}),
+        // Only an option contract's multiplier is kept (ADR 0123); stocks and ETFs have 1.
+        ...(new Decimal(r.multiplier).eq(1) ? {} : { multiplier: r.multiplier }),
       },
     ]),
   );
@@ -571,7 +586,13 @@ export async function loadRuntimeWork(
     if (!o) continue;
     const sign = o.intent.direction === 'buy' ? 1 : -1;
     const q = new Decimal(f.quantity);
-    const flow = q.times(f.price).times(-sign).minus(f.fee);
+    // Cash moves by quantity × price × multiplier (§5.7, ADR 0123); 1 for stocks and ETFs.
+    const flow = effectivePrice(
+      q.times(f.price),
+      instrumentMap.get(o.intent.instrumentId)?.multiplier,
+    )
+      .times(-sign)
+      .minus(f.fee);
     book.cash = book.cash.plus(flow);
     const id = o.intent.instrumentId;
     book.positions.set(id, (book.positions.get(id) ?? ZERO).plus(q.times(sign)));

@@ -16,6 +16,12 @@ export interface BrokerCapabilities {
   shortSelling: boolean;
   /** Whether several legs can be filled all-or-none together. Never assumed (§6.7). */
   atomicMultiLeg: boolean;
+  /**
+   * Whether the adapter trades listed options (options brief v0.2 §5.5, ADR
+   * 0123). Absent means no: the built-in simulator reports none, so options
+   * legs are refused there with a plain reason.
+   */
+  options?: boolean | undefined;
 }
 
 export interface BrokerOrderRequest {
@@ -33,7 +39,12 @@ export interface BrokerOrderRequest {
   stopPrice?: string | undefined;
   timeInForce: PlannedOrder['timeInForce'];
   extendedHours: boolean;
+  /** `option` for a contract order (ADR 0123); absent for stocks and ETFs. */
+  assetClass?: 'option' | undefined;
 }
+
+/** The plain reason an adapter without options gives for an options order (A10). */
+export const NO_OPTIONS_REASON = 'This broker doesn’t trade options';
 
 export interface BrokerOrderUpdate extends BrokerUpdate {
   brokerOrderId: string;
@@ -56,6 +67,8 @@ export interface BrokerAccountBalance {
   dayTrades?: number | undefined;
   /** Whether it is a margin account, where the broker says. */
   margin?: boolean | undefined;
+  /** The options level in force, 0–3, where the broker says (ADR 0123). */
+  optionsLevel?: number | undefined;
 }
 
 export interface BrokerAdapter {

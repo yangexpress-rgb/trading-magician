@@ -6,7 +6,12 @@ import {
   assertDataUrl,
   assertTradingUrl,
 } from './endpoints';
-import { sharedAlpacaBudget, type AlpacaRequestBudget } from './budget';
+import {
+  OptionsBudgetFullError,
+  sharedAlpacaBudget,
+  type AlpacaRequestBudget,
+  type RequestClass,
+} from './budget';
 
 /**
  * A small Alpaca REST client (ADR 0017). It signs requests with the paper key,
@@ -39,8 +44,25 @@ export interface AlpacaClientOptions {
    * request budget, so it never crowds out strategies or screens (ADR 0052).
    */
   background?: boolean | undefined;
+  /**
+   * Options quotes (options brief v0.2 §8.2, ADR 0123): the third budget
+   * class, below a strategy's equity requests and above background work.
+   * Takes precedence over `background`.
+   */
+  optionsQuotes?: boolean | undefined;
   /** Tests only: a budget of their own in place of the process's shared one. */
   budget?: AlpacaRequestBudget | undefined;
+}
+
+/**
+ * An options request was not sent because the key's minute had no room left
+ * for options (ADR 0123); equity requests were never held up for it.
+ */
+export class AlpacaOptionsBudgetError extends Error {
+  constructor() {
+    super('No room for options requests on this Alpaca key this minute');
+    this.name = 'AlpacaOptionsBudgetError';
+  }
 }
 
 /** Alpaca could not be reached, timed out or is throttling; try again later. */
@@ -93,6 +115,7 @@ export class AlpacaClient {
   private readonly headers: Record<string, string>;
   private readonly keyId: string;
   private readonly background: boolean;
+  private readonly requestClass: RequestClass;
   private readonly budget: AlpacaRequestBudget;
 
   constructor(options: AlpacaClientOptions) {
@@ -111,6 +134,7 @@ export class AlpacaClient {
     this.timeoutMs = options.timeoutMs ?? 10_000;
     this.keyId = options.credentials.keyId;
     this.background = options.background ?? false;
+    this.requestClass = options.optionsQuotes ? 'options' : this.background;
     this.budget = options.budget ?? sharedAlpacaBudget;
     this.headers = {
       'APCA-API-KEY-ID': options.credentials.keyId,
@@ -146,7 +170,13 @@ export class AlpacaClient {
     for (const [k, v] of Object.entries(options.query ?? {})) {
       if (v !== undefined) url.searchParams.set(k, String(v));
     }
-    await this.budget.take(this.keyId, this.background);
+    try {
+      await this.budget.take(this.keyId, this.requestClass);
+    } catch (e) {
+      // An options request with no room this minute is not sent (ADR 0123).
+      if (e instanceof OptionsBudgetFullError) throw new AlpacaOptionsBudgetError();
+      throw e;
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     const started = Date.now();

@@ -33,6 +33,7 @@ import { cboeProvider } from './cboe';
 import { fakeCboeFetch } from './cboe-fake';
 import { fakeCustomTransport } from './custom-rest-fake';
 import { createRuntimeCaches, startRuntimeLoop, type RuntimeLoop } from './runtime';
+import { createOptionsLifecycle } from './options-trading/lifecycle';
 import { startValuationLoop, type ValuationLoop } from './valuations';
 import {
   AlpacaClient,
@@ -81,6 +82,7 @@ import {
   isStockGroupId,
   stockGroupSymbols,
   nyDate,
+  optionsTradingEnabled,
   type BuiltinUniverse,
 } from '@tm/domain';
 import { finnhubCalendar, fmpCalendar, type CalendarSource } from './events/calendar';
@@ -272,7 +274,13 @@ if (databaseUrl) {
     passEveryMs: env.RUNTIME_PASS_EVERY_MS,
     // One broker-account sync shared by the strategies on an account (N282).
     accountSync: new AccountSyncGate(env.RUNTIME_PASS_EVERY_MS),
+    // Options trading (ADR 0123): nothing options-related runs unless the switch is on.
+    ...(optionsTradingEnabled() ? { optionsLifecycle: createOptionsLifecycle({ logger }) } : {}),
   });
+  logger.info(
+    { optionsTrading: optionsTradingEnabled() },
+    optionsTradingEnabled() ? 'options trading is ON (paper only)' : 'options trading is off',
+  );
   logger.info({ workerId }, 'paper strategy runtimes started');
   feedChecks = startFeedCheckLoop({
     ...(now ? { now } : {}),

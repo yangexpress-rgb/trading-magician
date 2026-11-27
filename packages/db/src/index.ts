@@ -125,6 +125,7 @@ export * from './screen-snapshots';
 export * from './ai-assistant';
 export * from './watch-list';
 export * from './live-gate';
+export * from './options-trading';
 export * from './short-interest';
 export * from './group-membership';
 export * from './research';

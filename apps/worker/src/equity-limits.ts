@@ -1,3 +1,4 @@
+import { effectivePrice } from '@tm/domain';
 import Decimal from 'decimal.js';
 
 /**
@@ -15,6 +16,8 @@ export interface EquityLimitsInput {
   cash: Decimal;
   positions: ReadonlyMap<string, Decimal>;
   marks: ReadonlyMap<string, Decimal | undefined>;
+  /** Contract multipliers where they aren't 1 (option contracts, ADR 0123). */
+  multipliers?: ReadonlyMap<string, string | undefined> | undefined;
   /** New York date of this pass. */
   today: string;
   day: { date: string; startEquity: string } | undefined;
@@ -47,8 +50,10 @@ export function equityLimits(input: EquityLimitsInput): EquityLimits {
       unmarked = true;
       continue;
     }
-    gross = gross.plus(q.abs().times(px));
-    net = net.plus(q.times(px));
+    // §5.7 (ADR 0123): a contract's mark counts × its multiplier; a share's is itself.
+    const value = effectivePrice(px, input.multipliers?.get(id));
+    gross = gross.plus(q.abs().times(value));
+    net = net.plus(q.times(value));
   }
   const equity = new Decimal(input.startingCapital).plus(input.cash).plus(net);
   if (unmarked) {

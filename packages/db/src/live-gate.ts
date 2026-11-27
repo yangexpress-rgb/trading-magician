@@ -1,5 +1,6 @@
 import {
   liveTradingEnabled,
+  parseOptionsLevel,
   PDT_EQUITY,
   PDT_WARNING,
   resolveRoute,
@@ -271,6 +272,10 @@ export async function recordBrokerFigures(
       brokerEquity: balance.equity,
       ...(balance.dayTrades !== undefined ? { brokerDayTrades: balance.dayTrades } : {}),
       ...(balance.margin !== undefined ? { brokerMargin: balance.margin } : {}),
+      // The options level in force, read from the broker, never assumed (ADR 0123).
+      ...(parseOptionsLevel(balance.optionsLevel) !== undefined
+        ? { brokerOptionsLevel: parseOptionsLevel(balance.optionsLevel) }
+        : {}),
     })
     .where(eq(tradingAccounts.id, accountId));
 }

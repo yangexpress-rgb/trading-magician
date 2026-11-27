@@ -140,6 +140,8 @@ import {
   rearmEntryTrigger,
   quoteAgeSec,
   sizeOrder,
+  effectivePrice,
+  isOptionLeg,
   walkExpressions,
   type BrokerAdapter,
   type BrokerOrderRequest,
@@ -167,6 +169,7 @@ import { accountResolver, createAccountRouter } from './account-router';
 import type { BrokerRegistry } from './brokers';
 import { createRoutedHistory } from './routed-history';
 import { quotesForAccount } from './account-quotes';
+import type { OptionsLifecycle } from './options-trading/lifecycle';
 import { QuoteHub } from './quote-hub';
 import { quoteTrail, type RoutedQuotes } from './routed-quotes';
 import { NO_COMPANY_FEED, type FundamentalsLoader } from './fundamentals';
@@ -239,6 +242,12 @@ export interface RuntimeWorkerOptions {
    * The worker always has it; tests leave it out and every pass syncs.
    */
   accountSync?: AccountSyncGate;
+  /**
+   * The options lifecycle job (options brief v0.2 §5.8, ADR 0123): set only
+   * while OPTIONS_TRADING_ENABLED is on. It runs on an options account before
+   * that account's reconciliation pass. Without it nothing options-related runs.
+   */
+  optionsLifecycle?: OptionsLifecycle | undefined;
   /** A built-in stock group's members, as back tests resolve them (ADR 0080, 0087). */
   resolveUniverse?: (
     userId: string,
@@ -417,7 +426,9 @@ export async function runRuntimePass(
     await submitReady(tx, { work, broker, quotes, now, logger, health, accounts });
     const sync = await syncUpdates(tx, broker, work, health, now, options.accountSync);
     // 3. Periodic reconciliation against the broker (§8.5).
-    const healed = sync.complete ? await reconcile(tx, broker, work, now, sync.unknown, health) : 0;
+    const healed = sync.complete
+      ? await reconcile(tx, broker, work, now, sync.unknown, health, options.optionsLifecycle)
+      : 0;
     if (sync.changed || healed > 0)
       work = withMembers((await loadRuntimeWork(tx, runtimeId, workerId)) ?? work);
 
@@ -547,6 +558,7 @@ async function reconcile(
   now: Date,
   unknown: Map<string, string[]>,
   health: PassHealth,
+  lifecycle?: OptionsLifecycle,
 ): Promise<number> {
   let healed = 0;
   for (const accountId of work.accounts) {
@@ -555,6 +567,8 @@ async function reconcile(
     const due = !last || now.getTime() - last.getTime() >= SAFETY.reconcileEveryMs;
     if (!due && strangers.length === 0) continue;
     try {
+      // Options lifecycle first (§5.8, ADR 0123): what it explains is no mismatch.
+      if (lifecycle) await lifecycle.beforeReconcile(tx, broker, accountId, now);
       const r = await reconcileAccount(tx, broker, {
         userId: work.userId,
         accountId,
@@ -1158,6 +1172,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     cash: work.book.cash,
     positions: work.book.positions,
     marks,
+    multipliers: multipliersOf(work),
     today,
     day: state.day,
     peakEquity: state.peakEquity,
@@ -1579,7 +1594,10 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       if (c.cycle.status !== 'exit_working' && !rebalanceExits.has(c.id)) continue;
       for (const [id, q] of c.positions) {
         const px = await markOf(id);
-        if (px) closingGross = closingGross.plus(q.abs().times(px));
+        if (px)
+          closingGross = closingGross.plus(
+            q.abs().times(effectivePrice(px, work.instruments.get(id)?.multiplier)),
+          );
       }
     }
   }
@@ -1587,7 +1605,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   // Entry orders not yet filled hold exposure and buying power too (N278, ADR
   // 0096): a pass that places twenty entries, or entries that wait for the
   // open, must not each be checked against positions alone.
-  let pendingGross = pendingEntryGross(work.working);
+  let pendingGross = pendingEntryGross(work.working, multipliersOf(work));
 
   // The account's own exposure limit (ADR 0107): what every run on the account
   // holds and has working, read once when an Entry is about to be checked.
@@ -1600,7 +1618,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       accountGross = book.pendingEntry;
       for (const [id, p] of book.positions) {
         const px = (await markOf(id)) ?? p.lastPrice;
-        accountGross = accountGross.plus(p.quantity.abs().times(px));
+        accountGross = accountGross.plus(p.quantity.abs().times(effectivePrice(px, p.multiplier)));
       }
     }
     return {
@@ -1979,16 +1997,31 @@ interface PlaceInput {
   triggerEventId: string | undefined;
 }
 
-/** Unfilled notional of a runtime's working Entry orders, at their reference prices. */
-export function pendingEntryGross(working: readonly WorkingOrder[]): Decimal {
+/**
+ * Unfilled notional of a runtime's working Entry orders, at their reference
+ * prices, × each contract's multiplier where it isn't 1 (§5.7, ADR 0123).
+ */
+export function pendingEntryGross(
+  working: readonly WorkingOrder[],
+  multipliers?: ReadonlyMap<string, string | undefined>,
+): Decimal {
   let total = ZERO;
   for (const o of working) {
     if (o.intent.phase !== 'entry') continue;
     const left = new Decimal(o.intent.quantity).minus(o.filledQuantity);
     if (left.lte(0)) continue;
-    total = total.plus(left.times(o.intent.referencePrice));
+    total = total.plus(
+      effectivePrice(left.times(o.intent.referencePrice), multipliers?.get(o.intent.instrumentId)),
+    );
   }
   return total;
+}
+
+/** The run's instruments whose multiplier isn't 1 (option contracts, ADR 0123). */
+function multipliersOf(work: RuntimeWork): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const [id, ref] of work.instruments) if (ref.multiplier) out.set(id, ref.multiplier);
+  return out;
 }
 
 /**
@@ -2006,6 +2039,12 @@ async function placeLeg(
   const { cycle: c, plan, leg } = input;
   const order = def[leg.phase].orders.find((o) => o.id === leg.legId);
   if (!order) return skip(plan, leg);
+  // Options legs are never sent as share orders (ADR 0123). O0 builds no options
+  // order path, and validation refuses them before Start; this is the last guard.
+  if (isOptionLeg(order)) {
+    ctx.logger.warn({ runtimeId: work.id, leg: leg.legId }, 'options leg skipped: not built');
+    return skip(plan, leg);
+  }
   const quote = await input.quoteFor(order.instrumentId);
   if (!quote) return skip(plan, leg);
   const price = (e: PlannedOrder['limitPrice']) => (e ? evaluateExpr(e, input.view) : undefined);
@@ -2024,6 +2063,7 @@ async function placeLeg(
     equity: input.equity,
     position: c.positions.get(order.instrumentId) ?? ZERO,
     lotSize: new Decimal(work.instruments.get(order.instrumentId)?.lotSize ?? '1'),
+    multiplier: work.instruments.get(order.instrumentId)?.multiplier,
     ...(atrPeriod
       ? {
           atr: evaluateExpr(atrExpr(order.instrumentId, atrPeriod), input.view),
@@ -2064,6 +2104,7 @@ async function placeLeg(
     quantity: sized.quantity,
     referencePrice: quote.last,
     limitPrice: limit,
+    multiplier: work.instruments.get(order.instrumentId)?.multiplier,
     activeOrders: input.activeOrders,
     grossExposure: input.gross,
     equity: input.equity,
@@ -2122,7 +2163,12 @@ async function placeLeg(
     source: 'strategy',
   });
   if (!recorded.created || recorded.state !== 'ready') return false;
-  if (!sized.closing) input.onOpeningRecorded?.(sized.quantity.times(quote.last));
+  if (!sized.closing)
+    input.onOpeningRecorded?.(
+      sized.quantity.times(
+        effectivePrice(quote.last, work.instruments.get(order.instrumentId)?.multiplier),
+      ),
+    );
   // Decided while the market is closed: wait for the open. The collar is then
   // anchored on a price from the send session, never this one (N325, releaseHeldOrder).
   if (

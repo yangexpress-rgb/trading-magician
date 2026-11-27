@@ -393,6 +393,30 @@ export type Timing = z.infer<typeof timingSchema>;
 export const QUANTITY_ROUNDINGS = ['up', 'down', 'nearest'] as const;
 export type QuantityRounding = (typeof QUANTITY_ROUNDINGS)[number];
 
+/**
+ * The options form of a leg (options trading brief v0.2 §5.1, ADR 0123): the
+ * leg's `instrumentId` stays the underlying, and this names a picker rule, not
+ * a contract. The resolver turns it into one contract when the order is
+ * decided (§6). Absent on every stock and ETF leg, so older definitions parse
+ * and hash unchanged.
+ */
+export const OPTION_RIGHTS = ['call', 'put'] as const;
+export const optionStrikeRuleSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('atm') }),
+  /** +p is p% out of the money for both rights; negative is in the money. */
+  z.object({ type: z.literal('moneynessPct'), pct: z.number().min(-50).max(50) }),
+]);
+export const optionLegSchema = z.object({
+  right: z.enum(OPTION_RIGHTS),
+  strikeRule: optionStrikeRuleSchema,
+  expiryRule: z.object({
+    targetDte: z.number().int().min(1).max(730),
+    minDte: z.number().int().min(0).max(730),
+  }),
+});
+export type OptionLeg = z.infer<typeof optionLegSchema>;
+export type OptionStrikeRule = z.infer<typeof optionStrikeRuleSchema>;
+
 export const plannedOrderSchema = z.object({
   id,
   legLabel: z.string().trim().min(1, 'Name this leg').max(40),
@@ -425,8 +449,13 @@ export const plannedOrderSchema = z.object({
    * own instrument may use `CONTEXT_INSTRUMENT_ID`.
    */
   legCondition: conditionGroupSchema.optional(),
+  /** Options legs only (§5.1): the contract picker; `instrumentId` is the underlying. */
+  option: optionLegSchema.optional(),
 });
 export type PlannedOrder = z.infer<typeof plannedOrderSchema>;
+
+/** Whether a leg trades options (§5.1). */
+export const isOptionLeg = (o: Pick<PlannedOrder, 'option'>): boolean => o.option !== undefined;
 
 // ---------------------------------------------------------------------------
 // Phases, execution policy and risk (§6.5, §6.7, §6.9, §8.6)
