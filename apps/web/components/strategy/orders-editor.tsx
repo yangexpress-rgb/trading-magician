@@ -34,6 +34,14 @@ import { InstrumentSelect } from './instrument-select';
 import { TimingEditor } from './timing-editor';
 import { DEFAULT_RISK_DISTANCE } from '@/lib/slot-edits';
 
+/** An options leg's sides in the broker's words (Phase O2): it opens or closes a contract. */
+const OPTION_SIDE_LABELS: Partial<Record<OrderSide, string>> = {
+  buy: 'Buy to open',
+  sell_short: 'Sell to open',
+  sell: 'Sell to close',
+  buy_to_cover: 'Buy to close',
+};
+
 const PHASE_SIDES: Record<PhaseName, readonly OrderSide[]> = {
   entry: ['buy', 'sell_short'],
   exit: ['sell', 'buy_to_cover', 'close', 'reduce'],
@@ -372,7 +380,7 @@ function LegEditor({
           >
             {sides.map((s) => (
               <option key={s} value={s}>
-                {SIDE_LABELS[s]}
+                {(order.option && OPTION_SIDE_LABELS[s]) || SIDE_LABELS[s]}
               </option>
             ))}
           </MiniSelect>
@@ -707,25 +715,62 @@ function OptionLegFields({
             <option value="call">Call</option>
             <option value="put">Put</option>
           </MiniSelect>
-          <MiniInput
-            id={idOf('option-strike')}
-            label="Strike, % out of the money (0 is at the money)"
-            type="number"
-            min={-50}
-            max={50}
-            step={0.5}
-            value={String(strikePct)}
-            onChange={(e) => {
-              const pct = Number(e.target.value);
+          <MiniSelect
+            id={idOf('option-strike-by')}
+            label="Strike by"
+            value={o.strikeRule.type === 'delta' ? 'delta' : 'moneyness'}
+            onChange={(e) =>
               onChange({
                 ...o,
                 strikeRule:
-                  Number.isFinite(pct) && pct !== 0
-                    ? { type: 'moneynessPct', pct: Math.max(-50, Math.min(50, pct)) }
-                    : { type: 'atm' },
-              });
-            }}
-          />
+                  e.target.value === 'delta' ? { type: 'delta', delta: 0.3 } : { type: 'atm' },
+              })
+            }
+          >
+            <option value="moneyness">% out of the money</option>
+            <option value="delta">Delta</option>
+          </MiniSelect>
+          {o.strikeRule.type === 'delta' ? (
+            <MiniInput
+              id={idOf('option-delta')}
+              label="Delta, 0.05 to 0.95 (the nearest is picked)"
+              type="number"
+              min={0.05}
+              max={0.95}
+              step={0.05}
+              value={String(o.strikeRule.delta)}
+              onChange={(e) => {
+                const d = Number(e.target.value);
+                onChange({
+                  ...o,
+                  strikeRule: {
+                    type: 'delta',
+                    delta: Number.isFinite(d) ? Math.max(0.05, Math.min(0.95, d)) : 0.3,
+                  },
+                });
+              }}
+            />
+          ) : (
+            <MiniInput
+              id={idOf('option-strike')}
+              label="Strike, % out of the money (0 is at the money)"
+              type="number"
+              min={-50}
+              max={50}
+              step={0.5}
+              value={String(strikePct)}
+              onChange={(e) => {
+                const pct = Number(e.target.value);
+                onChange({
+                  ...o,
+                  strikeRule:
+                    Number.isFinite(pct) && pct !== 0
+                      ? { type: 'moneynessPct', pct: Math.max(-50, Math.min(50, pct)) }
+                      : { type: 'atm' },
+                });
+              }}
+            />
+          )}
           <MiniInput
             id={idOf('option-dte')}
             label="Target days to expiry"
@@ -765,8 +810,10 @@ function OptionLegFields({
       {o && (
         <p className="text-xs text-ink-muted">
           The contract is picked when the order goes: the nearest expiry at least the minimum days
-          out, then the strike nearest the target. Orders go as a limit at the quote&apos;s mid, are
-          re-priced once after 120 seconds, then canceled.
+          out, then the strike nearest the target (or the delta nearest it, from the broker&apos;s
+          Greeks). Orders go as a limit at the quote&apos;s mid, are re-priced once after 120
+          seconds, then canceled. Two or more options legs on one instrument trade as one combo
+          order, all or none, on one expiry; selling to open needs a bought leg that covers it.
         </p>
       )}
     </div>

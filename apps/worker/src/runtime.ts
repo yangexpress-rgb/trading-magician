@@ -70,6 +70,7 @@ import {
 import { RuntimeBarCache, RuntimeSideData, RuntimeUniverses } from './runtime-cache';
 import {
   addDays,
+  positionIntentFor,
   fundamentalInstruments,
   eventInstruments,
   optionInstruments,
@@ -143,10 +144,14 @@ import {
   effectivePrice,
   isOptionLeg,
   expiryStage,
+  nextTradingDay,
+  shortNearTheMoney,
   optionExitReason,
   type OptionHolding,
   walkExpressions,
   type BrokerAdapter,
+  type MultiLegOrderRequest,
+  type OptionOrderDetail,
   type BrokerOrderRequest,
   type BrokerOrderUpdate,
   type ConditionGroup,
@@ -173,6 +178,9 @@ import type { BrokerRegistry } from './brokers';
 import { createRoutedHistory } from './routed-history';
 import { quotesForAccount } from './account-quotes';
 import type { OptionsLifecycle } from './options-trading/lifecycle';
+import { comboOf, manageCombos, placeComboLeg } from './options-trading/combos';
+import { confirmAssignments, settleAssignedOptions } from './options-trading/assignment';
+import { dividendRisk } from './options-trading/dividends';
 import {
   OptionQuoteCache,
   withOptionQuotes,
@@ -469,6 +477,17 @@ export async function runRuntimePass(
     // looks, so a worthless expiry is no mismatch (§8.3, ADR 0123).
     if (optionQuotes && (await settleExpiredOptions(tx, { work, broker, now, logger })) > 0)
       work = withMembers((await loadRuntimeWork(tx, runtimeId, workerId)) ?? work);
+    // So is an assignment, inferred from what the broker holds (§8.3, Phase O2);
+    // the next morning it is checked against the broker's own record.
+    if (optionQuotes) {
+      const before = structuredClone(work.state.options);
+      if ((await settleAssignedOptions(tx, { work, broker, now, logger })) > 0) {
+        const assigned = work.state.options?.assigned;
+        work = withMembers((await loadRuntimeWork(tx, runtimeId, workerId)) ?? work);
+        work.state.options = { ...before, ...work.state.options, assigned };
+      }
+      await confirmAssignments(tx, { work, broker, now, logger });
+    }
     // 3. Periodic reconciliation against the broker (§8.5).
     const healed = sync.complete
       ? await reconcile(tx, broker, work, now, sync.unknown, health, options.optionsLifecycle)
@@ -999,8 +1018,12 @@ async function watchRejects(tx: Transaction, work: RuntimeWork): Promise<void> {
 
 /** Sends cancels the app or a person requested but the broker has not yet confirmed. */
 async function sendCancels(broker: BrokerAdapter, work: RuntimeWork, health: PassHealth) {
+  // An options combo's legs share one broker order: it is canceled once (ADR 0123).
+  const sent = new Set<string>();
   for (const o of work.working) {
     if (!o.cancelRequested || !o.brokerOrderId) continue;
+    if (sent.has(o.brokerOrderId)) continue;
+    sent.add(o.brokerOrderId);
     try {
       await broker.cancelOrder(o.intent.accountId, o.brokerOrderId);
     } catch (e) {
@@ -1026,6 +1049,14 @@ function requestFor(o: WorkingOrder): BrokerOrderRequest {
     stopPrice: i.stopPrice ?? undefined,
     timeInForce: i.timeInForce as BrokerOrderRequest['timeInForce'],
     extendedHours: i.extendedHours,
+    // An options order is sent again as the options order it was (ADR 0123).
+    ...(i.optionDetail
+      ? {
+          short: false,
+          assetClass: 'option' as const,
+          positionIntent: positionIntentFor(i.side as PlannedOrder['side']),
+        }
+      : {}),
   };
 }
 
@@ -1041,6 +1072,8 @@ async function submitReady(
   const risk = ctx.work.definition.risk;
   for (const o of ctx.work.working) {
     if (o.state !== 'ready' || o.brokerOrderId || o.cancelRequested) continue;
+    // A combo's legs go again together, as one order (ADR 0123 Phase O2).
+    if (o.intent.orderGroupId) continue;
     const i = o.intent;
     if (i.source === 'strategy' && risk.priceCollarPct && holdsForOpenCollar(i, risk)) {
       // Held for the open (see placeLeg); released only within the collar.
@@ -1201,7 +1234,10 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   const state: RuntimeState = structuredClone(work.state);
   // Working options orders: one re-price, then cancel (§7.4, ADR 0123).
   const octx = optionContext(tx, ctx);
-  if (octx) await manageOptionOrders(octx);
+  if (octx) {
+    await manageOptionOrders(octx);
+    await manageCombos(octx);
+  }
 
   // Marks and equity (§8.6): paper capital plus what the runtime's fills made.
   const quoteCache = new Map<string, Quote | undefined>();
@@ -1225,6 +1261,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     positions: work.book.positions,
     marks,
     multipliers: multipliersOf(work),
+    options: optionTermsOf(work),
     today,
     day: state.day,
     peakEquity: state.peakEquity,
@@ -1338,7 +1375,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     }
   }
   /** Why this runtime's closing orders go, in words (N306); stored on each one. */
-  const closeReasonFor = (notes: readonly string[]): string =>
+  const closeReasonFor = (notes: readonly string[], assignedText?: string): string =>
     safetyCloseReason(
       notes.includes('session_end')
         ? { kind: 'session_end' }
@@ -1353,7 +1390,11 @@ async function planPass(tx: Transaction, ctx: PassContext) {
             }
           : notes.includes('closed_before_expiry')
             ? { kind: 'closed_before_expiry' }
-            : { kind: 'leg_failed' },
+            : notes.includes('assigned')
+              ? { kind: 'assigned', detail: assignedText }
+              : notes.includes('dividend_risk')
+                ? { kind: 'dividend_risk', detail: assignedText }
+                : { kind: 'leg_failed' },
     );
   const due = (schedule: Schedule, last: string | undefined): string | undefined => {
     const s = normalSchedule(schedule);
@@ -1824,6 +1865,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     // and the expiry-day close. Nothing here runs while options trading is off.
     let optionExit: 'option_target' | 'option_dte' | undefined;
     let expiryClose = false;
+    let dividendDetail: string | undefined;
     if (ctx.optionQuotes && (c.cycle.status === 'open' || c.cycle.status === 'exit_working')) {
       const holdings: OptionHolding[] = [];
       for (const [id, q] of c.positions) {
@@ -1837,16 +1879,40 @@ async function planPass(tx: Transaction, ctx: PassContext) {
           const u = await quoteFor(ref.option.underlyingId);
           const st = optionsState(work);
           if (u) st.expiryMarks = { ...st.expiryMarks, [id]: u.last.toString() };
+        } else if (q.lt(0) && nextTradingDay(today) === ref.option.expiry) {
+          // §8.3 (Phase O2): a short leg near the money closes a day early, from
+          // 15:00 the session before its expiry, so it is never assigned at expiry.
+          const late = expiryStage(today, now);
+          const u =
+            late === 'close' || late === 'touch'
+              ? await quoteFor(ref.option.underlyingId)
+              : undefined;
+          if (u && shortNearTheMoney(ref.option.strike, u.last)) expiryClose = true;
         }
         const e = c.entries.get(id);
         holdings.push({
           premiumPaid: e && !e.quantity.isZero() ? e.cost.div(e.quantity) : 0,
           premiumNow: (await quoteFor(id))?.last,
           expiry: ref.option.expiry,
+          right: ref.option.right,
+          strike: ref.option.strike,
+          quantity: q,
         });
       }
+      // A single long contract keeps Phase O1's premium target; a combo is read whole (§8.4).
+      const combo = holdings.length > 1 || holdings.some((h) => new Decimal(h.quantity ?? 0).lt(0));
+      if (!combo)
+        for (const h of holdings) {
+          delete h.right;
+          delete h.strike;
+          delete h.quantity;
+        }
       if (exitDue && c.cycle.status === 'open')
         optionExit = optionExitReason(cycleDef.exit.rules, holdings, today);
+      // §7.5 (Phase O2): a short call likely to be exercised for tomorrow's dividend.
+      const octxNow = optionContext(tx, ctx);
+      if (octxNow && !c.cycle.flattened && holdings.some((h) => new Decimal(h.quantity ?? 0).lt(0)))
+        dividendDetail = await dividendRisk(octxNow, c, quoteFor);
     }
     const plan = planCycle({
       definition: cycleDef,
@@ -1859,6 +1925,10 @@ async function planPass(tx: Transaction, ctx: PassContext) {
       sessionEnd,
       strategyStop: trailClosing,
       expiryClose,
+      // Phase O2: an assigned combo closes the rest and the shares once the session is open.
+      assigned:
+        !!work.state.options?.assigned?.[c.id] && !c.cycle.flattened && regularSessionOpenAt(t),
+      dividendClose: dividendDetail !== undefined,
       forceExit: rebalanceExits.has(c.id)
         ? 'rebalance'
         : atrStopFired
@@ -1904,7 +1974,11 @@ async function planPass(tx: Transaction, ctx: PassContext) {
               ? 'Trailing stop: the strategy closed its positions'
               : cancel.reason === 'closed_before_expiry'
                 ? 'Expiry day: the option is being closed'
-                : 'Another leg of the plan did not fill',
+                : cancel.reason === 'assigned'
+                  ? 'Assigned: the combo is being closed'
+                  : cancel.reason === 'dividend_risk'
+                    ? 'Dividend: the combo is being closed before the ex-date'
+                    : 'Another leg of the plan did not fill',
       );
       if (target) {
         try {
@@ -1972,7 +2046,10 @@ async function planPass(tx: Transaction, ctx: PassContext) {
     }
 
     if (plan.flatten) {
-      const reason = closeReasonFor(plan.notes);
+      const reason = closeReasonFor(
+        plan.notes,
+        work.state.options?.assigned?.[c.id]?.detail ?? dividendDetail,
+      );
       const symbols: string[] = [];
       for (const [instrumentId, q] of c.positions) {
         if (q.isZero()) continue;
@@ -2115,15 +2192,37 @@ export function pendingEntryGross(
   multipliers?: ReadonlyMap<string, string | undefined>,
 ): Decimal {
   let total = ZERO;
+  const combos = new Set<string>();
   for (const o of working) {
     if (o.intent.phase !== 'entry') continue;
     const left = new Decimal(o.intent.quantity).minus(o.filledQuantity);
     if (left.lte(0)) continue;
+    // An options combo holds its max loss once, not each leg's premium (Phase O2).
+    const group = o.intent.orderGroupId;
+    if (group) {
+      const maxLoss = (o.intent.optionDetail as OptionOrderDetail | null)?.combo?.maxLoss;
+      if (!combos.has(group) && maxLoss) total = total.plus(maxLoss);
+      combos.add(group);
+      continue;
+    }
     total = total.plus(
       effectivePrice(left.times(o.intent.referencePrice), multipliers?.get(o.intent.instrumentId)),
     );
   }
   return total;
+}
+
+/** The run's option contracts' terms, for their exposure (Phase O2); empty for equity runs. */
+function optionTermsOf(work: RuntimeWork) {
+  const out = new Map<string, { underlyingId: string; right: 'call' | 'put'; strike: string }>();
+  for (const [id, ref] of work.instruments)
+    if (ref.option)
+      out.set(id, {
+        underlyingId: ref.option.underlyingId,
+        right: ref.option.right,
+        strike: ref.option.strike,
+      });
+  return out;
 }
 
 /** The run's instruments whose multiplier isn't 1 (option contracts, ADR 0123). */
@@ -2156,11 +2255,10 @@ async function placeLeg(
       ctx.logger.warn({ runtimeId: work.id, leg: leg.legId }, 'options leg skipped: options off');
       return skip(plan, leg);
     }
-    return placeOptionLeg(octx, {
-      ...input,
-      order,
-      underlying: await input.quoteFor(order.instrumentId),
-    });
+    const legInput = { ...input, order, underlying: await input.quoteFor(order.instrumentId) };
+    // Phase O2: the options legs of one Entry on one underlying go as one combo.
+    const combo = comboOf(def, order);
+    return combo ? placeComboLeg(octx, legInput, combo) : placeOptionLeg(octx, legInput);
   }
   const quote = await input.quoteFor(order.instrumentId);
   if (!quote) return skip(plan, leg);
@@ -2321,7 +2419,57 @@ function optionContext(tx: Transaction, ctx: PassContext): OptionPassContext | u
     now: ctx.now,
     logger: ctx.logger,
     submit: (intentId, request) => submit(tx, ctx, intentId, request),
+    submitCombo: (intentIds, request) => submitCombo(tx, ctx, intentIds, request),
   };
+}
+
+/**
+ * An options combo to the broker as one order (ADR 0123 Phase O2), with the
+ * same account check as any order. Every leg intent takes the one broker
+ * order id; a refusal fails them all, and an unreachable broker leaves them
+ * ready to be sent again with the same key.
+ */
+async function submitCombo(
+  tx: Transaction,
+  ctx: Pick<PassContext, 'broker' | 'work' | 'logger' | 'health'>,
+  intentIds: readonly string[],
+  request: MultiLegOrderRequest,
+): Promise<'sent' | 'refused' | 'unavailable'> {
+  const crossAccount = crossAccountRefusal(ctx.work.accountId, request.accountId);
+  if (crossAccount || !ctx.broker.submitMultiLeg) {
+    const reason = crossAccount ?? "This account's broker can't place an options combo";
+    for (const id of intentIds) await markOrderFailed(tx, id, reason);
+    return 'refused';
+  }
+  try {
+    const { brokerOrderId } = await ctx.broker.submitMultiLeg(request);
+    for (const id of intentIds) await markOrderSubmitted(tx, id, brokerOrderId);
+    await recordAudit(tx, {
+      userId: ctx.work.userId,
+      actorType: 'system',
+      action: 'order.submitted',
+      resourceType: 'order_intent',
+      resourceId: intentIds[0] ?? request.clientOrderId,
+      context: {
+        runtimeId: ctx.work.id,
+        brokerOrderId,
+        combo: request.clientOrderId,
+        legs: intentIds,
+      },
+    });
+    return 'sent';
+  } catch (e) {
+    if (e instanceof BrokerRejectedError) {
+      for (const id of intentIds) await markOrderFailed(tx, id, e.message);
+      return 'refused';
+    }
+    if (e instanceof BrokerUnavailableError) {
+      ctx.logger.warn({ combo: request.clientOrderId }, 'broker unavailable; combo will retry');
+      markUnavailable(ctx.health, e);
+      return 'unavailable';
+    }
+    throw e;
+  }
 }
 
 function skip(plan: CyclePlan, leg: PlannedLeg): undefined {

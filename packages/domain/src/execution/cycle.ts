@@ -72,6 +72,8 @@ export interface CycleState {
     | 'option_dte'
     | 'closed_before_expiry'
     | 'expired_worthless'
+    | 'assigned'
+    | 'dividend_risk'
     | undefined;
   /** The entry group that opened it (v1.2 item 8); absent for the strategy's own Entry. */
   group?: string | undefined;
@@ -163,6 +165,17 @@ export interface CycleInput {
    * closes now, the same way as at session end.
    */
   expiryClose?: boolean | undefined;
+  /**
+   * Phase O2 (§8.3): a short leg of the cycle's combo was assigned, so what
+   * the cycle holds (the rest of the combo and the delivered shares) closes
+   * in the regular session, the same way as at session end.
+   */
+  assigned?: boolean | undefined;
+  /**
+   * Phase O2 (§7.5): a short call of the cycle's combo is likely to be
+   * exercised early for tomorrow's dividend, so the combo closes now.
+   */
+  dividendClose?: boolean | undefined;
 }
 
 export interface CyclePlan {
@@ -178,7 +191,9 @@ export interface CyclePlan {
       | 'leg_failed'
       | 'session_end'
       | 'strategy_trailing_stop'
-      | 'closed_before_expiry';
+      | 'closed_before_expiry'
+      | 'assigned'
+      | 'dividend_risk';
   }[];
   /** Create closing orders for whatever the cycle still holds. */
   flatten: boolean;
@@ -199,6 +214,8 @@ export type CycleNote =
   | 'session_end'
   | 'strategy_trailing_stop'
   | 'closed_before_expiry'
+  | 'assigned'
+  | 'dividend_risk'
   | 'closed'
   | 'aborted';
 
@@ -515,7 +532,11 @@ export function planCycle(input: CycleInput): CyclePlan {
       ? ('strategy_trailing_stop' as const)
       : input.expiryClose
         ? ('closed_before_expiry' as const)
-        : undefined;
+        : input.assigned
+          ? ('assigned' as const)
+          : input.dividendClose
+            ? ('dividend_risk' as const)
+            : undefined;
   if (
     flattenReason &&
     !cycle.flattened &&

@@ -26,13 +26,18 @@ const OPT = {
   instrumentId: '00000000-0000-4000-8000-0000000000c1',
   symbol: 'ZTSTA261120C00100000',
 };
+const OPT2 = {
+  instrumentId: '00000000-0000-4000-8000-0000000000c2',
+  symbol: 'ZTSTA261120C00105000',
+};
 
 function setup(
   clock: { t: number },
   options: { shortingEnabled?: boolean; optionsLevel?: number } = {},
 ) {
   const fake = new FakeAlpaca({ now: () => new Date(clock.t), ...options });
-  if (options.optionsLevel !== undefined) fake.addOptionContracts([{ symbol: OPT.symbol }]);
+  if (options.optionsLevel !== undefined)
+    fake.addOptionContracts([{ symbol: OPT.symbol }, { symbol: OPT2.symbol }]);
   const client = new AlpacaClient({
     credentials: fake.credentials,
     fetch: fake.fetch,
@@ -45,10 +50,19 @@ function setup(
     capabilities: {
       ...alpacaCapabilities({ shorting_enabled: options.shortingEnabled ?? true }),
       ...(options.optionsLevel !== undefined ? { options: true } : {}),
+      ...(options.optionsLevel !== undefined && options.optionsLevel >= 3
+        ? { optionCombos: true }
+        : {}),
     },
     ...(options.optionsLevel !== undefined ? { optionsClient: client } : {}),
     instrumentIdFor: async (symbol) =>
-      symbol === A.symbol ? A.instrumentId : symbol === OPT.symbol ? OPT.instrumentId : undefined,
+      symbol === A.symbol
+        ? A.instrumentId
+        : symbol === OPT.symbol
+          ? OPT.instrumentId
+          : symbol === OPT2.symbol
+            ? OPT2.instrumentId
+            : undefined,
     now: () => new Date(clock.t),
   });
   return { fake, client, broker };
@@ -71,6 +85,16 @@ function alpacaHarness(faults?: Parameters<typeof withFaults>[1], optionsLevel?:
                   ask,
                   ...(fillAtMid ? { fillAtMid } : {}),
                 }),
+            },
+          }
+        : {}),
+      ...(optionsLevel !== undefined && optionsLevel >= 3
+        ? {
+            comboOption: {
+              ...OPT2,
+              setQuote: (bid: string, ask: string) =>
+                fake.setOptionQuote(OPT2.symbol, { bid, ask }),
+              rejectNextCombo: () => fake.rejectNextCombo(),
             },
           }
         : {}),
@@ -120,6 +144,7 @@ describeBrokerContract(
 );
 
 describeBrokerContract('Alpaca paper (fake) with options level 2', alpacaHarness(undefined, 2));
+describeBrokerContract('Alpaca paper (fake) with options level 3', alpacaHarness(undefined, 3));
 
 describe('Alpaca broker adapter', () => {
   it('reads an order’s state into normalized events', () => {

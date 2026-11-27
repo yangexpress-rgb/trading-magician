@@ -275,3 +275,95 @@ describe('options back tests (ADR 0123)', () => {
     expect(result.trades.filter((t) => t.status !== 'aborted')).toHaveLength(0);
   });
 });
+
+describe('options combos in back tests (ADR 0123 Phase O2)', () => {
+  const callAt = (symbol: string, strike: string) => contract(symbol, E35, strike);
+  const C105 = callAt('ZZZ240405C00105000', '105');
+  const C110 = callAt('ZZZ240405C00110000', '110');
+  // Day 0–2 the short 105 call at 1.50, the long 110 call at 0.50: a 1.00 credit.
+  // From day 3 they fade to 0.60 and 0.10: half the credit kept.
+  const data: OptionsBacktestData = {
+    contracts: new Map([[A, [C105, C110, callAt('ZZZ240405C00100000', '100')]]]),
+    bars: new Map([
+      [
+        C105.symbol,
+        contractBars([
+          [0, 1.5, 1.5],
+          [1, 1.5, 1.5],
+          [2, 1.5, 1.5],
+          [3, 0.6, 0.6],
+          [4, 0.6, 0.6],
+          [5, 0.6, 0.6],
+        ]),
+      ],
+      [
+        C110.symbol,
+        contractBars([
+          [0, 0.5, 0.5],
+          [1, 0.5, 0.5],
+          [2, 0.5, 0.5],
+          [3, 0.1, 0.1],
+          [4, 0.1, 0.1],
+          [5, 0.1, 0.1],
+        ]),
+      ],
+    ]),
+    slippagePct: '0',
+  };
+
+  function vertical(
+    sets: string,
+    rules: NonNullable<ReturnType<typeof strategy>['exit']['rules']> = [],
+  ) {
+    const opt = (pct: number) => ({
+      right: 'call' as const,
+      strikeRule: { type: 'moneynessPct' as const, pct },
+      expiryRule: { targetDte: 30, minDte: 1 },
+    });
+    const units = { type: 'units' as const, value: sets, rounding: 'down' as const };
+    const def = strategy(
+      compare(close(A), 'gt', constant('99.5')),
+      [
+        leg('Sell 105', { side: 'sell_short', option: opt(5), quantity: units }),
+        leg('Buy 110', { option: opt(10), quantity: units }),
+      ],
+      compare(close(A), 'lt', constant('0')),
+      [
+        leg('Cover 105', { side: 'buy_to_cover', option: opt(5), quantity: units }),
+        leg('Sell 110', { side: 'sell', option: opt(10), quantity: units }),
+      ],
+    );
+    def.exit.rules = rules;
+    return def;
+  }
+
+  it('checks a credit vertical as a whole on its max loss: 2 sets × (5 − 1.00) × 100 = $800 (A3, A7)', () => {
+    const refused = vertical('2');
+    refused.risk.maxOrderNotional = '799';
+    const none = run(refused, data, flat(6));
+    expect(none.trades.filter((t) => t.legs.length > 0)).toHaveLength(0);
+    const allowed = vertical('2');
+    allowed.risk.maxOrderNotional = '800';
+    const [trade] = run(allowed, data, flat(6)).trades;
+    expect(trade?.legs.map((l) => [l.symbol, l.side, l.quantity, l.averagePrice])).toEqual([
+      [C105.symbol, 'sell_short', '2', '1.5'],
+      [C110.symbol, 'buy', '2', '0.5'],
+    ]);
+  });
+
+  it('reads the profit target on the combo as a whole, and each Exit leg closes its own contract', () => {
+    const [trade] = run(
+      vertical('1', [{ kind: 'optionTarget', id: 't', pct: '50' }]),
+      data,
+      flat(8),
+    ).trades;
+    expect(trade?.exitReason).toBe('option_target');
+    const exits = trade!.legs.slice(2);
+    expect(exits.map((l) => [l.symbol, l.side, l.averagePrice])).toEqual([
+      [C105.symbol, 'buy_to_cover', '0.6'],
+      [C110.symbol, 'sell', '0.1'],
+    ]);
+    // Took in 1.00, paid 0.50 to close: $50.
+    expect(trade?.netPnl).toBe('50');
+  });
+});

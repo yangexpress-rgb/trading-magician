@@ -73,6 +73,30 @@ export function createAccountRouter(options: {
         throw new BrokerRejectedError('options_unsupported', NO_OPTIONS_REASON);
       return adapter.replaceOrder(accountId, brokerOrderId, change);
     },
+    async submitMultiLeg(request) {
+      const adapter = await forAccount(request.accountId);
+      if (!adapter.capabilities.optionCombos || !adapter.submitMultiLeg)
+        throw new BrokerRejectedError('options_unsupported', NO_OPTIONS_REASON);
+      return adapter.submitMultiLeg(request);
+    },
+    async optionDeltas(accountId, symbols) {
+      const adapter = await forAccount(accountId);
+      if (!adapter.capabilities.options || !adapter.optionDeltas)
+        throw new BrokerRejectedError('options_unsupported', NO_OPTIONS_REASON);
+      return adapter.optionDeltas(accountId, symbols);
+    },
+    async optionActivities(accountId, after) {
+      const adapter = await forAccount(accountId);
+      if (!adapter.capabilities.options || !adapter.optionActivities)
+        throw new BrokerRejectedError('options_unsupported', NO_OPTIONS_REASON);
+      return adapter.optionActivities(accountId, after);
+    },
+    async cashDividends(accountId, symbol, from, to) {
+      const adapter = await forAccount(accountId);
+      if (!adapter.capabilities.options || !adapter.cashDividends)
+        throw new BrokerRejectedError('options_unsupported', NO_OPTIONS_REASON);
+      return adapter.cashDividends(accountId, symbol, from, to);
+    },
     async optionContracts(accountId, query) {
       const adapter = await forAccount(accountId);
       if (!adapter.capabilities.options || !adapter.optionContracts)

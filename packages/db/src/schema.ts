@@ -1326,7 +1326,7 @@ export const backtestTrades = pgTable(
     check('backtest_trade_status', sql`${t.status} in ('closed', 'open', 'aborted')`),
     check(
       'backtest_trade_exit_reason',
-      sql`${t.exitReason} is null or ${t.exitReason} in ('condition', 'time_stop', 'rebalance', 'atr_stop', 'expected_move', 'trailing_stop', 'session_end', 'strategy_trailing_stop', 'option_target', 'option_dte', 'expired_worthless', 'exercised', 'assigned', 'closed_before_expiry')`,
+      sql`${t.exitReason} is null or ${t.exitReason} in ('condition', 'time_stop', 'rebalance', 'atr_stop', 'expected_move', 'trailing_stop', 'session_end', 'strategy_trailing_stop', 'option_target', 'option_dte', 'expired_worthless', 'exercised', 'assigned', 'closed_before_expiry', 'dividend_risk')`,
     ),
     check(
       'backtest_trade_direction',
@@ -1598,6 +1598,12 @@ export const orderIntents = pgTable(
      * stock and ETF order.
      */
     optionDetail: jsonb('option_detail'),
+    /**
+     * Options combos (options brief v0.2 §5.5, ADR 0123 Phase O2): the combo's
+     * own client order id, shared by the leg intents sent as one multi-leg
+     * broker order. Null on every other order.
+     */
+    orderGroupId: text('order_group_id'),
     mode: tradingMode('mode').notNull().default('paper'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1626,6 +1632,9 @@ export const orderIntents = pgTable(
     }),
     index('order_intent_cycle_idx').on(t.cycleId, t.createdAt),
     index('order_intent_user_created_idx').on(t.userId, t.createdAt),
+    index('order_intent_group_idx')
+      .on(t.orderGroupId)
+      .where(sql`${t.orderGroupId} is not null`),
     check('order_intent_quantity_positive', sql`${t.quantity} > 0`),
     check('order_intent_phase', sql`${t.phase} in ('entry', 'exit', 'flatten')`),
     check('order_intent_direction', sql`${t.direction} in ('buy', 'sell')`),
@@ -1724,7 +1733,9 @@ export const fills = pgTable(
     /**
      * `trade` for every broker fill. `expiry` (options brief v0.2 §8.3, ADR
      * 0123): an option contract that expired worthless, settled at 0 by the
-     * options lifecycle job; the only fill whose price may be 0.
+     * options lifecycle job. `assignment` and `exercise` (Phase O2): a
+     * contract leaving at 0 on assignment or exercise, and the shares it
+     * delivered at its strike. Only these may have a price of 0.
      */
     kind: text('kind').notNull().default('trade'),
   },
@@ -1736,8 +1747,11 @@ export const fills = pgTable(
     unique('fill_broker_uq').on(t.intentId, t.brokerFillId),
     index('fill_user_time_idx').on(t.userId, t.filledAt),
     check('fill_quantity_positive', sql`${t.quantity} > 0`),
-    check('fill_price_positive', sql`${t.price} > 0 or (${t.kind} = 'expiry' and ${t.price} = 0)`),
-    check('fill_kind', sql`${t.kind} in ('trade', 'expiry')`),
+    check(
+      'fill_price_positive',
+      sql`${t.price} > 0 or (${t.kind} in ('expiry', 'assignment', 'exercise') and ${t.price} = 0)`,
+    ),
+    check('fill_kind', sql`${t.kind} in ('trade', 'expiry', 'assignment', 'exercise')`),
   ],
 );
 
@@ -2922,6 +2936,28 @@ export const optionContractLists = pgTable('option_contract_list', {
   /** `ContractListEntry[]`. */
   contracts: jsonb('contracts').notNull(),
 });
+
+/**
+ * The ex-dividend calendar of options underlyings (options brief v0.2 §7.5,
+ * ADR 0123 Phase O2), from Alpaca's corporate-actions announcements: read by
+ * the worker for underlyings where a run holds a short call, so it can close
+ * one at risk of early assignment before the ex-date. Written and read by the
+ * worker only.
+ */
+export const optionDividends = pgTable(
+  'option_dividend',
+  {
+    underlyingId: uuid('underlying_id')
+      .notNull()
+      .references(() => instruments.id),
+    exDate: date('ex_date', { mode: 'string' }).notNull(),
+    /** Cash per share. */
+    cashAmount: numeric('cash_amount').notNull(),
+    /** New York date the announcements were last read for this underlying. */
+    fetchedOn: date('fetched_on', { mode: 'string' }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.underlyingId, t.exDate] })],
+);
 
 /** Where each event job has got to: covered dates, last run and last error. */
 export const eventScanState = pgTable(

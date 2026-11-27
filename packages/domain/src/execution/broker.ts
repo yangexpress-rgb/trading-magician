@@ -24,6 +24,12 @@ export interface BrokerCapabilities {
    * legs are refused there with a plain reason.
    */
   options?: boolean | undefined;
+  /**
+   * Whether the adapter places options combos as one multi-leg order (Phase
+   * O2, `submitMultiLeg`). Kept apart from `atomicMultiLeg`, which keeps its
+   * meaning for stock and ETF legs (ADR 0123).
+   */
+  optionCombos?: boolean | undefined;
 }
 
 export interface BrokerOrderRequest {
@@ -45,6 +51,49 @@ export interface BrokerOrderRequest {
   assetClass?: 'option' | undefined;
   /** Options only (§5.1): what the order does to the position, sent as the broker's intent. */
   positionIntent?: PositionIntent | undefined;
+}
+
+/**
+ * An options combo (options brief v0.2 §§5.5, 7.2; ADR 0123 Phase O2): legs
+ * filled all-or-none as one broker order at one net limit price. Only on
+ * adapters whose `capabilities.atomicMultiLeg` is true.
+ */
+export interface MultiLegOrderRequest {
+  /** The combo's own idempotency key; a repeat returns the existing order. */
+  clientOrderId: string;
+  accountId: string;
+  legs: readonly {
+    /** The leg intent's key: `comboLegClientOrderId(clientOrderId, symbol)`. */
+    clientOrderId: string;
+    instrumentId: string;
+    symbol: string;
+    /** Contracts per set, in lowest terms. */
+    ratio: number;
+    direction: Direction;
+    positionIntent: PositionIntent;
+  }[];
+  /** Sets. */
+  quantity: string;
+  /** Net price per share of one set: positive is a debit paid, negative a credit received. */
+  limitPrice: string;
+  timeInForce: 'day' | 'gtc';
+}
+
+/**
+ * The client order id a combo leg's updates carry: the combo's own with the
+ * leg's contract, so updates of one broker order map back to each leg intent.
+ */
+export const comboLegClientOrderId = (comboClientOrderId: string, symbol: string) =>
+  `${comboClientOrderId}.${symbol}`;
+
+/** One options lifecycle event in the broker's activity record (Phase O2). */
+export interface OptionActivity {
+  kind: 'assignment' | 'exercise' | 'expiry';
+  /** OCC symbol. */
+  symbol: string;
+  quantity: string;
+  /** YYYY-MM-DD. */
+  date: string;
 }
 
 export type PositionIntent = 'buy_to_open' | 'sell_to_open' | 'buy_to_close' | 'sell_to_close';
@@ -137,6 +186,26 @@ export interface BrokerAdapter {
   optionQuotes?(accountId: string, symbols: readonly string[]): Promise<Map<string, OptionQuote>>;
   optionContracts?(accountId: string, query: ContractListQuery): Promise<ContractListEntry[]>;
   /**
+   * Phase O2, the delta rule: each contract's delta as the broker reports it,
+   * by OCC symbol; contracts without Greeks are left out.
+   */
+  optionDeltas?(accountId: string, symbols: readonly string[]): Promise<Map<string, number>>;
+  /**
+   * Phase O2: the broker's own record of assignments, exercises and expiries
+   * posted on or after `after` (YYYY-MM-DD), to confirm what the app inferred.
+   */
+  optionActivities?(accountId: string, after: string): Promise<OptionActivity[]>;
+  /**
+   * Phase O2 (§7.5): an underlying's announced cash dividends with ex-dates
+   * from `from` to `to` (YYYY-MM-DD), for the dividend watch.
+   */
+  cashDividends?(
+    accountId: string,
+    symbol: string,
+    from: string,
+    to: string,
+  ): Promise<{ exDate: string; cashAmount: string }[]>;
+  /**
    * Options re-price (§7.1): a working limit order's price changed in place.
    * The broker gives the order a new id, reported under `clientOrderId`, which
    * the app maps back to the same intent (`repriceClientOrderId`).
@@ -146,6 +215,12 @@ export interface BrokerAdapter {
     brokerOrderId: string,
     change: { limitPrice: string; clientOrderId: string },
   ): Promise<{ brokerOrderId: string }>;
+  /**
+   * Phase O2: places a combo as one order (§7.2). Each leg's updates carry its
+   * own `clientOrderId` and the combo's broker order id; the broker refusing
+   * the combo places no leg at all.
+   */
+  submitMultiLeg?(request: MultiLegOrderRequest): Promise<{ brokerOrderId: string }>;
 }
 
 /** The client order id of a re-priced order (ADR 0123): the intent's own, marked. */

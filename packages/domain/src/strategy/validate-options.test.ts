@@ -66,14 +66,14 @@ describe('options legs (ADR 0123)', () => {
       'options_trailing_stop',
     );
   });
-  it('refuse what O1 does not trade, each with its reason', () => {
+  it('refuse what options legs cannot do, each with its reason', () => {
     const c = (edit: (d: StrategyDefinition) => void, ctx = on()) => {
       const def = withOption();
       def.exit.orders[0] = { ...def.exit.orders[0]!, option: opt };
       edit(def);
       return codes(def, ctx);
     };
-    expect(c((d) => (d.entry.orders[0]!.side = 'sell_short'))).toContain('options_sell_to_open');
+    expect(c((d) => (d.entry.orders[0]!.side = 'sell_short'))).toContain('options_naked_call');
     expect(c((d) => (d.entry.orders[0]!.orderType = 'limit'))).toContain('options_order_type');
     expect(c((d) => (d.entry.orders[0]!.timeInForce = 'ioc'))).toContain('options_time_in_force');
     expect(c((d) => (d.entry.orders[0]!.quantity.type = 'pct_equity'))).toContain(

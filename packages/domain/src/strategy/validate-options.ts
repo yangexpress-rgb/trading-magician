@@ -1,3 +1,4 @@
+import { comboStructureProblem } from '../options/combo';
 import { LEVEL_NEEDED, OPTIONS_LEVEL_TEXT, type OptionsLevel } from '../options/trading';
 import { CONTEXT_INSTRUMENT_ID } from './evaluate';
 import type { PlannedOrder, StrategyDefinition } from './schema';
@@ -24,9 +25,9 @@ export const hasOptionRules = (def: StrategyDefinition) =>
     (x.rules ?? []).some((r) => OPTION_RULES.has(r.kind)),
   );
 
-/** Phase O1: options legs buy to open and sell to close. Combos (sell to open) arrive in O2. */
-const OPEN_SIDES: readonly PlannedOrder['side'][] = ['buy'];
-const CLOSE_SIDES: readonly PlannedOrder['side'][] = ['sell', 'close', 'reduce'];
+/** Options legs buy or sell to open, and sell or buy to close (Phase O2: selling only in combos). */
+const OPEN_SIDES: readonly PlannedOrder['side'][] = ['buy', 'sell_short'];
+const CLOSE_SIDES: readonly PlannedOrder['side'][] = ['sell', 'close', 'reduce', 'buy_to_cover'];
 
 export function checkOptionLegs(
   def: StrategyDefinition,
@@ -89,6 +90,23 @@ export function checkOptionLegs(
       'Options trade in the regular session only: choose another market-hours setting',
       ['execution', 'marketHoursPolicy'],
     );
+  // §7.3 at save time: a combo's structure is bounded, and a lone sold option is refused.
+  const comboLegIds = new Set<string>();
+  const byUnderlying = new Map<string, PlannedOrder[]>();
+  for (const o of def.entry.orders.filter(isOptionLeg)) {
+    const k = `${o.instrumentId}|${o.accountId}`;
+    byUnderlying.set(k, [...(byUnderlying.get(k) ?? []), o]);
+  }
+  for (const legs of byUnderlying.values()) {
+    if (legs.length < 2 && !legs.some((o) => o.side === 'sell_short')) continue;
+    if (legs.length >= 2) for (const o of legs) comboLegIds.add(o.id);
+    const problem = comboStructureProblem(legs);
+    const first = legs[0];
+    if (problem && first) {
+      const i = def.entry.orders.indexOf(first);
+      add('error', problem.code, problem.message, ['entry', 'orders', i, 'option'], first.id);
+    }
+  }
   const entryUnderlyings = new Set(
     def.entry.orders.filter(isOptionLeg).map((o) => `${o.instrumentId}|${o.option?.right}`),
   );
@@ -103,10 +121,10 @@ export function checkOptionLegs(
         err(
           o.side === 'sell_short' ? 'options_sell_to_open' : 'options_side',
           o.side === 'sell_short'
-            ? `"${o.legLabel}" sells an option to open: that is only possible inside a defined-risk combo`
+            ? `"${o.legLabel}" sells an option to open in Exit: options are sold to open only in an Entry combo`
             : phase === 'entry'
-              ? `"${o.legLabel}" must buy its option to open`
-              : `"${o.legLabel}" must sell to close the option its Entry leg bought`,
+              ? `"${o.legLabel}" must buy or sell its option to open`
+              : `"${o.legLabel}" must close the option its Entry leg holds`,
           ['side'],
         );
       if (o.instrumentId !== CONTEXT_INSTRUMENT_ID) {
@@ -126,10 +144,12 @@ export function checkOptionLegs(
           ['accountId'],
         );
       const level = account?.capabilities.optionsLevel;
-      if (account && level !== undefined && level < LEVEL_NEEDED.long)
+      const needs =
+        comboLegIds.has(o.id) || o.side === 'sell_short' ? LEVEL_NEEDED.combo : LEVEL_NEEDED.long;
+      if (account && level !== undefined && level < needs)
         err(
           'options_level',
-          `${account.nickname} is at options level ${level} (${OPTIONS_LEVEL_TEXT[level as OptionsLevel] ?? 'unknown'}); "${o.legLabel}" needs level ${LEVEL_NEEDED.long} (${OPTIONS_LEVEL_TEXT[LEVEL_NEEDED.long]})`,
+          `${account.nickname} is at options level ${level} (${OPTIONS_LEVEL_TEXT[level as OptionsLevel] ?? 'unknown'}); "${o.legLabel}" needs level ${needs} (${OPTIONS_LEVEL_TEXT[needs]})`,
           ['accountId'],
         );
       if (o.timeInForce !== 'day' && o.timeInForce !== 'gtc')

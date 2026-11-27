@@ -8,3 +8,4 @@ export * from './trading';
 export * from './resolver';
 export * from './quotes';
 export * from './exits';
+export * from './combo';

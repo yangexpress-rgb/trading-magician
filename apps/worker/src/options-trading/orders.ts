@@ -16,7 +16,12 @@ import {
 } from '@tm/db';
 import {
   addDays,
+  appDelta,
   BrokerRejectedError,
+  chooseExpiry,
+  quoteMid,
+  usableContracts,
+  type ContractListEntry,
   BrokerUnavailableError,
   checkPreTradeRisk,
   contractInWords,
@@ -36,6 +41,7 @@ import {
   sizeOrder,
   type BrokerAdapter,
   type BrokerOrderRequest,
+  type MultiLegOrderRequest,
   type BrokerPosition,
   type CyclePlan,
   type OptionOrderDetail,
@@ -72,6 +78,13 @@ export interface OptionPassContext {
   logger: Pick<Logger, 'info' | 'warn'>;
   /** The runtime's own submit: the account check, the broker call and the audit. */
   submit: (intentId: string, request: BrokerOrderRequest) => Promise<boolean>;
+  /** The same for an options combo, every leg intent with the one order (Phase O2). */
+  submitCombo?:
+    | ((
+        intentIds: readonly string[],
+        request: MultiLegOrderRequest,
+      ) => Promise<'sent' | 'refused' | 'unavailable'>)
+    | undefined;
 }
 
 export interface OptionLegInput {
@@ -114,9 +127,11 @@ export function listWindow(
 ) {
   const target = spec.expiryRule.targetDte;
   const days = Math.min(730, Math.max(target * 2, target + 30));
-  const pct = new Decimal(spec.strikeRule.type === 'atm' ? 0 : Math.abs(spec.strikeRule.pct)).plus(
-    25,
-  );
+  // A delta rule may land well out of the money: read a wider band (Phase O2).
+  const rule = spec.strikeRule;
+  const pct = new Decimal(
+    rule.type === 'moneynessPct' ? Math.abs(rule.pct) : rule.type === 'delta' ? 25 : 0,
+  ).plus(25);
   return {
     expiryTo: addDays(today, days),
     strikeFrom: Decimal.max(price.times(new Decimal(100).minus(pct)).div(100), 0)
@@ -301,6 +316,7 @@ export async function placeOptionLeg(
       contract: symbol,
       words: pick.words,
       listVersion: pick.listVersion,
+      ...(pick.greeks ? { greeks: pick.greeks } : {}),
       ...(decided && decided.contract !== symbol ? { decided } : {}),
     };
     if (decided && state.picks) {
@@ -440,37 +456,119 @@ async function resolveFor(ctx: OptionPassContext, input: OptionLegInput, underly
       code: 'no_price' as const,
       message: `No contract was picked because ${underlyingSymbol} had no price`,
     };
+  return resolveSpec(ctx, spec, { id: input.order.instrumentId, symbol: underlyingSymbol }, price);
+}
+
+/**
+ * Resolves one options leg's contract from today's list (§6): on a combo's
+ * shared expiry when `expiry` is given, and with the delta rule's Greeks
+ * (the broker's, else the app's own from each candidate's quote) when the
+ * strike rule asks for a delta (Phase O2).
+ */
+export async function resolveSpec(
+  ctx: OptionPassContext,
+  spec: NonNullable<PlannedOrder['option']>,
+  underlying: { id: string; symbol: string },
+  price: Decimal,
+  expiry?: string,
+) {
   const today = nyDate(ctx.now);
-  const list = await contractListFor(
-    ctx,
-    { id: input.order.instrumentId, symbol: underlyingSymbol },
-    listWindow(spec, price, today),
-  );
+  const list = await contractListFor(ctx, underlying, listWindow(spec, price, today));
+  const contracts = list?.contracts ?? [];
+  const greeks =
+    spec.strikeRule.type === 'delta'
+      ? await deltasFor(ctx, spec, contracts, today, price, expiry)
+      : undefined;
   const r = resolveContract({
     spec,
-    underlying: underlyingSymbol,
+    underlying: underlying.symbol,
     underlyingPrice: price,
     decisionDate: today,
-    list: list?.contracts ?? [],
+    list: contracts,
+    expiry,
+    deltaOf: greeks ? (c) => greeks.get(c.symbol)?.delta : undefined,
   });
   if (!r.ok || !list)
     return r.ok
       ? {
           ok: false as const,
           code: 'no_list' as const,
-          message: `No contract list for ${underlyingSymbol}`,
+          message: `No contract list for ${underlying.symbol}`,
         }
       : r;
+  const g = greeks?.get(r.contract.symbol);
   return {
     ...r,
     listVersion: list.version,
     words: contractInWords({
-      underlying: underlyingSymbol,
+      underlying: underlying.symbol,
       strike: r.contract.strike,
       right: r.contract.right,
       expiry: r.contract.expiry,
     }),
+    ...(g ? { greeks: { source: g.source, delta: g.delta.toFixed(4) } } : {}),
   };
+}
+
+/**
+ * The delta rule's Greeks for the candidates on the expiry the rule picks:
+ * the broker's own delta where its snapshot has one; otherwise the app's,
+ * from the contract's quote mid (implied volatility, then Black-Scholes).
+ */
+async function deltasFor(
+  ctx: OptionPassContext,
+  spec: NonNullable<PlannedOrder['option']>,
+  list: readonly ContractListEntry[],
+  today: string,
+  price: Decimal,
+  forced?: string,
+): Promise<Map<string, { delta: number; source: 'broker' | 'app' }>> {
+  const out = new Map<string, { delta: number; source: 'broker' | 'app' }>();
+  const usable = usableContracts(list, spec.right, today);
+  const chosen = chooseExpiry(spec, usable, today, forced);
+  if (!chosen) return out;
+  const candidates = usable.filter((c) => c.expiry === chosen.expiry);
+  const symbols = candidates.map((c) => c.symbol);
+  const unavailable = (e: unknown) =>
+    e instanceof BrokerRejectedError ||
+    e instanceof BrokerUnavailableError ||
+    (e instanceof Error && e.name === 'AlpacaOptionsBudgetError');
+  if (ctx.broker.optionDeltas && symbols.length > 0) {
+    try {
+      const d = await ctx.broker.optionDeltas(ctx.work.accountId, symbols);
+      for (const [symbol, delta] of d) out.set(symbol, { delta, source: 'broker' });
+    } catch (e) {
+      if (!unavailable(e)) throw e;
+      ctx.logger.warn({ err: e }, 'options Greeks not read; the app computes delta');
+    }
+  }
+  const missing = candidates.filter((c) => !out.has(c.symbol));
+  if (missing.length === 0 || !ctx.broker.optionQuotes) return out;
+  let quotes: Map<string, OptionQuote>;
+  try {
+    quotes = await ctx.broker.optionQuotes(
+      ctx.work.accountId,
+      missing.map((c) => c.symbol),
+    );
+  } catch (e) {
+    if (!unavailable(e)) throw e;
+    return out;
+  }
+  for (const c of missing) {
+    const q = quotes.get(c.symbol);
+    const mid = q ? quoteMid(q) : undefined;
+    if (!mid) continue;
+    const delta = appDelta({
+      right: c.right,
+      strike: c.strike,
+      expiry: c.expiry,
+      decisionDate: today,
+      price: mid,
+      underlyingPrice: price,
+    });
+    if (delta !== undefined) out.set(c.symbol, { delta, source: 'app' });
+  }
+  return out;
 }
 
 /** Records an options order refused before it was sent, with its reason in words (§9). */
@@ -536,6 +634,8 @@ export async function manageOptionOrders(ctx: OptionPassContext): Promise<void> 
     const detail = o.intent.optionDetail as OptionOrderDetail | null;
     if (!detail) continue;
     live.add(o.intent.id);
+    // A combo's legs are re-priced and canceled together (combos.ts).
+    if (o.intent.orderGroupId) continue;
     if (o.cancelRequested || !o.brokerOrderId) continue;
     if (o.state !== 'submitted' && o.state !== 'acknowledged' && o.state !== 'partially_filled')
       continue;
@@ -658,12 +758,32 @@ const flattenKey = (work: RuntimeWork, c: ActiveCycle, instrumentId: string) =>
  */
 export async function placeOptionFlatten(
   ctx: OptionPassContext,
-  input: { cycle: ActiveCycle; instrumentId: string; quantity: Decimal; closeReason: string },
+  input: {
+    cycle: ActiveCycle;
+    instrumentId: string;
+    quantity: Decimal;
+    closeReason: string;
+    /** Phase O2: a combo leg closing on its own after the combo close failed. */
+    path?: 'legs_short_first' | undefined;
+  },
 ): Promise<string | undefined> {
   const { work, now, tx } = ctx;
   const { cycle: c, instrumentId, quantity } = input;
   const ref = work.instruments.get(instrumentId);
   if (!ref?.option || quantity.isZero() || !regularSessionOpenAt(now.getTime())) return undefined;
+  // §7.4 (Phase O2): a long contract is never sold while the cycle is short an
+  // option on the same underlying; the short is bought back first, and the
+  // long goes on a later pass. A run holding only long contracts never waits.
+  const underlyingId = ref.option.underlyingId;
+  const shortHeld = [...c.positions].some(
+    ([id, q]) => q.lt(0) && work.instruments.get(id)?.option?.underlyingId === underlyingId,
+  );
+  if (quantity.gt(0) && shortHeld) {
+    const state = optionsState(work);
+    if (!state.pendingCloses?.[c.id])
+      state.pendingCloses = { ...state.pendingCloses, [c.id]: input.closeReason };
+    return undefined;
+  }
   const stage = expiryStage(ref.option.expiry, now);
   if (stage === 'expired') return undefined;
   const fetched = await ctx.quotes.optionQuote(ref.symbol);
@@ -689,6 +809,13 @@ export async function placeOptionFlatten(
     quote: quoteDetail(quote),
     ...(stage === 'close' || stage === 'touch' ? { lifecycle: 'Closed before expiry' } : {}),
   };
+  if (input.path)
+    detail.combo = {
+      legs: [`${direction === 'buy' ? 'Buy back' : 'Sell'} ${quantity.abs()} ${detail.words}`],
+      netLimit: (direction === 'buy' ? limit : limit.neg()).toString(),
+      sets: quantity.abs().toString(),
+      path: input.path,
+    };
   const key = flattenKey(work, c, instrumentId);
   const risk = checkPreTradeRisk({
     risk: {},

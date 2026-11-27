@@ -46,6 +46,8 @@ export interface OrderIntent {
   pricedByFeedId?: string | undefined;
   /** Options orders only (ADR 0123): how the contract and the limit were chosen. */
   optionDetail?: OptionOrderDetail | undefined;
+  /** An options combo's own client order id, shared by its legs' intents (Phase O2). */
+  orderGroupId?: string | undefined;
 }
 
 /** What an options order's detail shows (options brief v0.2 §§6.2, 6.3, 7.1, 9). */
@@ -62,6 +64,25 @@ export interface OptionOrderDetail {
   quote?: { bid: string; ask: string; at: string } | undefined;
   /** Why the app placed it, for a lifecycle close (e.g. closed before expiry). */
   lifecycle?: string | undefined;
+  /**
+   * Phase O2: the leg's combo, its net limit and dollars at pricing time
+   * (§§7.2, 7.3, 8.1), and how a combo close went (one order, or legs with the
+   * short ones first after the combo close was refused).
+   */
+  combo?:
+    | {
+        /** Every leg in words, e.g. "Sell 1 ZZZ 105 call". */
+        legs: string[];
+        /** Net per share of one set: positive a debit, negative a credit. */
+        netLimit: string;
+        sets: string;
+        maxLoss?: string | undefined;
+        buyingPower?: string | undefined;
+        path?: 'combo' | 'legs_short_first' | undefined;
+      }
+    | undefined;
+  /** Phase O2: where the delta rule's Greeks came from, when it picked the strike. */
+  greeks?: { source: 'broker' | 'app'; delta: string } | undefined;
 }
 
 /**

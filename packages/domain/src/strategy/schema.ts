@@ -405,6 +405,12 @@ export const optionStrikeRuleSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('atm') }),
   /** +p is p% out of the money for both rights; negative is in the money. */
   z.object({ type: z.literal('moneynessPct'), pct: z.number().min(-50).max(50) }),
+  /**
+   * Phase O2 (§10): the strike whose delta is nearest this, as an absolute
+   * value (0.30 is a 30-delta call or put), from the broker's Greeks at decision
+   * time, or the app's own from the same quote when the broker gives none.
+   */
+  z.object({ type: z.literal('delta'), delta: z.number().min(0.05).max(0.95) }),
 ]);
 export const optionLegSchema = z.object({
   right: z.enum(OPTION_RIGHTS),

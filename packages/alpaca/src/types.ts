@@ -91,7 +91,15 @@ export interface AlpacaOrder {
   stop_price: string | null;
   status: AlpacaOrderStatus;
   extended_hours: boolean;
+  /** A multi-leg (`mleg`) options order's legs (ADR 0123 Phase O2), each an order of its own. */
+  legs?: AlpacaOrderLeg[] | null;
+  /** A leg's contracts per set. */
+  ratio_qty?: string | null;
+  position_intent?: string | null;
 }
+
+/** One leg of a multi-leg order: an order with its own id, symbol, side and fills. */
+export type AlpacaOrderLeg = Omit<AlpacaOrder, 'legs'>;
 
 export interface AlpacaFillActivity {
   id: string;

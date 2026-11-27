@@ -234,7 +234,8 @@ export function alpacaBrokerProvider(options: AlpacaProviderOptions = {}): Broke
         client: clientFor(ctx),
         capabilities: {
           ...alpacaCapabilities({ shorting_enabled: account.capabilities.shortSelling }),
-          ...(options ? { options: true } : {}),
+          // Combos go as one multi-leg order; Alpaca itself refuses them below level 3 (O2).
+          ...(options ? { options: true, optionCombos: true } : {}),
         },
         instrumentIdFor,
         ...(options ? { optionsClient: clientFor({ ...ctx, optionsQuotes: true }) } : {}),

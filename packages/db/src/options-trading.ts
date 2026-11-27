@@ -1,5 +1,6 @@
 import {
   contractListVersion,
+  hasCombo,
   isOptionLeg,
   type ContractListEntry,
   parseOptionsLevel,
@@ -7,12 +8,13 @@ import {
   type OptionsUse,
   type StrategyDefinition,
 } from '@tm/domain';
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, ne, sql } from 'drizzle-orm';
 import type { Transaction } from './client';
 import {
   brokerConnections,
   brokerOrders,
   optionContractLists,
+  optionDividends,
   orderEvents,
   strategyRuntimes,
   tradingAccounts,
@@ -57,8 +59,8 @@ export function optionsUses(def: StrategyDefinition): OptionsUse[] {
   const legs = [...def.entry.orders, ...def.exit.orders].filter(isOptionLeg);
   if (legs.length === 0) return [];
   const uses = new Set<OptionsUse>(['long']);
-  // A sell-to-open options leg only exists inside a combo (§7.3); O1 refuses them at validation.
-  if (def.entry.orders.some((o) => isOptionLeg(o) && o.side === 'sell_short')) uses.add('combo');
+  // Two or more options legs on one underlying, or any sold to open, are a combo (§§3, 5.4).
+  if (hasCombo(def)) uses.add('combo');
   return [...uses];
 }
 
@@ -154,6 +156,44 @@ export async function saveContractList(
     .insert(optionContractLists)
     .values(row)
     .onConflictDoUpdate({ target: optionContractLists.underlyingId, set: row });
+  return row;
+}
+
+/**
+ * Worker only (§7.5, Phase O2): an underlying's announced cash dividends, as
+ * read today. Rows already known are refreshed; none are removed, since a
+ * past ex-date is never read again.
+ */
+export async function saveOptionDividends(
+  tx: Transaction,
+  underlyingId: string,
+  fetchedOn: string,
+  rows: readonly { exDate: string; cashAmount: string }[],
+): Promise<void> {
+  for (const r of rows)
+    await tx
+      .insert(optionDividends)
+      .values({ underlyingId, fetchedOn, ...r })
+      .onConflictDoUpdate({
+        target: [optionDividends.underlyingId, optionDividends.exDate],
+        set: { cashAmount: r.cashAmount, fetchedOn },
+      });
+}
+
+/** Worker only (§7.5): the next ex-dividend date on or after `onOrAfter`, with its cash per share. */
+export async function nextOptionDividend(
+  tx: Transaction,
+  underlyingId: string,
+  onOrAfter: string,
+): Promise<{ exDate: string; cashAmount: string } | undefined> {
+  const [row] = await tx
+    .select({ exDate: optionDividends.exDate, cashAmount: optionDividends.cashAmount })
+    .from(optionDividends)
+    .where(
+      and(eq(optionDividends.underlyingId, underlyingId), gte(optionDividends.exDate, onOrAfter)),
+    )
+    .orderBy(asc(optionDividends.exDate))
+    .limit(1);
   return row;
 }
 

@@ -89,6 +89,30 @@ interface OrderMeta {
   positionIntent?: string;
 }
 
+/** A multi-leg options order in the fake (ADR 0123 Phase O2). */
+interface ComboMeta {
+  id: string;
+  clientOrderId: string;
+  /** Sets. */
+  qty: string;
+  /** Net per share: positive a debit, negative a credit. */
+  limitPrice: string;
+  timeInForce: string;
+  legs: {
+    id: string;
+    symbol: string;
+    ratio: number;
+    side: 'buy' | 'sell';
+    positionIntent: string;
+  }[];
+  status: 'new' | 'filled' | 'canceled' | 'expired' | 'replaced';
+  createdAt: string;
+  updatedAt: string;
+  replacedBy?: string;
+  /** Each leg's fill price per share, once filled. */
+  prices?: Record<string, string>;
+}
+
 /** An options contract's quote in the fake; `fillAtMid` lets a limit at the mid fill. */
 interface FakeOptionQuote {
   bid: string;
@@ -130,6 +154,24 @@ export class FakeAlpaca {
   private optionsLevel: number | undefined;
   private readonly optionContracts: AlpacaOptionContract[] = [];
   private readonly optionQuoteMap = new Map<string, FakeOptionQuote>();
+  private readonly optionDeltaMap = new Map<string, number>();
+  private readonly dividends: { symbol: string; ex_date: string; rate: number }[] = [];
+  private readonly combos = new Map<string, ComboMeta>();
+  /** Cash moved outside fills: assignment and exercise at the strike (Phase O2). */
+  private cashAdjust = new Decimal(0);
+  /** Non-trade options activities (OPASN, OPEXC, OPEXP), as Alpaca posts them the next day. */
+  private readonly optionActivities: {
+    id: string;
+    activity_type: 'OPASN' | 'OPEXC' | 'OPEXP';
+    date: string;
+    symbol: string;
+    qty: string;
+    /** When the fake makes it readable: Alpaca posts these at the start of the next day. */
+    postedAt: number;
+  }[] = [];
+  /** Test hooks: refuse the next combo order, or every combo close (Alpaca's uncovered-short rule). */
+  private refuseNextCombo: string | undefined;
+  private refuseComboCloses = false;
 
   constructor(options: FakeAlpacaOptions) {
     this.optionsLevel = options.optionsLevel;
@@ -197,8 +239,72 @@ export class FakeAlpaca {
   }
 
   /** Sets a contract's quote. With `fillAtMid`, a limit at the mid or better fills at once. */
+  /** Phase O2 (§7.5): a cash dividend Alpaca's corporate actions announce. */
+  setDividend(symbol: string, exDate: string, rate: string) {
+    this.dividends.push({ symbol, ex_date: exDate, rate: Number(rate) });
+  }
+
+  /** Phase O2: the delta the options snapshot reports for a contract (none when unset). */
+  setOptionDelta(symbol: string, delta: number | undefined) {
+    if (delta === undefined) this.optionDeltaMap.delete(symbol);
+    else this.optionDeltaMap.set(symbol, delta);
+  }
+
   setOptionQuote(symbol: string, quote: FakeOptionQuote) {
     this.optionQuoteMap.set(symbol, quote);
+  }
+
+  /** The next combo order is refused with this message (A4). */
+  rejectNextCombo(message = 'order rejected') {
+    this.refuseNextCombo = message;
+  }
+
+  /** Every combo close is refused, as Alpaca refuses closes that would leave a short uncovered. */
+  setRefuseComboCloses(on: boolean) {
+    this.refuseComboCloses = on;
+  }
+
+  /**
+   * Assigns a short contract (Phase O2): the contract leaves the account and
+   * 100 shares a contract are delivered at the strike — bought for a put, sold
+   * for a call. Alpaca posts the OPASN activity only the next day.
+   */
+  async assignOption(symbol: string, underlying: string) {
+    const held = (await this.broker.positions(ACCOUNT)).find((p) => p.instrumentId === symbol);
+    if (!held || !new Decimal(held.quantity).lt(0)) return;
+    const contracts = new Decimal(held.quantity).abs();
+    const strike = new Decimal(symbol.slice(-8)).div(1000);
+    const put = symbol.slice(-9, -8) === 'P';
+    const shares = contracts.times(100);
+    await this.setHeld(symbol, new Decimal(0), undefined);
+    const stock = (await this.broker.positions(ACCOUNT)).find((p) => p.instrumentId === underlying);
+    const before = new Decimal(stock?.quantity ?? 0);
+    const after = put ? before.plus(shares) : before.minus(shares);
+    await this.setHeld(underlying, after, strike.toString());
+    this.cashAdjust = put
+      ? this.cashAdjust.minus(strike.times(shares))
+      : this.cashAdjust.plus(strike.times(shares));
+    const now = this.now();
+    this.optionActivities.push({
+      id: `opasn-${++this.seq}`,
+      activity_type: 'OPASN',
+      date: now.toISOString().slice(0, 10),
+      symbol,
+      qty: contracts.toString(),
+      postedAt: Date.parse(`${now.toISOString().slice(0, 10)}T23:59:59Z`) + 1,
+    });
+  }
+
+  private async setHeld(symbol: string, quantity: Decimal, averageCost: string | undefined) {
+    await (
+      this.broker as unknown as {
+        options: { store: { setPosition: (a: string, p: unknown) => Promise<void> } };
+      }
+    ).options.store.setPosition(ACCOUNT, {
+      instrumentId: symbol,
+      quantity: quantity.toString(),
+      averageCost: quantity.isZero() ? undefined : averageCost,
+    });
   }
 
   /** Removes a contract from the account, as Alpaca does after expiry. */
@@ -241,6 +347,7 @@ export class FakeAlpaca {
   async tick() {
     await this.broker.tick();
     await this.sync();
+    for (const c of this.combos.values()) await this.tryFillCombo(c);
   }
 
   readonly fetch = async (url: string, init: RequestInit): Promise<Response> => {
@@ -293,7 +400,9 @@ export class FakeAlpaca {
       return found ? json(200, found) : json(404, { code: 40410000, message: 'asset not found' });
     }
     if (method === 'POST' && path === '/v2/orders') {
-      return this.submit(JSON.parse(String(init.body)) as Record<string, unknown>);
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      if (body.order_class === 'mleg') return this.submitCombo(body);
+      return this.submit(body);
     }
     if (method === 'GET' && path === '/v2/orders') {
       return json(200, await this.listOrders(q));
@@ -302,9 +411,24 @@ export class FakeAlpaca {
       const meta = [...this.orders.values()].find(
         (o) => o.clientOrderId === q.get('client_order_id'),
       );
-      return meta ? json(200, await this.order(meta)) : json(404, errors.notFound);
+      if (meta) return json(200, await this.order(meta));
+      const combo = [...this.combos.values()].find(
+        (c) => c.clientOrderId === q.get('client_order_id'),
+      );
+      return combo ? json(200, this.comboOrder(combo)) : json(404, errors.notFound);
     }
     const one = /^\/v2\/orders\/([^/]+)$/.exec(path);
+    const combo = one ? this.combos.get(decodeURIComponent(one[1]!)) : undefined;
+    if (combo) {
+      if (method === 'GET') return json(200, this.comboOrder(combo));
+      if (method === 'PATCH') return this.replaceCombo(combo, JSON.parse(String(init.body)));
+      if (method === 'DELETE') {
+        if (combo.status !== 'new') return json(422, errors.notCancelable);
+        combo.status = 'canceled';
+        combo.updatedAt = this.stamp();
+        return json(204, null);
+      }
+    }
     if (one) {
       const meta = this.orders.get(decodeURIComponent(one[1]!));
       if (!meta) return json(404, errors.notFound);
@@ -323,6 +447,16 @@ export class FakeAlpaca {
     if (method === 'GET' && path === '/v2/positions') return json(200, await this.positions());
     if (method === 'GET' && path === '/v2/account/activities/FILL') {
       return json(200, this.fills(q));
+    }
+    if (method === 'GET' && path === '/v2/account/activities') {
+      const types = (q.get('activity_types') ?? '').split(',').filter(Boolean);
+      const t = this.now().getTime();
+      return json(
+        200,
+        this.optionActivities.filter(
+          (x) => x.postedAt <= t && (types.length === 0 || types.includes(x.activity_type)),
+        ),
+      );
     }
     return json(404, { message: 'not found' });
   };
@@ -348,6 +482,7 @@ export class FakeAlpaca {
           .times(unitsOf(p.instrumentId)),
       );
     }
+    cash = cash.plus(this.cashAdjust);
     return {
       ...accountFixture,
       ...(this.optionsLevel !== undefined
@@ -577,7 +712,10 @@ export class FakeAlpaca {
   private async listOrders(q: URLSearchParams): Promise<AlpacaOrder[]> {
     const status = q.get('status') ?? 'open';
     const limit = Math.min(Number(q.get('limit') ?? 50), 500);
-    const all = await Promise.all([...this.orders.values()].map((m) => this.order(m)));
+    const all = [
+      ...(await Promise.all([...this.orders.values()].map((m) => this.order(m)))),
+      ...[...this.combos.values()].map((c) => this.comboOrder(c)),
+    ];
     const open = (o: AlpacaOrder) => ['new', 'accepted', 'partially_filled'].includes(o.status);
     const chosen = all.filter((o) =>
       status === 'all' ? true : status === 'open' ? open(o) : !open(o),
@@ -660,6 +798,213 @@ export class FakeAlpaca {
     return r;
   }
 
+  // -------------------------------------------------------------------------
+  // Multi-leg options orders (ADR 0123 Phase O2)
+  // -------------------------------------------------------------------------
+
+  private async submitCombo(body: Record<string, unknown>): Promise<Response> {
+    const str = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : undefined);
+    const clientOrderId = str('client_order_id') ?? crypto.randomUUID();
+    const taken =
+      [...this.orders.values()].some((o) => o.clientOrderId === clientOrderId) ||
+      [...this.combos.values()].some((o) => o.clientOrderId === clientOrderId);
+    if (taken) return json(422, errors.duplicate);
+    if (this.refuseNextCombo) {
+      const message = this.refuseNextCombo;
+      this.refuseNextCombo = undefined;
+      return json(422, { code: 42210000, message });
+    }
+    if ((this.optionsLevel ?? 0) < 3)
+      return json(403, {
+        code: 40310000,
+        message: 'account not eligible to trade multi-leg options',
+      });
+    const raw = Array.isArray(body.legs) ? (body.legs as Record<string, unknown>[]) : [];
+    if (raw.length < 2 || raw.length > 4)
+      return json(422, { code: 42210000, message: 'mleg orders need 2 to 4 legs' });
+    if (str('type') !== 'limit' || !str('limit_price'))
+      return json(422, { code: 42210000, message: 'mleg orders are limit orders' });
+    const legs: ComboMeta['legs'] = [];
+    for (const l of raw) {
+      const symbol = typeof l.symbol === 'string' ? l.symbol : '';
+      const side = l.side === 'buy' || l.side === 'sell' ? l.side : undefined;
+      const ratio = Number(l.ratio_qty);
+      const pi = typeof l.position_intent === 'string' ? l.position_intent : '';
+      if (!this.optionContracts.some((c) => c.symbol === symbol))
+        return json(422, { code: 40010001, message: `asset "${symbol}" not found` });
+      if (!side || !Number.isInteger(ratio) || ratio <= 0)
+        return json(422, { code: 42210000, message: 'invalid leg' });
+      if (!(side === 'buy' ? /^buy_to_(open|close)$/ : /^sell_to_(open|close)$/).test(pi))
+        return json(422, { code: 42210000, message: 'position_intent does not match side' });
+      legs.push({ id: crypto.randomUUID(), symbol, ratio, side, positionIntent: pi });
+    }
+    const g = legs.reduce((a, l) => {
+      const f = (x: number, y: number): number => (y === 0 ? x : f(y, x % y));
+      return f(a, l.ratio);
+    }, 0);
+    if (g !== 1)
+      return json(422, { code: 42210000, message: 'leg ratios must be in lowest terms' });
+    // Alpaca's rule: every short leg is covered within the order, per right.
+    const right = (symbol: string) => symbol.slice(-9, -8);
+    for (const r of ['C', 'P']) {
+      const opening = legs.filter(
+        (l) => right(l.symbol) === r && l.positionIntent.endsWith('open'),
+      );
+      const bought = opening.filter((l) => l.side === 'buy').reduce((n, l) => n + l.ratio, 0);
+      const sold = opening.filter((l) => l.side === 'sell').reduce((n, l) => n + l.ratio, 0);
+      if (sold > bought)
+        return json(403, { code: 40310000, message: 'uncovered short legs are not allowed' });
+    }
+    if (this.refuseComboCloses && legs.some((l) => l.positionIntent.endsWith('close')))
+      return json(403, {
+        code: 40310000,
+        message: 'closing this multi-leg order would leave a short leg uncovered',
+      });
+    const at = this.stamp();
+    const combo: ComboMeta = {
+      id: crypto.randomUUID(),
+      clientOrderId,
+      qty: str('qty') ?? '1',
+      limitPrice: str('limit_price') ?? '0',
+      timeInForce: str('time_in_force') ?? 'day',
+      legs,
+      status: 'new',
+      createdAt: at,
+      updatedAt: at,
+    };
+    this.combos.set(combo.id, combo);
+    await this.tryFillCombo(combo);
+    return json(200, this.comboOrder(combo));
+  }
+
+  /** All legs fill at their mids together, once the net mid is at or better than the limit. */
+  private async tryFillCombo(c: ComboMeta) {
+    if (c.status !== 'new' || !isRegularSessionOpen(this.now())) return;
+    const mids: Record<string, Decimal> = {};
+    let net = new Decimal(0);
+    for (const l of c.legs) {
+      const q = this.optionQuoteMap.get(l.symbol);
+      // A leg quoted with `fillAtMid: false` holds the combo working whatever its limit.
+      if (!q || q.fillAtMid === false) return;
+      const mid = new Decimal(q.bid).plus(q.ask).div(2).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      mids[l.symbol] = mid;
+      net = net.plus(mid.times(l.ratio).times(l.side === 'buy' ? 1 : -1));
+    }
+    if (net.gt(c.limitPrice)) return;
+    const at = this.stamp();
+    const sets = new Decimal(c.qty);
+    for (const l of c.legs) {
+      const qty = sets.times(l.ratio);
+      const price = mids[l.symbol] ?? new Decimal(0);
+      const held = (await this.broker.positions(ACCOUNT)).find((p) => p.instrumentId === l.symbol);
+      const before = new Decimal(held?.quantity ?? 0);
+      const after = l.side === 'buy' ? before.plus(qty) : before.minus(qty);
+      await this.setHeld(l.symbol, after, price.toString());
+      const compact = at.replace(/[-:T.Z]/g, '').slice(0, 17);
+      this.activities.push({
+        id: `${compact}::${String(++this.seq).padStart(8, '0')}`,
+        activity_type: 'FILL',
+        transaction_time: at,
+        type: 'fill',
+        price: price.toString(),
+        qty: qty.toString(),
+        side: l.side,
+        symbol: l.symbol,
+        leaves_qty: '0',
+        order_id: l.id,
+        cum_qty: qty.toString(),
+        order_status: 'filled',
+      });
+    }
+    c.prices = Object.fromEntries(Object.entries(mids).map(([k, v]) => [k, v.toString()]));
+    c.status = 'filled';
+    c.updatedAt = at;
+  }
+
+  private comboOrder(c: ComboMeta): AlpacaOrder {
+    const filled = c.status === 'filled';
+    const status: AlpacaOrder['status'] =
+      c.status === 'new' ? (isRegularSessionOpen(this.now()) ? 'new' : 'accepted') : c.status;
+    const base = {
+      created_at: c.createdAt,
+      updated_at: c.updatedAt,
+      submitted_at: c.createdAt,
+      filled_at: filled ? c.updatedAt : null,
+      expired_at: c.status === 'expired' ? c.updatedAt : null,
+      canceled_at: c.status === 'canceled' ? c.updatedAt : null,
+      failed_at: null,
+      replaced_at: c.replacedBy ? c.updatedAt : null,
+      ...(c.replacedBy ? { replaced_by: c.replacedBy } : {}),
+      order_type: 'limit',
+      type: 'limit',
+      time_in_force: c.timeInForce,
+      stop_price: null,
+      status,
+      extended_hours: false,
+    };
+    return {
+      ...base,
+      id: c.id,
+      client_order_id: c.clientOrderId,
+      asset_id: '',
+      symbol: '',
+      asset_class: 'us_option',
+      qty: c.qty,
+      filled_qty: filled ? c.qty : '0',
+      filled_avg_price: null,
+      order_class: 'mleg',
+      side: 'buy',
+      limit_price: c.limitPrice,
+      legs: c.legs.map((l) => {
+        const qty = new Decimal(c.qty).times(l.ratio).toString();
+        return {
+          ...base,
+          id: l.id,
+          client_order_id: `${c.clientOrderId}-${l.symbol}`,
+          asset_id: l.symbol,
+          symbol: l.symbol,
+          asset_class: 'us_option',
+          qty,
+          filled_qty: filled ? qty : '0',
+          filled_avg_price: c.prices?.[l.symbol] ?? null,
+          order_class: 'mleg',
+          side: l.side,
+          limit_price: null,
+          ratio_qty: String(l.ratio),
+          position_intent: l.positionIntent,
+        };
+      }),
+    };
+  }
+
+  private async replaceCombo(c: ComboMeta, body: Record<string, unknown>): Promise<Response> {
+    if (c.status !== 'new' || c.replacedBy) return json(422, errors.notCancelable);
+    c.status = 'replaced';
+    const r = await this.submitCombo({
+      order_class: 'mleg',
+      type: 'limit',
+      qty: c.qty,
+      time_in_force: c.timeInForce,
+      limit_price: typeof body.limit_price === 'string' ? body.limit_price : c.limitPrice,
+      client_order_id:
+        typeof body.client_order_id === 'string' ? body.client_order_id : crypto.randomUUID(),
+      legs: c.legs.map((l) => ({
+        symbol: l.symbol,
+        ratio_qty: String(l.ratio),
+        side: l.side,
+        position_intent: l.positionIntent,
+      })),
+    });
+    if (r.status !== 200) {
+      c.status = 'new';
+      return r;
+    }
+    const next = (await r.clone().json()) as AlpacaOrder;
+    c.replacedBy = next.id;
+    c.updatedAt = this.stamp();
+    return r;
+  }
+
   private fills(q: URLSearchParams): AlpacaFillActivity[] {
     const size = Math.min(Number(q.get('page_size') ?? 100), 100);
     const token = q.get('page_token');
@@ -690,6 +1035,27 @@ export class FakeAlpaca {
       return json(200, out);
     }
     if (path === '/v2/stocks/bars') return this.bars(q);
+    if (path === '/v1/corporate-actions') {
+      const symbols = (q.get('symbols') ?? '').split(',');
+      const from = q.get('start') ?? '0000-00-00';
+      const to = q.get('end') ?? '9999-12-31';
+      return json(200, {
+        corporate_actions: {
+          cash_dividends: this.dividends.filter(
+            (d) => symbols.includes(d.symbol) && d.ex_date >= from && d.ex_date <= to,
+          ),
+        },
+      });
+    }
+    if (path === '/v1beta1/options/snapshots') {
+      const snapshots: Record<string, { greeks?: { delta: number } }> = {};
+      for (const symbol of (q.get('symbols') ?? '').split(',').filter(Boolean)) {
+        if (!this.optionQuoteMap.has(symbol) && !this.optionDeltaMap.has(symbol)) continue;
+        const delta = this.optionDeltaMap.get(symbol);
+        snapshots[symbol] = delta === undefined ? {} : { greeks: { delta } };
+      }
+      return json(200, { snapshots });
+    }
     if (path === '/v1beta1/options/quotes/latest') {
       const quotes: Record<string, { ap: number; as: number; bp: number; bs: number; t: string }> =
         {};

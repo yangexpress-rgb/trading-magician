@@ -28,6 +28,29 @@ describe('equityLimits', () => {
     expect(r.drawdownHit).toBe(false);
   });
 
+  it('counts two iron condors held as their $700 max loss, equity at their marks (A7)', () => {
+    const legs = [
+      ['SP', 'put', '95', -2, '1.00'],
+      ['LP', 'put', '90', 2, '0.25'],
+      ['SC', 'call', '105', -2, '1.00'],
+      ['LC', 'call', '110', 2, '0.25'],
+    ] as const;
+    const r = equityLimits(
+      base({
+        cash: d(300), // the 2 × 1.50 credit
+        positions: new Map(legs.map(([id, , , q]) => [id, d(q)])),
+        marks: new Map(legs.map(([id, , , , m]) => [id, d(m)])),
+        multipliers: new Map(legs.map(([id]) => [id, '100'])),
+        options: new Map(
+          legs.map(([id, right, strike]) => [id, { underlyingId: 'ZZZ', right, strike }]),
+        ),
+      }),
+    );
+    expect(r.gross.toString()).toBe('700');
+    // Bought back now, the condors cost what they took in: equity is unchanged.
+    expect(r.equity.toString()).toBe('100000');
+  });
+
   it('a missing mark is not a loss of the whole holding (review M1)', () => {
     const r = equityLimits(base({ marks: new Map([['A', undefined]]) }));
     expect(r.complete).toBe(false);

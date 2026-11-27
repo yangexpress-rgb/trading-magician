@@ -145,6 +145,8 @@ export async function reconcileAccount(
       intentId: orderIntents.id,
       brokerOrderId: brokerOrders.brokerOrderId,
       submittedAt: brokerOrders.submittedAt,
+      orderGroupId: orderIntents.orderGroupId,
+      idempotencyKey: orderIntents.idempotencyKey,
     })
     .from(orderIntents)
     .innerJoin(brokerOrders, eq(brokerOrders.intentId, orderIntents.id))
@@ -174,6 +176,8 @@ export async function reconcileAccount(
         mismatches.push({ kind: 'missing_at_broker', intentId: o.intentId, brokerOrderId });
       continue;
     }
+    // A combo's legs share one broker order (ADR 0123 Phase O2): each takes only its own.
+    if (o.orderGroupId) updates = updates.filter((u) => u.clientOrderId === o.idempotencyKey);
     healed += (await applyBrokerUpdates(tx, o.intentId, updates, 'reconciliation')).applied;
   }
 

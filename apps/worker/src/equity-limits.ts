@@ -1,4 +1,4 @@
-import { effectivePrice } from '@tm/domain';
+import { effectivePrice, heldOptionsExposure, type HeldContract } from '@tm/domain';
 import Decimal from 'decimal.js';
 
 /**
@@ -18,6 +18,14 @@ export interface EquityLimitsInput {
   marks: ReadonlyMap<string, Decimal | undefined>;
   /** Contract multipliers where they aren't 1 (option contracts, ADR 0123). */
   multipliers?: ReadonlyMap<string, string | undefined> | undefined;
+  /**
+   * Option contracts' terms (Phase O2): their exposure is what they can still
+   * lose by expiry (`heldOptionsExposure`), so a combo counts its max loss.
+   * Stocks and ETFs are never in it.
+   */
+  options?:
+    | ReadonlyMap<string, { underlyingId: string; right: 'call' | 'put'; strike: string }>
+    | undefined;
   /** New York date of this pass. */
   today: string;
   day: { date: string; startEquity: string } | undefined;
@@ -43,6 +51,7 @@ export function equityLimits(input: EquityLimitsInput): EquityLimits {
   let gross = new Decimal(0);
   let net = new Decimal(0);
   let unmarked = false;
+  const held: HeldContract[] = [];
   for (const [id, q] of input.positions) {
     if (q.isZero()) continue;
     const px = input.marks.get(id);
@@ -52,9 +61,20 @@ export function equityLimits(input: EquityLimitsInput): EquityLimits {
     }
     // §5.7 (ADR 0123): a contract's mark counts × its multiplier; a share's is itself.
     const value = effectivePrice(px, input.multipliers?.get(id));
-    gross = gross.plus(q.abs().times(value));
     net = net.plus(q.times(value));
+    const option = input.options?.get(id);
+    if (option) {
+      held.push({
+        ...option,
+        quantity: q,
+        mark: px,
+        multiplier: input.multipliers?.get(id) ?? '100',
+      });
+      continue;
+    }
+    gross = gross.plus(q.abs().times(value));
   }
+  if (held.length > 0) gross = gross.plus(heldOptionsExposure(held));
   const equity = new Decimal(input.startingCapital).plus(input.cash).plus(net);
   if (unmarked) {
     return {

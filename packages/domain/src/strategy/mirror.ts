@@ -48,6 +48,8 @@ function mirrorContent(entry: readonly PlannedOrder[]): Mirrored[] {
       orderType: 'market',
       timeInForce: 'day',
       timing: { mode: 'immediate' },
+      // An options leg's Exit closes the contract its Entry holds (ADR 0123).
+      ...(e.option ? { option: e.option } : {}),
     });
   }
   // Labels must be unique across both phases.
