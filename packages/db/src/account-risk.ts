@@ -1,4 +1,4 @@
-import { nyDate } from '@tm/domain';
+import { effectivePrice, nyDate } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { and, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { recordAudit } from './audit';
@@ -11,6 +11,7 @@ import {
   accountValuations,
   brokerOrders,
   executionIncidents,
+  instruments,
   orderIntents,
   strategyRuntimes,
   tradingAccounts,
@@ -362,31 +363,48 @@ export async function accountExposureBook(
   tx: Transaction,
   accountId: string,
 ): Promise<{
-  positions: Map<string, { quantity: Decimal; lastPrice: Decimal }>;
+  /** `multiplier` only where it isn't 1: an option contract (ADR 0123). */
+  positions: Map<string, { quantity: Decimal; lastPrice: Decimal; multiplier?: string }>;
   pendingEntry: Decimal;
 }> {
-  const fills = await tx.execute<{ instrument_id: string; qty: string; last_price: string }>(sql`
+  const fills = await tx.execute<{
+    instrument_id: string;
+    qty: string;
+    last_price: string;
+    multiplier: string;
+  }>(sql`
     select oi.instrument_id,
            sum(case when oi.direction = 'buy' then f.quantity else -f.quantity end)::text as qty,
-           (array_agg(f.price order by f.filled_at desc))[1]::text as last_price
+           (array_agg(f.price order by f.filled_at desc))[1]::text as last_price,
+           min(i.multiplier)::text as multiplier
       from fill f
       join order_intent oi on oi.id = f.intent_id
+      join instrument i on i.id = oi.instrument_id
      where oi.account_id = ${accountId}
      group by oi.instrument_id`);
-  const positions = new Map<string, { quantity: Decimal; lastPrice: Decimal }>();
+  const positions = new Map<
+    string,
+    { quantity: Decimal; lastPrice: Decimal; multiplier?: string }
+  >();
   for (const r of fills) {
     const q = new Decimal(r.qty);
     if (!q.isZero())
-      positions.set(r.instrument_id, { quantity: q, lastPrice: new Decimal(r.last_price) });
+      positions.set(r.instrument_id, {
+        quantity: q,
+        lastPrice: new Decimal(r.last_price),
+        ...(new Decimal(r.multiplier).eq(1) ? {} : { multiplier: r.multiplier }),
+      });
   }
   const working = await tx
     .select({
       quantity: orderIntents.quantity,
       referencePrice: orderIntents.referencePrice,
       filled: brokerOrders.filledQuantity,
+      multiplier: instruments.multiplier,
     })
     .from(orderIntents)
     .innerJoin(brokerOrders, eq(brokerOrders.intentId, orderIntents.id))
+    .innerJoin(instruments, eq(instruments.id, orderIntents.instrumentId))
     .where(
       and(
         eq(orderIntents.accountId, accountId),
@@ -398,7 +416,7 @@ export async function accountExposureBook(
   for (const w of working) {
     const left = new Decimal(w.quantity).minus(w.filled ?? 0);
     if (left.gt(0) && w.referencePrice)
-      pendingEntry = pendingEntry.plus(left.times(w.referencePrice));
+      pendingEntry = pendingEntry.plus(effectivePrice(left.times(w.referencePrice), w.multiplier));
   }
   return { positions, pendingEntry };
 }

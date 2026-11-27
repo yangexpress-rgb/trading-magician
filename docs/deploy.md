@@ -138,6 +138,15 @@ run starts, resumes or reaches the broker. Setting it is a deliberate launch ste
 not part of a deploy. Even with it on, a live platform needs a live Alpaca key, a platform admin
 and the real-money acknowledgement, and new live accounts trade under pilot caps.
 
+### Options trading (off)
+
+Options trading stays off unless `OPTIONS_TRADING_ENABLED=true` is set on **both** web and worker
+(ADR 0123, options brief v0.2). Leave it unset: with it off every options leg fails validation with
+a plain reason, no options run starts, no options order is sent and no options job runs. Turning it
+on is the owner's separate decision after review, paper accounts only, and options runs need an
+Alpaca paper account kept for options (no stock or ETF runs on it). Optional, both services:
+`OPTIONS_MAX_SPREAD_PCT` (default 30) and `OPTIONS_FILL_SLIPPAGE_PCT` (default 5).
+
 ### No mail service
 
 `EMAIL_VERIFICATION=off` on web makes the app work without any email: sign-up signs the person

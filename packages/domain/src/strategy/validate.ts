@@ -18,6 +18,7 @@ import {
 import { extendedHoursEligible } from './extended-hours';
 import { groupDefinition } from './groups';
 import { checkTiming } from './timing';
+import { checkOptionLegs, hasOptionLegs } from './validate-options';
 import { finestBarMinutes, isCalendarSchedule, rulesReadIntraday } from './schedule';
 import {
   collectInstrumentUses,
@@ -87,6 +88,12 @@ export interface AccountCapabilities {
   atomicMultiLeg: boolean;
   /** Which instruments the account can trade: the demo ones, or real US listings (ADR 0018). */
   coverage?: 'demo' | 'us' | undefined;
+  /**
+   * The Alpaca options level in force, 0–3, as the broker last reported it
+   * (options brief v0.2 §5.4, ADR 0123); undefined while it hasn't said. Not
+   * stored with the capabilities: read from the account's broker figures.
+   */
+  optionsLevel?: number | undefined;
 }
 
 export interface AccountInfo {
@@ -119,6 +126,11 @@ export interface ValidationContext {
   backtest?: { definitionHash: string; completedAt: Date } | null;
   /** Hash of the definition being validated, compared with the back test's. */
   definitionHash?: string;
+  /**
+   * The server's `OPTIONS_TRADING_ENABLED` switch (options brief v0.2 §2,
+   * ADR 0123). Absent means off: every options leg is then refused.
+   */
+  optionsTradingEnabled?: boolean;
 }
 
 export interface ValidationResult {
@@ -134,6 +146,8 @@ export const LIMITS = {
 } as const;
 
 const OPENING_SIDES: readonly OrderSide[] = ['buy', 'sell_short'];
+
+export type { Add as ValidationAdd };
 
 export function validateStrategy(
   def: StrategyDefinition,
@@ -163,6 +177,8 @@ export function validateStrategy(
   checkFundamentals(def, ctx, add);
   checkOptions(def, ctx, add);
   checkRemovedInstruments(def, ctx, add);
+  // Options legs (ADR 0123): checked only when the strategy has one.
+  if (hasOptionLegs(def)) checkOptionLegs(def, ctx, add);
 
   for (const p of checkTiming(def)) {
     const index = def[p.phase].orders.findIndex((o) => o.id === p.legId);

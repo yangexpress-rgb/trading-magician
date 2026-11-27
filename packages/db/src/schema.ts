@@ -16,6 +16,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -965,6 +966,11 @@ export const tradingAccounts = pgTable(
     brokerDayTrades: integer('broker_day_trades'),
     brokerEquity: numeric('broker_equity'),
     brokerMargin: boolean('broker_margin'),
+    /**
+     * The options level in force as the broker last reported it, 0–3 (options
+     * brief v0.2 §5.4, ADR 0123); null until it has said. Never assumed.
+     */
+    brokerOptionsLevel: smallint('broker_options_level'),
     ...timestamps(),
     rowVersion: rowVersion(),
   },
@@ -989,6 +995,10 @@ export const tradingAccounts = pgTable(
     check(
       'trading_account_pilot',
       sql`(${t.pilotMaxOrder} is null or ${t.pilotMaxOrder} > 0) and (${t.pilotMaxExposure} is null or ${t.pilotMaxExposure} > 0)`,
+    ),
+    check(
+      'trading_account_options_level',
+      sql`${t.brokerOptionsLevel} is null or ${t.brokerOptionsLevel} between 0 and 3`,
     ),
     check(
       'trading_account_feed_failure',
@@ -1390,6 +1400,12 @@ export const strategyRuntimes = pgTable(
     stoppedAt: timestamp('stopped_at', { withTimezone: true }),
     /** Last resume; automatic pauses only count rejections after it. */
     resumedAt: timestamp('resumed_at', { withTimezone: true }),
+    /**
+     * Whether the run's version has an options leg (options brief v0.2 §5.6,
+     * ADR 0123), fixed at Start: options runs and stock/ETF runs never share
+     * an account.
+     */
+    tradesOptions: boolean('trades_options').notNull().default(false),
     ...timestamps(),
     rowVersion: rowVersion(),
   },

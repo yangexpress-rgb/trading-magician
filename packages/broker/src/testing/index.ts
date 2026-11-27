@@ -93,6 +93,17 @@ export function describeBrokerContract(name: string, setup: () => Promise<Contra
   };
 
   describe(`broker contract: ${name}`, () => {
+    it('refuses an options order unless it says it trades options (ADR 0123)', async () => {
+      const h = await setup();
+      await h.openMarket();
+      if (h.adapter.capabilities.options) return;
+      await expect(
+        h.adapter.submitOrder(request(h, { assetClass: 'option' })),
+      ).rejects.toBeInstanceOf(BrokerRejectedError);
+      const held = await h.adapter.positions(h.accountId);
+      expect(held.find((p) => p.instrumentId === h.instrument.instrumentId)).toBeUndefined();
+    });
+
     it('never claims atomic multi-leg fills unless it provides them', async () => {
       const h = await setup();
       expect(typeof h.adapter.capabilities.atomicMultiLeg).toBe('boolean');

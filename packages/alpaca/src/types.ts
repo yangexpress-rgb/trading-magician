@@ -19,6 +19,14 @@ export interface AlpacaAccount {
   multiplier: string;
   /** Day trades in the rolling five business days (pattern-day-trader rule). */
   daytrade_count?: number | undefined;
+  /**
+   * Options approval (ADR 0123): the level Alpaca approved, and the level in
+   * force (the account holder can lower it). 0 none, 1 covered calls and
+   * cash-secured puts, 2 + buying calls and puts, 3 + spreads.
+   */
+  options_approved_level?: number | undefined;
+  options_trading_level?: number | undefined;
+  options_buying_power?: string | undefined;
   created_at: string;
 }
 

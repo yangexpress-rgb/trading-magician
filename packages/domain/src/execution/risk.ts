@@ -1,5 +1,6 @@
 import type Decimal from 'decimal.js';
 import { nyDate, regularSession } from '../market/calendar';
+import { effectivePrice } from '../options/trading';
 import type { RiskProfile } from '../strategy/schema';
 
 /**
@@ -76,6 +77,12 @@ export interface RiskCheckInput {
         pilot?: { maxOrder: string; maxExposure: string } | undefined;
       }
     | undefined;
+  /**
+   * The instrument's contract multiplier (options brief v0.2 §5.7, ADR 0123):
+   * the order's notional is quantity × price × multiplier. Absent or 1 for
+   * every stock and ETF, whose checks are then exactly as before.
+   */
+  multiplier?: Decimal.Value | undefined;
   /** Seconds since the reference price was observed; checked when given. */
   priceAgeSec?: number | undefined;
   staleDataSec?: number | undefined;
@@ -129,7 +136,7 @@ export function checkPreTradeRisk(input: RiskCheckInput): RiskCheckResult {
     return done();
 
   if (!closing) {
-    const notional = quantity.times(ref);
+    const notional = quantity.times(effectivePrice(ref, input.multiplier));
     if (
       risk.maxOrderNotional &&
       !check(

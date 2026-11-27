@@ -6,7 +6,25 @@
  * options recording and its history rebuild) waits its turn: it takes at most
  * a share of the minute, never the room kept for everything else, and stands
  * aside after Alpaca has throttled the key.
+ *
+ * Options quotes (options trading brief v0.2 §8.2, ADR 0123) are a third
+ * class between the two: below a strategy's equity requests, above background
+ * work. They go only while the minute leaves room kept for equity, at most
+ * `optionsPerMinute` of them, and stand aside after a throttle like background
+ * work, so options traffic can never take an equity request's slot. Equity
+ * requests are never made to wait by anything.
  */
+
+/** An options request found no room in the minute; it was not sent (ADR 0123). */
+export class OptionsBudgetFullError extends Error {
+  constructor() {
+    super('No room for options requests on this key this minute');
+    this.name = 'OptionsBudgetFullError';
+  }
+}
+
+/** Who a request is for (ADR 0052, ADR 0123). `true`/`false` are background/foreground. */
+export type RequestClass = boolean | 'options';
 
 export interface RequestBudgetOptions {
   /** Requests Alpaca allows each key a minute. */
@@ -20,6 +38,10 @@ export interface RequestBudgetOptions {
    * the key is under Alpaca's limit, so busy strategies can't starve them.
    */
   backgroundFloor?: number;
+  /** Options class (ADR 0123): the most options requests in any minute. */
+  optionsPerMinute?: number;
+  /** Options class: room in each minute that options requests never take, kept for equity. */
+  optionsReserve?: number;
   /** How long background requests stand aside after a 429 that gave no time. */
   pauseAfterThrottleMs?: number;
   now?: () => number;
@@ -28,7 +50,7 @@ export interface RequestBudgetOptions {
 
 interface KeyState {
   /** When each request of the last minute went, and whether it was background. */
-  sent: { at: number; background: boolean }[];
+  sent: { at: number; background: boolean; options?: true }[];
   pausedUntil: number;
 }
 
@@ -90,6 +112,8 @@ export class AlpacaRequestBudget {
   private readonly backgroundPerMinute: number;
   private readonly reserve: number;
   private readonly backgroundFloor: number;
+  private readonly optionsPerMinute: number;
+  private readonly optionsReserve: number;
   private readonly pauseMs: number;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -101,6 +125,8 @@ export class AlpacaRequestBudget {
     this.backgroundPerMinute = options.backgroundPerMinute ?? 60;
     this.reserve = options.reserve ?? 80;
     this.backgroundFloor = Math.min(options.backgroundFloor ?? 10, this.backgroundPerMinute);
+    this.optionsPerMinute = options.optionsPerMinute ?? 40;
+    this.optionsReserve = options.optionsReserve ?? 40;
     this.pauseMs = options.pauseAfterThrottleMs ?? MINUTE;
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -121,13 +147,17 @@ export class AlpacaRequestBudget {
    * Counts a request against the key. A background request first waits until
    * it fits; anything else goes at once.
    */
-  async take(key: string, background: boolean): Promise<void> {
+  async take(key: string, background: RequestClass): Promise<void> {
     for (;;) {
       const s = this.state(key);
       const now = this.now();
       if (!background) {
         s.sent.push({ at: now, background });
         return;
+      }
+      if (background === 'options') {
+        if (this.takeOptions(key)) return;
+        throw new OptionsBudgetFullError();
       }
       const wait = this.backgroundWait(s, now);
       if (wait <= 0) {
@@ -153,6 +183,33 @@ export class AlpacaRequestBudget {
     return Math.max(
       until(s.sent, Math.max(1, this.perMinute - this.reserve)),
       until(bg, Math.max(1, this.backgroundPerMinute)),
+    );
+  }
+
+  /**
+   * Options class (ADR 0123): counts one options request if it fits now, else
+   * returns false at once. Options requests never wait: a runtime pass that
+   * waited for room would hold every other strategy's pass back.
+   */
+  takeOptions(key: string): boolean {
+    const s = this.state(key);
+    const now = this.now();
+    if (this.optionsWait(s, now) > 0) return false;
+    s.sent.push({ at: now, background: false, options: true });
+    return true;
+  }
+
+  /** Options class: how long until one more options request fits (0 = now). */
+  private optionsWait(s: KeyState, now: number): number {
+    if (now < s.pausedUntil) return s.pausedUntil - now;
+    const until = (list: { at: number }[], over: number) => {
+      const oldest = list.length >= over ? list[list.length - over] : undefined;
+      return oldest ? oldest.at + MINUTE - now + 1 : 0;
+    };
+    const opts = s.sent.filter((r) => r.options);
+    return Math.max(
+      until(s.sent, Math.max(1, this.perMinute - this.optionsReserve)),
+      until(opts, Math.max(1, this.optionsPerMinute)),
     );
   }
 
@@ -205,6 +262,11 @@ export class AlpacaRequestBudget {
     }
     this.traffic = new Map();
     return out;
+  }
+
+  /** Tests: how many options requests the key sent in the last minute. */
+  optionsLastMinute(key: string): number {
+    return this.state(key).sent.filter((r) => r.options).length;
   }
 
   /** Tests: how many requests the key sent in the last minute. */

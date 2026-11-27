@@ -18,7 +18,10 @@ import {
   type StrategyStatus,
   type ValidationContext,
   type ValidationResult,
+  optionsStartProblem,
+  optionsTradingEnabled,
 } from '@tm/domain';
+import { optionsAccountView, optionsUses } from './options-trading';
 import {
   and,
   asc,
@@ -568,7 +571,9 @@ export async function loadValidationContext(
       venue: instruments.venue,
       shortable: instruments.shortable,
     })
-    .from(instruments);
+    .from(instruments)
+    // Option contracts are never a leg's instrument: legs name the underlying (ADR 0123).
+    .where(ne(instruments.assetClass, 'option'));
   const accountRows = await tx
     .select({
       id: tradingAccounts.id,
@@ -577,6 +582,7 @@ export async function loadValidationContext(
       isActive: tradingAccounts.isActive,
       platformActive: brokerConnections.isActive,
       capabilities: tradingAccounts.capabilities,
+      optionsLevel: tradingAccounts.brokerOptionsLevel,
     })
     .from(tradingAccounts)
     .innerJoin(brokerConnections, eq(brokerConnections.id, tradingAccounts.brokerConnectionId));
@@ -609,10 +615,14 @@ export async function loadValidationContext(
           nickname: a.nickname,
           mode: a.mode,
           isActive: a.isActive && a.platformActive,
-          capabilities: a.capabilities as AccountCapabilities,
+          capabilities:
+            a.optionsLevel === null
+              ? (a.capabilities as AccountCapabilities)
+              : { ...(a.capabilities as AccountCapabilities), optionsLevel: a.optionsLevel },
         },
       ]),
     ),
+    optionsTradingEnabled: optionsTradingEnabled(),
     hasFeed: (assetClass, dataType) => routes.has(`${assetClass}:${dataType}`),
     hasCompanyFeed: (await usableFundamentalsFeed(tx)) !== undefined,
     options: {
@@ -1175,6 +1185,20 @@ export async function startStrategy(
       );
     }
   }
+  // Options runs and stock/ETF runs never share an account, and options runs
+  // start only where options can trade (options brief v0.2 §§5.4–5.6, ADR 0123).
+  const optionUses = optionsUses(parseOrThrow(row.draftDefinition));
+  const optionsProblem = optionsStartProblem({
+    uses: optionUses,
+    account: await optionsAccountView(tx, account.id),
+    enabled: optionsTradingEnabled(),
+  });
+  if (optionsProblem) {
+    throw new StrategyError('transition_blocked', optionsProblem.message, {
+      reason: optionsProblem.reason,
+      details: [],
+    });
+  }
   const adding = row.status === 'actively_executing';
   if (adding) {
     const [existing] = await tx
@@ -1264,7 +1288,15 @@ export async function startStrategy(
   }
   if (!versionId) throw new StrategyError('invalid_state', 'The strategy has no version to run');
   // The worker picks the runtime up on its next poll (§8.1).
-  const runtimeId = await createRuntime(tx, userId, id, versionId, account.id, account.mode);
+  const runtimeId = await createRuntime(
+    tx,
+    userId,
+    id,
+    versionId,
+    account.id,
+    account.mode,
+    optionUses.length > 0,
+  );
   if (!adding) {
     await tx.insert(strategyStatusChanges).values({
       userId,

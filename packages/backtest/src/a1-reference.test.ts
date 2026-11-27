@@ -58,7 +58,6 @@ const indicator = (
   name: string,
   params: IndicatorExpr['params'],
 ): IndicatorExpr => ({ ...market(instrumentId), kind: 'indicator', name, params });
-const constant = (value: string): Expr => ({ kind: 'constant', id: nid('c'), value });
 const cmp = (left: Expr, operator: Comparison['operator'], right: Expr): Comparison => ({
   kind: 'comparison',
   id: nid('cmp'),

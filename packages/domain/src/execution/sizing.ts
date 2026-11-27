@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import type { RiskSizing } from '../strategy/risk-exits';
+import { effectivePrice } from '../options/trading';
 import type { PlannedOrder } from '../strategy/schema';
 
 /**
@@ -32,6 +33,12 @@ export interface SizingInput {
    * position; it never overrides a limit, so the quantity is capped to it.
    */
   cap?: { notional: Decimal; by: NonNullable<RiskSizing['cappedBy']> } | undefined;
+  /**
+   * The instrument's contract multiplier (options brief v0.2 §5.7, ADR 0123):
+   * money amounts are divided by price × multiplier. Absent or 1 for every
+   * stock and ETF, which then size exactly as before.
+   */
+  multiplier?: Decimal.Value | undefined;
 }
 
 export type SizingResult =
@@ -61,8 +68,11 @@ export function sizeOrder({
   atr,
   distance,
   cap,
+  multiplier,
 }: SizingInput): SizingResult {
   if (ref.lte(0)) return { ok: false, code: 'no_price' };
+  // §5.7: what one unit costs. The very same value as `ref` when the multiplier is 1.
+  const unit = effectivePrice(ref, multiplier);
   const v = new Decimal(order.quantity.value);
   let qty: Decimal;
   switch (order.quantity.type) {
@@ -70,10 +80,10 @@ export function sizeOrder({
       qty = v;
       break;
     case 'notional':
-      qty = v.div(ref);
+      qty = v.div(unit);
       break;
     case 'pct_equity':
-      qty = equity.times(v).div(100).div(ref);
+      qty = equity.times(v).div(100).div(unit);
       break;
     case 'risk': {
       // One risk quantity (ADR 0049): an amount in dollars or % of equity, over
@@ -93,9 +103,10 @@ export function sizeOrder({
           atr,
           distance,
           cap,
+          multiplier,
         });
       }
-      const perUnitRisk = stopPrice ? ref.minus(stopPrice).abs() : ZERO;
+      const perUnitRisk = stopPrice ? effectivePrice(ref.minus(stopPrice).abs(), multiplier) : ZERO;
       if (perUnitRisk.isZero()) return { ok: false, code: 'no_stop_distance' };
       const amount = order.quantity.amountIn === 'pct_equity' ? equity.times(v).div(100) : v;
       qty = amount.div(perUnitRisk);
@@ -157,6 +168,7 @@ function sizeByAtr({
   atr,
   distance: riskDistance,
   cap,
+  multiplier,
 }: SizingInput): SizingResult {
   const multiple = riskDistance?.atrMultiple ?? '0';
   const period = riskDistance?.atrPeriod ?? 0;
@@ -164,7 +176,7 @@ function sizeByAtr({
   // Figures as shown in the trade list, so the quantity checks by hand exactly.
   const atrShown = atr.toDecimalPlaces(4);
   const equityShown = equity.toDecimalPlaces(2);
-  const distance = atrShown.times(multiple);
+  const distance = effectivePrice(atrShown.times(multiple), multiplier);
   if (distance.lte(0)) return { ok: false, code: 'no_stop_distance' };
   const dollars = order.quantity.amountIn === 'dollars';
   const riskQty = (
@@ -177,7 +189,11 @@ function sizeByAtr({
   let qty = Decimal.max(riskQty, 0);
   let cappedBy: RiskSizing['cappedBy'];
   if (cap) {
-    const most = Decimal.max(cap.notional, 0).div(ref).div(lotSize).floor().times(lotSize);
+    const most = Decimal.max(cap.notional, 0)
+      .div(effectivePrice(ref, multiplier))
+      .div(lotSize)
+      .floor()
+      .times(lotSize);
     if (most.lt(qty)) {
       qty = most;
       cappedBy = cap.by;

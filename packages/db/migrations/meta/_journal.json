@@ -827,6 +827,13 @@
       "when": 1795704132887,
       "tag": "0117_companion_research_export",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1795756084502,
+      "tag": "0118_options_foundations",
+      "breakpoints": true
     }
   ]
 }

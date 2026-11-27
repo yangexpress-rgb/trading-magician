@@ -23,4 +23,5 @@ export * from './serialize';
 export * from './timing';
 export * from './tree';
 export * from './validate';
+export * from './validate-options';
 export * from './session-metrics';

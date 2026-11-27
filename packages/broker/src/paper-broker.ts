@@ -1,5 +1,6 @@
 import {
   BrokerRejectedError,
+  NO_OPTIONS_REASON,
   nextTradingDay,
   nyDate,
   regularSession,
@@ -33,6 +34,8 @@ export const PAPER_CAPABILITIES: BrokerCapabilities = {
   fractionalQuantities: false,
   shortSelling: true,
   atomicMultiLeg: false,
+  // The simulator has no options fill model (options brief v0.2 §5.5, ADR 0123).
+  options: false,
 };
 
 export interface PaperBrokerOptions {
@@ -252,6 +255,8 @@ function validate(r: BrokerOrderRequest) {
   const reject = (code: string, message: string) => {
     throw new BrokerRejectedError(code, message);
   };
+  // No options fill model here (ADR 0123): an options order is refused, never filled as shares.
+  if (r.assetClass === 'option') reject('options_unsupported', NO_OPTIONS_REASON);
   if (!PAPER_CAPABILITIES.orderTypes.includes(r.orderType))
     reject('order_type', 'This order type is not supported');
   if (!PAPER_CAPABILITIES.timeInForce.includes(r.timeInForce))

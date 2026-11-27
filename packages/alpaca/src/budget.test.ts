@@ -169,3 +169,83 @@ describe('routeOf', () => {
     expect(routeOf('/v2/positions/QQQ')).toBe('/v2/positions/:symbol');
   });
 });
+
+/**
+ * Options brief v0.2 A8 / §8.2 (ADR 0123): options quotes are a third class.
+ * Under load from running equity strategies, options traffic only fills room
+ * kept clear of equity, total traffic stays under Alpaca's 200 a minute, and
+ * no equity request ever waits or is displaced by an options one.
+ */
+describe('the options budget class (A8 traffic fixture)', () => {
+  it('keeps options under its share and leaves equity untouched under load', async () => {
+    const c = clock();
+    const budget = new AlpacaRequestBudget({ now: c.now, sleep: c.sleep });
+    let equitySent = 0;
+    let optionsSent = 0;
+    let optionsRefused = 0;
+    let peak = 0;
+    // Ten minutes in 100 ms steps: equity at 150 a minute (one every 400 ms),
+    // options asking every 250 ms (240 a minute, far more than it may have).
+    for (let step = 0; step < 6_000; step++) {
+      if (step % 4 === 0) {
+        const before = c.slept.length;
+        await budget.take('k', false);
+        expect(c.slept.length).toBe(before);
+        equitySent++;
+      }
+      if (step % 2 === 1 || step % 5 === 0) {
+        if (budget.takeOptions('k')) optionsSent++;
+        else optionsRefused++;
+      }
+      peak = Math.max(peak, budget.sentLastMinute('k'));
+      expect(budget.optionsLastMinute('k')).toBeLessThanOrEqual(40);
+      c.advance(100);
+    }
+    expect(c.slept).toEqual([]);
+    expect(equitySent).toBe(1_500);
+    expect(peak).toBeLessThan(200);
+    expect(optionsSent).toBeGreaterThan(0);
+    expect(optionsRefused).toBeGreaterThan(0);
+  });
+
+  it('gives options nothing when equity alone fills the room kept for it', async () => {
+    const c = clock();
+    const budget = new AlpacaRequestBudget({ now: c.now, sleep: c.sleep });
+    for (let i = 0; i < 160; i++) await budget.take('k', false);
+    expect(budget.takeOptions('k')).toBe(false);
+    // Equity still goes at once.
+    await budget.take('k', false);
+    expect(c.slept).toEqual([]);
+  });
+
+  it('ranks options above background work and stands aside after a throttle', async () => {
+    const c = clock();
+    const budget = new AlpacaRequestBudget({ now: c.now, sleep: c.sleep });
+    // 125 foreground requests: past background's room (200 − 80), inside options' (200 − 40).
+    for (let i = 0; i < 125; i++) await budget.take('k', false);
+    expect(budget.takeOptions('k')).toBe(true);
+    budget.throttled('k', 5_000);
+    expect(budget.takeOptions('k')).toBe(false);
+    c.advance(5_001);
+    expect(budget.takeOptions('k')).toBe(true);
+  });
+
+  it('a client in the options class fails fast instead of waiting', async () => {
+    const c = clock();
+    const budget = new AlpacaRequestBudget({ now: c.now, sleep: c.sleep, optionsPerMinute: 1 });
+    let calls = 0;
+    const client = new AlpacaClient({
+      credentials: { keyId: 'k', secretKey: 's' },
+      fetch: async () => {
+        calls++;
+        return new Response('{}', { status: 200 });
+      },
+      budget,
+      optionsQuotes: true,
+    });
+    await client.data('/v1beta1/options/snapshots');
+    await expect(client.data('/v1beta1/options/snapshots')).rejects.toThrow(/No room/);
+    expect(calls).toBe(1);
+    expect(c.slept).toEqual([]);
+  });
+});
