@@ -1,9 +1,9 @@
 # ADR 0123: Options trading on paper (brief v0.2, Phases O0 to O3)
 
-- **Status:** accepted (O0, O1, O2, O3)
+- **Status:** accepted (O0, O1, O2, O3; staging checks and follow-ups 2026-11-27)
 - **Date:** 2026-11-27
 - **Design refs:** "Trading Magician — Options Trading: Design Brief", draft v0.2 (Drive file
-  `trading-app-options-trading-brief-v0.2.md`); N353 to N360 and N361 to N366; N367 to N373; N374 to N377; open points O219 to O221, O222 to O232, O233 to O246 and O247 to O254; migrations 0118, 0119 and 0120 (O3 has none). Each later phase amends this ADR with its own rows.
+  `trading-app-options-trading-brief-v0.2.md`); N353 to N360 and N361 to N366; N367 to N373; N374 to N377; N378 to N380; open points O219 to O221, O222 to O232, O233 to O246 and O247 to O254 and O255 to O258; migrations 0118, 0119 and 0120 (O3 has none). Each later phase amends this ADR with its own rows.
 
 ## Context
 
@@ -296,7 +296,8 @@ until the options account exists.
   unchanged. Equity paths: the exposure, pending-gross, risk and planner changes apply only to
   option contracts, combo intents or the new inputs, which equity runs never have.
 - **A3:** pass (domain `options/combo.test.ts`): naked short call and lone short put refused each
-  with its reason; vertical worst case $500; $380 at 1.20; condor $350 at 1.50.
+  with its reason (the lone short put refusal applied only before O3, which accepts it as a
+  cash-secured put); vertical worst case $500; $380 at 1.20; condor $350 at 1.50.
 - **A4:** pass on the fake (worker `test/options-combos.test.ts`): one POST for a two-leg combo; a
   refused combo leaves both legs failed, nothing held, the cycle aborted; a refused combo close
   buys back the short leg first, then sells the long, with the path on each order. On staging
@@ -373,6 +374,55 @@ prices; and calendars and diagonals left for Yong.
   shares; an uncovered call is refused; a cash-secured put is refused at $9,349 and placed at
   $9,350; a roll closes the Apr 5 call and buys the Apr 12 one in one cycle.
 - **On staging paper:** pending the options account, as in O1 and O2.
+
+## Staging checks and follow-ups (2026-11-27)
+
+Yong's follow-up asked for the checks that waited on an options account, run on staging paper
+against the options account only, with the switch on for them, and four follow-ups.
+
+### Brief amendments (v0.2, documentation only)
+
+- **§8.4:** options strategies start with the strategy trailing stop off. The default flips when a
+  strategy gains its first options leg, and only while the trailing stop is still the untouched
+  creation default; a value the user set deliberately is never overridden; the warning for low
+  values stays (O231, N378).
+- **Rolls:** a roll is close-then-open under one rule, not one multi-leg order (O252).
+- **Covered calls:** sold only against the cycle's own shares (O247).
+- **Near the money:** within 2% of the underlying (O245).
+- **A3:** the lone short put refusal applies only before O3.
+- **Calendars and diagonals:** not wanted now; closed, and can be reopened (O254).
+
+### Decisions
+
+- **Trailing stop default** (N378). `optionsTrailingStopDefault` runs on create and on every
+  definition save: if the saved definition had no options legs and the new one has, and
+  `risk.trailingStopPct` is still the 1% default without `risk.trailingStopSet`, the trailing
+  stop is removed. The Settings field sets `trailingStopSet` whenever the user edits it.
+- **Account exposure by max loss** (N379). The account limit (ADR 0107) now counts each run's
+  option contracts with `heldOptionsExposure`, per run, as the strategy limit does; stock
+  holdings are unchanged. Runs are never paired with each other.
+- **Unfilled closes are tried again** (N380). A staging check found that a leg-by-leg combo close
+  cancelled unfilled after its re-price was never placed again: the idempotency key was fixed at
+  attempt 1, and the close counted as still closing. Each flatten now takes the next attempt
+  after the instrument's ended flattens, and only working flattens count as closing.
+- **O242 and O243 are not built.** O242 is about half a day to a day; O243 about a day. What each
+  depends on is in its row.
+
+### Staging checks (account ••••5899, SPY)
+
+- **A4 / O246:** pass on real paper for the multi-leg path. A 725/740 call vertical went as one
+  mleg order (net 6.95, max loss $695) and filled; its combo close was re-priced through an mleg
+  replace, cancelled, and closed leg by leg with the 740 short bought back first. "A refused combo
+  leaves zero legs" passes on the fake only: Alpaca never refused a combo.
+- **A5:** pass. With the Research store stopped (about 16:06 to 16:12 UTC), options runs placed,
+  re-priced, cancelled and filled orders and re-resolved entries; the only errors were the
+  CBOE recorder and the pattern scan, which read Research.
+- **O250:** difference found. Alpaca refused a cash-secured put the app passed, because it also
+  reserves buying power for other working orders; see O250 and O256.
+- **O232:** mid-price limits often go unfilled on paper (O255); the close retry bug (N380).
+- **A12:** a cash-secured put (1 SPY 743 put, Nov 30) was sold at 18.36 and is held through
+  expiry with the account's kill switch engaged, so Alpaca assigns it (O258). Result recorded
+  after the expiry.
 
 ## Consequences
 

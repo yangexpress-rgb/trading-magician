@@ -859,6 +859,12 @@ export const riskProfileSchema = z.object({
    * off; new strategies start at 1%.
    */
   trailingStopPct: positiveDecimalString.optional(),
+  /**
+   * The user set the trailing stop themselves (O231, 2026-11-27), so the
+   * options default (off) never overrides it. Absent: the value, if any, is
+   * the creation default.
+   */
+  trailingStopSet: z.literal(true).optional(),
 });
 export type RiskProfile = z.infer<typeof riskProfileSchema>;
 

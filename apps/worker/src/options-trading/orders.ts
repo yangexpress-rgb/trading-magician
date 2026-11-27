@@ -54,6 +54,7 @@ import {
   type RiskCheckInput,
   type RiskCheckResult,
   type StrategyDefinition,
+  isTerminalOrderState,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import type { Logger } from 'pino';
@@ -790,14 +791,27 @@ async function replaceAt(
 // §8.3 Closing what a cycle holds, and settling what expired
 // ---------------------------------------------------------------------------
 
-const flattenKey = (work: RuntimeWork, c: ActiveCycle, instrumentId: string) =>
+const flattenKey = (work: RuntimeWork, c: ActiveCycle, instrumentId: string, attempt: number) =>
   idempotencyKey({
     runtimeId: work.id,
     cycleId: c.id,
     phase: 'flatten',
     legId: `flatten-${instrumentId}`,
-    attempt: 1,
+    attempt,
   });
+
+/**
+ * Which close of a contract this is in the cycle. A close that ended without
+ * closing everything (canceled after its one re-price, which on Alpaca paper is
+ * common: a limit at the mid often doesn't fill) is followed by a new one on a
+ * later pass; while one is working, the same key comes back, so nothing is
+ * placed twice (staging check, 2026-11-27).
+ */
+const flattenAttempt = (c: ActiveCycle, instrumentId: string) =>
+  c.legs.filter(
+    (l) =>
+      l.phase === 'flatten' && l.instrumentId === instrumentId && isTerminalOrderState(l.state),
+  ).length + 1;
 
 /**
  * A safety close of a held contract (session end, the strategy trailing stop,
@@ -866,7 +880,8 @@ export async function placeOptionFlatten(
       sets: quantity.abs().toString(),
       path: input.path,
     };
-  const key = flattenKey(work, c, instrumentId);
+  const attempt = flattenAttempt(c, instrumentId);
+  const key = flattenKey(work, c, instrumentId, attempt);
   const risk = checkPreTradeRisk({
     risk: {},
     closing: true,
@@ -887,7 +902,7 @@ export async function placeOptionFlatten(
     cycleId: c.id,
     phase: 'flatten' as PhaseName,
     plannedOrderId: undefined,
-    attempt: 1,
+    attempt,
     legLabel: `Close ${detail.words}`.slice(0, 120),
     triggerEventId: undefined,
     scheduledActionId: undefined,
@@ -994,7 +1009,8 @@ export async function settleExpiredOptions(
       );
       continue;
     }
-    const key = flattenKey(work, c, id);
+    const attempt = flattenAttempt(c, id);
+    const key = flattenKey(work, c, id, attempt);
     const underlying = work.instruments.get(option.underlyingId)?.symbol ?? '';
     const words = contractInWords({
       underlying,
@@ -1009,7 +1025,7 @@ export async function settleExpiredOptions(
       cycleId: c.id,
       phase: 'flatten' as PhaseName,
       plannedOrderId: undefined,
-      attempt: 1,
+      attempt,
       legLabel: `Expired ${words}`.slice(0, 120),
       triggerEventId: undefined,
       scheduledActionId: undefined,

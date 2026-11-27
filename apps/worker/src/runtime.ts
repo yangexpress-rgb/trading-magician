@@ -142,6 +142,8 @@ import {
   quoteAgeSec,
   sizeOrder,
   effectivePrice,
+  accountOptionsExposure,
+  type HeldContract,
   isOptionLeg,
   expiryStage,
   nextTradingDay,
@@ -1720,6 +1722,20 @@ async function planPass(tx: Transaction, ctx: PassContext) {
         const px = (await markOf(id)) ?? p.lastPrice;
         accountGross = accountGross.plus(p.quantity.abs().times(effectivePrice(px, p.multiplier)));
       }
+      // O244: each run's contracts count what they can still lose (a combo its
+      // max loss), as at the strategy limit; runs are never paired together.
+      const held: (HeldContract & { runtimeId: string })[] = [];
+      for (const o of book.options)
+        held.push({
+          runtimeId: o.runtimeId,
+          underlyingId: o.underlyingId,
+          right: o.right,
+          strike: o.strike,
+          quantity: o.quantity,
+          mark: (await markOf(o.instrumentId)) ?? o.lastPrice,
+          multiplier: o.multiplier,
+        });
+      if (held.length > 0) accountGross = accountGross.plus(accountOptionsExposure(held));
     }
     return {
       maxExposure: work.accountMaxExposure ?? undefined,

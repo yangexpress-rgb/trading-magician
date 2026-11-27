@@ -354,6 +354,18 @@ export async function checkAccountDailyLoss(
   return loss;
 }
 
+/** One run's net holding of one option contract on the account (O244). */
+export interface AccountOptionHolding {
+  runtimeId: string;
+  instrumentId: string;
+  quantity: Decimal;
+  lastPrice: Decimal;
+  multiplier: string;
+  underlyingId: string;
+  right: 'call' | 'put';
+  strike: string;
+}
+
 /**
  * What the account holds and has working, for the account exposure check:
  * the net quantity per instrument across every run, with the last fill price
@@ -363,8 +375,15 @@ export async function accountExposureBook(
   tx: Transaction,
   accountId: string,
 ): Promise<{
-  /** `multiplier` only where it isn't 1: an option contract (ADR 0123). */
+  /** Shares and ETFs, netted across runs as the broker nets them. */
   positions: Map<string, { quantity: Decimal; lastPrice: Decimal; multiplier?: string }>;
+  /**
+   * Option contracts held, per run (O244, 2026-11-27): each run's contracts on
+   * an underlying are one structure, so the account counts what each run's
+   * combo can still lose (its max loss), as the strategy limit does. Contracts
+   * of different runs are never paired with each other.
+   */
+  options: AccountOptionHolding[];
   pendingEntry: Decimal;
 }> {
   const fills = await tx.execute<{
@@ -381,7 +400,47 @@ export async function accountExposureBook(
       join order_intent oi on oi.id = f.intent_id
       join instrument i on i.id = oi.instrument_id
      where oi.account_id = ${accountId}
+       and i.asset_class <> 'option'
      group by oi.instrument_id`);
+  const optionFills = await tx.execute<{
+    runtime_id: string;
+    instrument_id: string;
+    qty: string;
+    last_price: string;
+    multiplier: string;
+    underlying_id: string;
+    option_right: 'call' | 'put';
+    strike: string;
+  }>(sql`
+    select oi.runtime_id,
+           oi.instrument_id,
+           sum(case when oi.direction = 'buy' then f.quantity else -f.quantity end)::text as qty,
+           (array_agg(f.price order by f.filled_at desc))[1]::text as last_price,
+           min(i.multiplier)::text as multiplier,
+           min(i.underlying_id::text) as underlying_id,
+           min(i.option_right::text) as option_right,
+           min(i.strike)::text as strike
+      from fill f
+      join order_intent oi on oi.id = f.intent_id
+      join instrument i on i.id = oi.instrument_id
+     where oi.account_id = ${accountId}
+       and i.asset_class = 'option'
+     group by oi.runtime_id, oi.instrument_id`);
+  const options: AccountOptionHolding[] = [];
+  for (const r of optionFills) {
+    const q = new Decimal(r.qty);
+    if (!q.isZero())
+      options.push({
+        runtimeId: r.runtime_id,
+        instrumentId: r.instrument_id,
+        quantity: q,
+        lastPrice: new Decimal(r.last_price),
+        multiplier: r.multiplier,
+        underlyingId: r.underlying_id,
+        right: r.option_right,
+        strike: r.strike,
+      });
+  }
   const positions = new Map<
     string,
     { quantity: Decimal; lastPrice: Decimal; multiplier?: string }
@@ -418,5 +477,5 @@ export async function accountExposureBook(
     if (left.gt(0) && w.referencePrice)
       pendingEntry = pendingEntry.plus(effectivePrice(left.times(w.referencePrice), w.multiplier));
   }
-  return { positions, pendingEntry };
+  return { positions, options, pendingEntry };
 }

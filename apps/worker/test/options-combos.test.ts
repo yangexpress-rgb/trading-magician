@@ -535,6 +535,72 @@ describe('options combos on paper (O2)', () => {
     await stop(s.id);
   });
 
+  it('closes a contract again when its leg-by-leg close ends unfilled (staging check, 2026-11-27)', async () => {
+    clock = Date.parse('2026-10-08T14:31:00Z');
+    const price = await ztstaPrice();
+    const atm = Math.round(price.toNumber());
+    const expiry = addDays(nyDate(now()), 31);
+    listAndQuote(expiry, atm, fair(atm));
+    const s = await start(
+      'Close again',
+      comboStrategy(
+        [
+          { id: 'short', side: 'sell_short', right: 'call', pct: 1 },
+          { id: 'long', side: 'buy', right: 'call', pct: 2 },
+        ],
+        [{ kind: 'optionTarget', id: 'tgt', pct: '50' }],
+      ),
+    );
+    await pass();
+    await fake.tick();
+    clock += 5_000;
+    await pass();
+    const opened = await intents(s.id);
+    expect(opened.map((r) => r.state)).toEqual(['filled', 'filled']);
+    const ks = Number((opened[0]!.optionDetail as { contract: string }).contract.slice(-8)) / 1000;
+
+    // The combo close is refused; the short leg's buy-back fills at its mid.
+    fake.setRefuseComboCloses(true);
+    quoteAll(expiry, atm, decayed(ks), { fillAtMid: true });
+    clock = Date.parse('2026-10-08T15:31:00Z');
+    await pass();
+    clock += 5_000;
+    await pass();
+    clock += 5_000;
+    await fake.tick();
+    await pass();
+    // The long leg's close finds no buyer at the mid, as on Alpaca paper: it is
+    // re-priced once, then canceled.
+    quoteAll(expiry, atm, decayed(ks), { fillAtMid: false });
+    clock += 5_000;
+    await pass();
+    let closes = (await intents(s.id)).filter((r) => r.phase === 'flatten');
+    expect(closes.map((r) => r.state)).toEqual(['filled', 'acknowledged']);
+    for (const step of [125_000, 125_000, 5_000]) {
+      clock += step;
+      await fake.tick();
+      await pass();
+    }
+    closes = (await intents(s.id)).filter((r) => r.phase === 'flatten');
+    // Canceled after its re-price, then placed again: the cycle is never left holding it.
+    expect(closes.map((r) => r.state).slice(0, 2)).toEqual(['filled', 'canceled']);
+    expect(closes).toHaveLength(3);
+    quoteAll(expiry, atm, decayed(ks), { fillAtMid: true });
+    clock += 125_000;
+    await fake.tick();
+    await pass();
+    clock += 5_000;
+    await fake.tick();
+    await pass();
+    clock += 5_000;
+    await pass();
+    const states = (await intents(s.id)).filter((r) => r.phase === 'flatten').map((r) => r.state);
+    expect(states.at(-1)).toBe('filled');
+    expect((await cycles(s.id))[0]?.status).toBe('closed');
+    fake.setRefuseComboCloses(false);
+    await stop(s.id);
+  });
+
   it('counts two iron condors as their max loss, and re-prices a combo once together (A7)', async () => {
     clock = Date.parse('2026-10-13T14:31:00Z');
     const price = await ztstaPrice();

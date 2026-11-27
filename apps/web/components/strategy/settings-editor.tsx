@@ -439,8 +439,11 @@ export function ExecutionAndRisk({
                   const rest = Object.fromEntries(
                     Object.entries(risk).filter(([k]) => k !== key),
                   ) as Record<string, unknown>;
-                  const next =
+                  const value_ =
                     raw === '' ? rest : { ...rest, [key]: unit === 'count' ? Number(raw) : raw };
+                  // O231: a trailing stop the user sets is theirs; the options default never overrides it.
+                  const next =
+                    key === 'trailingStopPct' ? { ...value_, trailingStopSet: true } : value_;
                   onChange({ ...definition, risk: next as RiskProfile });
                 }}
               />
