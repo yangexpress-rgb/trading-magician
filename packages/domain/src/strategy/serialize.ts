@@ -4,6 +4,12 @@ import { migrateV3 } from './migrate-v3';
 import { migrateV4 } from './migrate-v4';
 import { migrateV5 } from './migrate-v5';
 import {
+  MACHINE_FORM,
+  MACHINE_SCHEMA_VERSION,
+  machineDefinitionSchema,
+  type MachineDefinition,
+} from './machine-schema';
+import {
   STRATEGY_SCHEMA_VERSION,
   strategyDefinitionSchema,
   type StrategyDefinition,
@@ -47,10 +53,29 @@ const MIGRATIONS: Record<number, Migration> = {
   5: (doc) => migrateV5(doc).doc,
 };
 
+/**
+ * A state-machine document was given where a rules-form definition is read
+ * (ADR 0124). Readers of Entry and Exit never see the other form.
+ */
+export class NotRulesDefinitionError extends Error {
+  constructor() {
+    super('This is a state-machine strategy, not a rules strategy');
+    this.name = 'NotRulesDefinitionError';
+  }
+}
+
+/** Which form a stored or submitted definition is (ADR 0124): only state machines say. */
+export function definitionForm(input: unknown): 'rules' | typeof MACHINE_FORM {
+  return input && typeof input === 'object' && (input as { form?: unknown }).form === MACHINE_FORM
+    ? MACHINE_FORM
+    : 'rules';
+}
+
 /** Parses a stored or submitted definition, migrating older schema versions first. */
 export function parseDefinition(input: unknown): StrategyDefinition {
   if (!input || typeof input !== 'object')
     throw new TypeError('A strategy definition must be an object');
+  if (definitionForm(input) === MACHINE_FORM) throw new NotRulesDefinitionError();
   let doc = input as Record<string, unknown>;
   let version = doc.schemaVersion;
   while (typeof version === 'number' && version < STRATEGY_SCHEMA_VERSION) {
@@ -69,4 +94,27 @@ export function safeParseDefinition(input: unknown) {
   } catch (error) {
     return { success: false as const, error };
   }
+}
+
+/**
+ * Parses a state-machine definition (ADR 0124). It never passes through the
+ * rules form's migrations: a later rules-form schema change leaves it as it is.
+ */
+export function parseMachineDefinition(input: unknown): MachineDefinition {
+  if (!input || typeof input !== 'object')
+    throw new TypeError('A strategy definition must be an object');
+  const version = (input as { machineVersion?: unknown }).machineVersion;
+  if (version !== MACHINE_SCHEMA_VERSION) throw new UnsupportedSchemaVersionError(version);
+  return machineDefinitionSchema.parse(input);
+}
+
+export type AnyDefinition =
+  | { form: 'rules'; definition: StrategyDefinition }
+  | { form: typeof MACHINE_FORM; definition: MachineDefinition };
+
+/** Either form, for the places that parse, store and list definitions (brief v1.3 §2.5). */
+export function parseAnyDefinition(input: unknown): AnyDefinition {
+  return definitionForm(input) === MACHINE_FORM
+    ? { form: MACHINE_FORM, definition: parseMachineDefinition(input) }
+    : { form: 'rules', definition: parseDefinition(input) };
 }

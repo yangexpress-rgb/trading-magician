@@ -1835,3 +1835,6 @@ function checkBacktest(ctx: ValidationContext, add: Add) {
     add('warning', 'stale_backtest', 'The strategy changed after its latest back test', []);
   }
 }
+
+/** The rules form's comparison and value checks, for the state-machine form's rows (ADR 0124). */
+export { checkComparison as checkRuleComparison, checkExpr as checkRuleExpr };
