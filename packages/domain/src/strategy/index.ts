@@ -26,3 +26,6 @@ export * from './validate';
 export * from './validate-options';
 export * from './session-metrics';
 export * from './options-trailing-default';
+export * from './machine-schema';
+export * from './machine-evaluate';
+export * from './machine-validate';

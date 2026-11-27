@@ -1,9 +1,9 @@
 # ADR 0124: State-machine strategies (brief v1.3, Phase P1)
 
-- **Status:** accepted (P1, the three metrics)
+- **Status:** accepted (P1, the three metrics; P2a, the definition and evaluator)
 - **Date:** 2026-11-27
 - **Design refs:** "Trading Magician — State-Machine Strategies: Design Brief" v1.3 (Drive file
-  id `1dYuepl_NasusovfWAXfqDjKm37-S87t5`); N381 to N383; open points O259 and O260; no migration.
+  id `1dYuepl_NasusovfWAXfqDjKm37-S87t5`); N381 to N383 and N384 to N386; open points O259, O260 and O261 to O263; no migration.
   Each later phase amends this ADR with its own section.
 
 ## Context
@@ -49,3 +49,44 @@ and the A1 reference back tests (ADR 0123) still give the same figures and finge
 
 - No schema change and no migration: the metrics are registry entries a saved strategy names.
 - P2a (the state-machine form and its evaluation) can build on these metrics.
+
+## Decision: Phase P2a (definition and evaluator, pure domain)
+
+- **A top-level form** (N384). `form: "state_machine"` with its own `machineVersion` (1), so it is
+  never mistaken for a rules document and never runs through the rules migrations; `trade` is
+  `{ kind: "signals", instrumentIds }`, the instruments the rows read; `machine` holds states and
+  rows; `execution` has no leg policy (sells first, buys after they fill, `after_prior_fill`);
+  `risk` is strict, so a strategy trailing stop is refused, not dropped. `parseAnyDefinition` reads
+  either form; `parseDefinition` refuses a state machine with `NotRulesDefinitionError`, so the
+  readers of Entry and Exit never see one. Wiring the stores and lists to the union comes with the
+  phases that store state machines.
+- **The state operands are their own kinds** outside `Expr`: `state_is` and `row_ref` are
+  conditions; `days_in_state` and `days_in_states` are comparison sides only (O261) and strict (an
+  offset is refused). No rules-form condition, statistic or calculation can hold one by
+  construction.
+- **Validation** (N385) reuses the rules form's comparison and value checks for row conditions
+  and adds the machine's own: an unconditional last row naming a state (the fallback), no
+  unconditional row above it, known states and rows, no reference loops, daily bars of the signal
+  instruments only, no position or session values, stock or ETF targets with a feed, and a warning
+  when a % of equity limit is below the largest target. No daily loss limit by default (O262).
+- **One evaluator** (N386). `decideDay` tests rows from the top; the first true row decides; a
+  row naming the current state is a stay; an unknown row above any true row makes the day a stay.
+  `machineView` derives current, prior, days in state and days in a set from the list of switches
+  and the start day, walking back while the run came from inside the set. `replayMachine` runs the
+  path over daily bars from the fallback state with no orders, for P2b's engine, A6 and Start's
+  replay (§2.9).
+
+## Checks (P2a)
+
+- The §4 worked example (`machine-fixtures.ts`) parses unchanged and validates with no errors or
+  warnings; a state machine carrying an old rules `schemaVersion` still parses untouched (the
+  pass-through test any later rules migration must keep).
+- Property tests (fast-check): the decision matches a reference model of first-match with
+  unknown-means-stay over random rows; a row reference equals the referenced rule inline, inside
+  OR and NOT.
+- On a 1,500-day synthetic walk the example visits 10 of 11 states; no row wins before MA200
+  exists (A5); every risk-off switch to ATTACK or NORMAL comes after 3 days in the set with MA20
+  rising, and the lock holds on other days; a missing bar is a stay; A2: replacing every bar after
+  t leaves the path up to t unchanged.
+- A1: domain (719), back test (244, including `a1-reference.test.ts`), worker (81) and web (193)
+  suites pass.
