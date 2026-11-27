@@ -88,6 +88,14 @@ export interface RiskCheckInput {
    * every stock and ETF, whose checks are then exactly as before.
    */
   multiplier?: Decimal.Value | undefined;
+  /**
+   * An options combo (§8.1, ADR 0123 Phase O2): its premium at risk (max loss ×
+   * sets) stands for the notional in the order, exposure and account limits,
+   * and buying power is checked on the broker-shaped reserve (full width ×
+   * sets). The price collar doesn't apply to premiums (§8.4). Absent for every
+   * stock, ETF and single-leg order, whose checks are exactly as before.
+   */
+  combo?: { atRisk: Decimal; buyingPower: Decimal } | undefined;
   /** Seconds since the reference price was observed; checked when given. */
   priceAgeSec?: number | undefined;
   staleDataSec?: number | undefined;
@@ -141,7 +149,9 @@ export function checkPreTradeRisk(input: RiskCheckInput): RiskCheckResult {
     return done();
 
   if (!closing) {
-    const notional = quantity.times(effectivePrice(ref, input.multiplier));
+    const notional = input.combo
+      ? input.combo.atRisk
+      : quantity.times(effectivePrice(ref, input.multiplier));
     if (
       risk.maxOrderNotional &&
       !check(
@@ -197,7 +207,15 @@ export function checkPreTradeRisk(input: RiskCheckInput): RiskCheckResult {
       )
         return done();
     }
-    if (!check('buying_power', after.lte(input.equity), input.equity.toFixed(2), after.toFixed(2)))
+    const reserved = input.combo ? input.grossExposure.plus(input.combo.buyingPower) : after;
+    if (
+      !check(
+        'buying_power',
+        reserved.lte(input.equity),
+        input.equity.toFixed(2),
+        reserved.toFixed(2),
+      )
+    )
       return done();
     if (risk.dailyLossLimit && !check('risk_daily_loss', !input.dailyLossHit)) return done();
     if (risk.maxDrawdownPct && !check('risk_drawdown', !input.drawdownHit)) return done();
@@ -213,7 +231,7 @@ export function checkPreTradeRisk(input: RiskCheckInput): RiskCheckResult {
         return done();
     }
   }
-  if (risk.priceCollarPct && input.limitPrice) {
+  if (risk.priceCollarPct && input.limitPrice && !input.combo) {
     const away = input.limitPrice.minus(ref).abs().div(ref).times(100);
     check(
       'risk_collar',

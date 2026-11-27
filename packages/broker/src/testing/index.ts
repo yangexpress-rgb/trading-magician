@@ -1,6 +1,7 @@
 import {
   BrokerRejectedError,
   BrokerUnavailableError,
+  comboLegClientOrderId,
   deriveBrokerOrder,
   isTerminalOrderState,
   type BrokerAdapter,
@@ -40,6 +41,17 @@ export interface ContractHarness {
     symbol: string;
     underlying: string;
     setQuote(bid: string, ask: string, fillAtMid?: boolean): void;
+  };
+  /**
+   * A second contract on the same underlying and expiry, for adapters that
+   * place options combos (ADR 0123 Phase O2), and a way to have the broker
+   * refuse the next combo order.
+   */
+  comboOption?: {
+    instrumentId: string;
+    symbol: string;
+    setQuote(bid: string, ask: string): void;
+    rejectNextCombo(): void;
   };
 }
 
@@ -324,6 +336,115 @@ export function describeBrokerContract(name: string, setup: () => Promise<Contra
       expect(fill?.clientOrderId).toBe(clientOrderId);
       const held = await a.positions(h.accountId);
       expect(held.find((p) => p.instrumentId === o.instrumentId)?.quantity).toBe('1');
+    });
+
+    it('either places an options combo as one order, all or none, or refuses it (ADR 0123 O2)', async () => {
+      const h = await setup();
+      await h.openMarket();
+      const a = h.adapter;
+      const legs = (
+        key: string,
+        o: NonNullable<ContractHarness['option']>,
+        c: NonNullable<ContractHarness['comboOption']>,
+      ) => [
+        {
+          clientOrderId: comboLegClientOrderId(key, o.symbol),
+          instrumentId: o.instrumentId,
+          symbol: o.symbol,
+          ratio: 1,
+          direction: 'buy' as const,
+          positionIntent: 'buy_to_open' as const,
+        },
+        {
+          clientOrderId: comboLegClientOrderId(key, c.symbol),
+          instrumentId: c.instrumentId,
+          symbol: c.symbol,
+          ratio: 1,
+          direction: 'sell' as const,
+          positionIntent: 'sell_to_open' as const,
+        },
+      ];
+      if (!a.capabilities.optionCombos || !h.option || !h.comboOption) {
+        const r = a.submitMultiLeg?.({
+          clientOrderId: 'x',
+          accountId: h.accountId,
+          legs: [],
+          quantity: '1',
+          limitPrice: '1',
+          timeInForce: 'day',
+        });
+        if (r) await expect(r).rejects.toBeInstanceOf(BrokerRejectedError);
+        return;
+      }
+      const o = h.option;
+      const c = h.comboOption;
+      o.setQuote('2.00', '2.20');
+      c.setQuote('1.00', '1.10');
+      // Refused by the broker: no leg is placed at all (A4).
+      c.rejectNextCombo();
+      const refusedKey = `contract-${++seq}`;
+      await expect(
+        a.submitMultiLeg!({
+          clientOrderId: refusedKey,
+          accountId: h.accountId,
+          legs: legs(refusedKey, o, c),
+          quantity: '1',
+          limitPrice: '1.05',
+          timeInForce: 'day',
+        }),
+      ).rejects.toBeInstanceOf(BrokerRejectedError);
+      await h.advance(2_000);
+      expect(
+        (await drainUpdates(a, h.accountId)).some((u) => u.clientOrderId.startsWith(refusedKey)),
+      ).toBe(false);
+      expect(
+        (await a.positions(h.accountId)).filter(
+          (p) => p.instrumentId === o.instrumentId || p.instrumentId === c.instrumentId,
+        ),
+      ).toEqual([]);
+
+      // A debit vertical at 1.00 rests (net mid 1.05); re-priced to the mid, both legs fill together.
+      const key = `contract-${++seq}`;
+      const sent = await a.submitMultiLeg!({
+        clientOrderId: key,
+        accountId: h.accountId,
+        legs: legs(key, o, c),
+        quantity: '2',
+        limitPrice: '1.00',
+        timeInForce: 'day',
+      });
+      await h.advance(2_000);
+      let updates = await drainUpdates(a, h.accountId);
+      expect(updates.some((u) => u.kind === 'fill' && u.clientOrderId.startsWith(key))).toBe(false);
+      expect(
+        updates
+          .filter((u) => u.kind === 'accepted' && u.clientOrderId.startsWith(key))
+          .map((u) => u.clientOrderId)
+          .sort(),
+      ).toEqual(
+        [comboLegClientOrderId(key, o.symbol), comboLegClientOrderId(key, c.symbol)].sort(),
+      );
+      const replaced = await a.replaceOrder!(h.accountId, sent.brokerOrderId, {
+        limitPrice: '1.05',
+        clientOrderId: `${key}_r`,
+      });
+      await h.advance(2_000);
+      updates = await drainUpdates(a, h.accountId);
+      const fills = updates.filter(
+        (u) => u.kind === 'fill' && u.brokerOrderId === replaced.brokerOrderId,
+      );
+      expect(fills.map((u) => [u.clientOrderId, u.fill?.quantity, u.fill?.price]).sort()).toEqual(
+        [
+          [comboLegClientOrderId(key, o.symbol), '2', '2.1'],
+          [comboLegClientOrderId(key, c.symbol), '2', '1.05'],
+        ].sort(),
+      );
+      expect(updates.some((u) => u.kind === 'canceled' && u.clientOrderId.startsWith(key))).toBe(
+        false,
+      );
+      const held = await a.positions(h.accountId);
+      expect(held.find((p) => p.instrumentId === o.instrumentId)?.quantity).toBe('2');
+      expect(held.find((p) => p.instrumentId === c.instrumentId)?.quantity).toBe('-2');
     });
   });
 }

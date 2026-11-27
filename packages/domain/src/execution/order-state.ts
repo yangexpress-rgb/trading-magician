@@ -94,7 +94,15 @@ export interface BrokerUpdate {
   /** Provider timestamp, ISO 8601. */
   at: string;
   /** `kind` `expiry`: an option that expired worthless, settled at 0 (ADR 0123). */
-  fill?: { quantity: string; price: string; fee: string; kind?: 'expiry' | undefined } | undefined;
+  fill?:
+    | {
+        quantity: string;
+        price: string;
+        fee: string;
+        /** Options only (ADR 0123): a fill the broker's expiry, assignment or exercise made. */
+        kind?: 'expiry' | 'assignment' | 'exercise' | undefined;
+      }
+    | undefined;
   reason?: string | undefined;
 }
 

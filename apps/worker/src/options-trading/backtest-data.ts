@@ -85,7 +85,13 @@ export async function loadContractLists(
     const specs = legs.flatMap((o) => (o.instrumentId === id && o.option ? [o.option] : []));
     const target = Math.max(...specs.map((o) => o.expiryRule.targetDte));
     const pct = Math.max(
-      ...specs.map((o) => (o.strikeRule.type === 'atm' ? 0 : Math.abs(o.strikeRule.pct))),
+      ...specs.map((o) =>
+        o.strikeRule.type === 'moneynessPct'
+          ? Math.abs(o.strikeRule.pct)
+          : o.strikeRule.type === 'delta'
+            ? 25
+            : 0,
+      ),
     );
     let lo: Decimal | undefined;
     let hi: Decimal | undefined;

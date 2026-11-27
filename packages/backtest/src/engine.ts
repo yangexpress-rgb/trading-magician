@@ -81,6 +81,13 @@ import {
   isOptionLeg,
   optionFillPrice,
   effectivePrice,
+  comboBuyingPower,
+  comboMaxLoss,
+  gcd,
+  heldOptionsExposure,
+  legSign,
+  optionCombos,
+  type HeldContract,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import {
@@ -223,6 +230,8 @@ interface Order {
 
 interface LegState {
   leg: PlannedOrder;
+  /** Phase O2: a combo leg whose risk was checked with its combo, as a whole. */
+  comboChecked?: boolean;
   cycle: Cycle;
   phase: PhaseName | 'flatten';
   side: OrderSide;
@@ -262,8 +271,17 @@ interface CyclePosition {
   entryCost: Decimal;
 }
 
+/** A combo's contracts, picked together by its first leg (Phase O2). */
+interface ComboPick {
+  /** Contract instrument id by Entry leg id, or the reason the combo was refused. */
+  contracts: Map<string, string>;
+  refused?: { code: string; message: string; detail: Record<string, string> } | undefined;
+}
+
 interface Cycle {
   no: number;
+  /** Options combos of this cycle's Entry, by underlying (Phase O2). */
+  combos?: Map<string, ComboPick>;
   /** What this cycle runs: the strategy, or a slot's definition (v1.2). */
   def: StrategyDefinition;
   /** The universe member or leg this cycle holds, for Selection groups and per-leg conditions. */
@@ -604,12 +622,20 @@ export function simulate({
   const positionValue = () => {
     let gross = ZERO;
     let net = ZERO;
+    const held: HeldContract[] = [];
     for (const [id, q] of portfolio) {
       const px = mark(id);
       if (!px || q.isZero()) continue;
-      gross = gross.plus(money(q.abs().times(px), id));
       net = net.plus(money(q.times(px), id));
+      // Phase O2: contracts count what they can still lose by expiry (a combo its max loss).
+      const option = instruments.get(id)?.option;
+      if (option) {
+        held.push({ ...option, quantity: q, mark: px, multiplier: multiplierOf(id) ?? '100' });
+        continue;
+      }
+      gross = gross.plus(money(q.abs().times(px), id));
     }
+    if (held.length > 0) gross = gross.plus(heldOptionsExposure(held));
     return { gross, net };
   };
   const equityNow = () => cash.plus(positionValue().net);
@@ -825,6 +851,109 @@ export function simulate({
     return false;
   };
 
+  /**
+   * Phase O2: a combo's contracts, picked once per cycle by its first leg, on
+   * the expiry that leg chose, and its risk checked as a whole: the order,
+   * exposure and account limits see its max loss at the contracts' closes,
+   * buying power the full width (§§7.3, 8.1). A refusal refuses every leg.
+   */
+  function pickCombo(
+    c: Cycle,
+    combo: ReturnType<typeof optionCombos>[number],
+    now: number,
+  ): ComboPick {
+    c.combos ??= new Map();
+    const known = c.combos.get(combo.underlyingId);
+    if (known) return known;
+    const out: ComboPick = { contracts: new Map() };
+    c.combos.set(combo.underlyingId, out);
+    const refuse = (code: string, message: string, detail: Record<string, string> = {}) => {
+      out.refused = { code, message, detail };
+      return out;
+    };
+    const price = mark(combo.underlyingId);
+    if (!optionsData || !price || price.lte(0))
+      return refuse('no_price', 'Some orders were skipped because there was no price yet');
+    let expiry: string | undefined;
+    const legs: {
+      right: 'call' | 'put';
+      strike: string;
+      units: number;
+      sign: number;
+      close: Decimal;
+    }[] = [];
+    for (const o of combo.legs) {
+      const pick = pickContract(
+        optionsData,
+        o,
+        { symbol: symbol(combo.underlyingId), price },
+        nyDate(iso(now)),
+        expiry,
+      );
+      if (!pick.ok) {
+        if (pick.code === 'option_bars_needed') {
+          optionsNeeded.add(pick.symbol);
+          for (const m of pick.more ?? []) optionsNeeded.add(m);
+        }
+        return refuse('option_contract', OPTION_MESSAGES.option_contract, { value: pick.message });
+      }
+      expiry ??= pick.contract.expiry;
+      const id = optionInstrumentId(pick.contract.symbol);
+      if (!contractRefs.has(id))
+        contractRefs.set(id, contractRef(combo.underlyingId, pick.contract));
+      out.contracts.set(o.id, id);
+      const close = mark(id);
+      if (!close)
+        return refuse('no_price', 'Some orders were skipped because there was no price yet');
+      legs.push({
+        right: pick.contract.right,
+        strike: pick.contract.strike,
+        units: Number(o.quantity.type === 'units' ? o.quantity.value : 0),
+        sign: legSign(o),
+        close,
+      });
+    }
+    const sets = gcd(legs.map((l) => l.units));
+    if (sets < 1) return refuse('option_contract', OPTION_MESSAGES.option_contract);
+    const comboLegs = legs.map((l) => ({
+      right: l.right,
+      strike: l.strike,
+      quantity: (l.sign * l.units) / sets,
+    }));
+    const net = legs
+      .reduce((s, l) => s.plus(l.close.times((l.sign * l.units) / sets)), ZERO)
+      .toDecimalPlaces(2);
+    const perSetLoss = comboMaxLoss(comboLegs, net);
+    const perSetReserve = comboBuyingPower(comboLegs, net);
+    if (!perSetLoss || !perSetReserve)
+      return refuse('option_contract', OPTION_MESSAGES.option_contract);
+    const atRisk = perSetLoss.times(sets);
+    const checked = checkPreTradeRisk({
+      risk,
+      closing: false,
+      quantity: new Decimal(sets),
+      referencePrice: net.abs().gt(0) ? net.abs() : new Decimal('0.01'),
+      limitPrice: net.abs(),
+      multiplier: 100,
+      combo: { atRisk, buyingPower: perSetReserve.times(sets) },
+      activeOrders: working().length,
+      grossExposure: positionValue().gross,
+      equity: equityNow(),
+      dailyLossHit: dailyHalt,
+      drawdownHit: drawdownHalt,
+      openPositions: [...portfolio.values()].filter((q) => !q.isZero()).length,
+      instrumentHeld: false,
+    });
+    if (!checked.ok && checked.code) {
+      const failed = checked.checks.find((x) => !x.passed);
+      const detail: Record<string, string> = {};
+      if (failed?.limit !== undefined) detail.limit = failed.limit;
+      if (failed?.value !== undefined) detail.value = failed.value;
+      return refuse(checked.code, RISK_MESSAGES[checked.code], detail);
+    }
+    return out;
+  }
+
   /** Sizes, risk-checks and places one leg (§6.6, §8.6). */
   function submitLeg(c: Cycle, leg: LegState, now: number): boolean {
     leg.decidedAt = now;
@@ -834,7 +963,27 @@ export function simulate({
       if (!optionsData) return reject(leg, now, 'option_contract', OPTION_MESSAGES.option_contract);
       const spec = leg.leg;
       let contractId: string | undefined;
-      if (leg.phase === 'entry') {
+      const combo =
+        leg.phase === 'entry'
+          ? optionCombos(c.def.entry.orders).find((x) => x.legs.some((l) => l.id === spec.id))
+          : undefined;
+      if (combo) {
+        // Phase O2: the first of a combo's legs picks every leg's contract on one
+        // expiry and checks the combo's risk as a whole; the others use its picks.
+        const picked = pickCombo(c, combo, now);
+        if (picked.refused)
+          return reject(
+            leg,
+            now,
+            picked.refused.code,
+            picked.refused.message,
+            picked.refused.detail,
+          );
+        contractId = picked.contracts.get(spec.id);
+        if (!contractId)
+          return reject(leg, now, 'option_contract', OPTION_MESSAGES.option_contract);
+        leg.comboChecked = true;
+      } else if (leg.phase === 'entry') {
         const price = mark(spec.instrumentId);
         if (!price || price.lte(0))
           return reject(
@@ -859,7 +1008,11 @@ export function simulate({
         if (!contractRefs.has(contractId))
           contractRefs.set(contractId, contractRef(spec.instrumentId, pick.contract));
       } else {
-        contractId = heldOption(c.positions, instruments, spec);
+        // Contracts other Exit legs of this round already close are passed over (Phase O2).
+        const taken = new Set(
+          c.exitLegs.filter((l) => l !== leg && l.order).map((l) => l.leg.instrumentId),
+        );
+        contractId = heldOption(c.positions, instruments, spec, taken);
         if (!contractId) {
           endLeg(leg, 'skipped', now);
           return false;
@@ -979,7 +1132,9 @@ export function simulate({
     const { quantity: qty, direction, closing } = sized;
     leg.quantity = qty;
 
-    // Pre-trade risk checks (§8.6), shared with paper execution.
+    // Pre-trade risk checks (§8.6), shared with paper execution. A combo leg's
+    // were made for the combo as a whole when its contracts were picked (Phase O2).
+    if (leg.comboChecked) return placeOrder(c, leg, qty, direction, closing, now, { limit, stop });
     const checked = checkPreTradeRisk({
       risk,
       closing,
@@ -1484,7 +1639,14 @@ export function simulate({
 
   /** The contracts a cycle holds, with the premium paid and their close now (§8.4). */
   function optionHoldings(c: Cycle) {
-    const out: { expiry: string; premiumPaid: Decimal; close: Decimal | undefined }[] = [];
+    const out: {
+      expiry: string;
+      premiumPaid: Decimal;
+      close: Decimal | undefined;
+      right?: 'call' | 'put';
+      strike?: string;
+      quantity?: Decimal;
+    }[] = [];
     for (const [id, p] of c.positions) {
       const o = instruments.get(id)?.option;
       if (!o || p.quantity.isZero() || p.entryQuantity.isZero()) continue;
@@ -1492,9 +1654,16 @@ export function simulate({
         expiry: o.expiry,
         premiumPaid: p.entryCost.div(p.entryQuantity),
         close: mark(id),
+        right: o.right,
+        strike: o.strike,
+        quantity: p.quantity,
       });
     }
-    return out;
+    // A single long contract keeps Phase O1's premium target; a combo is read whole (§8.4).
+    const combo = out.length > 1 || out.some((h) => h.quantity?.lt(0));
+    return combo
+      ? out
+      : out.map(({ expiry, premiumPaid, close }) => ({ expiry, premiumPaid, close }));
   }
 
   /**

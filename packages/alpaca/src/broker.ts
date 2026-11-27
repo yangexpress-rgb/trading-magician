@@ -1,9 +1,12 @@
 import {
   BrokerRejectedError,
+  comboLegClientOrderId,
+  gcd,
   NO_OPTIONS_REASON,
   OPTIONS_DEFAULTS,
   type ContractListEntry,
   type ContractListQuery,
+  type OptionActivity,
   type OptionQuote,
   type BrokerAccountBalance,
   type BrokerAdapter,
@@ -11,6 +14,7 @@ import {
   type BrokerOrderRequest,
   type BrokerOrderUpdate,
   type BrokerPosition,
+  type MultiLegOrderRequest,
 } from '@tm/domain';
 import Decimal from 'decimal.js';
 import { AlpacaRequestError, type AlpacaClient } from './client';
@@ -119,6 +123,17 @@ function decodeCursor(cursor: string | undefined): Cursor {
 
 /** The normalized events an order's current state implies; fills come separately. */
 export function orderEvents(o: AlpacaOrder): BrokerOrderUpdate[] {
+  // An options combo (ADR 0123 Phase O2): each leg reports under its own intent.
+  if (o.order_class === 'mleg' && o.legs?.length) {
+    const combo = appClientOrderId(o.client_order_id);
+    return o.legs.flatMap((leg) =>
+      orderEvents({ ...o, legs: null, order_class: 'simple', symbol: leg.symbol }).map((u) => ({
+        ...u,
+        clientOrderId: comboLegClientOrderId(combo, leg.symbol),
+        eventId: `${u.eventId}:${leg.symbol}`,
+      })),
+    );
+  }
   const base = { brokerOrderId: o.id, clientOrderId: appClientOrderId(o.client_order_id) };
   if (o.status === 'pending_new') return [];
   if (o.status === 'rejected') {
@@ -166,7 +181,36 @@ export function orderEvents(o: AlpacaOrder): BrokerOrderUpdate[] {
   return events;
 }
 
-function fillEvent(a: AlpacaFillActivity, clientOrderId: string): BrokerOrderUpdate {
+/** The combo a leg order belongs to (Phase O2): its parent's id and the app's leg client id. */
+type ComboOwners = Map<string, { parentId: string; clientOrderId: string }>;
+
+function comboOwners(orders: readonly AlpacaOrder[]): ComboOwners {
+  const out: ComboOwners = new Map();
+  for (const o of orders) {
+    if (o.order_class !== 'mleg' || !o.legs) continue;
+    const combo = appClientOrderId(o.client_order_id);
+    for (const l of o.legs)
+      out.set(l.id, { parentId: o.id, clientOrderId: comboLegClientOrderId(combo, l.symbol) });
+  }
+  return out;
+}
+
+function fillEvent(
+  a: AlpacaFillActivity,
+  clientOrderId: string,
+  owners?: ComboOwners,
+): BrokerOrderUpdate {
+  const owner = owners?.get(a.order_id);
+  if (owner)
+    return {
+      brokerOrderId: owner.parentId,
+      clientOrderId: owner.clientOrderId,
+      eventId: a.id,
+      kind: 'fill',
+      rawStatus: a.type,
+      at: a.transaction_time,
+      fill: { quantity: a.qty, price: a.price, fee: '0' },
+    };
   return {
     brokerOrderId: a.order_id,
     clientOrderId: appClientOrderId(clientOrderId),
@@ -415,9 +459,16 @@ export class AlpacaBroker implements BrokerAdapter {
     });
     const byId = new Map(orders.map((o) => [o.id, o]));
     const updates: BrokerOrderUpdate[] = [];
+    // Combo legs (Phase O2) report under their own intents; no stock order has legs.
+    const owners = comboOwners(orders);
     let s = c.s;
     for (const o of orders) {
       const key = timestampKey(o.updated_at);
+      // A combo leg listed on its own is reported through its combo.
+      if (owners.has(o.id)) {
+        if (s === undefined || key > s) s = key;
+        continue;
+      }
       if (c.s !== undefined && key <= c.s) continue;
       updates.push(...orderEvents(o));
       if (s === undefined || key > s) s = key;
@@ -436,9 +487,10 @@ export class AlpacaBroker implements BrokerAdapter {
     );
     let f = c.f;
     for (const a of fills) {
-      const clientOrderId =
-        byId.get(a.order_id)?.client_order_id ?? (await this.order(a.order_id)).client_order_id;
-      updates.push(fillEvent(a, clientOrderId));
+      const clientOrderId = owners.has(a.order_id)
+        ? ''
+        : (byId.get(a.order_id)?.client_order_id ?? (await this.order(a.order_id)).client_order_id);
+      updates.push(fillEvent(a, clientOrderId, owners));
       f = a.id;
     }
     if (f === c.f && s === c.s) return { updates, cursor };
@@ -455,6 +507,11 @@ export class AlpacaBroker implements BrokerAdapter {
       }
       throw e;
     }
+    if (o.order_class === 'mleg' && o.legs?.length) {
+      const owners = comboOwners([o]);
+      const legFills = await Promise.all(o.legs.map((l) => this.fillsOf(l as AlpacaOrder, owners)));
+      return [...orderEvents(o), ...legFills.flat()];
+    }
     const updates = [...orderEvents(o), ...(await this.fillsOf(o))];
     // A split order's part two belongs to the same intent (N307).
     const split = partOne(o.client_order_id);
@@ -465,7 +522,7 @@ export class AlpacaBroker implements BrokerAdapter {
     return updates;
   }
 
-  private async fillsOf(o: AlpacaOrder): Promise<BrokerOrderUpdate[]> {
+  private async fillsOf(o: AlpacaOrder, owners?: ComboOwners): Promise<BrokerOrderUpdate[]> {
     const updates: BrokerOrderUpdate[] = [];
     const filled = new Decimal(o.filled_qty || 0);
     if (filled.gt(0)) {
@@ -480,7 +537,7 @@ export class AlpacaBroker implements BrokerAdapter {
         );
         for (const a of activities) {
           if (a.order_id !== o.id) continue;
-          updates.push(fillEvent(a, o.client_order_id));
+          updates.push(fillEvent(a, o.client_order_id, owners));
           seen = seen.plus(a.qty);
         }
         if (activities.length < FILLS_PAGE) break;
@@ -540,6 +597,52 @@ export class AlpacaBroker implements BrokerAdapter {
     }
   }
 
+  /**
+   * §§5.5, 7.2: an options combo as one Alpaca multi-leg order (`order_class:
+   * mleg`), ratios in lowest terms, one net limit (positive a debit, negative
+   * a credit). Alpaca refusing it places no leg.
+   */
+  async submitMultiLeg(request: MultiLegOrderRequest): Promise<{ brokerOrderId: string }> {
+    this.optionsOnly();
+    if (!this.capabilities.optionCombos)
+      throw new BrokerRejectedError(
+        'combos_unsupported',
+        'This account doesn’t trade options combos',
+      );
+    const ratios = request.legs.map((l) => l.ratio);
+    if (ratios.some((r) => !Number.isInteger(r) || r <= 0) || gcd(ratios) !== 1)
+      throw new BrokerRejectedError('ratio', 'Combo ratios must be whole numbers in lowest terms');
+    if (request.legs.length < 2 || request.legs.length > 4)
+      throw new BrokerRejectedError('legs', 'A combo has 2 to 4 legs');
+    const q = new Decimal(request.quantity);
+    if (!q.isInteger() || q.lte(0)) throw new BrokerRejectedError('quantity', 'Sets must be whole');
+    const body = {
+      order_class: 'mleg',
+      qty: request.quantity,
+      type: 'limit',
+      limit_price: request.limitPrice,
+      time_in_force: request.timeInForce,
+      client_order_id: request.clientOrderId,
+      legs: request.legs.map((l) => ({
+        symbol: l.symbol,
+        ratio_qty: String(l.ratio),
+        side: l.direction,
+        position_intent: l.positionIntent,
+      })),
+    };
+    try {
+      const order = await this.client.trading<AlpacaOrder>('POST', '/v2/orders', { body });
+      return { brokerOrderId: order.id };
+    } catch (e) {
+      if (!(e instanceof AlpacaRequestError)) throw e;
+      if (isDuplicate(e)) {
+        const existing = await this.byClientOrderId(request.clientOrderId);
+        if (existing) return { brokerOrderId: existing.id };
+      }
+      throw new BrokerRejectedError(e.status === 403 ? 'refused' : 'invalid', e.message);
+    }
+  }
+
   /** §8.2: latest contract quotes on the indicative feed, pinned explicitly. */
   async optionQuotes(_accountId: string, symbols: readonly string[]) {
     const client = this.optionsOnly();
@@ -552,6 +655,60 @@ export class AlpacaBroker implements BrokerAdapter {
       );
       for (const [symbol, q] of Object.entries(r.quotes ?? {}))
         out.set(symbol, { bid: String(q.bp), ask: String(q.ap), at: q.t });
+    }
+    return out;
+  }
+
+  /** Phase O2 (§7.5): announced cash dividends, from Alpaca's corporate actions. */
+  async cashDividends(_accountId: string, symbol: string, from: string, to: string) {
+    const client = this.optionsOnly();
+    const r = await client.data<{
+      corporate_actions?: {
+        cash_dividends?: { symbol?: string; rate?: number | string; ex_date?: string }[] | null;
+      } | null;
+    }>('/v1/corporate-actions', { symbols: symbol, types: 'cash_dividend', start: from, end: to });
+    const out: { exDate: string; cashAmount: string }[] = [];
+    for (const d of r.corporate_actions?.cash_dividends ?? []) {
+      if (!d.ex_date || d.rate === undefined || (d.symbol && d.symbol !== symbol)) continue;
+      out.push({ exDate: d.ex_date, cashAmount: String(d.rate) });
+    }
+    return out;
+  }
+
+  /** Phase O2: assignments, exercises and expiries Alpaca has posted (OPASN, OPEXC, OPEXP). */
+  async optionActivities(_accountId: string, after: string): Promise<OptionActivity[]> {
+    const rows = await this.client.trading<
+      { activity_type?: string; symbol?: string; qty?: string; date?: string }[]
+    >('GET', '/v2/account/activities', {
+      query: { activity_types: 'OPASN,OPEXC,OPEXP', after, direction: 'asc', page_size: 100 },
+    });
+    const kinds: Record<string, OptionActivity['kind']> = {
+      OPASN: 'assignment',
+      OPEXC: 'exercise',
+      OPEXP: 'expiry',
+    };
+    const out: OptionActivity[] = [];
+    for (const r of Array.isArray(rows) ? rows : []) {
+      const kind = kinds[r.activity_type ?? ''];
+      if (!kind || !r.symbol) continue;
+      out.push({ kind, symbol: r.symbol, quantity: String(r.qty ?? '0'), date: r.date ?? after });
+    }
+    return out;
+  }
+
+  /** Phase O2: the broker's delta of each contract, from its options snapshot. */
+  async optionDeltas(_accountId: string, symbols: readonly string[]) {
+    const client = this.optionsOnly();
+    const out = new Map<string, number>();
+    for (let i = 0; i < symbols.length; i += 100) {
+      const batch = symbols.slice(i, i + 100);
+      const r = await client.data<{
+        snapshots?: Record<string, { greeks?: { delta?: number | null } | null } | null> | null;
+      }>('/v1beta1/options/snapshots', { symbols: batch.join(','), feed: 'indicative' });
+      for (const [symbol, snap] of Object.entries(r.snapshots ?? {})) {
+        const d = snap?.greeks?.delta;
+        if (typeof d === 'number' && Number.isFinite(d)) out.set(symbol, d);
+      }
     }
     return out;
   }

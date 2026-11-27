@@ -223,6 +223,94 @@ the switch is on; with it off the code paths are not reached.
   listed since, and the order shows the overnight decision.
 - **Against the real options account:** pending the options account (O232).
 
+## Decision: Phase O2 (defined-risk combos)
+
+O2 trades combos: two to four options legs of one Entry on one underlying and one expiry, placed as
+one multi-leg order on paper accounts at level 3, with the switch on. With it off nothing below is
+reached.
+
+- **One order, all or none** (N367). The broker contract gains `MultiLegOrderRequest` (legs with
+  ratios in lowest terms, one signed net limit, sets) and `submitMultiLeg`, behind a new
+  `optionCombos` capability (O233). Alpaca sends `order_class: mleg`; each leg's updates come back
+  under `<combo key>.<OCC symbol>`, so every leg intent keeps its own row, and the intents share
+  the broker order id and a new `order_group_id` (migration 0120). Reconciliation reads such an
+  order's updates per leg. A refused combo places nothing; the shared contract suite checks it.
+- **Bounded at save time, dollars at pricing time** (N368). Validation requires, per underlying,
+  one expiry rule, at most 4 legs and whole contracts (O234), and refuses a combo selling more
+  calls than it buys (`options_naked_call`) or more puts (`options_cash_secured_put`). Any combo
+  or sold leg needs level 3 to start. At pricing, max loss = (net debit − worst expiry payoff) ×
+  100 × sets and the buying-power reserve = (full width + any debit) × 100 × sets; the order and
+  exposure limits see the max loss, buying power the reserve, and the price collar is skipped.
+  Fixtures: the 105/110 vertical's worst case $500, $380 at a 1.20 credit; the condor $350 at
+  1.50; two condors $700, one reserves $500 (A3, A7).
+- **Combos on paper** (N369). The first combo leg the planner reaches resolves every leg (the
+  later ones on the first's expiry), gates each quote, prices the net at the leg mids and places
+  the combo; the others find it placed. Unfilled after 120 s, each leg moves a third of the way to
+  its touch and the order is replaced once; 120 s later every leg is canceled. An Exit closes all
+  the cycle holds on that underlying as one order, each contract on the Exit leg that undoes it.
+  If the broker refuses that close, or it ends unfilled, the contracts close one by one, short
+  legs bought back first: a long contract is never sold while the cycle is short an option on the
+  same underlying (this also orders every other safety close). Held options count what they can
+  still lose by expiry, so a combo counts its max loss (a long contract alone its premium, as in
+  O1); a working combo counts its max loss once. The profit target reads the combo whole, as % of
+  max profit (O235).
+- **Delta strike rule** (N370). `strikeRule: { type: 'delta', delta }` picks, on the chosen
+  expiry, the contract whose |delta| is nearest (tie: the larger). Greeks are the broker's from
+  the options snapshot, else the app's own Black-Scholes delta from each candidate's quote mid
+  (O236); the order records which.
+- **Assignment** (N371). Before reconciliation, a short contract the broker holds fewer of, with
+  exactly 100 shares a contract of the underlying delivered (bought for a put, sold for a call),
+  is recorded as `assignment` fills: the contract bought back at 0 and the shares at the strike,
+  in the cycle. The cycle then closes the rest of the combo and the shares in the regular session
+  ("Assigned: ..."). The next morning Alpaca's OPASN/OPEXC/OPEXP activities confirm it or the run
+  is flagged (O237–O239). Anything that doesn't add up is left to reconciliation.
+- **Dividend watch and the day-early close** (N372). Alpaca's cash-dividend announcements are read
+  at most once a day per underlying a short call is held on, into `option_dividend` (migration
+  0120, worker only). On the trading day before an ex-date, a short call in the money whose time
+  value is below the dividend closes its combo ("Closed before a dividend", exit reason
+  `dividend_risk`). A short leg within 2% of the money closes from 15:00 the day before its
+  expiry (O245).
+- **Back tests and the builder** (N373). A back-tested combo is picked once (one expiry; the delta
+  rule from each candidate's close), risk-checked once as a whole on max loss and width, and each
+  leg fills at its contract's next open (O240); each Exit leg closes its own contract and the
+  profit target reads the combo whole. The builder names an options leg's sides Buy/Sell to open
+  and Buy/Sell to close and offers "Strike by: Delta".
+- **Two O1 gaps fixed.** Mirrored Exit legs now keep their Entry leg's option, and an options
+  order re-sent after the broker was unreachable goes as an options order again.
+
+### O2 deviations
+
+O233–O246 in `docs/design/v1.2-deviations.md`, each with its reason: the separate `optionCombos`
+capability; whole contracts for combo legs; the combo profit target's base; the app's own delta
+fallback; assigned combos closed with their shares in the session; the morning check confirms or
+flags; long exercise left to reconciliation; back-tested combos fill leg by leg, with assignment,
+dividends and the day-early close paper-only; the put cash rule as the width reserve; adjusted
+held contracts not yet detected; delta-adjusted exposure not yet displayed; the account limit
+counting legs' premiums; "near the money" as 2%; and Alpaca's multi-leg behaviour unverified
+until the options account exists.
+
+## Acceptance (O2)
+
+- **A1:** pass. Unit suites 1,465 passed (1,431 after O1 plus 34 new); integration suites 677
+  passed and 14 skipped (670 and 14 after O1, plus 7 new). The three reference back tests pass
+  unchanged. Equity paths: the exposure, pending-gross, risk and planner changes apply only to
+  option contracts, combo intents or the new inputs, which equity runs never have.
+- **A3:** pass (domain `options/combo.test.ts`): naked short call and lone short put refused each
+  with its reason; vertical worst case $500; $380 at 1.20; condor $350 at 1.50.
+- **A4:** pass on the fake (worker `test/options-combos.test.ts`): one POST for a two-leg combo; a
+  refused combo leaves both legs failed, nothing held, the cycle aborted; a refused combo close
+  buys back the short leg first, then sells the long, with the path on each order. On staging
+  paper: pending the options account.
+- **A7:** pass: two condors held count $700 (worker `equity-limits.test.ts`, domain
+  `combo.test.ts`), two sets' order carries max loss 2 × (width − credit) × 100 and a reserve of
+  2 × width × 100; one condor reserves $500. Back test: a 2-set vertical counts $800 (799 refused).
+- **A11:** pass on the fake: an assignment's shares are explained before reconciliation, no
+  mismatch is opened, the combo and shares close at the open, and the next morning confirms it.
+- **A12:** partial: the flow passes on the fake; on staging paper it is pending the options
+  account.
+- **A5, A10:** unchanged from O0/O1 (A10 adds the level-3 gate for combos, covered by the
+  options-trading start checks).
+
 ## Consequences
 
 - Stock and ETF strategies run the same code paths with the same numbers.

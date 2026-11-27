@@ -117,8 +117,57 @@ export interface RuntimeState {
           | undefined;
         /** The underlying's last price seen on each held contract's expiry day, after 15:00. */
         expiryMarks?: Record<string, string> | undefined;
+        /**
+         * Phase O2: each options combo placed, by its own client order id: its
+         * legs, net limit and sets, and when it was sent and re-priced.
+         */
+        combos?: Record<string, OptionComboRecord> | undefined;
+        /**
+         * Phase O2: cycles whose combo close was refused or timed out, by
+         * `cycleId|underlyingId`, now closing leg by leg with short legs first,
+         * with the reason in words.
+         */
+        legByLeg?: Record<string, string> | undefined;
+        /** Phase O2 (§7.5): the New York date each underlying's dividends were last read. */
+        dividendsReadOn?: Record<string, string> | undefined;
+        /** Phase O2: safety closes waiting for a short leg to be bought back first, by cycle. */
+        pendingCloses?: Record<string, string> | undefined;
+        /**
+         * Phase O2 (§8.3): an assignment the app inferred, by cycle: the contract,
+         * how many, when, in words, and the next morning's check against the
+         * broker's activity record.
+         */
+        assigned?:
+          | Record<
+              string,
+              {
+                symbol: string;
+                quantity: string;
+                at: string;
+                detail: string;
+                confirmedAt?: string | undefined;
+                unconfirmed?: string | undefined;
+              }
+            >
+          | undefined;
       }
     | undefined;
+}
+
+/** One options combo order a run placed (ADR 0123 Phase O2). */
+export interface OptionComboRecord {
+  cycleId: string;
+  underlyingId: string;
+  phase: 'entry' | 'exit';
+  legs: { intentId: string; instrumentId: string; symbol: string; sign: 1 | -1; ratio: number }[];
+  sets: string;
+  /** Net per share of one set: positive a debit, negative a credit. */
+  netLimit: string;
+  timeInForce: 'day' | 'gtc';
+  sentAt?: number | undefined;
+  /** When the broker refused it outright: nothing was placed. */
+  refusedAt?: number | undefined;
+  repricedAt?: number | undefined;
 }
 
 export interface WorkingOrder {

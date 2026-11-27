@@ -1,8 +1,11 @@
 import {
+  appDelta,
+  chooseExpiry,
   OPTIONS_BACKTEST_LABEL,
   optionExitReason,
   nyDate,
   resolveContract,
+  usableContracts,
   type Bar,
   type ContractListEntry,
   type ExitRule,
@@ -57,7 +60,14 @@ export type OptionPick =
   | { ok: true; contract: ContractListEntry }
   | { ok: false; code: 'option_contract'; message: string }
   /** The picked contract's bars aren't loaded yet: the loader fetches them and runs again. */
-  | { ok: false; code: 'option_bars_needed'; symbol: string; message: string };
+  | {
+      ok: false;
+      code: 'option_bars_needed';
+      symbol: string;
+      /** The delta rule's other candidates whose bars are needed too (Phase O2). */
+      more?: string[] | undefined;
+      message: string;
+    };
 
 /**
  * The contract an Entry leg buys on `decisionDate` (§6.1), as it was known
@@ -69,10 +79,45 @@ export function pickContract(
   order: PlannedOrder,
   underlying: { symbol: string; price: Decimal },
   decisionDate: string,
+  /** A combo's shared expiry, chosen by its first leg (Phase O2). */
+  expiry?: string,
 ): OptionPick {
   const spec = order.option;
   if (!spec) return { ok: false, code: 'option_contract', message: 'Not an options leg' };
   const all = data.contracts.get(order.instrumentId) ?? [];
+  // Phase O2, the delta rule: each candidate's delta from its own close on or
+  // before the decision date (the app's Black-Scholes delta; a back test has
+  // no broker Greeks). Candidates whose bars aren't loaded are asked for first.
+  let deltaOf: ((c: ContractListEntry) => number | undefined) | undefined;
+  if (spec.strikeRule.type === 'delta') {
+    const usable = usableContracts(all, spec.right, decisionDate);
+    const chosen = chooseExpiry(spec, usable, decisionDate, expiry);
+    const candidates = chosen ? usable.filter((c) => c.expiry === chosen.expiry) : [];
+    const missing = candidates.filter((c) => !data.bars.has(c.symbol)).map((c) => c.symbol);
+    const [first, ...more] = missing;
+    if (first)
+      return {
+        ok: false,
+        code: 'option_bars_needed',
+        symbol: first,
+        more,
+        message: `Bars for ${missing.length} contracts are not loaded`,
+      };
+    deltaOf = (c) => {
+      const bars = data.bars.get(c.symbol) ?? [];
+      let close: Decimal | undefined;
+      for (const b of bars) if (b.start.slice(0, 10) <= decisionDate) close = b.close;
+      if (!close) return undefined;
+      return appDelta({
+        right: c.right,
+        strike: c.strike,
+        expiry: c.expiry,
+        decisionDate,
+        price: close,
+        underlyingPrice: underlying.price,
+      });
+    };
+  }
   const excluded = new Set<string>();
   // Each round drops a pick that had not traded yet; a handful always settles it.
   for (let round = 0; round < 50; round++) {
@@ -83,6 +128,8 @@ export function pickContract(
       underlyingPrice: underlying.price,
       decisionDate,
       list,
+      expiry,
+      deltaOf,
     });
     if (!r.ok) return { ok: false, code: 'option_contract', message: r.message };
     const bars = data.bars.get(r.contract.symbol);
@@ -104,14 +151,22 @@ export function pickContract(
   };
 }
 
-/** The contract a cycle holds for an Exit leg: its Entry's underlying and right (§5.2). */
+/**
+ * The contract a cycle holds for an Exit leg: its Entry's underlying and
+ * right (§5.2), and for a combo (Phase O2) the side it undoes: a sell closes
+ * a long contract, a buy to cover a short one. Contracts another Exit leg of
+ * this round already closes are passed over.
+ */
 export function heldOption(
   positions: ReadonlyMap<string, { quantity: Decimal }>,
   instruments: ReadonlyMap<string, InstrumentRef>,
   order: PlannedOrder,
+  taken: ReadonlySet<string> = new Set(),
 ): string | undefined {
   for (const [id, p] of positions) {
-    if (p.quantity.isZero()) continue;
+    if (p.quantity.isZero() || taken.has(id)) continue;
+    if (order.side === 'sell' && p.quantity.lt(0)) continue;
+    if (order.side === 'buy_to_cover' && p.quantity.gt(0)) continue;
     const o = instruments.get(id)?.option;
     if (o && o.underlyingId === order.instrumentId && o.right === order.option?.right) return id;
   }
@@ -121,12 +176,27 @@ export function heldOption(
 /** §8.4 on a back test's bar: premium paid per share and the contract's close now. */
 export function optionExitOf(
   rules: readonly ExitRule[] | undefined,
-  held: { expiry: string; premiumPaid: Decimal; close: Decimal | undefined }[],
+  held: {
+    expiry: string;
+    premiumPaid: Decimal;
+    close: Decimal | undefined;
+    /** A combo's legs (Phase O2): its target reads the combo whole. */
+    right?: 'call' | 'put' | undefined;
+    strike?: string | undefined;
+    quantity?: Decimal | undefined;
+  }[],
   today: string,
 ): OptionExitReason | undefined {
   return optionExitReason(
     rules,
-    held.map((h) => ({ premiumPaid: h.premiumPaid, premiumNow: h.close, expiry: h.expiry })),
+    held.map((h) => ({
+      premiumPaid: h.premiumPaid,
+      premiumNow: h.close,
+      expiry: h.expiry,
+      ...(h.quantity !== undefined
+        ? { right: h.right, strike: h.strike, quantity: h.quantity }
+        : {}),
+    })),
     today,
   );
 }
