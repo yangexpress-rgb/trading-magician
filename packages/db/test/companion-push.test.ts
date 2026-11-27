@@ -499,6 +499,28 @@ describe('Local Companion inbox (ADR 0117)', () => {
     expect((await apply()).map((a) => a.result)).toEqual([
       { pattern: due, occurrences: 0, skipped: 'scored since' },
     ]);
+    // A score with too few fresh occurrences to judge (no state) still counts, so the pattern
+    // stops being due (N352).
+    await asUser(admin, (tx) =>
+      queueCompanionPush(tx, who, {
+        kind: 'pattern_decay',
+        clientKey: `decay:${recent}`,
+        payload: {
+          patternId: recent,
+          occurrences: [],
+          state: { decayState: null, decayStats: { fresh: { n: 0 } }, lastScored: '2026-11-26' },
+        },
+      }),
+    );
+    expect((await apply()).map((a) => a.result)).toEqual([
+      { pattern: recent, occurrences: 0, state: null, lastScored: '2026-11-26' },
+    ]);
+    const [unjudged] = await r.execute<{ decay_state: string | null; last_scored: string }>(
+      sql`select decay_state, last_scored::text from pattern where id = ${recent}`,
+    );
+    expect(unjudged).toEqual({ decay_state: null, last_scored: '2026-11-26' });
+    const later = await patternsDueForDecay(t.research!.worker.db, '2026-12-02');
+    expect(later.patterns.map((p) => p.id)).not.toContain(recent);
   });
 
   it('A4: with the companion away 48 hours, research says paused and trading still reads what was delivered', async () => {
