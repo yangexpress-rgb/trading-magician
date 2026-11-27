@@ -165,7 +165,7 @@ describe('validation (§2)', () => {
 
   it('needs an unconditional last row going to a state, and no unconditional row above it', () => {
     const stayLast = clone(workedExample());
-    stayLast.machine.rows[13]!.outcome = { kind: 'stay' };
+    stayLast.machine.rows[15]!.outcome = { kind: 'stay' };
     expect(codes(stayLast).errors).toContain('no_fallback');
     const early = clone(workedExample());
     delete early.machine.rows[3]!.condition;
@@ -177,10 +177,10 @@ describe('validation (§2)', () => {
     row(def, 'r2').outcome = { kind: 'go', stateId: 'NOPE' };
     expect(codes(def).errors).toContain('unknown_state');
     const unknownRef = clone(workedExample());
-    row(unknownRef, 'r7').condition!.children[0] = { kind: 'row_ref', id: 'q', rowId: 'r99' };
+    row(unknownRef, 'r9').condition!.children[0] = { kind: 'row_ref', id: 'q', rowId: 'r99' };
     expect(codes(unknownRef).errors).toContain('unknown_row');
     const loop = clone(workedExample());
-    row(loop, 'r11').condition!.children.push({ kind: 'row_ref', id: 'q', rowId: 'r7' });
+    row(loop, 'r13').condition!.children.push({ kind: 'row_ref', id: 'q', rowId: 'r9' });
     expect(codes(loop).errors).toContain('row_ref_loop');
   });
 
@@ -201,7 +201,7 @@ describe('validation (§2)', () => {
   });
 
   it('reads daily bars of the signal instruments only, and no position values', () => {
-    const base = workedExample().machine.rows[4]!.condition!.children[2] as unknown as {
+    const base = workedExample().machine.rows[6]!.condition!.children[2] as unknown as {
       left: Record<string, unknown>;
     };
     const variants: [Record<string, unknown>, string][] = [
@@ -465,15 +465,34 @@ describe('the worked example on a walk (§4, §2.7)', () => {
     for (const step of replay.steps.slice(0, 199)) expect(step.decision.kind).toBe('stay');
   });
 
-  it('HI_CASH goes back to HI only by the deviation escape, never by the chain (§4.1)', () => {
-    // Rows 1 and 2 apply only when current is HI; row 4 (deviation over 20%,
-    // within 5% of the high) is an ordinary row, so it may claim HI_CASH's day.
-    const back = replay.switches.filter((s) => s.fromStateId === S.HI_CASH && s.toStateId === S.HI);
-    for (const s of back)
-      expect(replay.steps.find((st) => st.on === s.on)?.decision).toMatchObject({ rowId: 'r4' });
+  it('HI_CASH leaves the chain for NORMAL or NORMAL_HV on the reclaim day, never HI (§4.1, v1.4)', () => {
+    expect(
+      replay.switches.filter((s) => s.fromStateId === S.HI_CASH && s.toStateId === S.HI),
+    ).toEqual([]);
+    const exits = replay.steps.filter(
+      (st) => st.current === S.HI_CASH && st.decision.kind === 'switch',
+    );
+    const reclaims = exits.filter(
+      (st) => 'rowId' in st.decision && ['r4', 'r5'].includes(st.decision.rowId!),
+    );
+    expect(reclaims.length).toBeGreaterThan(0);
+    for (const st of reclaims)
+      expect([S.NORMAL, S.NORMAL_HV]).toContain(
+        st.decision.kind === 'switch' ? st.decision.toStateId : undefined,
+      );
+    // Where the market is still overextended, the escape pulls the run back
+    // into HI from NORMAL on a later day, never on the reclaim day itself.
     const decidedBy = (rowId: string) =>
       replay.steps.filter((st) => 'rowId' in st.decision && st.decision.rowId === rowId);
     for (const st of [...decidedBy('r1'), ...decidedBy('r2')]) expect(st.current).toBe(S.HI);
+    expect(
+      replay.switches.some((s, k) => {
+        const prev = replay.switches[k - 1];
+        return (
+          s.toStateId === S.HI && prev?.fromStateId === S.HI_CASH && prev.toStateId === S.NORMAL
+        );
+      }),
+    ).toBe(true);
   });
 
   it('the anti-V lock: risk-off goes to ATTACK or NORMAL only after 3 days in the set with MA20 rising', () => {
@@ -495,7 +514,7 @@ describe('the worked example on a walk (§4, §2.7)', () => {
     // And the lock did hold on some days.
     expect(
       replay.steps.some(
-        (s) => s.decision.kind === 'stay' && 'rowId' in s.decision && s.decision.rowId === 'r6',
+        (s) => s.decision.kind === 'stay' && 'rowId' in s.decision && s.decision.rowId === 'r8',
       ),
     ).toBe(true);
   });

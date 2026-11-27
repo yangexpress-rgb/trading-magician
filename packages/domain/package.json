@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./options-fixtures": "./src/options/test-fixtures.ts",
+    "./machine-fixtures": "./src/strategy/machine-fixtures.ts",
     "./strategy-text": "./src/strategy/text.ts"
   },
   "scripts": {

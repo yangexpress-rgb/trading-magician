@@ -438,6 +438,69 @@ export interface BacktestResult {
   plan?: RunPlan;
   /** A group run's members and how many could be priced (O208). Absent on older and single-stock runs. */
   membership?: MembershipCoverage;
+  /** State-machine runs only (ADR 0124 P2b): the transitions and time in each state. */
+  machine?: MachineRunReport;
+}
+
+/**
+ * How one transition went (state-machine brief v1.4 §2.4, §2.6):
+ * - switched_no_orders: every leg was under 5% of equity, so the state changed with no orders;
+ * - rebalancing: orders are out for the next open;
+ * - done: every leg is under 0.5% of equity or too small for a whole lot;
+ * - incomplete: not done yet, and completed on the next closes;
+ * - stuck: not done within 5 trading days, and left as it was;
+ * - superseded: a newer transition took over before it was done.
+ */
+export type MachineTransitionOutcome =
+  'switched_no_orders' | 'rebalancing' | 'done' | 'incomplete' | 'stuck' | 'superseded';
+
+export interface MachineTransitionRecord {
+  /** 1-based, in order; the orders and fills of the transition carry it as their cycle. */
+  index: number;
+  /** `start`: the run's first day moves holdings to the replayed state (§2.9). */
+  kind: 'switch' | 'start';
+  /** The session date of the close that decided it. */
+  on: string;
+  fromStateId: string | null;
+  toStateId: string;
+  /** The row that decided it; null for the start. */
+  rowId: string | null;
+  /** The winning row's checks on that close (§2.6). */
+  why: ConditionCheck[];
+  outcome: MachineTransitionOutcome;
+  /** Closes on which orders were planned toward the target. */
+  attempts: number;
+  orders: number;
+  completedOn?: string;
+  /** Timeline index of the last attempt; internal bookkeeping, kept for the record. */
+  lastAttemptIndex?: number;
+}
+
+/** One stay in a state within the run, with the account's return over it (§2.6). */
+export interface StateStay {
+  stateId: string;
+  /** The close it was entered on (or the run's first close). */
+  from: string;
+  /** The close that switched out of it, or the run's last close when ongoing. */
+  to: string;
+  sessions: number;
+  /** Equity change from `from` to `to`, in %, null when either close has no value. */
+  returnPct: string | null;
+  ongoing: boolean;
+}
+
+export interface MachineRunReport {
+  engineVersion: string;
+  /** The first loaded bar the state path was replayed from (§2.9). */
+  replayedFrom: string | null;
+  /** The state held coming into the run's first day. */
+  startStateId: string;
+  finalStateId: string;
+  states: { id: string; name: string }[];
+  transitions: MachineTransitionRecord[];
+  stays: StateStay[];
+  /** Figures that mean nothing without trade cycles (§2.6), shown as not applicable. */
+  notApplicable: string[];
 }
 
 /**

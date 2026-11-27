@@ -16,6 +16,12 @@ import {
   type Trigger,
   type TriggerState,
   type Truth,
+  evaluateMachineCondition,
+  isStateDays,
+  type Comparison,
+  type MachineCondition,
+  type MachineExpr,
+  type RowEnv,
 } from '@tm/domain';
 import type Decimal from 'decimal.js';
 import type {
@@ -328,4 +334,41 @@ export class ConditionRecorder {
       barsTruncated,
     };
   }
+}
+
+/**
+ * A state rule's checks on one close, for a transition's Why lines (state-machine
+ * brief v1.4 §2.6): plain comparisons as `conditionChecks` records them, a
+ * state-day count as the number it read, and state and row references with
+ * their truth only.
+ */
+export function machineConditionChecks(node: MachineCondition, env: RowEnv): ConditionCheck[] {
+  const out: ConditionCheck[] = [];
+  const visit = (n: MachineCondition) => {
+    if (n.kind === 'group') n.children.forEach(visit);
+    if (
+      n.kind === 'comparison' &&
+      !isStateDays(n.left) &&
+      !isStateDays(n.right) &&
+      !isStateDays(n.upper)
+    ) {
+      out.push(...conditionChecks(n as Comparison, env.resolver).checks);
+      return;
+    }
+    const check: ConditionCheck = { id: n.id, truth: stored(evaluateMachineCondition(n, env)) };
+    if (n.kind === 'comparison') {
+      const side = (e: MachineExpr | undefined): string | null => {
+        if (!e) return null;
+        if (e.kind === 'days_in_state') return String(env.view.daysInState);
+        if (e.kind === 'days_in_states') return String(env.view.daysInStates(e.stateIds));
+        return num(evaluateExpr(e, env.resolver));
+      };
+      check.left = side(n.left);
+      if (n.right) check.right = side(n.right);
+      if (n.upper) check.upper = side(n.upper);
+    }
+    out.push(check);
+  };
+  visit(node);
+  return out;
 }
