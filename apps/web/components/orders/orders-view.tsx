@@ -55,6 +55,7 @@ import { AccountLabel, accountText, groupAccounts } from '@/components/accounts/
 import { AccountSwitcher } from '@/components/accounts/account-switcher';
 import { StrategyRef, strategyLabel } from './strategy-ref';
 import { filtersToSearch, useOrders, type LiveState, type OrderFilters } from './use-orders';
+import { Pager, pageFrom } from '@/components/list/pager';
 
 const LIVE_TEXT: Record<LiveState, string> = {
   connecting: 'Connecting to live updates…',
@@ -890,8 +891,15 @@ export function OrdersView({
           second: '2-digit',
         })
       : '—';
-  const set = (patch: Partial<OrderFilters>) => setFilters((f) => ({ ...f, ...patch }));
+  // Any other change starts again from the first page (N399).
+  const set = (patch: Partial<OrderFilters>) =>
+    setFilters((f) => ({ ...f, page: undefined, ...patch }));
   const counts = data.list?.counts;
+  // A page past the end (orders moved on, or an old link) goes back to the first.
+  const pastEnd = Boolean(filters.page && data.list && data.list.orders.length === 0);
+  useEffect(() => {
+    if (pastEnd) setFilters((f) => ({ ...f, page: undefined }));
+  }, [pastEnd]);
   const scoped = filters.runtimeId || filters.cycleId;
   const scopedRuntime = data.status?.runtimes.find((r) => r.id === filters.runtimeId);
   const runtimeName = scopedRuntime ? strategyLabel(scopedRuntime) : undefined;
@@ -951,7 +959,7 @@ export function OrdersView({
         />
       )}
 
-      <nav aria-label="Order views" className="mb-3 flex flex-wrap gap-2">
+      <nav id="orders-table-top" aria-label="Order views" className="mb-3 flex flex-wrap gap-2">
         {ORDER_VIEWS.map((v) => (
           <Button
             key={v}
@@ -1062,12 +1070,25 @@ export function OrdersView({
             (data.list.orders.length === 0 ? (
               <p className="text-sm text-ink-muted">No orders match these filters.</p>
             ) : (
-              <OrdersTable
-                orders={data.list.orders}
-                when={when}
-                onOpen={setOpenId}
-                onCycle={(o) => set({ runtimeId: o.runtimeId, cycleId: o.cycleId })}
-              />
+              <>
+                <OrdersTable
+                  orders={data.list.orders}
+                  when={when}
+                  onOpen={setOpenId}
+                  onCycle={(o) => set({ runtimeId: o.runtimeId, cycleId: o.cycleId })}
+                />
+                <Pager
+                  page={pageFrom(filters.page)}
+                  total={data.list.counts[filters.view]}
+                  noun="orders"
+                  onPage={(p) => {
+                    set({ page: p > 1 ? String(p) : undefined });
+                    document
+                      .getElementById('orders-table-top')
+                      ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                  }}
+                />
+              </>
             ))}
           {filters.view === 'scheduled' && data.list.scheduled.length === 0 && (
             <p className="text-sm text-ink-muted">No legs are waiting on timing.</p>
