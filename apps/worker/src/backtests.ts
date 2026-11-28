@@ -8,8 +8,10 @@ import {
   optionsBeforeFirstDate,
   ratesBeforeFirstDate,
   shortBeforeFirstDate,
+  planMachineSeries,
   planSeries,
   simulate,
+  simulateMachine,
   watchOnlyInstruments,
   type InstrumentRef,
   type LoadedData,
@@ -197,6 +199,19 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
     trace.finish(outcome);
   }
 
+  function machineAttempt(
+    machine: Parameters<typeof runMachine>[1],
+    work: Parameters<typeof runMachine>[2],
+    provider: Parameters<typeof runMachine>[3],
+  ): Promise<ProcessOutcome> {
+    return runMachine(
+      { trace, renew, inTenant, options, runId, userId, workerId, leaseSeconds, started },
+      machine,
+      work,
+      provider,
+    );
+  }
+
   async function attempt(): Promise<ProcessOutcome> {
     try {
       let done = trace.stage('load_run');
@@ -211,6 +226,7 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
       const provider = trace.provider(inner);
       if (work.cancelRequested)
         return (await inTenant((tx) => finishCanceled(tx, runId, workerId))) ?? 'lost';
+      if (work.machine) return await machineAttempt(work.machine, work, provider);
 
       // A Selection group's universe: a list as stored, or a built-in stock group resolved now.
       const trade = work.definition.trade;
@@ -461,6 +477,67 @@ export async function processNextRun(options: BacktestWorkerOptions): Promise<Pr
       return failed ? 'failed' : 'lost';
     }
   }
+}
+
+/**
+ * A state machine's run (ADR 0124 P3b): daily bars for the rows and targets,
+ * from the start of the data when a row reads all history (§3), then
+ * `simulateMachine`, stored like any other result.
+ */
+async function runMachine(
+  ctx: {
+    trace: BacktestTrace;
+    renew: (seconds?: number) => Promise<{ cancelRequested: boolean } | null>;
+    inTenant: <T>(fn: Parameters<typeof withTenant<T>>[2]) => Promise<T>;
+    options: BacktestWorkerOptions;
+    runId: string;
+    userId: string;
+    workerId: string;
+    leaseSeconds: number;
+    started: number;
+  },
+  machine: NonNullable<Awaited<ReturnType<typeof loadRunWork>>>['machine'] & object,
+  work: NonNullable<Awaited<ReturnType<typeof loadRunWork>>>,
+  provider: Parameters<typeof loadData>[0],
+): Promise<ProcessOutcome> {
+  const { trace, renew, inTenant, options, runId, userId, workerId, leaseSeconds } = ctx;
+  let done = trace.stage('plan_series');
+  const plans = planMachineSeries(machine, work.inputs);
+  done({ ...estimateWorkload(plans) });
+  const tooBig = workloadProblem(plans, options.maxBars);
+  if (tooBig) throw new UnsupportedBarRequestError(tooBig);
+  let lastRenew = Date.now();
+  done = trace.stage('load_bars');
+  const data = await loadData(provider, plans, work.instruments, async () => {
+    if (Date.now() - lastRenew < (leaseSeconds * 1000) / 3) return;
+    lastRenew = Date.now();
+    await renew();
+  });
+  done({ seriesLoaded: data.series.size, loads: trace.loadsByInterval() });
+  done = trace.stage('renew_before_simulate');
+  const lease = await renew(Math.max(leaseSeconds, options.simulateLeaseSeconds ?? 600));
+  done({});
+  if (!lease) return 'lost';
+  if (lease.cancelRequested)
+    return (await inTenant((tx) => finishCanceled(tx, runId, workerId))) ?? 'lost';
+  done = trace.stage('simulate');
+  const result = simulateMachine({
+    definition: machine,
+    instruments: work.instruments,
+    inputs: work.inputs,
+    data,
+  });
+  done({ steps: result.equity.length, transitions: result.machine?.transitions.length ?? 0 });
+  done = trace.stage('save_result');
+  const toResearch = options.research?.separate
+    ? researchTx(options.research, { userId })
+    : undefined;
+  const status = await inTenant((tx) =>
+    completeRun(tx, userId, runId, workerId, result, toResearch),
+  );
+  done({ status, resultBytes: jsonBytes(result) });
+  options.logger.info({ runId, status, ms: Date.now() - ctx.started }, 'back test finished');
+  return status ?? 'lost';
 }
 
 /** How many of the members the run loaded any price bars for (O208). */

@@ -11,7 +11,7 @@ import {
   type BacktestInterval,
   type BacktestLookback,
 } from '@tm/backtest';
-import type { StrategyDefinition } from '@tm/domain';
+import type { MachineDefinition, StrategyDefinition } from '@tm/domain';
 import {
   ApiError,
   type BacktestRunDto,
@@ -36,6 +36,7 @@ import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { LineChart } from '@/components/line-chart';
 import { BacktestCycles } from '@/components/strategy/backtest-cycles';
 import { PhaseReports, SelectionRounds } from '@/components/strategy/backtest-detail';
+import { StateTotals, StaysTable, TransitionsTable } from '@/components/strategy/machine-report';
 import { apiClient } from '@/lib/api-client';
 import {
   barsFromStrategy,
@@ -664,11 +665,26 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-export function BacktestResults({ state }: { state: BacktestsState }) {
+/** Cycle figures a state-machine run does not have (§2.6), by tile label. */
+const MACHINE_NOT_APPLICABLE = new Set(['Win rate', 'Profit factor', 'Cycles']);
+
+export function BacktestResults({
+  state,
+  machine = null,
+  symbol = () => undefined,
+}: {
+  state: BacktestsState;
+  /** A state machine's document, for the Why lines' words (ADR 0124 P3b). */
+  machine?: MachineDefinition | null;
+  symbol?: (instrumentId: string) => string | undefined;
+}) {
   const selected = state.selected;
   if (!selected) return null;
   const { run, trades } = selected;
   const interval = run.inputs.interval;
+  const report = run.result?.machine;
+  const stateName = (id: string | null) =>
+    id === null ? '' : (report?.states.find((s) => s.id === id)?.name ?? id);
   return (
     <Card aria-labelledby="bt-results-heading">
       <div className="flex flex-wrap items-center gap-2">
@@ -719,15 +735,21 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
             <div className="mt-3 grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
               <div className="min-w-0 space-y-6">
                 <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {metricTiles(run.metrics).map((t) => (
-                    <Stat
-                      key={t.label}
-                      className="rounded-md border border-line p-3"
-                      label={t.label}
-                      value={<TileValue tile={t} />}
-                      comparison={t.detail}
-                    />
-                  ))}
+                  {metricTiles(run.metrics)
+                    .map((t) =>
+                      report && MACHINE_NOT_APPLICABLE.has(t.label)
+                        ? { label: t.label, value: 'Not applicable', detail: 'State machine' }
+                        : t,
+                    )
+                    .map((t) => (
+                      <Stat
+                        key={t.label}
+                        className="rounded-md border border-line p-3"
+                        label={t.label}
+                        value={<TileValue tile={t} />}
+                        comparison={t.detail}
+                      />
+                    ))}
                 </dl>
 
                 {run.result.equity.length > 0 && <Charts run={run} />}
@@ -760,13 +782,47 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
 
       {run.status === 'completed' && run.metrics && run.result && (
         <div className="mt-6 space-y-6">
-          <Section title="Cycles">
-            {trades ? (
-              <BacktestCycles run={run} trades={trades} />
-            ) : (
-              <p className="text-sm text-ink-muted">Loading the cycles…</p>
-            )}
-          </Section>
+          {report ? (
+            <Section title="States">
+              <p className="text-sm text-ink-muted">
+                Replayed from {report.replayedFrom ?? 'the first bar'}; the run started in{' '}
+                {stateName(report.startStateId)} and ended in {stateName(report.finalStateId)}.
+              </p>
+              <StateTotals stays={report.stays} name={stateName} />
+              <h4 className="mt-4 text-sm font-semibold">Transitions</h4>
+              <TransitionsTable
+                transitions={report.transitions.map((x) => ({
+                  key: x.index,
+                  kind: x.kind,
+                  on: x.on,
+                  fromStateId: x.fromStateId,
+                  toStateId: x.toStateId,
+                  rowId: x.rowId,
+                  why: x.why,
+                  outcome: x.outcome,
+                  attempts: x.attempts,
+                  completedOn: x.completedOn,
+                }))}
+                name={stateName}
+                machine={machine}
+                symbol={symbol}
+              />
+              <details className="mt-4">
+                <summary className="cursor-pointer text-sm font-semibold">Every stay</summary>
+                <div className="mt-2">
+                  <StaysTable stays={report.stays} name={stateName} />
+                </div>
+              </details>
+            </Section>
+          ) : (
+            <Section title="Cycles">
+              {trades ? (
+                <BacktestCycles run={run} trades={trades} />
+              ) : (
+                <p className="text-sm text-ink-muted">Loading the cycles…</p>
+              )}
+            </Section>
+          )}
 
           <details className="rounded-md border border-line p-3">
             <summary className="cursor-pointer text-base font-semibold">
@@ -783,9 +839,11 @@ export function BacktestResults({ state }: { state: BacktestsState }) {
                 Every bar the conditions were checked on, across all cycles, and the tables behind
                 the cycles above.
               </p>
-              <Section title="What happened">
-                <PhaseReports run={run} />
-              </Section>
+              {!report && (
+                <Section title="What happened">
+                  <PhaseReports run={run} />
+                </Section>
+              )}
 
               {run.result.selections && (
                 <Section

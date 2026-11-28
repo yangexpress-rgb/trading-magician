@@ -7,6 +7,7 @@ import {
   type PerformanceTimeseriesDto,
   type PerformanceTradeDto,
   type PositionDto,
+  type MachineStaysDto,
 } from '@tm/contracts';
 import { formatDateTime, type DisplayPreferences } from '@tm/domain';
 import {
@@ -39,6 +40,7 @@ import {
   type PerformanceFilters,
 } from '@/lib/performance-text';
 import { AccountLabel, accountText } from '@/components/accounts/account-label';
+import { StateTotals, StaysTable } from '@/components/strategy/machine-report';
 
 /**
  * The Performance tab (Design v1.0 §10, §15.3; ADR 0021): filters, headline
@@ -261,6 +263,8 @@ export function PerformanceView({
     id: string;
     name: string;
     labNumber: string | null;
+    /** A state machine (ADR 0124 P3b): its view reports by state stay. */
+    machine?: boolean;
     versions: { id: string; versionNo: number }[];
   }[];
 }) {
@@ -302,7 +306,9 @@ export function PerformanceView({
           minute: '2-digit',
         })
       : '—';
-  const versions = strategies.find((s) => s.id === filters.strategyId)?.versions ?? [];
+  const chosen = strategies.find((s) => s.id === filters.strategyId);
+  const versions = chosen?.versions ?? [];
+  const machine = chosen?.machine === true;
   const summary = data?.summary;
   const positions = (data?.positions ?? []).filter(
     (p) =>
@@ -427,8 +433,10 @@ export function PerformanceView({
       ) : (
         <>
           <Card aria-label="Headline figures">
-            <HeadlineFigures layout={performanceLayout(summary)} />
+            <HeadlineFigures layout={performanceLayout(summary, machine)} />
           </Card>
+
+          {machine && chosen && <MachineStaysCard strategyId={chosen.id} />}
 
           <Charts series={data.series} />
 
@@ -687,5 +695,54 @@ export function HeadlineFigures({ layout }: { layout: PerformanceLayout }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/** A state machine's stays on paper, run by run (state-machine brief v1.4 §2.6, ADR 0124 P3b). */
+function MachineStaysCard({ strategyId }: { strategyId: string }) {
+  const [data, setData] = useState<MachineStaysDto | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.strategies.machineStays(strategyId).then(
+      (d) => !cancelled && setData(d),
+      () => !cancelled && setFailed(true),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [strategyId]);
+  const name = (id: string | null) =>
+    id === null ? '' : (data?.states.find((s) => s.id === id)?.name ?? id);
+  return (
+    <Card aria-labelledby="machine-stays-heading">
+      <h2 id="machine-stays-heading" className="text-lg font-semibold">
+        States
+      </h2>
+      <p className="mt-1 text-sm text-ink-muted">
+        A state machine is measured by its stays: days and P/L in each state since Start. Win rate
+        and other cycle figures do not apply.
+      </p>
+      {failed ? (
+        <Alert>Could not load the states.</Alert>
+      ) : !data ? (
+        <p className="mt-2 text-sm">Loading the states…</p>
+      ) : data.runs.length === 0 ? (
+        <p className="mt-2 text-sm">No run has started trading yet.</p>
+      ) : (
+        data.runs.map((r) => (
+          <div key={r.runtimeId} className="mt-3 space-y-3">
+            <h3 className="text-sm font-semibold">{r.accountName}</h3>
+            <StateTotals stays={r.stays} name={name} />
+            <details>
+              <summary className="cursor-pointer text-sm">Every stay</summary>
+              <div className="mt-2">
+                <StaysTable stays={r.stays} name={name} />
+              </div>
+            </details>
+          </div>
+        ))
+      )}
+    </Card>
   );
 }

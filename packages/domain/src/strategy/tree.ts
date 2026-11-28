@@ -109,6 +109,8 @@ export function cloneNode<T extends ConditionNode>(node: T, ids: IdFactory = ran
   if (node.kind === 'group') {
     return { ...node, id: ids(), children: node.children.map((c) => cloneNode(c, ids)) } as T;
   }
+  // A state rule's state or row reference (ADR 0124) has no expressions to copy.
+  if (node.kind !== 'comparison') return { ...(node as object), id: ids() } as T;
   const c = node as Comparison;
   return {
     ...c,

@@ -2,20 +2,34 @@
 
 import { ApiError, type StrategyDetailDto, type StrategyRunStateDto } from '@tm/contracts';
 import type { MachineDefinition, StrategyDefinition, StrategyStatus } from '@tm/domain';
-import { Alert, Button, Card, ModeBadge, Table, Td, Th } from '@tm/ui';
+import { Alert, Button, Card, ModeBadge } from '@tm/ui';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import {
   EditorContext,
   type AccountOption,
+  pathKey,
   type EditorContextValue,
   type InstrumentOption,
 } from '@/components/strategy/editor-context';
-import { ExecutionSection, useValidation } from '@/components/strategy/lifecycle';
+import { useBacktests } from '@/components/strategy/backtest';
+import {
+  BackTestSection,
+  backtestStanding,
+  ExecutionSection,
+  useValidation,
+} from '@/components/strategy/lifecycle';
+import {
+  StateTotals,
+  TransitionsTable,
+  WhyLines,
+  type StayRow,
+  type WhyCheck,
+} from '@/components/strategy/machine-report';
+import { MachineBuilder } from '@/components/strategy/machine-builder';
 import { PageSection } from '@/components/strategy/page-sections';
 import { useRowVersion } from '@/components/strategy/row-version';
 import { apiClient } from '@/lib/api-client';
-import { describeMachineCondition } from '@/lib/strategy-text';
 
 /** A run's machine state as the page gets it (ADR 0124 P3a). */
 export interface MachineRunView {
@@ -34,26 +48,23 @@ export interface MachineRunView {
     legs: { symbol: string; side: 'buy' | 'sell'; quantity: string }[];
     equity: string;
   } | null;
+  /** NYSE sessions in the current state, the entry day counting as day 1 (§2.1). */
+  daysInState: number | null;
   transitions: {
     seq: number;
     kind: 'start' | 'switch';
     decidedOn: string;
     fromStateId: string | null;
     toStateId: string;
+    rowId: string | null;
+    why: WhyCheck[];
     outcome: string;
     rounds: number;
     completedOn: string | null;
   }[];
+  /** Stays since the run started trading, with their P/L (§2.6, O269). */
+  stays: StayRow[];
 }
-
-const OUTCOME_TEXT: Record<string, string> = {
-  rebalancing: 'Rebalancing',
-  completed: 'Done',
-  incomplete: 'Done, some legs short',
-  stuck: 'Stuck: needs you',
-  superseded: 'Replaced by a newer switch',
-  switched_no_orders: 'Switched, nothing to trade',
-};
 
 /**
  * A state-machine strategy's page (ADR 0124 P3a): its states and rows read
@@ -69,7 +80,7 @@ export function MachineView({
   machine,
   carrier,
   machineRuns,
-  instruments,
+  instruments: initialInstruments,
   accounts,
   timeZone,
   baseCurrency,
@@ -94,118 +105,87 @@ export function MachineView({
   const router = useRouter();
   const [rowVersion, setRowVersion] = useRowVersion(initialRowVersion);
   const { state: validation } = useValidation(strategyId, rowVersion);
+  const backtests = useBacktests(strategyId);
+  const { latestText, draftTested } = backtestStanding(backtests, validation, false);
+  const [instruments, setInstruments] = useState<readonly InstrumentOption[]>(initialInstruments);
+  // Any symbol a picker looks up joins every picker at once (N193, ADR 0069).
+  const addInstrument = useCallback(
+    (found: InstrumentOption) =>
+      setInstruments((list) =>
+        list.some((i) => i.id === found.id)
+          ? list
+          : [...list, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
+      ),
+    [],
+  );
+  const editable = status !== 'actively_executing';
+  const serverIssues = useMemo(() => {
+    const m = new Map<string, string>();
+    if (validation.kind === 'ready')
+      for (const issue of [...validation.result.errors, ...validation.result.warnings]) {
+        const k = pathKey(issue.path.filter((p): p is string | number => typeof p !== 'symbol'));
+        if (!m.has(k)) m.set(k, issue.message);
+      }
+    return m;
+  }, [validation]);
   const symbols = useMemo(() => new Map(instruments.map((i) => [i.id, i.symbol])), [instruments]);
   const symbol = (id: string) => symbols.get(id);
   const stateNames = new Map(machine.machine.states.map((s) => [s.id, s.name]));
   const stateName = (id: string | null) => (id ? (stateNames.get(id) ?? '?') : '');
-  const rowNumber = new Map(machine.machine.rows.map((r, i) => [r.id, `row ${i + 1}`]));
 
   const ctx: EditorContextValue = useMemo(
     () => ({
       instruments,
+      addInstrument,
       accounts,
       timeZone,
       baseCurrency,
       issueAt: () => undefined,
-      editable: false,
+      editable,
       slotMode: 'none',
       universeClasses: [],
     }),
-    [instruments, accounts, timeZone, baseCurrency],
+    [instruments, addInstrument, accounts, timeZone, baseCurrency, editable],
   );
-
-  const risk = machine.risk;
-  const riskLines = [
-    risk.maxOrderPctEquity && `Largest order ${risk.maxOrderPctEquity}% of equity`,
-    risk.maxStrategyPctEquity && `Largest holding ${risk.maxStrategyPctEquity}% of equity`,
-    risk.maxActiveOrders && `At most ${risk.maxActiveOrders} working orders`,
-    risk.dailyLossLimit && `Daily loss limit ${baseCurrency} ${risk.dailyLossLimit}`,
-    risk.priceCollarPct && `Price collar ${risk.priceCollarPct}%`,
-    risk.maxDrawdownPct && `Pause at a ${risk.maxDrawdownPct}% drawdown`,
-  ].filter(Boolean) as string[];
 
   return (
     <EditorContext.Provider value={ctx}>
       <div className="space-y-10">
         <PageSection
           id="strategy"
-          description="A state machine: at each daily close the rows are tested from the top, and the first true one decides the state. Editing comes with the builder."
+          description="A state machine: at each daily close the rows are tested from the top, and the first true one decides the state."
         >
-          <Card aria-labelledby="machine-states-heading">
-            <h2 id="machine-states-heading" className="text-lg font-semibold">
-              States
-            </h2>
-            <ul className="mt-2 space-y-1 text-sm">
-              {machine.machine.states.map((s) => {
-                const held = s.targets.reduce((n, t) => n + Number(t.weightPct), 0);
-                return (
-                  <li key={s.id}>
-                    <span className="font-semibold">{s.name}</span>:{' '}
-                    <span className="text-content">
-                      {s.targets.length === 0
-                        ? '100% cash'
-                        : [
-                            ...s.targets.map(
-                              (t) => `${symbol(t.instrumentId) ?? '?'} ${t.weightPct}%`,
-                            ),
-                            ...(held < 100 ? [`cash ${+(100 - held).toFixed(4)}%`] : []),
-                          ].join(', ')}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </Card>
-          <Card aria-labelledby="machine-rows-heading">
-            <h2 id="machine-rows-heading" className="text-lg font-semibold">
-              Rows
-            </h2>
-            <Table label="State machine rows" sortable={false}>
-              <thead>
-                <tr>
-                  <Th>#</Th>
-                  <Th>When</Th>
-                  <Th>Then</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {machine.machine.rows.map((r, i) => (
-                  <tr key={r.id}>
-                    <Td>{i + 1}</Td>
-                    <Td>
-                      <span className="text-content">
-                        {r.label && <span className="font-semibold">{r.label}: </span>}
-                        {r.condition && r.condition.children.length > 0
-                          ? describeMachineCondition(
-                              r.condition,
-                              symbol,
-                              (id) => stateNames.get(id),
-                              (id) => rowNumber.get(id) ?? '?',
-                            )
-                          : 'Always'}
-                      </span>
-                    </Td>
-                    <Td>
-                      {r.outcome.kind === 'stay' ? 'Stay' : `Go to ${stateName(r.outcome.stateId)}`}
-                    </Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Card>
-          <Card aria-labelledby="machine-risk-heading">
-            <h2 id="machine-risk-heading" className="text-lg font-semibold">
-              Risk
-            </h2>
-            <ul className="mt-2 list-disc pl-5 text-sm">
-              {riskLines.length === 0 ? (
-                <li>Account limits only</li>
-              ) : (
-                riskLines.map((l) => <li key={l}>{l}</li>)
-              )}
-              <li>No strategy trailing stop: the rows decide every exit.</li>
-            </ul>
-          </Card>
+          <MachineBuilder
+            strategyId={strategyId}
+            machine={machine}
+            rowVersion={rowVersion}
+            editable={editable}
+            serverIssues={serverIssues}
+            onSaved={(detail: StrategyDetailDto) => {
+              setRowVersion(detail.rowVersion);
+              router.refresh();
+            }}
+          />
+          {!editable && (
+            <p className="text-sm text-ink-muted">
+              Stop the strategy to change its states and rows.
+            </p>
+          )}
+        </PageSection>
+        <PageSection
+          id="back-test"
+          description="Replays the states over daily bars, at most 5 years, rebalancing at each switch. Results are estimates, not guarantees."
+        >
+          <BackTestSection
+            backtests={backtests}
+            dirty={false}
+            validation={validation}
+            latestText={latestText}
+            draftTested={draftTested}
+            definition={carrier}
+            instruments={instruments}
+            machine={machine}
+          />
         </PageSection>
         <PageSection
           id="execution"
@@ -219,6 +199,8 @@ export function MachineView({
               run={r}
               stateName={stateName}
               baseCurrency={baseCurrency}
+              machine={machine}
+              symbol={symbol}
               onConfirmed={() => router.refresh()}
             />
           ))}
@@ -232,8 +214,8 @@ export function MachineView({
             dirty={false}
             definition={carrier}
             validation={validation}
-            latestText="Back tests of state machines come with the builder"
-            draftTested="not_tested"
+            latestText={latestText}
+            draftTested={draftTested}
             onChanged={(detail: StrategyDetailDto) => {
               setRowVersion(detail.rowVersion);
               router.refresh();
@@ -251,14 +233,19 @@ function MachineRunCard({
   run,
   stateName,
   baseCurrency,
+  machine,
+  symbol,
   onConfirmed,
 }: {
   strategyId: string;
   run: MachineRunView;
   stateName: (id: string | null) => string;
   baseCurrency: string;
+  machine: MachineDefinition;
+  symbol: (id: string) => string | undefined;
   onConfirmed: () => void;
 }) {
+  const last = run.transitions.at(-1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirm = async () => {
@@ -287,6 +274,7 @@ function MachineRunCard({
         <p className="mt-1 text-sm">
           <span className="font-semibold">{stateName(run.currentStateId)}</span>
           {run.since && ` since ${run.since}`}
+          {run.confirmed && run.daysInState !== null && <span> · day {run.daysInState} in it</span>}
           {run.lastDecidedOn && (
             <span className="text-ink-muted"> · last close decided {run.lastDecidedOn}</span>
           )}
@@ -320,36 +308,46 @@ function MachineRunCard({
           </Button>
         </div>
       )}
+      {last && (
+        <div className="mt-3 rounded-md border border-line p-3">
+          <h3 className="text-sm font-semibold">
+            Last transition, {last.decidedOn}:{' '}
+            {last.kind === 'start'
+              ? `start in ${stateName(last.toStateId)}`
+              : `${stateName(last.fromStateId)} → ${stateName(last.toStateId)}`}
+          </h3>
+          <div className="mt-1">
+            <WhyLines machine={machine} rowId={last.rowId} why={last.why} symbol={symbol} />
+          </div>
+        </div>
+      )}
+      {run.stays.length > 0 && (
+        <>
+          <h3 className="mt-4 text-sm font-semibold">Time in each state since Start</h3>
+          <StateTotals stays={run.stays} name={stateName} />
+        </>
+      )}
       {run.transitions.length > 0 && (
         <>
           <h3 className="mt-4 text-sm font-semibold">Transitions</h3>
-          <Table label="State machine transitions" sortable={false}>
-            <thead>
-              <tr>
-                <Th>Decided</Th>
-                <Th>Change</Th>
-                <Th>Outcome</Th>
-                <Th>Rounds</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...run.transitions].reverse().map((t) => (
-                <tr key={t.seq}>
-                  <Td>{t.decidedOn}</Td>
-                  <Td>
-                    {t.kind === 'start'
-                      ? `Start in ${stateName(t.toStateId)}`
-                      : `${stateName(t.fromStateId)} → ${stateName(t.toStateId)}`}
-                  </Td>
-                  <Td>
-                    {OUTCOME_TEXT[t.outcome] ?? t.outcome}
-                    {t.completedOn && ` (${t.completedOn})`}
-                  </Td>
-                  <Td>{t.rounds}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
+          <TransitionsTable
+            label="Run transitions"
+            transitions={run.transitions.map((t) => ({
+              key: t.seq,
+              kind: t.kind,
+              on: t.decidedOn,
+              fromStateId: t.fromStateId,
+              toStateId: t.toStateId,
+              rowId: t.rowId,
+              why: t.why,
+              outcome: t.outcome,
+              attempts: t.rounds,
+              completedOn: t.completedOn,
+            }))}
+            name={stateName}
+            machine={machine}
+            symbol={symbol}
+          />
         </>
       )}
     </Card>

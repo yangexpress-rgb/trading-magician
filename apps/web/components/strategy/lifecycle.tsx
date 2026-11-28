@@ -11,6 +11,7 @@ import {
   PDT_EQUITY,
   PDT_WARNING,
   STATUS_LABELS,
+  type MachineDefinition,
   type StrategyDefinition,
   type StrategyStatus,
   type ValidationIssue,
@@ -546,7 +547,10 @@ export function BackTestSection({
   draftTested,
   definition,
   instruments,
+  machine,
 }: {
+  /** A state machine's document (ADR 0124 P3b): its results read by state. */
+  machine?: MachineDefinition | null;
   backtests: BacktestsState;
   dirty: boolean;
   validation: ValidationState;
@@ -564,7 +568,9 @@ export function BackTestSection({
           Run a back test
         </h2>
         <p className="mb-3 text-sm text-ink-muted">
-          Runs the saved rules over historical data. Results are estimates, not guarantees.
+          {machine
+            ? 'Replays the states over daily bars and rebalances at each switch. Results are estimates, not guarantees.'
+            : 'Runs the saved rules over historical data. Results are estimates, not guarantees.'}
         </p>
         <BacktestInputsForm
           state={backtests}
@@ -586,7 +592,11 @@ export function BackTestSection({
         )}
         <RunHistory state={backtests} />
       </Card>
-      <BacktestResults state={backtests} />
+      <BacktestResults
+        state={backtests}
+        machine={machine ?? null}
+        symbol={(id) => instruments?.find((i) => i.id === id)?.symbol}
+      />
     </>
   );
 }
