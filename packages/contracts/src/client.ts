@@ -187,8 +187,12 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
         call<PublishVersionDto>('POST', `/strategies/${enc(id)}/versions`, { rowVersion }),
       getVersion: (id: string, versionNo: number) =>
         call<StrategyVersionDto>('GET', `/strategies/${enc(id)}/versions/${versionNo}`),
-      validate: (id: string) =>
-        call<ValidateStrategyDto>('POST', `/strategies/${enc(id)}/validate`),
+      /** With an account, the checks Start makes for a run on it (N398). */
+      validate: (id: string, accountId?: string) =>
+        call<ValidateStrategyDto>(
+          'POST',
+          `/strategies/${enc(id)}/validate${accountId ? `?accountId=${enc(accountId)}` : ''}`,
+        ),
       start: (id: string, body: StartStrategyRequest) =>
         call<StrategyDetailDto>('POST', `/strategies/${enc(id)}/start`, body),
       stop: (id: string, body: StopStrategyRequest) =>

@@ -223,6 +223,14 @@ and the A1 reference back tests (ADR 0123) still give the same figures and finge
 - Accepted by Yong on 2026-11-28 (PASS, checked independently on staging); O269 confirmed as the
   standing treatment.
 
+## Start dialog fix (N398, 2026-11-28)
+
+- Start adds `machine_shared_account` only when it checks a run on a chosen account, but the Start
+  dialog listed the page's warnings, checked with no account, so the warning had no checkbox and
+  Start was refused. The dialog now asks `validate?accountId=` for the chosen account and shows that
+  account's warnings; a state machine's summary shows its traded instruments, rebalancing and its %
+  of equity limit instead of the carrier's empty Entry and Exit.
+
 ## A3a and A3b on real bars (P0 inputs, 2026-11-28)
 
 - **Bars stay out of the repository** (Yong's choice 2026-11-28). Vendor terms (Yahoo is
