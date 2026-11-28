@@ -213,6 +213,7 @@ export function MachineView({
             rowVersion={rowVersion}
             dirty={false}
             definition={carrier}
+            machine={machine}
             validation={validation}
             latestText={latestText}
             draftTested={draftTested}
