@@ -220,3 +220,20 @@ and the A1 reference back tests (ADR 0123) still give the same figures and finge
   local copy (the §4 machine renders, a state rename saves and reloads; a blank state machine is
   created from New strategy and lists its two problems).
 - Domain, back test, db and worker suites pass.
+- Accepted by Yong on 2026-11-28 (PASS, checked independently on staging); O269 confirmed as the
+  standing treatment.
+
+## A3a and A3b on real bars (P0 inputs, 2026-11-28)
+
+- **Bars stay out of the repository** (Yong's choice 2026-11-28). Vendor terms (Yahoo is
+  personal-use; an Alpaca export raises the same question) keep the bar files local; only the
+  expected sequences, facts derived from the bars, are checked in.
+  `packages/domain/src/strategy/machine-real-bars.test.ts` replays the §4 example over a CSV named by
+  `A3A_QQQ_BARS` or `A3B_QQQ_BARS` and is skipped without one, so CI does not run it.
+- **A3a** checks the 2020 sequence (HI, HI_CASH, DEFEND, ATTACK_HV, NORMAL_HV, NORMAL) and each
+  switch's month part, since the PDF gives month parts only, not dates. It also checks the late-March
+  lock: DEFEND holds on Mar 26, 30, 31 and Apr 2 (the MA20-slope leg) and releases to ATTACK_HV on Apr 6. It does not test the anti-V days constant: the days count was past 3 by then, so that constant
+  rests on the PDF's wording under §2.1 counting and on A3c.
+- **A3b** checks the Feb–Jun 2025 sequence computed independently by the P0 pack over bars from June
+  2023, provisional until Yong signs it off. Over staging's Alpaca daily bars (unadjusted, IEX
+  volumes) from 2023-06-01, the engine's replay matched it exactly.

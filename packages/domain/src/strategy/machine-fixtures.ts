@@ -256,6 +256,14 @@ export function dayResolver(days: readonly Day[], missing: ReadonlySet<number> =
         volume: new Decimal(d.volume),
       }) as unknown as Bar,
   );
+  return barsResolver(bars, missing);
+}
+
+/**
+ * A resolver over real QQQ daily bars as of day `last` (A3a and A3b read a
+ * local bar file this way): `offset + barsBack` bars before it, never after.
+ */
+export function barsResolver(bars: readonly Bar[], missing: ReadonlySet<number> = new Set()) {
   const cache = new Map<string, (Decimal | undefined)[]>();
   return (last: number): SeriesResolver => ({
     value(expr: SeriesExpr, barsBack: number) {
