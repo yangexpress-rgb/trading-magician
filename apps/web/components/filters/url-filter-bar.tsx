@@ -41,6 +41,8 @@ export function UrlFilterBar({
     if (value === anyValue) next.delete(key);
     else next.set(key, value);
     for (const r of resets[key] ?? []) next.delete(r);
+    // A new filter or sort starts again from the first page (N398).
+    next.delete('page');
     go(next);
   };
 

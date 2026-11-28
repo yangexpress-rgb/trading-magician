@@ -77,6 +77,8 @@ export interface OrderFilters {
   to?: string | undefined;
   timeZone?: string | undefined;
   limit?: number | undefined;
+  /** Orders to skip, newest first, for numbered pages (N398). */
+  offset?: number | undefined;
 }
 
 export interface OrderRow {
@@ -414,7 +416,8 @@ export async function listOrders(tx: Transaction, f: OrderFilters = {}): Promise
     const rows = await orderQuery(tx)
       .where(and(...where))
       .orderBy(desc(orderIntents.createdAt), desc(orderIntents.id))
-      .limit(f.limit ?? 200);
+      .limit(f.limit ?? 200)
+      .offset(f.offset ?? 0);
     orders = await withLastPrices(tx, rows.map(toOrderRow));
   }
   return { orders, scheduled: view === 'all' || view === 'scheduled' ? scheduled : [], counts };

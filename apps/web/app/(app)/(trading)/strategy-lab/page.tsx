@@ -9,6 +9,7 @@ import {
 import { Badge, EmptyState, LabIcon, ModeBadge, PageHeader, Table, Td, Th } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import {
   ShareCheckAll,
   ShareCheckbox,
@@ -17,6 +18,7 @@ import {
 } from '@/components/sharing/share-selection';
 import { GuideVideoCard } from '@/components/guide/guide-video-card';
 import { UrlFilterBar } from '@/components/filters/url-filter-bar';
+import { PAGE_SIZE, Pager, pageFrom } from '@/components/list/pager';
 import { StrategyNameLink } from '@/components/strategy/strategy-name';
 import { StrategyStatusBadge } from '@/components/strategy-status-badge';
 import { PausedNote, RunStateBadge } from '@/components/strategy/run-state';
@@ -75,6 +77,18 @@ export default async function StrategyLabPage({
   const q = parsed.success ? parsed.data : listStrategiesQuery.parse({});
   const updated = one('updated') as keyof typeof UPDATED_PRESETS | undefined;
   const days = updated ? UPDATED_PRESETS[updated] : undefined;
+  // Pages of 50 (N398); filters and sorting start again from page 1.
+  const page = pageFrom(one('page'));
+  const pageHref = (n: number) => {
+    const params = new URLSearchParams();
+    for (const k of ['q', 'status', 'asset', 'updated', 'archived', 'shared', 'sort', 'dir']) {
+      const v = one(k);
+      if (v) params.set(k, v);
+    }
+    if (n > 1) params.set('page', String(n));
+    const qs = params.toString();
+    return qs ? `/strategy-lab?${qs}` : '/strategy-lab';
+  };
 
   const { items, total, instrumentOptions, copySources } = await withTenant(
     appDb(),
@@ -89,6 +103,8 @@ export default async function StrategyLabPage({
         sort: q.sort,
         direction: q.direction,
         updatedFrom: days ? new Date(Date.now() - days * 86_400_000) : undefined,
+        limit: PAGE_SIZE,
+        offset: (page - 1) * PAGE_SIZE,
       })),
       instrumentOptions: await tx
         .select({ id: schema.instruments.id, symbol: schema.instruments.symbol })
@@ -111,6 +127,8 @@ export default async function StrategyLabPage({
       })),
     }),
   );
+  // A page past the end (the list shrank, or an old link) goes back to the first.
+  if (items.length === 0 && page > 1) redirect(pageHref(1));
   const filtered = Boolean(
     q.q || q.status || q.instrumentId || days || q.archived !== 'exclude' || q.shared,
   );
@@ -137,7 +155,7 @@ export default async function StrategyLabPage({
     params.set('dir', q.sort === key && q.direction === 'asc' ? 'desc' : 'asc');
     return `/strategy-lab?${params.toString()}`;
   };
-  const header = (key: SortKey, label: string, numeric = false) => {
+  const header = (key: SortKey, label: string, numeric = false, title?: string) => {
     const active = q.sort === key;
     return (
       <Th
@@ -146,6 +164,7 @@ export default async function StrategyLabPage({
       >
         <Link
           href={sortHref(key)}
+          title={title}
           className={`inline-flex items-center gap-1 no-underline hover:text-ink ${active ? 'text-ink' : 'text-ink-muted'}`}
         >
           {label}
@@ -277,7 +296,8 @@ export default async function StrategyLabPage({
                 {header('version', 'Version')}
                 {header('account', 'Account')}
                 {header('backtest', 'Latest back test', true)}
-                {header('updated', `Updated (${prefs.timeZone})`)}
+                {/* The time zone is in the tooltip, so the column fits (N398). */}
+                {header('updated', 'Updated', false, `Times in ${prefs.timeZone}`)}
                 <Th>
                   <span className="sr-only">Actions</span>
                 </Th>
@@ -308,7 +328,8 @@ export default async function StrategyLabPage({
                         </Link>
                       )}
                     </Td>
-                    <Td>
+                    {/* Wide enough that names wrap onto two lines, not five (N398). */}
+                    <Td className="min-w-56">
                       {/* A click opens it; a double-click renames it (N190). */}
                       <StrategyNameLink
                         strategyId={s.id}
@@ -373,6 +394,7 @@ export default async function StrategyLabPage({
               })}
             </tbody>
           </Table>
+          <Pager page={page} total={total} noun="strategies" hrefFor={pageHref} />
         </ShareSelection>
       )}
     </>

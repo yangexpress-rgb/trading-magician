@@ -8,6 +8,7 @@ import {
   type PositionDto,
 } from '@tm/contracts';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { PAGE_SIZE, pageFrom } from '@/components/list/pager';
 import { apiClient } from '@/lib/api-client';
 import { subscribeLive, type LiveState } from '@/lib/live-events';
 
@@ -24,6 +25,8 @@ export interface OrderFilters {
   accountId?: string | undefined;
   from?: string | undefined;
   to?: string | undefined;
+  /** The page of orders, from 1, 50 to a page (N398). */
+  page?: string | undefined;
 }
 
 /** URL parameter for each filter, so a filtered view can be bookmarked and shared. */
@@ -37,6 +40,7 @@ export const FILTER_PARAMS = {
   accountId: 'account',
   from: 'from',
   to: 'to',
+  page: 'page',
 } as const satisfies Record<keyof OrderFilters, string>;
 
 export function filtersToSearch(f: OrderFilters, keep: URLSearchParams): string {
@@ -84,10 +88,15 @@ export function useOrders(filters: OrderFilters, timeZone: string): OrdersData {
   const key = JSON.stringify(filters);
   const load = useCallback(async () => {
     const ticket = ++latest.current;
-    const f = JSON.parse(key) as OrderFilters;
+    const { page, ...f } = JSON.parse(key) as OrderFilters;
     try {
       const [l, p, s] = await Promise.all([
-        apiClient.orders.list({ ...f, tz: timeZone }),
+        apiClient.orders.list({
+          ...f,
+          tz: timeZone,
+          limit: PAGE_SIZE,
+          offset: (pageFrom(page) - 1) * PAGE_SIZE,
+        }),
         apiClient.positions.list(),
         apiClient.execution.status(),
       ]);
