@@ -413,6 +413,50 @@ describe('lifecycle', () => {
     expect(s.statusHistory[0]?.acknowledgedWarnings).toEqual(['no_backtest']);
   });
 
+  it('keeps the starting capital chosen at Start on the run, $10,000 when none is (N400)', async () => {
+    const started = async (name: string, startingCapital?: string) => {
+      let s = await asA((tx) => createStrategy(tx, userA, { name, definition: readyDefinition() }));
+      s = await asA((tx) =>
+        updateStrategy(tx, userA, s.id, { rowVersion: s.rowVersion, status: 'under_testing' }),
+      );
+      const start = () =>
+        asA((tx) =>
+          startStrategy(tx, userA, s.id, {
+            rowVersion: s.rowVersion,
+            confirmed: true,
+            acknowledgedWarnings: ['no_backtest'],
+            ...(startingCapital !== undefined ? { startingCapital } : {}),
+          }),
+        );
+      return { s, start };
+    };
+    const capitalOf = async (strategyId: string) =>
+      (
+        await asA((tx) =>
+          tx
+            .select({ c: strategyRuntimes.startingCapital })
+            .from(strategyRuntimes)
+            .where(eq(strategyRuntimes.strategyId, strategyId)),
+        )
+      ).map((r) => r.c);
+
+    const plain = await started('Default capital');
+    const detail = await plain.start();
+    expect(await capitalOf(plain.s.id)).toEqual(['10000']);
+    expect(detail.runs[0]?.startingCapital).toBe('10000');
+
+    const chosen = await started('Chosen capital', '25000.50');
+    await chosen.start();
+    expect(await capitalOf(chosen.s.id)).toEqual(['25000.5']);
+
+    for (const bad of ['0', '50', '-1', 'abc', '200000000']) {
+      const refused = await started(`Bad capital ${bad}`, bad);
+      const error = await expectStrategyError(refused.start(), 'transition_blocked');
+      expect(error.details).toMatchObject({ reason: 'starting_capital' });
+      expect(await capitalOf(refused.s.id)).toEqual([]);
+    }
+  });
+
   it('runs one strategy on two accounts at once, each run on its own account (N308, A1)', async () => {
     const [first] = await asA((tx) => tx.select().from(tradingAccounts));
     const [second] = await t.owner.db

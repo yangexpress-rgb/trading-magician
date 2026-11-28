@@ -126,6 +126,14 @@ export const startStrategyRequest = z
     accountId: z.uuid().optional(),
     /** A live run's own confirmation, separate from paper (ADR 0109). */
     liveConfirmed: z.literal(true).optional(),
+    /** The run's starting capital in dollars (N400); $10,000 when absent. */
+    startingCapital: z
+      .string()
+      .trim()
+      .regex(/^\d+(\.\d{1,2})?$/, 'Enter an amount in dollars, such as 10000')
+      .refine((v) => Number(v) >= 100, 'Enter at least $100')
+      .refine((v) => Number(v) <= 100_000_000, 'Enter at most $100,000,000')
+      .optional(),
   })
   .strict()
   .refine((b) => b.mode === 'paper' || (b.liveConfirmed === true && b.accountId !== undefined), {
@@ -162,6 +170,8 @@ export interface StrategyRunStateDto {
   startedAt: string;
   /** The strategy version the run is pinned to. */
   versionNo: number | null;
+  /** The capital the run sizes and limits against, chosen at Start (N400). */
+  startingCapital: string;
 }
 
 export interface StrategySummaryDto {

@@ -211,9 +211,13 @@ function StartDialog({
   positions: string;
   busy: boolean;
   error: string | null;
-  onConfirm: (acknowledged: string[], account: AccountOption) => void;
+  onConfirm: (acknowledged: string[], account: AccountOption, startingCapital: string) => void;
 }) {
   const { instruments, baseCurrency } = useEditor();
+  // The run's own capital (N400): sizing and the strategy's limits read it, not the account.
+  const [capital, setCapital] = useState(DEFAULT_STARTING_CAPITAL);
+  const capitalFieldId = useId();
+  const capitalProblem = startingCapitalProblem(capital);
   const [acknowledged, setAcknowledged] = useState<ReadonlySet<string>>(new Set());
   const [realMoney, setRealMoney] = useState(false);
   const [accountId, setAccountId] = useState(initialAccountId ?? choices[0]?.id ?? '');
@@ -295,7 +299,10 @@ function StartDialog({
           [
             'Maximum exposure',
             machine.risk.maxStrategyPctEquity
-              ? `${machine.risk.maxStrategyPctEquity}% of equity`
+              ? `${machine.risk.maxStrategyPctEquity}% of equity` +
+                (capitalProblem
+                  ? ''
+                  : ` (${dollars((Number(machine.risk.maxStrategyPctEquity) / 100) * Number(capital))} at the start)`)
               : 'Not set',
           ],
         ]
@@ -321,10 +328,11 @@ function StartDialog({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (!checking && allAcknowledged && chosen && (!live || realMoney))
+          if (!checking && !capitalProblem && allAcknowledged && chosen && (!live || realMoney))
             onConfirm(
               unique.map((w) => w.code),
               chosen,
+              capital.trim().replace(/,/g, ''),
             );
         }}
       >
@@ -363,6 +371,30 @@ function StartDialog({
           <p className="mt-1 text-xs text-ink-muted">
             Every order of this run goes to this account. Its orders, positions and results are kept
             apart from the strategy&rsquo;s runs on other accounts.
+          </p>
+        </div>
+        <div className="mb-3">
+          <label htmlFor={capitalFieldId} className="text-sm font-semibold">
+            Starting capital ($)
+          </label>
+          <input
+            id={capitalFieldId}
+            inputMode="decimal"
+            value={capital}
+            onChange={(e) => setCapital(e.target.value)}
+            aria-invalid={capitalProblem ? true : undefined}
+            aria-describedby={`${capitalFieldId}-help`}
+            className="mt-1 block w-40 rounded-md border border-line bg-surface px-3 py-2 text-sm"
+          />
+          <p id={`${capitalFieldId}-help`} className="mt-1 text-xs text-ink-muted">
+            {capitalProblem ? (
+              <span className="text-danger">{capitalProblem}</span>
+            ) : (
+              <>
+                The money this run starts with. Its orders are sized from it, and its % of equity,
+                daily loss and drawdown limits read from it. It stays with this run.
+              </>
+            )}
           </p>
         </div>
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
@@ -433,7 +465,14 @@ function StartDialog({
           <Button
             type="submit"
             variant="primary"
-            disabled={checking || !allAcknowledged || !chosen || (live && !realMoney) || busy}
+            disabled={
+              checking ||
+              capitalProblem !== null ||
+              !allAcknowledged ||
+              !chosen ||
+              (live && !realMoney) ||
+              busy
+            }
           >
             {busy
               ? 'Starting…'
@@ -447,6 +486,28 @@ function StartDialog({
       </form>
     </Dialog>
   );
+}
+
+/** The default starting capital for a new run (N400), as the server's `DEFAULT_STARTING_CAPITAL`. */
+const DEFAULT_STARTING_CAPITAL = '10000';
+
+/** Whole dollars when whole, cents otherwise: $10,000 or $10,000.50. */
+function dollars(value: string | number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(Number(value));
+}
+
+/** Why a typed starting capital can't be used, or null (the request's own rule, N400). */
+export function startingCapitalProblem(typed: string): string | null {
+  const v = typed.trim().replace(/,/g, '');
+  if (!/^\d+(\.\d{1,2})?$/.test(v)) return 'Enter an amount in dollars, such as 10000';
+  if (Number(v) < 100) return 'Enter at least $100';
+  if (Number(v) > 100_000_000) return 'Enter at most $100,000,000';
+  return null;
 }
 
 function StopDialog({
@@ -746,6 +807,7 @@ function RunList({
             since{' '}
             {new Date(r.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
             {r.versionNo !== null && ` · version ${r.versionNo}`}
+            {` · ${dollars(r.startingCapital)} starting capital`}
           </span>
           {runs.length > 1 && (
             <Button
@@ -1090,7 +1152,7 @@ export function ExecutionSection({
           initialAccountId={initialAccountId}
           busy={busy === 'start'}
           error={error}
-          onConfirm={(acknowledgedWarnings, account) =>
+          onConfirm={(acknowledgedWarnings, account, startingCapital) =>
             act('start', () =>
               apiClient.strategies.start(strategyId, {
                 rowVersion,
@@ -1098,6 +1160,7 @@ export function ExecutionSection({
                 confirmed: true,
                 acknowledgedWarnings,
                 accountId: account.id,
+                startingCapital,
                 ...(account.mode === 'live' ? { liveConfirmed: true as const } : {}),
               }),
             )

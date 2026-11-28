@@ -15,7 +15,6 @@ import {
   insertCycle,
   insertTransition,
   notify,
-  PAPER_STARTING_CAPITAL,
   recordAudit,
   recordOrderIntent,
   requestCancel,
@@ -201,7 +200,7 @@ export async function planMachinePass(tx: Transaction, ctx: MachinePassContext):
   for (const id of new Set([...work.book.positions.keys(), ...machineInstruments(def)]))
     marks.set(id, (await quoteFor(id))?.last);
   const limits = equityLimits({
-    startingCapital: PAPER_STARTING_CAPITAL,
+    startingCapital: work.startingCapital,
     cash: work.book.cash,
     positions: work.book.positions,
     marks,
@@ -213,7 +212,7 @@ export async function planMachinePass(tx: Transaction, ctx: MachinePassContext):
   });
   state.day = limits.day;
   state.peakEquity = limits.peakEquity;
-  const cash = new Decimal(PAPER_STARTING_CAPITAL).plus(work.book.cash);
+  const cash = new Decimal(work.startingCapital).plus(work.book.cash);
   const holdings = new Map([...work.book.positions].filter(([, q]) => !q.isZero()));
   const price = (id: string) => marks.get(id);
   const lot = (id: string) => new Decimal(work.instruments.get(id)?.lotSize ?? '1');
@@ -540,7 +539,7 @@ async function placeLegs(
   const { tx, ctx, def } = env;
   const { work, now } = ctx;
   const risk = machineRiskProfile(def.risk, env.equity);
-  let cash = new Decimal(PAPER_STARTING_CAPITAL).plus(work.book.cash);
+  let cash = new Decimal(work.startingCapital).plus(work.book.cash);
   let gross = env.gross;
   let placed = 0;
   let active = work.working.length;

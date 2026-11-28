@@ -36,7 +36,6 @@ import {
   openPriceIncident,
   closePriceIncident,
   hasOpenIncidentOfKind,
-  PAPER_STARTING_CAPITAL,
   recentOrderStates,
   reconcileAccount,
   recordAudit,
@@ -1280,7 +1279,7 @@ async function planPass(tx: Transaction, ctx: PassContext) {
   for (const [id, q] of work.book.positions) if (!q.isZero()) marks.set(id, await markOf(id));
   const today = nyDate(now);
   const limits = equityLimits({
-    startingCapital: PAPER_STARTING_CAPITAL,
+    startingCapital: work.startingCapital,
     cash: work.book.cash,
     positions: work.book.positions,
     marks,

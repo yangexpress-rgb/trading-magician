@@ -855,6 +855,13 @@
       "when": 1795835550575,
       "tag": "0121_machine_transitions",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1795886490412,
+      "tag": "0122_run_starting_capital",
+      "breakpoints": true
     }
   ]
 }

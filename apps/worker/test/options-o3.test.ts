@@ -287,6 +287,8 @@ async function start(name: string, def: StrategyDefinition) {
       rowVersion: s.rowVersion,
       confirmed: true,
       acknowledgedWarnings: validation.warnings.map((w) => w.code),
+      // The amounts below are sized for the former fixed $100,000 (N400).
+      startingCapital: '100000',
     });
     return s;
   });

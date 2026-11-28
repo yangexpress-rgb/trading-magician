@@ -158,7 +158,7 @@ function machine(): MachineDefinition {
   };
 }
 
-async function startMachine(name: string, def = machine()) {
+async function startMachine(name: string, def = machine(), startingCapital?: string) {
   return asUser(async (tx) => {
     let s = await createStrategy(tx, userId, { name, definition: def });
     s = await updateStrategy(tx, userId, s.id, {
@@ -171,6 +171,7 @@ async function startMachine(name: string, def = machine()) {
       rowVersion: s.rowVersion,
       confirmed: true,
       acknowledgedWarnings: validation.warnings.map((w) => w.code),
+      ...(startingCapital ? { startingCapital } : {}),
     });
     const [runtime] = await tx
       .select()
@@ -381,6 +382,40 @@ describe('state machine on paper (ADR 0124 P3a)', () => {
     expect((await asUser((tx) => listTransitions(tx, runtimeId))).at(-1)!.outcome).toBe('done');
     dailyCloses.clear();
     await stopAll();
+  }, 120_000);
+
+  it("sizes the Start rebalance from the run's own starting capital (N400)", async () => {
+    const startBuys = async (capital?: string) => {
+      clock = afterClose('2026-10-06');
+      const { runtimeId } = await startMachine(
+        `Capital ${capital ?? 'default'}`,
+        machine(),
+        capital,
+      );
+      await pass();
+      await asUser((tx) => confirmMachineStart(tx, runtimeId, new Date(clock)));
+      await pass();
+      const [row] = await asUser((tx) =>
+        tx
+          .select({ startingCapital: schema.strategyRuntimes.startingCapital })
+          .from(schema.strategyRuntimes)
+          .where(eq(schema.strategyRuntimes.id, runtimeId)),
+      );
+      const quantity = (await orders(runtimeId))
+        .filter((o) => o.direction === 'buy')
+        .reduce((sum, o) => sum + Number(o.quantity), 0);
+      await stopAll();
+      return { stored: row!.startingCapital, quantity };
+    };
+    const small = await startBuys();
+    const large = await startBuys('50000');
+    // Start's default is $10,000; the amount chosen is kept on the run.
+    expect(small.stored).toBe('10000');
+    expect(large.stored).toBe('50000');
+    expect(small.quantity).toBeGreaterThan(0);
+    // Same state, same prices: five times the capital buys about five times the shares.
+    expect(large.quantity / small.quantity).toBeGreaterThan(4.8);
+    expect(large.quantity / small.quantity).toBeLessThan(5.2);
   }, 120_000);
 
   it('a paused run keeps deciding and places nothing until it runs again', async () => {
