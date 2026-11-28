@@ -68,7 +68,7 @@ import { sharedProvenance, type SharedProvenance } from './share-provenance';
 import { assertWithinLimit } from './entitlements';
 import { notify } from './notifications';
 import { cancelWorkingOrders, closePositions, listPositions } from './order-views';
-import { createRuntime, stopRuntime } from './runtime';
+import { createRuntime, startingCapitalOf, stopRuntime } from './runtime';
 import type { Transaction } from './client';
 import {
   brokerConnections,
@@ -232,6 +232,8 @@ export interface StrategyRunState {
   startedAt: Date;
   /** The version the run is pinned to (§3.3 of the Phase 7 brief). */
   versionNo: number | null;
+  /** The capital chosen at Start, in dollars (N400). */
+  startingCapital: string;
 }
 
 /**
@@ -254,6 +256,7 @@ export async function activeRuns(
       accountMode: tradingAccounts.mode,
       startedAt: strategyRuntimes.startedAt,
       versionNo: strategyVersions.versionNo,
+      startingCapital: strategyRuntimes.startingCapital,
     })
     .from(strategyRuntimes)
     .leftJoin(tradingAccounts, eq(tradingAccounts.id, strategyRuntimes.accountId))
@@ -278,6 +281,7 @@ export async function activeRuns(
       accountMode: r.accountMode ?? 'paper',
       startedAt: r.startedAt,
       versionNo: r.versionNo ?? null,
+      startingCapital: r.startingCapital,
     });
     out.set(r.strategyId, list);
   }
@@ -1201,6 +1205,8 @@ export interface StartStrategyInput {
   liveConfirmed?: boolean | undefined;
   /** The mode the person chose; it must be the account's (ADR 0109). Paper when absent. */
   mode?: 'paper' | 'live' | undefined;
+  /** The run's starting capital in dollars (N400); `DEFAULT_STARTING_CAPITAL` when absent. */
+  startingCapital?: string | undefined;
 }
 
 /** The account a run starts on: the one asked for, else the legs', checked (N308). */
@@ -1267,6 +1273,14 @@ export async function startStrategy(
   const row = await loadStrategyRow(tx, id);
   if (row.archivedAt)
     throw new StrategyError('invalid_state', 'Restore this strategy before starting it');
+  let startingCapital: string;
+  try {
+    startingCapital = startingCapitalOf(input.startingCapital);
+  } catch (error) {
+    throw new StrategyError('transition_blocked', (error as Error).message, {
+      reason: 'starting_capital',
+    });
+  }
   const account = await runAccountFor(tx, row.draftDefinition, input.accountId);
   if ((input.mode ?? 'paper') !== account.mode) {
     throw new StrategyError(
@@ -1403,6 +1417,7 @@ export async function startStrategy(
     account.id,
     account.mode,
     optionUses.length > 0,
+    startingCapital,
   );
   if (!adding) {
     await tx.insert(strategyStatusChanges).values({
@@ -1429,6 +1444,7 @@ export async function startStrategy(
       latestBacktestId: backtest?.runId ?? null,
       runtimeId,
       accountId: account.id,
+      startingCapital,
     },
   });
   await notify(tx, {

@@ -23,6 +23,7 @@ export const POST = api<{ id: string }>(async (request, { tx, userId }, { id }) 
           accountId: body.accountId,
           mode: body.mode,
           liveConfirmed: body.liveConfirmed,
+          startingCapital: body.startingCapital,
         }),
       ),
     );

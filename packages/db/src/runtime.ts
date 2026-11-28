@@ -56,8 +56,25 @@ import { strategyLabelSql } from './strategy-label';
  * so a restarted worker carries on where the last one stopped.
  */
 
-/** Paper capital each runtime starts with, for sizing and buying power (ADR 0012). */
-export const PAPER_STARTING_CAPITAL = '100000';
+/**
+ * Capital a run starts with when Start names none (N400): sizing, buying power and the
+ * strategy's equity limits read the run's own `startingCapital` (ADR 0012, ADR 0125).
+ */
+export const DEFAULT_STARTING_CAPITAL = '10000';
+/** Largest starting capital a run can choose (N400). */
+export const MAX_STARTING_CAPITAL = '100000000';
+
+/**
+ * The starting capital a run gets: the one asked for, else the default (N400). Anything
+ * that is not a dollar amount from $100 to `MAX_STARTING_CAPITAL` is refused.
+ */
+export function startingCapitalOf(requested: string | undefined): string {
+  if (requested === undefined) return DEFAULT_STARTING_CAPITAL;
+  const v = requested.trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(v) || Number(v) < 100 || Number(v) > Number(MAX_STARTING_CAPITAL))
+    throw new RangeError('Starting capital must be a dollar amount from $100 to $100,000,000');
+  return new Decimal(v).toFixed();
+}
 
 export interface RuntimeState {
   trigger: RuntimeTriggerState;
@@ -274,6 +291,8 @@ export async function createRuntime(
   mode: 'paper' | 'live' = 'paper',
   /** The version has an options leg (ADR 0123). */
   tradesOptions = false,
+  /** The capital the run sizes and limits against (N400). */
+  startingCapital: string = DEFAULT_STARTING_CAPITAL,
 ): Promise<string> {
   const state: RuntimeState = { trigger: newRuntimeTriggerState() };
   const [row] = await tx
@@ -287,6 +306,7 @@ export async function createRuntime(
       startedBy: userId,
       state,
       ...(tradesOptions ? { tradesOptions } : {}),
+      startingCapital,
     })
     .returning({ id: strategyRuntimes.id });
   if (!row) throw new Error('Failed to create the runtime');
@@ -609,6 +629,8 @@ export interface RuntimeWork {
   halted: boolean;
   cycles: ActiveCycle[];
   nextSeq: number;
+  /** The capital chosen at Start (N400); equity is this plus the book. */
+  startingCapital: string;
   /** Every fill of the runtime, for equity and exposure. */
   book: { cash: Decimal; positions: Map<string, Decimal> };
   /** Orders of the runtime that are working or about to be. */
@@ -854,6 +876,7 @@ export async function loadRuntimeWork(
     halted: await isHalted(tx, rt.runtime.userId),
     cycles,
     nextSeq: (cycleRows.at(-1)?.seq ?? 0) + 1,
+    startingCapital: rt.runtime.startingCapital,
     book,
     working,
   };

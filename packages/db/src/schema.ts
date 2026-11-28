@@ -1406,6 +1406,11 @@ export const strategyRuntimes = pgTable(
      * an account.
      */
     tradesOptions: boolean('trades_options').notNull().default(false),
+    /**
+     * The capital the run sizes and limits against, chosen at Start (N400). Runs started
+     * before it was chosen keep the former fixed $100,000 (migration 0122).
+     */
+    startingCapital: numeric('starting_capital').notNull().default('100000'),
     ...timestamps(),
     rowVersion: rowVersion(),
   },
@@ -1438,6 +1443,7 @@ export const strategyRuntimes = pgTable(
       sql`(${t.status} = 'stopped') = (${t.stoppedAt} is not null)`,
     ),
     check('strategy_runtime_pause_reason_length', sql`char_length(${t.pauseReason}) <= 500`),
+    check('strategy_runtime_starting_capital', sql`${t.startingCapital} > 0`),
   ],
 );
 
