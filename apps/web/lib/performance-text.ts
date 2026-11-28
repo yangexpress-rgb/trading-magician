@@ -231,6 +231,9 @@ export interface PerformanceLayout {
   groups: { title: 'Returns' | 'Risk' | 'Trading'; tiles: MetricTile[] }[];
 }
 
+/** Trade-cycle figures that mean nothing for a state machine (state-machine brief v1.4 §2.6). */
+const MACHINE_NOT_APPLICABLE = new Set(['Win rate', 'Average gain / loss', 'Profit factor']);
+
 const HEADLINE = ['Today', 'Net P/L', 'Return', 'Return on peak capital', 'Equity'];
 const GROUPS: [PerformanceLayout['groups'][number]['title'], string[]][] = [
   ['Returns', ['Realized / unrealized', 'Average gain / loss', 'Profit factor']],
@@ -243,8 +246,16 @@ const GROUPS: [PerformanceLayout['groups'][number]['title'], string[]][] = [
  * first, Today leading, then Returns / Risk / Trading lists. Same tiles as
  * `performanceTiles`; a tile the view lacks is simply left out.
  */
-export function performanceLayout(s: PerformanceSummaryDto): PerformanceLayout {
-  const tiles = performanceTiles(s);
+export function performanceLayout(
+  s: PerformanceSummaryDto,
+  /** A state machine's own view (§2.6): cycle figures read as not applicable. */
+  machine = false,
+): PerformanceLayout {
+  const tiles = performanceTiles(s).map((t) =>
+    machine && MACHINE_NOT_APPLICABLE.has(t.label)
+      ? { label: t.label, value: 'Not applicable', detail: 'State machine: see States' }
+      : t,
+  );
   const byLabel = new Map(tiles.map((t) => [t.label, t]));
   const pick = (labels: string[]) =>
     labels.flatMap((l) => {

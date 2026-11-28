@@ -38,6 +38,7 @@ export default async function PerformancePage({
         id: schema.strategies.id,
         name: schema.strategies.name,
         labNumber: schema.strategies.labNumber,
+        form: sql<string | null>`${schema.strategies.draftDefinition}->>'form'`,
       })
       .from(schema.strategies)
       .where(sql`${schema.strategies.deletedAt} is null`)
@@ -62,8 +63,9 @@ export default async function PerformancePage({
         prefs={{ timeZone: profile.timezone, locale: profile.locale }}
         initialFilters={filters}
         accounts={accounts}
-        strategies={strategies.map((s) => ({
+        strategies={strategies.map(({ form, ...s }) => ({
           ...s,
+          machine: form === 'state_machine',
           versions: versions.filter((v) => v.strategyId === s.id),
         }))}
       />

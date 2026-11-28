@@ -11,7 +11,20 @@ import {
   type EditorContextValue,
   type InstrumentOption,
 } from '@/components/strategy/editor-context';
-import { ExecutionSection, useValidation } from '@/components/strategy/lifecycle';
+import { useBacktests } from '@/components/strategy/backtest';
+import {
+  BackTestSection,
+  backtestStanding,
+  ExecutionSection,
+  useValidation,
+} from '@/components/strategy/lifecycle';
+import {
+  StateTotals,
+  TransitionsTable,
+  WhyLines,
+  type StayRow,
+  type WhyCheck,
+} from '@/components/strategy/machine-report';
 import { PageSection } from '@/components/strategy/page-sections';
 import { useRowVersion } from '@/components/strategy/row-version';
 import { apiClient } from '@/lib/api-client';
@@ -34,26 +47,23 @@ export interface MachineRunView {
     legs: { symbol: string; side: 'buy' | 'sell'; quantity: string }[];
     equity: string;
   } | null;
+  /** NYSE sessions in the current state, the entry day counting as day 1 (§2.1). */
+  daysInState: number | null;
   transitions: {
     seq: number;
     kind: 'start' | 'switch';
     decidedOn: string;
     fromStateId: string | null;
     toStateId: string;
+    rowId: string | null;
+    why: WhyCheck[];
     outcome: string;
     rounds: number;
     completedOn: string | null;
   }[];
+  /** Stays since the run started trading, with their P/L (§2.6, O269). */
+  stays: StayRow[];
 }
-
-const OUTCOME_TEXT: Record<string, string> = {
-  rebalancing: 'Rebalancing',
-  completed: 'Done',
-  incomplete: 'Done, some legs short',
-  stuck: 'Stuck: needs you',
-  superseded: 'Replaced by a newer switch',
-  switched_no_orders: 'Switched, nothing to trade',
-};
 
 /**
  * A state-machine strategy's page (ADR 0124 P3a): its states and rows read
@@ -94,6 +104,8 @@ export function MachineView({
   const router = useRouter();
   const [rowVersion, setRowVersion] = useRowVersion(initialRowVersion);
   const { state: validation } = useValidation(strategyId, rowVersion);
+  const backtests = useBacktests(strategyId);
+  const { latestText, draftTested } = backtestStanding(backtests, validation, false);
   const symbols = useMemo(() => new Map(instruments.map((i) => [i.id, i.symbol])), [instruments]);
   const symbol = (id: string) => symbols.get(id);
   const stateNames = new Map(machine.machine.states.map((s) => [s.id, s.name]));
@@ -208,6 +220,21 @@ export function MachineView({
           </Card>
         </PageSection>
         <PageSection
+          id="back-test"
+          description="Replays the states over daily bars, at most 5 years, rebalancing at each switch. Results are estimates, not guarantees."
+        >
+          <BackTestSection
+            backtests={backtests}
+            dirty={false}
+            validation={validation}
+            latestText={latestText}
+            draftTested={draftTested}
+            definition={carrier}
+            instruments={instruments}
+            machine={machine}
+          />
+        </PageSection>
+        <PageSection
           id="execution"
           badge={<ModeBadge mode="paper" />}
           description="Start replays the rows over the history first, with no orders. Nothing trades until you confirm."
@@ -219,6 +246,8 @@ export function MachineView({
               run={r}
               stateName={stateName}
               baseCurrency={baseCurrency}
+              machine={machine}
+              symbol={symbol}
               onConfirmed={() => router.refresh()}
             />
           ))}
@@ -232,8 +261,8 @@ export function MachineView({
             dirty={false}
             definition={carrier}
             validation={validation}
-            latestText="Back tests of state machines come with the builder"
-            draftTested="not_tested"
+            latestText={latestText}
+            draftTested={draftTested}
             onChanged={(detail: StrategyDetailDto) => {
               setRowVersion(detail.rowVersion);
               router.refresh();
@@ -251,14 +280,19 @@ function MachineRunCard({
   run,
   stateName,
   baseCurrency,
+  machine,
+  symbol,
   onConfirmed,
 }: {
   strategyId: string;
   run: MachineRunView;
   stateName: (id: string | null) => string;
   baseCurrency: string;
+  machine: MachineDefinition;
+  symbol: (id: string) => string | undefined;
   onConfirmed: () => void;
 }) {
+  const last = run.transitions.at(-1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirm = async () => {
@@ -287,6 +321,7 @@ function MachineRunCard({
         <p className="mt-1 text-sm">
           <span className="font-semibold">{stateName(run.currentStateId)}</span>
           {run.since && ` since ${run.since}`}
+          {run.confirmed && run.daysInState !== null && <span> · day {run.daysInState} in it</span>}
           {run.lastDecidedOn && (
             <span className="text-ink-muted"> · last close decided {run.lastDecidedOn}</span>
           )}
@@ -320,36 +355,46 @@ function MachineRunCard({
           </Button>
         </div>
       )}
+      {last && (
+        <div className="mt-3 rounded-md border border-line p-3">
+          <h3 className="text-sm font-semibold">
+            Last transition, {last.decidedOn}:{' '}
+            {last.kind === 'start'
+              ? `start in ${stateName(last.toStateId)}`
+              : `${stateName(last.fromStateId)} → ${stateName(last.toStateId)}`}
+          </h3>
+          <div className="mt-1">
+            <WhyLines machine={machine} rowId={last.rowId} why={last.why} symbol={symbol} />
+          </div>
+        </div>
+      )}
+      {run.stays.length > 0 && (
+        <>
+          <h3 className="mt-4 text-sm font-semibold">Time in each state since Start</h3>
+          <StateTotals stays={run.stays} name={stateName} />
+        </>
+      )}
       {run.transitions.length > 0 && (
         <>
           <h3 className="mt-4 text-sm font-semibold">Transitions</h3>
-          <Table label="State machine transitions" sortable={false}>
-            <thead>
-              <tr>
-                <Th>Decided</Th>
-                <Th>Change</Th>
-                <Th>Outcome</Th>
-                <Th>Rounds</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...run.transitions].reverse().map((t) => (
-                <tr key={t.seq}>
-                  <Td>{t.decidedOn}</Td>
-                  <Td>
-                    {t.kind === 'start'
-                      ? `Start in ${stateName(t.toStateId)}`
-                      : `${stateName(t.fromStateId)} → ${stateName(t.toStateId)}`}
-                  </Td>
-                  <Td>
-                    {OUTCOME_TEXT[t.outcome] ?? t.outcome}
-                    {t.completedOn && ` (${t.completedOn})`}
-                  </Td>
-                  <Td>{t.rounds}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
+          <TransitionsTable
+            label="Run transitions"
+            transitions={run.transitions.map((t) => ({
+              key: t.seq,
+              kind: t.kind,
+              on: t.decidedOn,
+              fromStateId: t.fromStateId,
+              toStateId: t.toStateId,
+              rowId: t.rowId,
+              why: t.why,
+              outcome: t.outcome,
+              attempts: t.rounds,
+              completedOn: t.completedOn,
+            }))}
+            name={stateName}
+            machine={machine}
+            symbol={symbol}
+          />
         </>
       )}
     </Card>

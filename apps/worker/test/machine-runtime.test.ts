@@ -1,9 +1,16 @@
-import { loadData, planMachineSeries, simulateMachine, type InstrumentRef } from '@tm/backtest';
+import {
+  DEFAULT_BACKTEST_INPUTS,
+  loadData,
+  planMachineSeries,
+  simulateMachine,
+  type InstrumentRef,
+} from '@tm/backtest';
 import {
   claimRuntimes,
   confirmMachineStart,
   createStrategy,
   eq,
+  getBacktest,
   getStrategy,
   listNotifications,
   listTransitions,
@@ -11,6 +18,7 @@ import {
   provisionWorkspace,
   resumeRuntime,
   schema,
+  startBacktest,
   startStrategy,
   updateStrategy,
   validateStoredStrategy,
@@ -28,6 +36,7 @@ import {
 import { createDemoHistoryProvider, createDemoLiveFeed } from '@tm/market-data';
 import Decimal from 'decimal.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { processNextRun } from '../src/backtests';
 import { createRuntimeCaches, runRuntimePass, type RuntimeWorkerOptions } from '../src/runtime';
 
 /**
@@ -405,4 +414,42 @@ describe('state machine on paper (ADR 0124 P3a)', () => {
     expect(plain.validation.warnings.map((w) => w.code)).not.toContain('machine_shared_account');
     await stopAll();
   }, 60_000);
+
+  it('back tests in the app with the machine engine (ADR 0124 P3b)', async () => {
+    const s = await asUser((tx) =>
+      createStrategy(tx, userId, { name: 'Machine back test', definition: machine() }),
+    );
+    const inputs = { ...DEFAULT_BACKTEST_INPUTS, from: '2025-01-02', to: '2026-09-30' };
+    // More than 5 years is refused, and so are member picks.
+    await expect(
+      asUser((tx) => startBacktest(tx, userId, s.id, { ...inputs, from: '2015-01-02' })),
+    ).rejects.toThrow(/inputs need attention/);
+    const run = await asUser((tx) => startBacktest(tx, userId, s.id, inputs));
+    const provider = createDemoHistoryProvider({ now: () => new Date('2026-10-02T21:00:00Z') });
+    expect(
+      await processNextRun({ db: t.app.db, provider, workerId: 'bt', logger: quiet as never }),
+    ).toBe('completed');
+    const done = await asUser((tx) => getBacktest(tx, run.id));
+    expect(done.status).toBe('completed');
+    expect(done.engineVersion).toBe('machine@1');
+    const report = done.result?.machine;
+    expect(report?.states.map((x) => x.id)).toEqual(['INVESTED', 'DEFENSIVE']);
+    expect(report?.transitions[0]?.kind).toBe('start');
+    expect(report?.stays.length).toBeGreaterThan(0);
+    // The stored result is the engine's own, over the same bars.
+    const def = machine();
+    const ids = [demoA, demoB];
+    const refs = new Map<string, InstrumentRef>(
+      ids.map((id) => [
+        id,
+        { symbol: id === demoA ? 'DEMO-A' : 'DEMO-B', assetClass: 'stock', lotSize: '1' },
+      ]),
+    );
+    const fitted = done.inputs;
+    const data = await loadData(provider, planMachineSeries(def, fitted), refs);
+    const direct = simulateMachine({ definition: def, instruments: refs, inputs: fitted, data });
+    expect(report?.transitions.map((x) => [x.on, x.toStateId])).toEqual(
+      direct.machine?.transitions.map((x) => [x.on, x.toStateId]),
+    );
+  });
 });

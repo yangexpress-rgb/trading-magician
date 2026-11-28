@@ -104,6 +104,7 @@ import type {
   PublishVersionDto,
   StartStrategyRequest,
   StopStrategyRequest,
+  MachineStaysDto,
   StrategyDetailDto,
   StrategyListDto,
   StrategyVersionDto,
@@ -192,6 +193,9 @@ export function createApiClient(options: { baseUrl?: string; fetch?: Fetch } = {
         call<StrategyDetailDto>('POST', `/strategies/${enc(id)}/start`, body),
       stop: (id: string, body: StopStrategyRequest) =>
         call<StrategyDetailDto>('POST', `/strategies/${enc(id)}/stop`, body),
+      /** A state machine's stays on paper (ADR 0124 P3b, §2.6). */
+      machineStays: (id: string) =>
+        call<MachineStaysDto>('GET', `/strategies/${enc(id)}/machine-stays`),
       /** A state machine's Start after its replay (ADR 0124 P3a, §2.9). */
       confirmMachineStart: (id: string, runtimeId: string) =>
         call<{ confirmedAt: number }>(

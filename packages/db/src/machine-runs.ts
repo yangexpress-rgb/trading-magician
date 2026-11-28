@@ -1,6 +1,8 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
 import type { Transaction } from './client';
 import { strategyRuntimes, strategyTransitions } from './schema';
+import { addDays, tradingDaysBetween } from '@tm/domain';
+import { performanceTimeseries } from './performance-views';
 import type { MachineRunState } from './runtime';
 
 /**
@@ -158,4 +160,69 @@ export async function machineRunState(
     .from(strategyRuntimes)
     .where(eq(strategyRuntimes.id, runtimeId));
   return (row?.state as { machine?: MachineRunState } | undefined)?.machine;
+}
+
+/** One stay in a state on paper (§2.6, ADR 0124 P3b). */
+export interface PaperStay {
+  stateId: string;
+  /** The close it was entered on, or the day the run started trading. */
+  from: string;
+  /** The close that switched out of it, or today while still in it. */
+  to: string;
+  /** NYSE sessions from `from` to `to`. */
+  sessions: number;
+  /** The strategy's P/L over the stay, in dollars; null without valuations. */
+  pnl: string | null;
+  ongoing: boolean;
+}
+
+/**
+ * A run's stays since it started trading (O269): the state path from the
+ * Start confirmation on, each stay's P/L from the strategy's daily P/L series.
+ * Replayed days before Start are not stays: nothing was held.
+ */
+export async function machineStays(
+  tx: Transaction,
+  runtimeId: string,
+  today: string,
+): Promise<PaperStay[]> {
+  const [row] = await tx
+    .select({ state: strategyRuntimes.state, strategyId: strategyRuntimes.strategyId })
+    .from(strategyRuntimes)
+    .where(eq(strategyRuntimes.id, runtimeId));
+  const m = (row?.state as { machine?: MachineRunState } | undefined)?.machine;
+  if (!row || !m?.startedOn) return [];
+  const startedOn = m.startedOn;
+  const before = [...m.switches].filter((s) => s.on <= startedOn);
+  const startState = before.at(-1)?.toStateId ?? m.start.stateId;
+  const path = [
+    { on: startedOn, stateId: startState },
+    ...m.switches.filter((s) => s.on > startedOn).map((s) => ({ on: s.on, stateId: s.toStateId })),
+  ];
+  const series = await performanceTimeseries(tx, {
+    strategyIds: [row.strategyId],
+    from: addDays(startedOn, -7),
+  });
+  const pnlAt = (date: string): number | null => {
+    let v: number | null = null;
+    for (const p of series.points) {
+      if (p.date > date) break;
+      v = Number(p.pnl);
+    }
+    return v;
+  };
+  return path.map((p, i) => {
+    const next = path[i + 1];
+    const to = next?.on ?? today;
+    const a = pnlAt(p.on);
+    const b = pnlAt(to);
+    return {
+      stateId: p.stateId,
+      from: p.on,
+      to,
+      sessions: Math.max(0, tradingDaysBetween(p.on, to)),
+      pnl: a === null && b === null ? null : ((b ?? 0) - (a ?? 0)).toFixed(2),
+      ongoing: !next,
+    };
+  });
 }

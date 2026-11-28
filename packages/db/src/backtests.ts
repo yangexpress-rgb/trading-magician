@@ -2,6 +2,7 @@ import {
   BACKTEST_INTERVAL_NAMES,
   MAX_RANGE_DAYS,
   matchingBacktestInterval,
+  planMachineSeries,
   planSeries,
   strategyInstruments,
   workloadProblem,
@@ -12,9 +13,13 @@ import {
 } from '@tm/backtest';
 import {
   listMembers,
-  parseDefinition,
+  machineCarrier,
+  machineInstruments,
+  parseAnyDefinition,
   stockGroup,
+  validateMachine,
   validateStrategy,
+  type MachineDefinition,
   type StrategyDefinition,
 } from '@tm/domain';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
@@ -150,14 +155,13 @@ export async function startBacktest(
   if (pinned.row.archivedAt) {
     throw new StrategyError('invalid_state', 'Restore this strategy before back testing it');
   }
-  // State-machine back tests run in the app from P3b (O265); the engine is in @tm/backtest.
-  if (isMachineDefinition(pinned.definition)) {
-    throw new StrategyError(
-      'invalid_state',
-      'Back tests of state-machine strategies are not in the app yet',
-    );
-  }
-  const validation = validateStrategy(pinned.definition, await loadValidationContext(tx));
+  // A state machine runs on daily bars over at most 5 years (ADR 0124 P3b, O265).
+  const stored = pinned.definition;
+  const machine = isMachineDefinition(stored) ? stored : undefined;
+  const rules = isMachineDefinition(stored) ? undefined : stored;
+  const validation = machine
+    ? validateMachine(machine, await loadValidationContext(tx))
+    : validateStrategy(rules as StrategyDefinition, await loadValidationContext(tx));
   if (validation.errors.length > 0) {
     throw new StrategyError(
       'transition_blocked',
@@ -166,10 +170,18 @@ export async function startBacktest(
     );
   }
 
-  const runInputs = await fitInputs(tx, pinned.definition, inputs);
+  const runInputs = machine
+    ? fitMachineInputs(inputs)
+    : await fitInputs(tx, rules as StrategyDefinition, inputs);
   // Refuse a run too big for the worker before it is queued (ADR 0081).
   const tooBig = workloadProblem(
-    planSeries(pinned.definition, runInputs, plannedMembers(pinned.definition, runInputs)),
+    machine
+      ? planMachineSeries(machine, runInputs)
+      : planSeries(
+          rules as StrategyDefinition,
+          runInputs,
+          plannedMembers(rules as StrategyDefinition, runInputs),
+        ),
   );
   if (tooBig) throw new StrategyError('invalid_state', tooBig);
 
@@ -213,6 +225,23 @@ function inputsError(path: string, message: string): StrategyError {
  * whatever the request sent, within that size's longest range; and, for a
  * group, only members of it (N235).
  */
+/** A state machine's back test: daily bars, at most 5 years, no member picks (ADR 0124 P3b). */
+export function fitMachineInputs(inputs: BacktestInputs): BacktestInputs {
+  const days = (Date.parse(inputs.to) - Date.parse(inputs.from)) / 86_400_000;
+  if (days > MAX_RANGE_DAYS['1d'])
+    throw inputsError(
+      'lookback',
+      'A state machine checks daily bars, so a back test can cover at most 5 years',
+    );
+  if (inputs.symbols)
+    throw inputsError(
+      'symbols',
+      'Only a strategy that trades a group can test some of its members',
+    );
+  const { symbols: _symbols, ...rest } = inputs;
+  return { ...rest, interval: '1d' };
+}
+
 export async function fitInputs(
   tx: Transaction,
   definition: StrategyDefinition,
@@ -427,7 +456,10 @@ const ownedBy = (runId: string, worker: string) =>
 
 export interface RunWork {
   inputs: BacktestInputs;
+  /** For a state machine, its carrier (no rules); the machine itself is in `machine`. */
   definition: StrategyDefinition;
+  /** A state-machine run (ADR 0124 P3b): the worker runs `simulateMachine`. */
+  machine?: MachineDefinition;
   instruments: Map<string, InstrumentRef>;
   cancelRequested: boolean;
   /** Which attempt this is (1 for the first claim), for the worker's stage log. */
@@ -451,9 +483,16 @@ export async function loadRunWork(
     .innerJoin(strategyVersions, eq(strategyVersions.id, backtestRuns.versionId))
     .where(ownedBy(runId, worker));
   if (!row) return null;
-  const definition = parseDefinition(row.definition);
+  const parsed = parseAnyDefinition(row.definition);
+  const machine = parsed.form === 'state_machine' ? parsed.definition : undefined;
+  const definition =
+    parsed.form === 'state_machine' ? machineCarrier(parsed.definition) : parsed.definition;
   // A built-in universe's members are resolved by the worker (Design v1.2 item 1).
-  const ids = new Set<string>(strategyInstruments(definition, listMembers(definition)));
+  const ids = new Set<string>(
+    machine
+      ? machineInstruments(machine)
+      : strategyInstruments(definition, listMembers(definition)),
+  );
   const rows =
     ids.size === 0
       ? []
@@ -470,6 +509,7 @@ export async function loadRunWork(
   return {
     inputs: row.inputs as BacktestInputs,
     definition: definition,
+    ...(machine ? { machine } : {}),
     instruments: new Map(rows.map((r) => [r.id, instrumentRef(r)])),
     cancelRequested: row.cancelRequested,
     attempts: row.attempts,

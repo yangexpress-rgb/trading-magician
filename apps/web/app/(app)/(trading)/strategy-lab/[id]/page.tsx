@@ -4,6 +4,7 @@ import {
   listMlModels,
   listTransitions,
   machineRunState,
+  machineStays,
   listTenantInstruments,
   optionUnderlyingOptions,
   pilotOf,
@@ -16,7 +17,14 @@ import {
   type Transaction,
 } from '@tm/db';
 import type { StrategyRunStateDto } from '@tm/contracts';
-import { formatDateTime, isLabNumber, optionsTradingEnabled, STATUS_LABELS } from '@tm/domain';
+import {
+  formatDateTime,
+  isLabNumber,
+  nyDate,
+  optionsTradingEnabled,
+  STATUS_LABELS,
+  tradingDaysBetween,
+} from '@tm/domain';
 import { Badge, buttonClasses, Card, ModeBadge, PageHeader } from '@tm/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -265,13 +273,17 @@ async function machineRunsOf(
     const m = await machineRunState(tx, r.runtimeId);
     const transitions = await listTransitions(tx, r.runtimeId);
     const last = m?.switches.at(-1);
+    const since = m?.confirmedAt ? (last?.on ?? m.start.on) : (m?.proposal?.since ?? null);
+    const stays = await machineStays(tx, r.runtimeId, nyDate(new Date()));
     out.push({
       runtimeId: r.runtimeId,
       accountName: r.accountName,
       currentStateId: m?.confirmedAt
         ? (last?.toStateId ?? m.start.stateId)
         : (m?.proposal?.stateId ?? null),
-      since: m?.confirmedAt ? (last?.on ?? m.start.on) : (m?.proposal?.since ?? null),
+      since,
+      daysInState:
+        since && m?.lastDecidedOn ? tradingDaysBetween(since, m.lastDecidedOn) + 1 : null,
       lastDecidedOn: m?.lastDecidedOn ?? null,
       confirmed: m?.confirmedAt !== undefined,
       proposal: m?.proposal
@@ -286,10 +298,13 @@ async function machineRunsOf(
         decidedOn: t.decidedOn,
         fromStateId: t.fromStateId,
         toStateId: t.toStateId,
+        rowId: t.rowId,
+        why: t.why as MachineRunView['transitions'][number]['why'],
         outcome: t.outcome,
         rounds: t.rounds,
         completedOn: t.completedOn,
       })),
+      stays: stays.map((x) => ({ ...x, returnPct: null })),
     });
   }
   return out;

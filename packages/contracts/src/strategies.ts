@@ -260,6 +260,25 @@ export interface StrategyDetailDto {
   rowVersion: number;
 }
 
+/** A state machine's stays on paper, run by run (state-machine brief v1.4 §2.6, ADR 0124 P3b). */
+export interface MachineStaysDto {
+  states: { id: string; name: string }[];
+  runs: {
+    runtimeId: string;
+    accountName: string;
+    stays: {
+      stateId: string;
+      from: string;
+      to: string;
+      sessions: number;
+      returnPct: null;
+      /** The strategy's P/L over the stay, in dollars. */
+      pnl: string | null;
+      ongoing: boolean;
+    }[];
+  }[];
+}
+
 export interface StrategyVersionDto extends StrategyVersionSummaryDto {
   definition: StrategyDefinition;
 }
