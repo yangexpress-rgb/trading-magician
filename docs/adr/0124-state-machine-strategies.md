@@ -1,11 +1,11 @@
 # ADR 0124: State-machine strategies (brief v1.3, Phase P1)
 
-- **Status:** accepted (P1, the three metrics; P2a, the definition and evaluator; P2b, the back test engine; P3a, the paper runtime)
+- **Status:** accepted (P1, the three metrics; P2a, the definition and evaluator; P2b, the back test engine; P3a, the paper runtime; P3b, the builder and reporting)
 - **Date:** 2026-11-27
 - **Design refs:** "Trading Magician — State-Machine Strategies: Design Brief" v1.3 (Drive file
   id `1dYuepl_NasusovfWAXfqDjKm37-S87t5`) and v1.4 (id `1MIj5DiAPV6zqDL_kxefGYd4qMug5wUDZ`, from P2b);
-  N381 to N383, N384 to N386, N387 to N389 and N390 to N392; open points O259, O260, O261 to O263,
-  O264, O265 and O266 to O268; migration 0121 (P3a).
+  N381 to N383, N384 to N386, N387 to N389, N390 to N392 and N393 to N397; open points O259, O260, O261 to O263,
+  O264, O265, O266 to O268 and O269; migration 0121 (P3a).
   Each later phase amends this ADR with its own section.
 
 ## Context
@@ -181,3 +181,42 @@ and the A1 reference back tests (ADR 0123) still give the same figures and finge
 - A1: domain, back test, db (386 integration) and worker (269 integration) suites pass; the rules
   form's runtime tests are unchanged.
 - P3b next: the builder, the run view and state stays in back test results and Performance.
+
+## Decision: Phase P3b (builder, run view, state-stay reporting)
+
+- **Back tests in the app** (N393). `startBacktest` takes a machine (`isMachineDefinition`), checks
+  it with `validateMachine`, fits its inputs to daily bars and at most 5 years (`fitMachineInputs`;
+  a symbol subset is refused) and checks the workload with `planMachineSeries`. The worker's job
+  sends `RunWork.machine` to `runMachine`, which loads the bars and stores `simulateMachine`'s
+  result (`machine@1`). Closes O267 and the app wiring of O265.
+- **Results by state** (N394). `BacktestResults` shows a States section for `result.machine`:
+  totals per state (`stateTotals`), every transition with its deciding row and Why lines
+  (`TransitionsTable`, `WhyLines`), and every stay. Win rate, profit factor and cycles read "Not
+  applicable"; the phase reports are hidden.
+- **Run view** (N395). The run card shows the current state and its day count
+  (`tradingDaysBetween` from the state's start to the last decided close, plus 1), the last
+  transition with its Why lines, the transitions, and the stays since Start from `machineStays`.
+- **Performance** (N396). `machineStays(tx, runtimeId, today)` walks the run's switches from the
+  day it started trading and prices each stay with the strategy's daily P/L
+  (`performanceTimeseries`); stays on paper report dollars, not % (O269). GET
+  `/api/v1/strategies/{id}/machine-stays` feeds a States card on Performance, and
+  `performanceLayout(summary, true)` turns win rate, average gain / loss and profit factor into "Not
+  applicable".
+- **Builder** (N397, brief §5). `MachineBuilder` edits a draft of the whole document and saves it
+  with one update: signals, state cards (holdings in words, where each state is entered or read,
+  removal blocked while referenced), rows in priority order with up and down, each reading as one
+  sentence with its rule folded below (open for a new rule or a problem), risk and execution
+  collapsed. The condition editor gains "+ State is", "+ Same rule as a row" and a "Left side
+  reads" choice for days in the state. Schema problems show before the save; the server's
+  validation shows after. A running strategy's builder is read only. New strategy offers "A blank
+  state machine" (`createMachineDefinition`).
+
+## Checks (P3b)
+
+- `apps/worker/test/machine-runtime.test.ts`: a machine back test started in the app runs on the
+  machine engine and its transitions equal `simulateMachine`'s over the same inputs; inputs beyond
+  5 years are refused.
+- `apps/web`: `stateTotals` and `performanceLayout(…, true)` unit tests; the builder was tried on a
+  local copy (the §4 machine renders, a state rename saves and reloads; a blank state machine is
+  created from New strategy and lists its two problems).
+- Domain, back test, db and worker suites pass.

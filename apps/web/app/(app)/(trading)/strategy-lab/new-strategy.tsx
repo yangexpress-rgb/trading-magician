@@ -1,6 +1,7 @@
 'use client';
 
 import { ApiError } from '@tm/contracts';
+import { createMachineDefinition } from '@tm/domain';
 import { Alert, Button, Dialog, SelectField, TextField } from '@tm/ui';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -16,13 +17,14 @@ export interface CopySource {
   archived: boolean;
 }
 
-type StartFrom = 'blank' | 'copy';
+type StartFrom = 'blank' | 'machine' | 'copy';
 
 const copyName = (source: CopySource) => `Copy of ${source.name}`.slice(0, 120);
 
 /**
  * "New strategy" dialog. It starts either a blank draft or a draft copied
- * from an existing strategy's conditions, orders, timing and risk settings.
+ * from an existing strategy's conditions, orders, timing and risk settings,
+ * or a blank state machine (state-machine brief v1.4 §5, ADR 0124 P3b).
  * `initialCopyFrom` opens the dialog straight away with that source picked,
  * which is how "Make a copy" on a strategy's page lands here.
  */
@@ -68,7 +70,13 @@ export function NewStrategyButton({
       const strategy =
         startFrom === 'copy' && source
           ? await apiClient.strategies.duplicate(source.id, { name, description })
-          : await apiClient.strategies.create({ name, description });
+          : startFrom === 'machine'
+            ? await apiClient.strategies.create({
+                name,
+                description,
+                definition: createMachineDefinition(),
+              })
+            : await apiClient.strategies.create({ name, description });
       router.push(`/strategy-lab/${strategy.id}`);
     } catch (e) {
       setError(
@@ -92,41 +100,44 @@ export function NewStrategyButton({
         description={
           copying
             ? 'The copy starts as a new draft. You can change everything before you test or run it.'
-            : 'It starts as a draft with the default paper risk limits. You can change everything later.'
+            : startFrom === 'machine'
+              ? 'A state machine holds one set of holdings per state, and rows that decide the state at each daily close. It starts with two states and a row going to Cash.'
+              : 'It starts as a draft with the default paper risk limits. You can change everything later.'
         }
       >
         <form action={create} className="space-y-4">
           {error && <Alert tone="danger">{error}</Alert>}
-          {sources.length > 0 && (
-            <fieldset>
-              <legend className="text-sm font-medium">Start from</legend>
-              <div className="mt-1 grid-fields gap-2">
-                {(
-                  [
-                    ['blank', 'A blank strategy'],
-                    ['copy', 'A copy of an existing strategy'],
-                  ] as const
-                ).map(([value, label]) => (
-                  <label
-                    key={value}
-                    className="flex cursor-pointer items-center gap-2 rounded-md border border-line px-3 py-2 text-sm has-[:checked]:border-accent has-[:checked]:bg-accent/5"
-                  >
-                    <input
-                      type="radio"
-                      name="new-strategy-start-from"
-                      value={value}
-                      checked={startFrom === value}
-                      onChange={() => {
-                        setStartFrom(value);
-                        fillFrom(source, value);
-                      }}
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          )}
+          <fieldset>
+            <legend className="text-sm font-medium">Start from</legend>
+            <div className="mt-1 grid-fields gap-2">
+              {(
+                [
+                  ['blank', 'A blank strategy'],
+                  ['machine', 'A blank state machine'],
+                  ...(sources.length > 0
+                    ? [['copy', 'A copy of an existing strategy'] as const]
+                    : []),
+                ] as const
+              ).map(([value, label]) => (
+                <label
+                  key={value}
+                  className="flex cursor-pointer items-center gap-2 rounded-md border border-line px-3 py-2 text-sm has-[:checked]:border-accent has-[:checked]:bg-accent/5"
+                >
+                  <input
+                    type="radio"
+                    name="new-strategy-start-from"
+                    value={value}
+                    checked={startFrom === value}
+                    onChange={() => {
+                      setStartFrom(value);
+                      fillFrom(source, value);
+                    }}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
           {startFrom === 'copy' && sources.length > 0 && (
             <SelectField
               label="Strategy to copy"

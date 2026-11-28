@@ -187,3 +187,13 @@ describe('performanceLayout (N302)', () => {
     expect(groups.find((g) => g.title === 'Risk')?.tiles.map((t) => t.label)).toEqual(['Exposure']);
   });
 });
+
+describe('performanceLayout for a state machine (ADR 0124 P3b)', () => {
+  it('reads trade-cycle figures as not applicable and keeps the rest', () => {
+    const { headline, groups } = performanceLayout(summary(), true);
+    const tiles = [...headline, ...groups.flatMap((g) => g.tiles)];
+    for (const label of ['Win rate', 'Average gain / loss', 'Profit factor'])
+      expect(tiles.find((t) => t.label === label)?.value).toBe('Not applicable');
+    expect(tiles.find((t) => t.label === 'Net P/L')?.value).not.toBe('Not applicable');
+  });
+});

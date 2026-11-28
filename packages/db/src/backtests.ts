@@ -238,8 +238,7 @@ export function fitMachineInputs(inputs: BacktestInputs): BacktestInputs {
       'symbols',
       'Only a strategy that trades a group can test some of its members',
     );
-  const { symbols: _symbols, ...rest } = inputs;
-  return { ...rest, interval: '1d' };
+  return { ...inputs, interval: '1d' };
 }
 
 export async function fitInputs(

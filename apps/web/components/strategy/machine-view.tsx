@@ -2,12 +2,13 @@
 
 import { ApiError, type StrategyDetailDto, type StrategyRunStateDto } from '@tm/contracts';
 import type { MachineDefinition, StrategyDefinition, StrategyStatus } from '@tm/domain';
-import { Alert, Button, Card, ModeBadge, Table, Td, Th } from '@tm/ui';
+import { Alert, Button, Card, ModeBadge } from '@tm/ui';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import {
   EditorContext,
   type AccountOption,
+  pathKey,
   type EditorContextValue,
   type InstrumentOption,
 } from '@/components/strategy/editor-context';
@@ -25,10 +26,10 @@ import {
   type StayRow,
   type WhyCheck,
 } from '@/components/strategy/machine-report';
+import { MachineBuilder } from '@/components/strategy/machine-builder';
 import { PageSection } from '@/components/strategy/page-sections';
 import { useRowVersion } from '@/components/strategy/row-version';
 import { apiClient } from '@/lib/api-client';
-import { describeMachineCondition } from '@/lib/strategy-text';
 
 /** A run's machine state as the page gets it (ADR 0124 P3a). */
 export interface MachineRunView {
@@ -79,7 +80,7 @@ export function MachineView({
   machine,
   carrier,
   machineRuns,
-  instruments,
+  instruments: initialInstruments,
   accounts,
   timeZone,
   baseCurrency,
@@ -106,118 +107,70 @@ export function MachineView({
   const { state: validation } = useValidation(strategyId, rowVersion);
   const backtests = useBacktests(strategyId);
   const { latestText, draftTested } = backtestStanding(backtests, validation, false);
+  const [instruments, setInstruments] = useState<readonly InstrumentOption[]>(initialInstruments);
+  // Any symbol a picker looks up joins every picker at once (N193, ADR 0069).
+  const addInstrument = useCallback(
+    (found: InstrumentOption) =>
+      setInstruments((list) =>
+        list.some((i) => i.id === found.id)
+          ? list
+          : [...list, found].sort((a, b) => a.symbol.localeCompare(b.symbol)),
+      ),
+    [],
+  );
+  const editable = status !== 'actively_executing';
+  const serverIssues = useMemo(() => {
+    const m = new Map<string, string>();
+    if (validation.kind === 'ready')
+      for (const issue of [...validation.result.errors, ...validation.result.warnings]) {
+        const k = pathKey(issue.path.filter((p): p is string | number => typeof p !== 'symbol'));
+        if (!m.has(k)) m.set(k, issue.message);
+      }
+    return m;
+  }, [validation]);
   const symbols = useMemo(() => new Map(instruments.map((i) => [i.id, i.symbol])), [instruments]);
   const symbol = (id: string) => symbols.get(id);
   const stateNames = new Map(machine.machine.states.map((s) => [s.id, s.name]));
   const stateName = (id: string | null) => (id ? (stateNames.get(id) ?? '?') : '');
-  const rowNumber = new Map(machine.machine.rows.map((r, i) => [r.id, `row ${i + 1}`]));
 
   const ctx: EditorContextValue = useMemo(
     () => ({
       instruments,
+      addInstrument,
       accounts,
       timeZone,
       baseCurrency,
       issueAt: () => undefined,
-      editable: false,
+      editable,
       slotMode: 'none',
       universeClasses: [],
     }),
-    [instruments, accounts, timeZone, baseCurrency],
+    [instruments, addInstrument, accounts, timeZone, baseCurrency, editable],
   );
-
-  const risk = machine.risk;
-  const riskLines = [
-    risk.maxOrderPctEquity && `Largest order ${risk.maxOrderPctEquity}% of equity`,
-    risk.maxStrategyPctEquity && `Largest holding ${risk.maxStrategyPctEquity}% of equity`,
-    risk.maxActiveOrders && `At most ${risk.maxActiveOrders} working orders`,
-    risk.dailyLossLimit && `Daily loss limit ${baseCurrency} ${risk.dailyLossLimit}`,
-    risk.priceCollarPct && `Price collar ${risk.priceCollarPct}%`,
-    risk.maxDrawdownPct && `Pause at a ${risk.maxDrawdownPct}% drawdown`,
-  ].filter(Boolean) as string[];
 
   return (
     <EditorContext.Provider value={ctx}>
       <div className="space-y-10">
         <PageSection
           id="strategy"
-          description="A state machine: at each daily close the rows are tested from the top, and the first true one decides the state. Editing comes with the builder."
+          description="A state machine: at each daily close the rows are tested from the top, and the first true one decides the state."
         >
-          <Card aria-labelledby="machine-states-heading">
-            <h2 id="machine-states-heading" className="text-lg font-semibold">
-              States
-            </h2>
-            <ul className="mt-2 space-y-1 text-sm">
-              {machine.machine.states.map((s) => {
-                const held = s.targets.reduce((n, t) => n + Number(t.weightPct), 0);
-                return (
-                  <li key={s.id}>
-                    <span className="font-semibold">{s.name}</span>:{' '}
-                    <span className="text-content">
-                      {s.targets.length === 0
-                        ? '100% cash'
-                        : [
-                            ...s.targets.map(
-                              (t) => `${symbol(t.instrumentId) ?? '?'} ${t.weightPct}%`,
-                            ),
-                            ...(held < 100 ? [`cash ${+(100 - held).toFixed(4)}%`] : []),
-                          ].join(', ')}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </Card>
-          <Card aria-labelledby="machine-rows-heading">
-            <h2 id="machine-rows-heading" className="text-lg font-semibold">
-              Rows
-            </h2>
-            <Table label="State machine rows" sortable={false}>
-              <thead>
-                <tr>
-                  <Th>#</Th>
-                  <Th>When</Th>
-                  <Th>Then</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {machine.machine.rows.map((r, i) => (
-                  <tr key={r.id}>
-                    <Td>{i + 1}</Td>
-                    <Td>
-                      <span className="text-content">
-                        {r.label && <span className="font-semibold">{r.label}: </span>}
-                        {r.condition && r.condition.children.length > 0
-                          ? describeMachineCondition(
-                              r.condition,
-                              symbol,
-                              (id) => stateNames.get(id),
-                              (id) => rowNumber.get(id) ?? '?',
-                            )
-                          : 'Always'}
-                      </span>
-                    </Td>
-                    <Td>
-                      {r.outcome.kind === 'stay' ? 'Stay' : `Go to ${stateName(r.outcome.stateId)}`}
-                    </Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Card>
-          <Card aria-labelledby="machine-risk-heading">
-            <h2 id="machine-risk-heading" className="text-lg font-semibold">
-              Risk
-            </h2>
-            <ul className="mt-2 list-disc pl-5 text-sm">
-              {riskLines.length === 0 ? (
-                <li>Account limits only</li>
-              ) : (
-                riskLines.map((l) => <li key={l}>{l}</li>)
-              )}
-              <li>No strategy trailing stop: the rows decide every exit.</li>
-            </ul>
-          </Card>
+          <MachineBuilder
+            strategyId={strategyId}
+            machine={machine}
+            rowVersion={rowVersion}
+            editable={editable}
+            serverIssues={serverIssues}
+            onSaved={(detail: StrategyDetailDto) => {
+              setRowVersion(detail.rowVersion);
+              router.refresh();
+            }}
+          />
+          {!editable && (
+            <p className="text-sm text-ink-muted">
+              Stop the strategy to change its states and rows.
+            </p>
+          )}
         </PageSection>
         <PageSection
           id="back-test"
