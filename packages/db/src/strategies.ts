@@ -6,13 +6,19 @@ import {
   createDefinition,
   optionsTrailingStopDefault,
   groupMemberCount,
+  machineCarrier,
+  machineInstrumentUses,
+  machineTargets,
+  MACHINE_FORM,
+  MACHINE_SCHEMA_VERSION,
   nyDate,
-  parseDefinition,
+  parseAnyDefinition,
   planTransition,
   STATUS_LABELS,
-  STRATEGY_SCHEMA_VERSION,
+  validateMachine,
   validateStrategy,
   type AccountCapabilities,
+  type MachineDefinition,
   type AccountInfo,
   type InstrumentInfo,
   type StrategyDefinition,
@@ -117,13 +123,20 @@ export class StrategyError extends Error {
   }
 }
 
-export function definitionHash(def: StrategyDefinition): string {
+/** Either form of a definition (ADR 0124): the rules form, or a state machine. */
+export type StoredDefinition = StrategyDefinition | MachineDefinition;
+
+export const isMachineDefinition = (d: StoredDefinition): d is MachineDefinition =>
+  (d as { form?: unknown }).form === MACHINE_FORM;
+
+export function definitionHash(def: StoredDefinition): string {
   return createHash('sha256').update(canonicalJson(def)).digest('hex');
 }
 
-function parseOrThrow(input: unknown): StrategyDefinition {
+/** Either form, for the places that store, list and start strategies (brief §2.5). */
+function parseStoredOrThrow(input: unknown): StoredDefinition {
   try {
-    return parseDefinition(input);
+    return parseAnyDefinition(input).definition;
   } catch (error) {
     const issues = (error as { issues?: unknown }).issues;
     throw new StrategyError(
@@ -429,6 +442,24 @@ export interface StrategyVersionSummary {
   createdAt: Date;
 }
 
+export type StrategyForm = 'rules' | typeof MACHINE_FORM;
+
+const formOf = (d: StoredDefinition): StrategyForm =>
+  isMachineDefinition(d) ? MACHINE_FORM : 'rules';
+const schemaVersionOf = (d: StoredDefinition) =>
+  isMachineDefinition(d) ? MACHINE_SCHEMA_VERSION : d.schemaVersion;
+
+/** A stored definition as the readers of a strategy see it (ADR 0124 P3a). */
+export function split(def: StoredDefinition): {
+  form: StrategyForm;
+  definition: StrategyDefinition;
+  machine: MachineDefinition | null;
+} {
+  return isMachineDefinition(def)
+    ? { form: MACHINE_FORM, definition: machineCarrier(def), machine: def }
+    : { form: 'rules', definition: def, machine: null };
+}
+
 export interface StrategyDetail {
   id: string;
   name: string;
@@ -446,7 +477,16 @@ export interface StrategyDetail {
   /** Every run that is not stopped, one per account (N308). */
   runs: StrategyRunState[];
   hasBeenActive: boolean;
+  /** Which form it is (ADR 0124). */
+  form: StrategyForm;
+  /**
+   * The rules-form document. For a state machine it is the run carrier
+   * (`machineCarrier`: no conditions, no legs), and `machine` holds the
+   * definition; saving a rules document over a state machine is refused.
+   */
   definition: StrategyDefinition;
+  /** The state-machine document, or null for a rules strategy. */
+  machine: MachineDefinition | null;
   definitionHash: string;
   currentVersion: StrategyVersionSummary | null;
   /** True when the draft differs from the current version. */
@@ -520,7 +560,7 @@ export async function getStrategy(tx: Transaction, id: string): Promise<Strategy
       return { run: runs[0] ?? null, runs };
     })()),
     hasBeenActive: row.hasBeenActive,
-    definition: parseOrThrow(row.draftDefinition),
+    ...split(parseStoredOrThrow(row.draftDefinition)),
     definitionHash: row.draftHash,
     currentVersion: current,
     hasUnpublishedChanges: current?.definitionHash !== row.draftHash,
@@ -552,7 +592,7 @@ export async function getStrategyVersion(tx: Transaction, strategyId: string, ve
     versionNo: v.versionNo,
     definitionHash: v.definitionHash,
     createdAt: v.createdAt,
-    definition: parseOrThrow(v.definition),
+    ...split(parseStoredOrThrow(v.definition)),
   };
 }
 
@@ -635,6 +675,50 @@ export async function loadValidationContext(
   };
 }
 
+/**
+ * §2.8's Start warning: another run on the same account trades one of this
+ * machine's instruments, and shared-account netting can refuse or split
+ * orders that cross zero. Only with an account, i.e. when starting.
+ */
+async function withMachineStartChecks(
+  tx: Transaction,
+  strategyId: string,
+  def: MachineDefinition,
+  accountId: string | undefined,
+  result: ValidationResult,
+): Promise<ValidationResult> {
+  const targets = machineTargets(def);
+  if (!accountId || targets.length === 0) return result;
+  const rows = await tx
+    .selectDistinct({ symbol: instruments.symbol })
+    .from(strategyRuntimes)
+    .innerJoin(strategyInstruments, eq(strategyInstruments.strategyId, strategyRuntimes.strategyId))
+    .innerJoin(instruments, eq(instruments.id, strategyInstruments.instrumentId))
+    .where(
+      and(
+        eq(strategyRuntimes.accountId, accountId),
+        ne(strategyRuntimes.status, 'stopped'),
+        ne(strategyRuntimes.strategyId, strategyId),
+        eq(strategyInstruments.role, 'order'),
+        inArray(strategyInstruments.instrumentId, targets),
+      ),
+    );
+  if (rows.length === 0) return result;
+  const symbols = rows.map((r) => r.symbol).sort();
+  return {
+    ...result,
+    warnings: [
+      ...result.warnings,
+      {
+        severity: 'warning',
+        code: 'machine_shared_account',
+        message: `Another run on this account trades ${symbols.join(', ')}. On a shared account the broker nets positions, so a rebalance can be refused or split where holdings cross zero.`,
+        path: ['machine', 'states'],
+      },
+    ],
+  };
+}
+
 export interface LatestBacktest {
   runId: string;
   definitionHash: string;
@@ -676,19 +760,22 @@ export async function validateStoredStrategy(
   backtest: LatestBacktest | null;
 }> {
   const row = await loadStrategyRow(tx, id);
-  const draft = parseOrThrow(row.draftDefinition);
-  const definition = accountId ? bindDefinitionToAccount(draft, accountId) : draft;
+  const draft = parseStoredOrThrow(row.draftDefinition);
   const ctx = await loadValidationContext(tx);
   const backtest = await latestBacktestFor(tx, id);
+  const full = {
+    ...ctx,
+    definitionHash: row.draftHash,
+    backtest: backtest && {
+      definitionHash: backtest.definitionHash,
+      completedAt: backtest.finishedAt,
+    },
+  };
+  // A state machine's orders always go to the run's account (§2.5): nothing to bind.
   return {
-    validation: validateStrategy(definition, {
-      ...ctx,
-      definitionHash: row.draftHash,
-      backtest: backtest && {
-        definitionHash: backtest.definitionHash,
-        completedAt: backtest.finishedAt,
-      },
-    }),
+    validation: isMachineDefinition(draft)
+      ? await withMachineStartChecks(tx, id, draft, accountId, validateMachine(draft, full))
+      : validateStrategy(accountId ? bindDefinitionToAccount(draft, accountId) : draft, full),
     definitionHash: row.draftHash,
     backtest,
   };
@@ -701,10 +788,10 @@ async function rebuildInstrumentIndex(
   tx: Transaction,
   userId: string,
   strategyId: string,
-  def: StrategyDefinition,
+  def: StoredDefinition,
 ) {
   await tx.delete(strategyInstruments).where(eq(strategyInstruments.strategyId, strategyId));
-  const uses = collectInstrumentUses(def);
+  const uses = isMachineDefinition(def) ? machineInstrumentUses(def) : collectInstrumentUses(def);
   if (uses.length === 0) return;
   // Unknown instrument ids stay in the draft as validation errors; only real ones are indexed.
   const known = new Set(
@@ -739,7 +826,7 @@ async function insertVersion(
   tx: Transaction,
   userId: string,
   strategyId: string,
-  def: StrategyDefinition,
+  def: StoredDefinition,
   hash: string,
 ) {
   const [last] = await tx
@@ -752,7 +839,7 @@ async function insertVersion(
       userId,
       strategyId,
       versionNo: (last?.n ?? 0) + 1,
-      schemaVersion: def.schemaVersion,
+      schemaVersion: schemaVersionOf(def),
       definition: def,
       definitionHash: hash,
       createdBy: userId,
@@ -770,7 +857,7 @@ async function insertVersion(
  */
 export async function pinDraftVersion(tx: Transaction, userId: string, id: string) {
   const row = await loadStrategyRow(tx, id);
-  const definition = parseOrThrow(row.draftDefinition);
+  const definition = parseStoredOrThrow(row.draftDefinition);
   const [existing] = await tx
     .select({ id: strategyVersions.id, versionNo: strategyVersions.versionNo })
     .from(strategyVersions)
@@ -829,10 +916,13 @@ export async function createStrategy(
   input: CreateStrategyInput,
 ): Promise<StrategyDetail> {
   // O231: a strategy created with options legs starts with the trailing stop off.
-  const def =
-    input.definition === undefined
+  const parsed = input.definition === undefined ? undefined : parseStoredOrThrow(input.definition);
+  const def: StoredDefinition =
+    parsed === undefined
       ? createDefinition()
-      : optionsTrailingStopDefault(undefined, parseOrThrow(input.definition));
+      : isMachineDefinition(parsed)
+        ? parsed
+        : optionsTrailingStopDefault(undefined, parsed);
   await assertWithinLimit(tx, userId, 'savedStrategies');
   const [profile] = await tx.select().from(profiles).where(eq(profiles.userId, userId));
   // New strategies start on the Alpaca paper account when there is one.
@@ -846,7 +936,7 @@ export async function createStrategy(
       description: input.description ?? '',
       tags: input.tags ?? [],
       draftDefinition: def,
-      draftSchemaVersion: STRATEGY_SCHEMA_VERSION,
+      draftSchemaVersion: schemaVersionOf(def),
       draftHash: hash,
       baseCurrency: profile?.baseCurrency ?? 'USD',
       timezone: profile?.timezone ?? 'America/New_York',
@@ -905,21 +995,31 @@ export async function updateStrategy(
     changed.push('tags');
   }
 
-  let def: StrategyDefinition | undefined;
+  let def: StoredDefinition | undefined;
   let hash = before.draftHash;
   if (input.definition !== undefined) {
+    const previous = parseStoredOrThrow(before.draftDefinition);
+    const next = parseStoredOrThrow(input.definition);
+    // A strategy keeps its form (ADR 0124): a state machine is never saved over a rules one.
+    if (formOf(previous) !== formOf(next))
+      throw new StrategyError(
+        'invalid_definition',
+        isMachineDefinition(previous)
+          ? 'This is a state-machine strategy: save a state machine'
+          : 'This is a rules strategy: a state machine is a new strategy',
+      );
     // O231: gaining a first options leg turns an untouched 1% trailing stop off.
-    def = optionsTrailingStopDefault(
-      parseOrThrow(before.draftDefinition),
-      parseOrThrow(input.definition),
-    );
+    def =
+      isMachineDefinition(next) || isMachineDefinition(previous)
+        ? next
+        : optionsTrailingStopDefault(previous, next);
     hash = definitionHash(def);
     if (hash !== before.draftHash) {
       if (before.status === 'actively_executing') {
         throw new StrategyError('invalid_state', 'Stop this strategy before changing its rules');
       }
       values.draftDefinition = def;
-      values.draftSchemaVersion = def.schemaVersion;
+      values.draftSchemaVersion = schemaVersionOf(def);
       values.draftHash = hash;
       changed.push('definition');
     }
@@ -1016,7 +1116,7 @@ export async function publishVersion(
     }
     return { strategy: await getStrategy(tx, id), created: false };
   }
-  const def = parseOrThrow(row.draftDefinition);
+  const def = parseStoredOrThrow(row.draftDefinition);
   const version = await insertVersion(tx, userId, id, def, row.draftHash);
   await updateRow(tx, id, input.rowVersion, { currentVersionId: version.id });
   await recordAudit(tx, {
@@ -1196,7 +1296,9 @@ export async function startStrategy(
   }
   // Options runs and stock/ETF runs never share an account, and options runs
   // start only where options can trade (options brief v0.2 §§5.4–5.6, ADR 0123).
-  const optionUses = optionsUses(parseOrThrow(row.draftDefinition));
+  const stored = parseStoredOrThrow(row.draftDefinition);
+  const machine = isMachineDefinition(stored);
+  const optionUses = machine ? [] : optionsUses(stored);
   const optionsProblem = optionsStartProblem({
     uses: optionUses,
     account: await optionsAccountView(tx, account.id),
@@ -1251,8 +1353,10 @@ export async function startStrategy(
     });
   }
   // A paper run keeps its bars loaded between passes: only how many is limited (ADR 0087).
-  const startDef = parseOrThrow(row.draftDefinition);
-  const blocker = paperWorkloadProblem(startDef, groupMemberCount(startDef), nyDate(new Date()));
+  // A state machine reads a few daily series of its signal instruments (§2.5); no group.
+  const blocker = machine
+    ? undefined
+    : paperWorkloadProblem(stored, groupMemberCount(stored), nyDate(new Date()));
   if (blocker) {
     throw new StrategyError('transition_blocked', blocker, {
       reason: 'paper_workload',
@@ -1277,13 +1381,7 @@ export async function startStrategy(
       // Rules can't change while it runs, so this only happens with a stale draft.
       throw new StrategyError('invalid_state', 'Stop this strategy before changing its rules');
     }
-    const version = await insertVersion(
-      tx,
-      userId,
-      id,
-      parseOrThrow(row.draftDefinition),
-      row.draftHash,
-    );
+    const version = await insertVersion(tx, userId, id, stored, row.draftHash);
     versionId = version.id;
   }
   const acknowledged = [...new Set(validation.warnings.map((w) => w.code))];

@@ -4,6 +4,8 @@ import {
   migrateV3,
   migrateV4,
   migrateV5,
+  definitionForm,
+  MACHINE_FORM,
   parseDefinition,
   STRATEGY_SCHEMA_VERSION,
   validateStrategy,
@@ -125,6 +127,8 @@ export async function strategyMigrationReport(db: Database): Promise<MigrationRe
   const out: MigrationReportEntry[] = [];
   for (const r of rows) {
     if (r.schema_version >= STRATEGY_SCHEMA_VERSION) continue;
+    // State machines have their own version and never take rules migrations (ADR 0124).
+    if (definitionForm(r.definition) === MACHINE_FORM) continue;
     const entry: MigrationReportEntry = {
       userId: r.user_id,
       email: r.email,

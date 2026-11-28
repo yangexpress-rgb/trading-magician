@@ -193,6 +193,7 @@ describe('account purge (design v1.1 D1)', () => {
       'trigger_event',
       'scheduled_action',
       'strategy_cycle',
+      'strategy_transition',
       'strategy_runtime',
       'strategy_version',
       'strategy_instrument',

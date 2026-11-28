@@ -1,11 +1,11 @@
 # ADR 0124: State-machine strategies (brief v1.3, Phase P1)
 
-- **Status:** accepted (P1, the three metrics; P2a, the definition and evaluator; P2b, the back test engine)
+- **Status:** accepted (P1, the three metrics; P2a, the definition and evaluator; P2b, the back test engine; P3a, the paper runtime)
 - **Date:** 2026-11-27
 - **Design refs:** "Trading Magician — State-Machine Strategies: Design Brief" v1.3 (Drive file
   id `1dYuepl_NasusovfWAXfqDjKm37-S87t5`) and v1.4 (id `1MIj5DiAPV6zqDL_kxefGYd4qMug5wUDZ`, from P2b);
-  N381 to N383, N384 to N386 and N387 to N389; open points O259, O260, O261 to O263 and O264, O265;
-  no migration.
+  N381 to N383, N384 to N386, N387 to N389 and N390 to N392; open points O259, O260, O261 to O263,
+  O264, O265 and O266 to O268; migration 0121 (P3a).
   Each later phase amends this ADR with its own section.
 
 ## Context
@@ -133,3 +133,51 @@ and the A1 reference back tests (ADR 0123) still give the same figures and finge
 - A3a and A3b wait for P0's inputs (O265).
 - A1: domain (719) and back test (261, including `a1-reference.test.ts`) suites pass; worker and
   web suites run in CI.
+
+## Decision: Phase P3a (paper runtime)
+
+- **Stored beside the rules form** (N390). `createStrategy`, `updateStrategy`, versions, Lab
+  numbers, copies and shares take a state-machine document (`parseAnyDefinition`). A save of the
+  other form is refused: a rules strategy never becomes a state machine in place. Readers of Entry
+  and Exit get a carrier, `machineCarrier`: the machine's execution and collar with no conditions
+  or legs, and `StrategyDetail` carries `form` and `machine` beside it. The instrument index lists
+  the signals and targets (`machineInstrumentUses`). The app's back test job refuses machines until
+  P3b can show their results (O267).
+- **One pass, one evaluator** (N391). `RuntimeWork.machine` sends the run to `planMachinePass`
+  instead of `planPass`. It loads daily bars for every series the rows read and decides each close
+  not yet decided with `decideDay` and `machineView`, the functions the back test uses. Days are
+  counted on the NYSE calendar (O266). The state is kept in `runtime.state.machine`: the start
+  state and day, the switches, the last decided close, the proposal, the confirmation and the
+  active transition.
+- **Replay at Start** (§2.9, N391). The first pass reads the feed directly from 1990-01-02 (the
+  shared bar cache keeps only recent bars; a gap of more than 2 closes reads the feed again) and
+  replays every bar from the fallback state with no orders (O268). It stores a proposal (the state,
+  since when, the switches, the rebalance legs and the equity) and notifies the person. Only
+  `confirmMachineStart` (POST `/api/v1/strategies/{id}/runs/{runtimeId}/confirm-start`, the Confirm
+  Start button) lets the next pass adopt the state and place the Start rebalance.
+- **Transitions** (§2.6, N392). Each Start and switch is a `strategy_transition` row (migration
+  0121, tenant RLS): kind, decided day, from and to, deciding row, Why lines, outcome, rounds and
+  completion day. A transition that trades gets its own cycle so its orders use the order-intent
+  path. Rounds sell first, then buy from the cash the sells left; a new round starts at a later
+  close while legs are over the band, stuck after `COMPLETION_DAYS` (5) trading days with a
+  notification and an audit row. A newer switch supersedes the active one and cancels its working
+  orders; after a gap only the newest switch trades. A leg timeout cancels the order.
+- **Risk** (§2.8, N392). `machineRiskProfile` turns the % of equity limits into dollars at the
+  current equity for `checkPreTradeRisk`; buys also check the account's exposure limit; the price
+  collar and the open-collar hold apply as on the rules form. Sells count as exits and buys as
+  entries for halts, so a halted or paused run decides and records but places nothing. There is no
+  strategy trailing stop and no daily loss default (O262).
+- **Start warning** (`machine_shared_account`, §7). Start warns when another run on the same
+  account trades one of the machine's targets, since the account's holdings would be shared.
+
+## Checks (P3a)
+
+- `apps/worker/test/machine-runtime.test.ts` (Postgres): a machine saves and reads back with its
+  carrier, Lab number and a refused rules save; Start replays with no orders and proposes; **A6**:
+  the paper switches from 2015-01-02 to 2026-10-06 equal `simulateMachine`'s switch transitions
+  over the same bars, and the final state matches; after confirm the Start buys go out at the
+  open and the transition completes with no drift repair; a forced switch sells before it buys; a
+  paused run decides and places nothing; Start warns on a shared account.
+- A1: domain, back test, db (386 integration) and worker (269 integration) suites pass; the rules
+  form's runtime tests are unchanged.
+- P3b next: the builder, the run view and state stays in back test results and Performance.

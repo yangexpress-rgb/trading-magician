@@ -1477,6 +1477,57 @@ export const strategyCycles = pgTable(
   ],
 );
 
+/**
+ * A state-machine run's transitions (state-machine brief v1.4 §2.6, ADR 0124
+ * P3a): one row per switch of state, and one for the rebalance a run makes at
+ * Start. Rows are never deleted; only the outcome, its rounds and the day it
+ * completed move. A transition that places orders has a cycle of its own, so
+ * its orders take the usual order path; one that switched with no orders has
+ * none.
+ */
+export const strategyTransitions = pgTable(
+  'strategy_transition',
+  {
+    id: id(),
+    userId: uuid('user_id').notNull(),
+    runtimeId: uuid('runtime_id').notNull(),
+    seq: integer('seq').notNull(),
+    kind: text('kind').notNull(),
+    cycleId: uuid('cycle_id'),
+    /** The session date of the close that decided it. */
+    decidedOn: date('decided_on').notNull(),
+    fromStateId: text('from_state_id'),
+    toStateId: text('to_state_id').notNull(),
+    /** The row that won; null for the Start rebalance. */
+    rowId: text('row_id'),
+    /** The winning row's checks on that close (`ConditionCheck[]` from @tm/backtest). */
+    why: jsonb('why').notNull().default([]),
+    outcome: text('outcome').notNull(),
+    /** Rounds of orders placed toward the target (§2.4). */
+    rounds: integer('rounds').notNull().default(0),
+    completedOn: date('completed_on'),
+    ...timestamps(),
+  },
+  (t) => [
+    unique('strategy_transition_id_user_uq').on(t.id, t.userId),
+    unique('strategy_transition_seq_uq').on(t.runtimeId, t.seq),
+    foreignKey({
+      columns: [t.runtimeId, t.userId],
+      foreignColumns: [strategyRuntimes.id, strategyRuntimes.userId],
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.cycleId, t.userId],
+      foreignColumns: [strategyCycles.id, strategyCycles.userId],
+    }).onDelete('cascade'),
+    check('strategy_transition_seq_positive', sql`${t.seq} > 0`),
+    check('strategy_transition_kind', sql`${t.kind} in ('start', 'switch')`),
+    check(
+      'strategy_transition_outcome',
+      sql`${t.outcome} in ('switched_no_orders', 'rebalancing', 'done', 'incomplete', 'stuck', 'superseded')`,
+    ),
+  ],
+);
+
 export const triggerEvents = pgTable(
   'trigger_event',
   {

@@ -3,7 +3,10 @@ import {
   deriveLabCodes,
   PROVISIONAL_LAB_CODES,
   isFixtureName,
-  parseDefinition,
+  machineInstrumentUses,
+  machineLabCodes,
+  machineTargets,
+  parseAnyDefinition,
   type LabAssetClass,
 } from '@tm/domain';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
@@ -118,15 +121,20 @@ async function requireStrategy(tx: Transaction, strategyId: string): Promise<Str
 
 /** The parsed draft and the instruments it names (symbol and asset class). */
 async function numberingSource(tx: Transaction, draft: unknown) {
-  const definition = parseDefinition(draft);
-  const ids = [
-    ...new Set([
-      ...collectInstrumentUses(definition).map((u) => u.instrumentId),
-      ...(definition.trade.kind === 'group' && definition.trade.universe.type === 'list'
-        ? definition.trade.universe.instrumentIds
-        : []),
-    ]),
-  ];
+  const parsed = parseAnyDefinition(draft);
+  // A state machine's instruments are its signals and targets (ADR 0124).
+  const ids =
+    parsed.form === 'rules'
+      ? [
+          ...new Set([
+            ...collectInstrumentUses(parsed.definition).map((u) => u.instrumentId),
+            ...(parsed.definition.trade.kind === 'group' &&
+            parsed.definition.trade.universe.type === 'list'
+              ? parsed.definition.trade.universe.instrumentIds
+              : []),
+          ]),
+        ]
+      : [...new Set(machineInstrumentUses(parsed.definition).map((u) => u.instrumentId))];
   const known = ids.length
     ? await tx
         .select({
@@ -138,7 +146,7 @@ async function numberingSource(tx: Transaction, draft: unknown) {
         .where(inArray(instruments.id, ids))
     : [];
   const byId = new Map(known.map((i) => [i.id, i]));
-  return { definition, byId };
+  return { parsed, byId };
 }
 
 /**
@@ -161,11 +169,12 @@ export async function issueLabNumber(tx: Transaction, strategyId: string): Promi
     .where(and(eq(strategies.id, strategyId), isNull(strategies.deletedAt)));
   if (!row) return null;
   if (row.number && row.settled) return row.number;
-  const { definition, byId } = await numberingSource(tx, row.draft);
-  const codes = deriveLabCodes(
-    definition,
-    (id) => byId.get(id)?.assetClass as LabAssetClass | undefined,
-  );
+  const { parsed, byId } = await numberingSource(tx, row.draft);
+  const classOf = (id: string) => byId.get(id)?.assetClass as LabAssetClass | undefined;
+  const codes =
+    parsed.form === 'rules'
+      ? deriveLabCodes(parsed.definition, classOf)
+      : machineLabCodes(machineTargets(parsed.definition), classOf);
   // Provisional letters stay until there is something to derive them from.
   if (row.number && !codes) return row.number;
   const [issued] = await tx

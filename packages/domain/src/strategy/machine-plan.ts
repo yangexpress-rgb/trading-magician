@@ -1,13 +1,16 @@
 import Decimal from 'decimal.js';
 import { markExpr } from './evaluate';
+import { createDefinition } from './defaults';
 import {
   isStateDays,
   walkMachineConditions,
   type MachineDefinition,
+  type MachineRisk,
   type MachineState,
 } from './machine-schema';
 import { metricExprRef, metricRequirements } from './metrics';
-import type { Expr, IndicatorExpr, MarketExpr } from './schema';
+import type { Expr, IndicatorExpr, MarketExpr, RiskProfile, StrategyDefinition } from './schema';
+import type { InstrumentUse } from './tree';
 
 /**
  * What a state machine reads and holds (state-machine brief v1.4 §2.3, §2.5;
@@ -143,5 +146,68 @@ export function planRebalance(
     legs,
     done: legs.every((l) => l.quantity.isZero()),
     underSwitchBand: legs.every((l) => l.fraction.abs().lt(SWITCH_BAND)),
+  };
+}
+
+/**
+ * Every instrument a state machine reads or holds, for the strategy's
+ * instrument index (as `collectInstrumentUses` does for the rules form): the
+ * rows' reads as Entry conditions, the targets as orders.
+ */
+export function machineInstrumentUses(def: MachineDefinition): InstrumentUse[] {
+  const uses: InstrumentUse[] = [];
+  for (const s of machineSeries(def))
+    uses.push({ instrumentId: s.instrumentId, phase: 'entry', role: 'condition' });
+  for (const id of def.trade.instrumentIds)
+    uses.push({ instrumentId: id, phase: 'entry', role: 'condition' });
+  for (const id of machineTargets(def))
+    uses.push({ instrumentId: id, phase: 'entry', role: 'order' });
+  return uses;
+}
+
+/**
+ * The run-level plumbing a paper run shares with the rules form (feed
+ * watching, the order-time price collar, market-hours handling) reads a
+ * rules-shaped definition. A state-machine run hands it this carrier: the
+ * machine's own execution and collar, no conditions and no legs, so nothing
+ * of the rules form can ever plan an order for it (ADR 0124 P3a).
+ */
+export function machineCarrier(def: MachineDefinition): StrategyDefinition {
+  const base = createDefinition(() => 'machine');
+  return {
+    ...base,
+    execution: {
+      ...base.execution,
+      multiLegPolicy: 'after_prior_fill',
+      legTimeoutSec: def.execution.legTimeoutSec,
+      onLegFailure: def.execution.onLegFailure,
+      marketHoursPolicy: def.execution.marketHoursPolicy,
+      holidayCalendar: def.execution.holidayCalendar,
+      staleDataSec: def.execution.staleDataSec,
+    },
+    risk: {
+      ...(def.risk.priceCollarPct ? { priceCollarPct: def.risk.priceCollarPct } : {}),
+      ...(def.risk.maxActiveOrders ? { maxActiveOrders: def.risk.maxActiveOrders } : {}),
+    },
+  };
+}
+
+/**
+ * This form's limits (§2.8) as the pre-trade check reads them, at this
+ * equity: the % of equity limits become dollars now, so they scale as equity
+ * grows; there is never a strategy trailing stop.
+ */
+export function machineRiskProfile(risk: MachineRisk, equity: Decimal): RiskProfile {
+  const pct = (p: string | undefined) =>
+    p && equity.gt(0) ? equity.times(p).div(100).toDecimalPlaces(2).toString() : undefined;
+  const order = pct(risk.maxOrderPctEquity);
+  const strategy = pct(risk.maxStrategyPctEquity);
+  return {
+    ...(order ? { maxOrderNotional: order } : {}),
+    ...(strategy ? { maxStrategyExposure: strategy } : {}),
+    ...(risk.maxActiveOrders ? { maxActiveOrders: risk.maxActiveOrders } : {}),
+    ...(risk.dailyLossLimit ? { dailyLossLimit: risk.dailyLossLimit } : {}),
+    ...(risk.priceCollarPct ? { priceCollarPct: risk.priceCollarPct } : {}),
+    ...(risk.maxDrawdownPct ? { maxDrawdownPct: risk.maxDrawdownPct } : {}),
   };
 }

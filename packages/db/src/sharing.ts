@@ -1,6 +1,6 @@
 import {
   isFixtureName,
-  parseDefinition,
+  parseAnyDefinition,
   registerLibraryEntrySchema,
   type RegisterLibraryEntryInput,
 } from '@tm/domain';
@@ -618,7 +618,10 @@ async function acceptLabShare(
     : [];
   const account = (await preferredLegAccountId(tx)) ?? NO_ACCOUNT;
   // Re-read through the domain so an older stored schema migrates on the way in.
-  const definition = reassignAccounts(parseDefinition(snapshot.strategy.definition), account);
+  // A state machine names no accounts: its run's account is chosen at Start (ADR 0124).
+  const any = parseAnyDefinition(snapshot.strategy.definition);
+  const definition =
+    any.form === 'rules' ? reassignAccounts(any.definition, account) : any.definition;
   try {
     const copy = await createStrategy(tx, userId, {
       name: snapshot.strategy.name,

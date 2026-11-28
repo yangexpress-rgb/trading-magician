@@ -1,5 +1,6 @@
 import {
   STRATEGY_STATUSES,
+  type MachineDefinition,
   type StrategyDefinition,
   type StrategyStatus,
   type ValidationResult,
@@ -232,7 +233,11 @@ export interface StrategyDetailDto {
   /** Every run that is not stopped, one per account (N308). */
   runs: StrategyRunStateDto[];
   hasBeenActive: boolean;
+  /** For a state machine, the carrier: its execution and collar, no rules (ADR 0124 P3a). */
   definition: StrategyDefinition;
+  /** Rules or state machine (ADR 0124); a machine's own document is in `machine`. */
+  form: 'rules' | 'state_machine';
+  machine: MachineDefinition | null;
   definitionHash: string;
   currentVersion: StrategyVersionSummaryDto | null;
   hasUnpublishedChanges: boolean;
