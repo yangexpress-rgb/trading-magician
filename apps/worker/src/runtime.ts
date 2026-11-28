@@ -203,6 +203,7 @@ import { QuoteHub } from './quote-hub';
 import { quoteTrail, type RoutedQuotes } from './routed-quotes';
 import { NO_COMPANY_FEED, type FundamentalsLoader } from './fundamentals';
 import { equityLimits } from './equity-limits';
+import { planMachinePass } from './machine-runtime';
 import {
   effectivePriceAgeSec,
   feedIncidentSummary,
@@ -515,7 +516,23 @@ export async function runRuntimePass(
     }
     if (work.status === 'running' && work.state.autoPause) work.state.autoPause = undefined;
 
-    if (work.status !== 'stopped') {
+    if (work.status !== 'stopped' && work.machine) {
+      // A state machine plans its own passes (ADR 0124 P3a); the plumbing above is shared.
+      const machineWork = work;
+      await planMachinePass(tx, {
+        work: machineWork,
+        quotes,
+        history,
+        now,
+        logger,
+        health,
+        caches: options.caches,
+        scope: feeds.userId,
+        submit: (t, intentId, request) =>
+          submit(t, { broker, work: machineWork, logger, health }, intentId, request),
+      });
+      if (work.status === 'running') await watchRejects(tx, work);
+    } else if (work.status !== 'stopped') {
       await planPass(tx, {
         work,
         broker,

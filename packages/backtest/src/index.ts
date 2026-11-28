@@ -10,3 +10,4 @@ export * from './options-coverage';
 export * from './options';
 export * from './events-coverage';
 export * from './workload';
+export { machineConditionChecks } from './explain';

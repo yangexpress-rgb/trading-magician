@@ -2,6 +2,8 @@ import {
   eq,
   getStrategy,
   listMlModels,
+  listTransitions,
+  machineRunState,
   listTenantInstruments,
   optionUnderlyingOptions,
   pilotOf,
@@ -11,6 +13,7 @@ import {
   strategyIdByLabNumber,
   withTenant,
   type StrategyRunState,
+  type Transaction,
 } from '@tm/db';
 import type { StrategyRunStateDto } from '@tm/contracts';
 import { formatDateTime, isLabNumber, optionsTradingEnabled, STATUS_LABELS } from '@tm/domain';
@@ -29,6 +32,7 @@ import { isAdmin } from '@/lib/server/admin';
 import { appDb } from '@/lib/server/db';
 import { getProfile } from '@/lib/server/profile';
 import { requireTenant } from '@/lib/server/session';
+import { MachineView, type MachineRunView } from '@/components/strategy/machine-view';
 import { StrategyEditor } from './strategy-editor';
 
 export const metadata: Metadata = { title: 'Strategy' };
@@ -48,30 +52,34 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
   }
   const profile = await getProfile(tenant);
   const prefs = { timeZone: profile.timezone, locale: profile.locale };
-  const loaded = await withTenant(appDb(), tenant, async (tx) => ({
-    strategy: await getStrategy(tx, id),
-    instruments: await listTenantInstruments(tx),
-    optionUnderlyings: await optionUnderlyingOptions(tx),
-    mlModels: await listMlModels(tx),
-    accounts: await tx
-      .select({
-        id: schema.tradingAccounts.id,
-        nickname: schema.tradingAccounts.nickname,
-        mode: schema.tradingAccounts.mode,
-        maxExposure: schema.tradingAccounts.maxExposure,
-        dailyLossLimit: schema.tradingAccounts.dailyLossLimit,
-        pilotMaxOrder: schema.tradingAccounts.pilotMaxOrder,
-        pilotMaxExposure: schema.tradingAccounts.pilotMaxExposure,
-        pilotEndedAt: schema.tradingAccounts.pilotEndedAt,
-        brokerEquity: schema.tradingAccounts.brokerEquity,
-        brokerDayTrades: schema.tradingAccounts.brokerDayTrades,
-        brokerMargin: schema.tradingAccounts.brokerMargin,
-      })
-      .from(schema.tradingAccounts)
-      .where(eq(schema.tradingAccounts.isActive, true))
-      .orderBy(schema.tradingAccounts.nickname),
-    preferredAccountId: await preferredLegAccountId(tx),
-  })).catch((e: unknown) => {
+  const loaded = await withTenant(appDb(), tenant, async (tx) => {
+    const strategy = await getStrategy(tx, id);
+    return {
+      strategy,
+      machineRuns: await machineRunsOf(tx, strategy),
+      instruments: await listTenantInstruments(tx),
+      optionUnderlyings: await optionUnderlyingOptions(tx),
+      mlModels: await listMlModels(tx),
+      accounts: await tx
+        .select({
+          id: schema.tradingAccounts.id,
+          nickname: schema.tradingAccounts.nickname,
+          mode: schema.tradingAccounts.mode,
+          maxExposure: schema.tradingAccounts.maxExposure,
+          dailyLossLimit: schema.tradingAccounts.dailyLossLimit,
+          pilotMaxOrder: schema.tradingAccounts.pilotMaxOrder,
+          pilotMaxExposure: schema.tradingAccounts.pilotMaxExposure,
+          pilotEndedAt: schema.tradingAccounts.pilotEndedAt,
+          brokerEquity: schema.tradingAccounts.brokerEquity,
+          brokerDayTrades: schema.tradingAccounts.brokerDayTrades,
+          brokerMargin: schema.tradingAccounts.brokerMargin,
+        })
+        .from(schema.tradingAccounts)
+        .where(eq(schema.tradingAccounts.isActive, true))
+        .orderBy(schema.tradingAccounts.nickname),
+      preferredAccountId: await preferredLegAccountId(tx),
+    };
+  }).catch((e: unknown) => {
     if (e instanceof StrategyError && e.code === 'not_found') notFound();
     throw e;
   });
@@ -193,27 +201,50 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
           <SharedBy sharedBy={strategy.sharedBy} prefs={prefs} />
         </div>
       )}
-      <StrategyEditor
-        strategyId={strategy.id}
-        strategyName={strategy.labNumber ? `${strategy.labNumber} ${strategy.name}` : strategy.name}
-        status={strategy.status}
-        run={strategy.run && runDto(strategy.run)}
-        runs={strategy.runs.map(runDto)}
-        initialDefinition={strategy.definition}
-        initialRowVersion={strategy.rowVersion}
-        instruments={instruments}
-        optionsTrading={optionsTradingEnabled()}
-        optionUnderlyings={optionUnderlyings.map((u) => ({
-          id: u.id,
-          symbol: u.symbol,
-          latestAsOf: u.latestAsOf,
-        }))}
-        mlModels={mlModels}
-        accounts={accounts}
-        timeZone={profile.timezone}
-        baseCurrency={profile.baseCurrency}
-        history={versionsCard}
-      />
+      {strategy.form === 'state_machine' && strategy.machine ? (
+        <MachineView
+          strategyId={strategy.id}
+          strategyName={
+            strategy.labNumber ? `${strategy.labNumber} ${strategy.name}` : strategy.name
+          }
+          status={strategy.status}
+          run={strategy.run && runDto(strategy.run)}
+          runs={strategy.runs.map(runDto)}
+          machine={strategy.machine}
+          carrier={strategy.definition}
+          machineRuns={loaded.machineRuns}
+          instruments={instruments}
+          accounts={accounts}
+          timeZone={profile.timezone}
+          baseCurrency={profile.baseCurrency}
+          history={versionsCard}
+          initialRowVersion={strategy.rowVersion}
+        />
+      ) : (
+        <StrategyEditor
+          strategyId={strategy.id}
+          strategyName={
+            strategy.labNumber ? `${strategy.labNumber} ${strategy.name}` : strategy.name
+          }
+          status={strategy.status}
+          run={strategy.run && runDto(strategy.run)}
+          runs={strategy.runs.map(runDto)}
+          initialDefinition={strategy.definition}
+          initialRowVersion={strategy.rowVersion}
+          instruments={instruments}
+          optionsTrading={optionsTradingEnabled()}
+          optionUnderlyings={optionUnderlyings.map((u) => ({
+            id: u.id,
+            symbol: u.symbol,
+            latestAsOf: u.latestAsOf,
+          }))}
+          mlModels={mlModels}
+          accounts={accounts}
+          timeZone={profile.timezone}
+          baseCurrency={profile.baseCurrency}
+          history={versionsCard}
+        />
+      )}
     </RowVersionProvider>
   );
 }
@@ -221,4 +252,45 @@ export default async function StrategyPage({ params }: { params: Promise<{ id: s
 /** A run as the client gets it: dates as ISO text (N308). */
 function runDto(r: StrategyRunState): StrategyRunStateDto {
   return { ...r, startedAt: r.startedAt.toISOString() };
+}
+
+/** Each run's machine state and transitions, for a state machine (ADR 0124 P3a). */
+async function machineRunsOf(
+  tx: Transaction,
+  strategy: Awaited<ReturnType<typeof getStrategy>>,
+): Promise<MachineRunView[]> {
+  if (strategy.form !== 'state_machine') return [];
+  const out: MachineRunView[] = [];
+  for (const r of strategy.runs) {
+    const m = await machineRunState(tx, r.runtimeId);
+    const transitions = await listTransitions(tx, r.runtimeId);
+    const last = m?.switches.at(-1);
+    out.push({
+      runtimeId: r.runtimeId,
+      accountName: r.accountName,
+      currentStateId: m?.confirmedAt
+        ? (last?.toStateId ?? m.start.stateId)
+        : (m?.proposal?.stateId ?? null),
+      since: m?.confirmedAt ? (last?.on ?? m.start.on) : (m?.proposal?.since ?? null),
+      lastDecidedOn: m?.lastDecidedOn ?? null,
+      confirmed: m?.confirmedAt !== undefined,
+      proposal: m?.proposal
+        ? {
+            ...m.proposal,
+            legs: m.proposal.legs.map(({ symbol, side, quantity }) => ({ symbol, side, quantity })),
+          }
+        : null,
+      transitions: transitions.map((t) => ({
+        seq: t.seq,
+        kind: t.kind,
+        decidedOn: t.decidedOn,
+        fromStateId: t.fromStateId,
+        toStateId: t.toStateId,
+        outcome: t.outcome,
+        rounds: t.rounds,
+        completedOn: t.completedOn,
+      })),
+    });
+  }
+  return out;
 }

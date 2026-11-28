@@ -6,6 +6,8 @@ import {
   type ComparisonOperator,
   type ConditionNode,
   type Expr,
+  type MachineCondition,
+  type MachineExpr,
   type PlannedOrder,
   type RiskProfile,
   type StrategyDefinition,
@@ -379,3 +381,52 @@ export const MARKET_HOURS_LABELS = {
   cancel: 'Cancel the order',
   extended_if_supported: 'Send in extended hours if allowed',
 } as const;
+
+/** Names a state by its id, for state-machine text (ADR 0124). */
+export type StateNameLookup = (stateId: string) => string | undefined;
+
+function machineExprText(
+  expr: MachineExpr,
+  symbol: SymbolLookup,
+  stateName: StateNameLookup,
+): string {
+  if (expr.kind === 'days_in_state') return 'days in current state';
+  if (expr.kind === 'days_in_states')
+    return `days in ${expr.stateIds.map((s) => stateName(s) ?? '?').join(' or ')}`;
+  return describeExpr(expr, symbol);
+}
+
+/** One-line text for a state rule (ADR 0124 P3a), in the shape of describeCondition. */
+export function describeMachineCondition(
+  node: MachineCondition,
+  symbol: SymbolLookup,
+  stateName: StateNameLookup,
+  rowName: (rowId: string) => string = (r) => r,
+): string {
+  switch (node.kind) {
+    case 'state_is':
+      return `${node.which === 'current' ? 'current' : 'prior'} state is ${node.stateIds.map((s) => stateName(s) ?? '?').join(' or ')}`;
+    case 'row_ref':
+      return `rule of ${rowName(node.rowId)}`;
+    case 'comparison': {
+      const left = machineExprText(node.left, symbol, stateName);
+      const op = OPERATOR_SYMBOLS[node.operator];
+      if (UNARY_OPERATORS.includes(node.operator)) return `${left} ${op}`;
+      const right = node.right ? machineExprText(node.right, symbol, stateName) : '?';
+      if (node.operator === 'between' || node.operator === 'outside') {
+        const upper = node.upper ? machineExprText(node.upper, symbol, stateName) : '?';
+        return `${left} ${op} ${right} and ${upper}`;
+      }
+      return `${left} ${op} ${right}`;
+    }
+    case 'group': {
+      const inner = node.children
+        .map((c) => {
+          const text = describeMachineCondition(c, symbol, stateName, rowName);
+          return c.kind === 'group' && !c.negate ? `(${text})` : text;
+        })
+        .join(node.op === 'and' ? ' AND ' : ' OR ');
+      return node.negate ? `NOT (${inner || 'empty'})` : inner || 'always';
+    }
+  }
+}

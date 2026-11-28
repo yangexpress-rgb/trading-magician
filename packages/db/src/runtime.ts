@@ -5,7 +5,10 @@ import {
   activeFromFor,
   CAPACITY_RISK_CODES,
   newRuntimeTriggerState,
-  parseDefinition,
+  machineCarrier,
+  machineInstruments,
+  parseAnyDefinition,
+  type MachineDefinition,
   transitionOrder,
   type CycleState,
   type CycleStatus,
@@ -98,6 +101,8 @@ export interface RuntimeState {
   pauseChecked?: string | undefined;
   /** Automatic retries after repeated rejects since an order last filled (N301). */
   rejectRetries?: number | undefined;
+  /** State-machine runs only (brief v1.4 §2, §2.9; ADR 0124 P3a). */
+  machine?: MachineRunState | undefined;
   /** The calendar period last evaluated on a non-daily schedule, e.g. "2026-03" (v1.2 item 4). */
   lastSchedulePeriod?: string | undefined;
   /** The period Check Exit last evaluated (ADR 0073), as `lastSchedulePeriod` is for Entry. */
@@ -166,6 +171,62 @@ export interface RuntimeState {
           | undefined;
       }
     | undefined;
+}
+
+/**
+ * A state-machine run's state between passes (ADR 0124 P3a). The path is the
+ * start and the switches, from which current, prior and the day counts are
+ * derived (never a stored counter); the transitions themselves are rows of
+ * `strategy_transition`.
+ */
+export interface MachineRunState {
+  /** The fallback state and the first loaded bar's date: where the replay began (§2.9). */
+  start: { stateId: string; on: string };
+  /** Every switch of the path, oldest first, the replayed ones included. */
+  switches: { on: string; fromStateId: string; toStateId: string }[];
+  /** The session date of the newest close decided. */
+  lastDecidedOn?: string | undefined;
+  /**
+   * What Start would do, from the replay and the latest prices (§2.9), shown
+   * before the person confirms; replaced on each new close until then.
+   */
+  proposal?: MachineStartProposal | undefined;
+  /** When the person confirmed Start, epoch ms; no order goes out before. */
+  confirmedAt?: number | undefined;
+  /** The session date the Start rebalance was decided on, once it was. */
+  startedOn?: string | undefined;
+  /** The transition being completed (§2.4), if any. */
+  active?: MachineActiveTransition | undefined;
+  /** The next transition's number. */
+  nextSeq: number;
+}
+
+export interface MachineStartProposal {
+  /** The newest close replayed. */
+  through: string;
+  stateId: string;
+  /** The day it entered that state, by the replay. */
+  since: string;
+  /** Switches the replay made. */
+  switches: number;
+  /** The orders Start would place now, at the latest prices. */
+  legs: { instrumentId: string; symbol: string; side: 'buy' | 'sell'; quantity: string }[];
+  equity: string;
+}
+
+export interface MachineActiveTransition {
+  transitionId: string;
+  seq: number;
+  cycleId: string;
+  toStateId: string;
+  decidedOn: string;
+  /** Rounds started; each sells first, then buys from the cash left (§2.3). */
+  round: number;
+  /** The session date the current round started on. */
+  roundOn: string;
+  /** This round's sells, then its buys, have been placed (or had nothing to place). */
+  sellsPlaced: boolean;
+  buysPlaced: boolean;
 }
 
 /** One options combo order a run placed (ADR 0123 Phase O2). */
@@ -529,7 +590,13 @@ export interface RuntimeWork {
   /** Start or last resume; automatic pauses only look at what happened since. */
   activeSince: Date;
   state: RuntimeState;
+  /**
+   * The rules the run trades. A state-machine run (ADR 0124 P3a) gets the
+   * carrier (`machineCarrier`: its execution and collar, no conditions or
+   * legs) for the shared plumbing, and the machine in `machine`.
+   */
   definition: StrategyDefinition;
+  machine?: MachineDefinition | undefined;
   instruments: Map<string, InstrumentRef>;
   /** The run's own account (N308): every new order goes here, and only here. */
   accountId: string;
@@ -572,12 +639,20 @@ export async function loadRuntimeWork(
   // A run with no account is a stopped one from before runs had accounts; nothing to do.
   if (!runAccount) return undefined;
   // Every leg trades on the run's account (N308); the stored rules are not changed.
-  const definition = bindDefinitionToAccount(parseDefinition(rt.definition), runAccount);
+  const stored = parseAnyDefinition(rt.definition);
+  const machine = stored.form === 'rules' ? undefined : stored.definition;
+  const definition = machine
+    ? machineCarrier(machine)
+    : bindDefinitionToAccount(stored.definition as StrategyDefinition, runAccount);
   const raw = rt.runtime.state as Partial<RuntimeState>;
   const state: RuntimeState = { ...raw, trigger: raw.trigger ?? newRuntimeTriggerState() };
 
   // Legs, condition instruments, list-universe members and benchmarks (v1.2).
-  const ids = new Set<string>(strategyInstruments(definition, listMembers(definition)));
+  const ids = new Set<string>(
+    machine
+      ? machineInstruments(machine)
+      : strategyInstruments(definition, listMembers(definition)),
+  );
   const accounts = new Set<string>([runAccount]);
   const [accountLimits] = await tx
     .select({
@@ -770,6 +845,7 @@ export async function loadRuntimeWork(
     activeSince: rt.runtime.resumedAt ?? rt.runtime.startedAt,
     state,
     definition,
+    ...(machine ? { machine } : {}),
     instruments: instrumentMap,
     accountId: runAccount,
     accounts: [...accounts],

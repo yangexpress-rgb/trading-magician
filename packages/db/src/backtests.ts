@@ -22,7 +22,12 @@ import { recordAudit } from './audit';
 import type { Database, Transaction } from './client';
 import { assertWithinLimit } from './entitlements';
 import { backtestRuns, backtestTrades, instruments, strategyVersions } from './schema';
-import { loadValidationContext, pinDraftVersion, StrategyError } from './strategies';
+import {
+  isMachineDefinition,
+  loadValidationContext,
+  pinDraftVersion,
+  StrategyError,
+} from './strategies';
 import type { ResearchTx } from './research';
 
 /**
@@ -144,6 +149,13 @@ export async function startBacktest(
   const pinned = await pinDraftVersion(tx, userId, strategyId);
   if (pinned.row.archivedAt) {
     throw new StrategyError('invalid_state', 'Restore this strategy before back testing it');
+  }
+  // State-machine back tests run in the app from P3b (O265); the engine is in @tm/backtest.
+  if (isMachineDefinition(pinned.definition)) {
+    throw new StrategyError(
+      'invalid_state',
+      'Back tests of state-machine strategies are not in the app yet',
+    );
   }
   const validation = validateStrategy(pinned.definition, await loadValidationContext(tx));
   if (validation.errors.length > 0) {

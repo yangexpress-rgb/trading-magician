@@ -160,6 +160,24 @@ export function deriveLabCodes(
 }
 
 /**
+ * A state machine's letters (ADR 0124 P3a): daily (it decides at daily
+ * closes, v1), and the asset class of the instruments its states hold.
+ */
+export function machineLabCodes(
+  targets: readonly string[],
+  classOf: (instrumentId: string) => LabAssetClass | undefined,
+): { timeframeCode: string; assetClassCode: string } | null {
+  const classes = new Set<string>();
+  for (const id of targets) {
+    const c = classOf(id);
+    if (c && c !== 'index') classes.add(CLASS_CODES[c]);
+  }
+  const [only] = classes;
+  if (!only) return null;
+  return { timeframeCode: 'D', assetClassCode: classes.size === 1 ? only : 'A' };
+}
+
+/**
  * The letters a strategy is numbered with when it is created before it trades
  * anything (ADR 0068): stock, daily. The first save with instruments replaces them.
  */

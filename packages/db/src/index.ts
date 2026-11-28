@@ -27,6 +27,9 @@ export { seedReferenceData } from './seed';
 export {
   createStrategy,
   definitionHash,
+  isMachineDefinition,
+  type StoredDefinition,
+  type StrategyForm,
   deleteStrategy,
   duplicateStrategy,
   getStrategy,
@@ -58,6 +61,7 @@ export {
 export * from './orders';
 export { DbPaperBrokerStore } from './paper-broker-store';
 export * from './runtime';
+export * from './machine-runs';
 export { withTenant, type TenantContext } from './tenant';
 export { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 export * from './order-views';
