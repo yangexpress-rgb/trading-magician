@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { pageCount, pageFrom, pageList } from './pager';
 
-describe('pager (N398)', () => {
+describe('pager (N399)', () => {
   it('reads the page parameter, falling back to 1', () => {
     expect(pageFrom('3')).toBe(3);
     expect(pageFrom(undefined)).toBe(1);

@@ -2,7 +2,7 @@ import { buttonClasses, cx } from '@tm/ui';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
-/** Rows per page on long lists (N398). */
+/** Rows per page on long lists (N399). */
 export const PAGE_SIZE = 50;
 
 /** The page a 1-based `page` parameter asks for, or 1 when it is missing or malformed. */
@@ -35,7 +35,7 @@ export function pageList(page: number, pages: number): (number | null)[] {
 }
 
 /**
- * Numbered pages under a long list (N398): "Showing 51–64 of 64", then
+ * Numbered pages under a long list (N399): "Showing 51–64 of 64", then
  * Previous, the page numbers and Next. A server-rendered list passes
  * `hrefFor`, so every page is an address; a client list passes `onPage`.
  * Nothing shows when everything fits on one page.

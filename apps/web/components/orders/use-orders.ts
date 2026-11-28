@@ -25,7 +25,7 @@ export interface OrderFilters {
   accountId?: string | undefined;
   from?: string | undefined;
   to?: string | undefined;
-  /** The page of orders, from 1, 50 to a page (N398). */
+  /** The page of orders, from 1, 50 to a page (N399). */
   page?: string | undefined;
 }
 

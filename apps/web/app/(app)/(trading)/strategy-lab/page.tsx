@@ -77,7 +77,7 @@ export default async function StrategyLabPage({
   const q = parsed.success ? parsed.data : listStrategiesQuery.parse({});
   const updated = one('updated') as keyof typeof UPDATED_PRESETS | undefined;
   const days = updated ? UPDATED_PRESETS[updated] : undefined;
-  // Pages of 50 (N398); filters and sorting start again from page 1.
+  // Pages of 50 (N399); filters and sorting start again from page 1.
   const page = pageFrom(one('page'));
   const pageHref = (n: number) => {
     const params = new URLSearchParams();
@@ -296,7 +296,7 @@ export default async function StrategyLabPage({
                 {header('version', 'Version')}
                 {header('account', 'Account')}
                 {header('backtest', 'Latest back test', true)}
-                {/* The time zone is in the tooltip, so the column fits (N398). */}
+                {/* The time zone is in the tooltip, so the column fits (N399). */}
                 {header('updated', 'Updated', false, `Times in ${prefs.timeZone}`)}
                 <Th>
                   <span className="sr-only">Actions</span>
@@ -328,7 +328,7 @@ export default async function StrategyLabPage({
                         </Link>
                       )}
                     </Td>
-                    {/* Wide enough that names wrap onto two lines, not five (N398). */}
+                    {/* Wide enough that names wrap onto two lines, not five (N399). */}
                     <Td className="min-w-56">
                       {/* A click opens it; a double-click renames it (N190). */}
                       <StrategyNameLink

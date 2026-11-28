@@ -29,7 +29,7 @@ export const listOrdersQuery = z.object({
     .refine((tz) => TIME_ZONES.has(tz), 'Choose a valid time zone')
     .default('UTC'),
   limit: z.coerce.number().int().min(1).max(500).default(200),
-  /** Orders to skip, for numbered pages (N398). */
+  /** Orders to skip, for numbered pages (N399). */
   offset: z.coerce.number().int().min(0).default(0),
 });
 export type ListOrdersQuery = z.input<typeof listOrdersQuery>;

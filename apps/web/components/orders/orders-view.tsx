@@ -891,7 +891,7 @@ export function OrdersView({
           second: '2-digit',
         })
       : '—';
-  // Any other change starts again from the first page (N398).
+  // Any other change starts again from the first page (N399).
   const set = (patch: Partial<OrderFilters>) =>
     setFilters((f) => ({ ...f, page: undefined, ...patch }));
   const counts = data.list?.counts;

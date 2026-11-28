@@ -77,7 +77,7 @@ export interface OrderFilters {
   to?: string | undefined;
   timeZone?: string | undefined;
   limit?: number | undefined;
-  /** Orders to skip, newest first, for numbered pages (N398). */
+  /** Orders to skip, newest first, for numbered pages (N399). */
   offset?: number | undefined;
 }
 

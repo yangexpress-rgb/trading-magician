@@ -8,6 +8,7 @@ import {
 } from '@tm/contracts';
 import {
   finestBarMinutes,
+  machineTargets,
   PDT_EQUITY,
   PDT_WARNING,
   STATUS_LABELS,
@@ -180,8 +181,10 @@ function uniqueWarnings(warnings: readonly ValidationIssue[]) {
 function StartDialog({
   open,
   onClose,
+  strategyId,
   strategyName,
   definition,
+  machine,
   warnings,
   backtest,
   positions,
@@ -193,8 +196,11 @@ function StartDialog({
 }: {
   open: boolean;
   onClose: () => void;
+  strategyId: string;
   strategyName: string;
   definition: StrategyDefinition;
+  /** A state machine's document (ADR 0124): the summary reads its states, not Entry and Exit. */
+  machine?: MachineDefinition | undefined;
   /** Accounts it can start on: those without a run of this strategy (N308). */
   choices: readonly AccountOption[];
   initialAccountId: string | undefined;
@@ -212,7 +218,31 @@ function StartDialog({
   const [realMoney, setRealMoney] = useState(false);
   const [accountId, setAccountId] = useState(initialAccountId ?? choices[0]?.id ?? '');
   const accountFieldId = useId();
-  const unique = uniqueWarnings(warnings);
+  // The chosen account's own checks (N398): a run on it can add warnings, such as a
+  // state machine sharing the account with another run's instruments.
+  const [accountCheck, setAccountCheck] = useState<{
+    accountId: string;
+    warnings: readonly ValidationIssue[] | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!accountId) return;
+    let cancelled = false;
+    setAccountCheck({ accountId, warnings: null });
+    apiClient.strategies.validate(strategyId, accountId).then(
+      (v) => !cancelled && setAccountCheck({ accountId, warnings: v.warnings }),
+      // The server checks again at Start; a failed check falls back to the page's warnings.
+      () => !cancelled && setAccountCheck({ accountId, warnings: warnings }),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [strategyId, accountId, warnings]);
+  const checking = accountCheck?.accountId !== accountId || accountCheck.warnings === null;
+  const unique = uniqueWarnings(
+    accountCheck?.accountId === accountId && accountCheck.warnings
+      ? accountCheck.warnings
+      : warnings,
+  );
   const allAcknowledged = unique.every((w) => acknowledged.has(w.code));
   const chosen = choices.find((a) => a.id === accountId);
   const live = chosen?.mode === 'live';
@@ -227,9 +257,10 @@ function StartDialog({
     (finestBarMinutes(definition) < 1440 || definition.execution.flattenAtSessionEnd === true);
 
   const legs = [...definition.entry.orders, ...definition.exit.orders];
-  const symbols = [...new Set(legs.map((l) => l.instrumentId))].map(
-    (id) => instruments.find((i) => i.id === id)?.symbol ?? '?',
-  );
+  const symbolOf = (id: string) => instruments.find((i) => i.id === id)?.symbol ?? '?';
+  const symbols = machine
+    ? machineTargets(machine).map(symbolOf)
+    : [...new Set(legs.map((l) => l.instrumentId))].map(symbolOf);
   const exposure = definition.risk.maxStrategyExposure;
 
   const rows: [string, string][] = [
@@ -254,12 +285,28 @@ function StartDialog({
             : []),
         ] as [string, string][])
       : []),
-    ['Instruments', symbols.join(', ') || 'None'],
-    [
-      'Order legs',
-      `${definition.entry.orders.length} Entry, ${definition.exit.orders.length} Exit`,
-    ],
-    ['Maximum exposure', exposure ? `${baseCurrency} ${exposure}` : 'Not set'],
+    ...((machine
+      ? [
+          ['Instruments traded', symbols.join(', ') || 'None (every state is cash)'],
+          [
+            'Orders',
+            `Rebalances to the state's holdings at each switch (${machine.machine.states.length} states)`,
+          ],
+          [
+            'Maximum exposure',
+            machine.risk.maxStrategyPctEquity
+              ? `${machine.risk.maxStrategyPctEquity}% of equity`
+              : 'Not set',
+          ],
+        ]
+      : [
+          ['Instruments', symbols.join(', ') || 'None'],
+          [
+            'Order legs',
+            `${definition.entry.orders.length} Entry, ${definition.exit.orders.length} Exit`,
+          ],
+          ['Maximum exposure', exposure ? `${baseCurrency} ${exposure}` : 'Not set'],
+        ]) as [string, string][]),
     ['Existing positions', positions],
     ...backtest,
   ];
@@ -274,7 +321,7 @@ function StartDialog({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (allAcknowledged && chosen && (!live || realMoney))
+          if (!checking && allAcknowledged && chosen && (!live || realMoney))
             onConfirm(
               unique.map((w) => w.code),
               chosen,
@@ -386,9 +433,15 @@ function StartDialog({
           <Button
             type="submit"
             variant="primary"
-            disabled={!allAcknowledged || !chosen || (live && !realMoney) || busy}
+            disabled={checking || !allAcknowledged || !chosen || (live && !realMoney) || busy}
           >
-            {busy ? 'Starting…' : live ? 'Start on real money' : 'Start on paper'}
+            {busy
+              ? 'Starting…'
+              : checking
+                ? 'Checking the account…'
+                : live
+                  ? 'Start on real money'
+                  : 'Start on paper'}
           </Button>
         </div>
       </form>
@@ -724,6 +777,7 @@ export function ExecutionSection({
   rowVersion,
   dirty,
   definition,
+  machine,
   validation,
   latestText,
   draftTested,
@@ -740,6 +794,8 @@ export function ExecutionSection({
   rowVersion: number;
   dirty: boolean;
   definition: StrategyDefinition;
+  /** A state machine's document, for the Start summary (ADR 0124). */
+  machine?: MachineDefinition | undefined;
   validation: ValidationState;
   latestText: string;
   draftTested: DraftTested;
@@ -1020,8 +1076,10 @@ export function ExecutionSection({
         <StartDialog
           open
           onClose={() => setDialog(null)}
+          strategyId={strategyId}
           strategyName={strategyName}
           definition={definition}
+          machine={machine}
           warnings={validation.result.warnings}
           backtest={[
             ['Latest back test', latestText],
